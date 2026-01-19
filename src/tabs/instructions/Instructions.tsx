@@ -2597,17 +2597,63 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
   const selectedOverviewItem = useMemo(
     () => {
       if (!selectedInstruction) return null;
-      
-      // If selectedInstruction already has overview item structure, use it directly
-      if (selectedInstruction.instruction !== undefined || selectedInstruction.deal !== undefined) {
+
+      const isOverviewItem =
+        selectedInstruction.instruction !== undefined ||
+        selectedInstruction.deal !== undefined;
+
+      const instructionRefRaw =
+        selectedInstruction?.instruction?.InstructionRef ||
+        selectedInstruction?.InstructionRef ||
+        selectedInstruction?.deal?.InstructionRef;
+      const instructionRef = instructionRefRaw ? String(instructionRefRaw) : null;
+
+      const dealIdRaw =
+        selectedInstruction?.deal?.DealId ||
+        selectedInstruction?.DealId ||
+        selectedInstruction?.dealId;
+      const dealId = dealIdRaw != null ? String(dealIdRaw) : null;
+
+      const prospectIdRaw =
+        selectedInstruction?.prospectId ||
+        selectedInstruction?.ProspectId ||
+        selectedInstruction?.deal?.ProspectId ||
+        selectedInstruction?.instruction?.ProspectId;
+      const prospectId = prospectIdRaw != null ? String(prospectIdRaw) : null;
+
+      if (instructionRef) {
+        const byInstruction = overviewItems.find(
+          (item) => String(item.instruction?.InstructionRef || '') === instructionRef,
+        );
+        if (byInstruction) return byInstruction;
+      }
+
+      if (dealId) {
+        const byDeal = overviewItems.find(
+          (item) => String(item.deal?.DealId || '') === dealId,
+        );
+        if (byDeal) return byDeal;
+      }
+
+      if (prospectId) {
+        const byProspect = overviewItems.find((item) => {
+          const itemProspect =
+            item.deal?.ProspectId || item.instruction?.ProspectId || item.prospectId;
+          return String(itemProspect || '') === prospectId && !!item.instruction;
+        });
+        if (byProspect) return byProspect;
+      }
+
+      if (isOverviewItem) {
         return selectedInstruction;
       }
-      
-      // Otherwise search for matching overview item by InstructionRef
-      return overviewItems.find(
-        (item) =>
-          item.instruction?.InstructionRef === selectedInstruction.InstructionRef,
-      ) || null;
+
+      return (
+        overviewItems.find(
+          (item) =>
+            item.instruction?.InstructionRef === selectedInstruction.InstructionRef,
+        ) || null
+      );
     },
     [selectedInstruction, overviewItems],
   );

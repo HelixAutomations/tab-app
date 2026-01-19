@@ -469,6 +469,17 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     return result;
   }, [instructionData]);
 
+  const getEnquiryWorkbenchKey = useCallback((enquiry: Enquiry): string | null => {
+    const key =
+      (enquiry as any).ACID ||
+      (enquiry as any).acid ||
+      (enquiry as any).Acid ||
+      enquiry.ID ||
+      (enquiry as any).id ||
+      null;
+    return key ? String(key) : null;
+  }, []);
+
   // Use only real enquiries data
   // All normalized enquiries (union of legacy + new) retained irrespective of toggle
   const [allEnquiries, setAllEnquiries] = useState<(Enquiry & { __sourceType: 'new' | 'legacy' })[]>([]);
@@ -527,15 +538,17 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   
   // Pipeline filter state - for filtering by pipeline stages (yes/no toggles)
-  type EnquiryPipelineStage = 'teams' | 'claimed' | 'pitched' | 'instructed' | 'idcheck' | 'paid' | 'risk' | 'matter';
+  type EnquiryPipelineStage = 'poc' | 'pitched' | 'instructed' | 'idcheck' | 'paid' | 'risk' | 'matter';
   type EnquiryPipelineStatus = 'yes' | 'no';
   const [enquiryPipelineFilters, setEnquiryPipelineFilters] = useState<Map<EnquiryPipelineStage, EnquiryPipelineStatus>>(new Map());
 
   type PipelineChipLabelMode = 'full' | 'short' | 'icon';
   const pipelineGridMeasureRef = useRef<HTMLDivElement | null>(null);
   const [pipelineChipLabelMode, setPipelineChipLabelMode] = useState<PipelineChipLabelMode>('short');
-  // Number of pipeline chips that fit in the available width (8 = all chips fit)
-  const [visiblePipelineChipCount, setVisiblePipelineChipCount] = useState<number>(8);
+  // Number of pipeline chips that fit in the available width (7 = all chips fit after merging teams+claim)
+  const [visiblePipelineChipCount, setVisiblePipelineChipCount] = useState<number>(7);
+  // Counter to trigger re-measurement when returning from detail view
+  const [pipelineRemeasureKey, setPipelineRemeasureKey] = useState<number>(0);
   // Minimum chip width at each mode (icon needs ~32px, short ~64px [increased from 56], full ~78px)
   // We prioritize labels with carousel vs showing all icons
   const CHIP_MIN_WIDTHS = { icon: 32, short: 64, full: 78 };
@@ -547,8 +560,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       shortLabel: string;
       iconName: string;
     }> = [
-      { stage: 'teams', fullLabel: 'Card', shortLabel: 'Card', iconName: 'TeamsLogo' },
-      { stage: 'claimed', fullLabel: 'Claimed', shortLabel: 'Claim', iconName: 'Contact' },
+      { stage: 'poc', fullLabel: 'POC', shortLabel: 'POC', iconName: 'TeamsLogo' },
       { stage: 'pitched', fullLabel: 'Pitch', shortLabel: 'Pitch', iconName: 'Send' },
       { stage: 'instructed', fullLabel: 'Instructed', shortLabel: 'Inst', iconName: 'CheckMark' },
       { stage: 'idcheck', fullLabel: 'ID Check', shortLabel: 'ID', iconName: 'CheckMark' },
@@ -573,6 +585,30 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   } | null;
 
   const [pipelineHover, setPipelineHover] = useState<PipelineHoverInfo>(null);
+
+  useEffect(() => {
+    if (!pipelineHover) return;
+
+    const handleMove = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target || !target.closest('.pipeline-chip')) {
+        setPipelineHover(null);
+      }
+    };
+
+    const handleScroll = () => setPipelineHover(null);
+    const handleBlur = () => setPipelineHover(null);
+
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('scroll', handleScroll, true);
+    window.addEventListener('blur', handleBlur);
+
+    return () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('scroll', handleScroll, true);
+      window.removeEventListener('blur', handleBlur);
+    };
+  }, [pipelineHover]);
 
   const getPipelineHoverPosition = useCallback((target: EventTarget & HTMLElement) => {
     const rect = target.getBoundingClientRect();
@@ -635,9 +671,71 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     } as React.CSSProperties;
   };
 
+  const renderPipelineIcon = (iconName: string, color: string, size: number = 14) => {
+    if (iconName === 'CurrencyPound') {
+      return (
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: size,
+            height: size,
+            fontSize: Math.max(10, size - 2),
+            fontWeight: 700,
+            lineHeight: 1,
+            color,
+          }}
+        >
+          £
+        </span>
+      );
+    }
+
+    return <Icon iconName={iconName} styles={{ root: { fontSize: size, color } }} />;
+  };
+
   useEffect(() => {
     const el = pipelineGridMeasureRef.current;
     if (!el || typeof ResizeObserver === 'undefined') return;
+
+    // Calculate and apply measurement immediately on mount (avoid layout flash)
+    const measureAndApply = () => {
+      const rect = el.getBoundingClientRect();
+      if (!rect.width) return;
+
+      const totalWidth = rect.width;
+      const columnGap = 8;
+      const trailingFixedColWidth = 24;
+      const availableWidth = totalWidth - trailingFixedColWidth - columnGap;
+      
+      const minFull = CHIP_MIN_WIDTHS.full;
+      const minShort = CHIP_MIN_WIDTHS.short;
+
+      let nextMode: PipelineChipLabelMode = 'short';
+      let nextCount = 7;
+
+      const widthRef = (count: number, width: number) => count * width + (count - 1) * columnGap;
+      const widthAvailableForCarousel = availableWidth - 24;
+
+      if (availableWidth >= widthRef(7, minFull)) {
+        nextMode = 'full';
+        nextCount = 7;
+      } else if (availableWidth >= widthRef(7, minShort)) {
+        nextMode = 'short';
+        nextCount = 7;
+      } else {
+        const possibleShortCount = Math.floor((widthAvailableForCarousel + columnGap) / (minShort + columnGap));
+        nextMode = 'short';
+        nextCount = Math.max(3, Math.min(7, possibleShortCount));
+      }
+
+      setPipelineChipLabelMode((prev) => (prev === nextMode ? prev : nextMode));
+      setVisiblePipelineChipCount(nextCount);
+    };
+
+    // Measure immediately on mount to prevent layout flash
+    measureAndApply();
 
     const observer = new ResizeObserver((items) => {
       const rect = items[0]?.contentRect;
@@ -645,34 +743,28 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
       const totalWidth = rect.width;
       const columnGap = 8;
-      const columns = 8;
       const trailingFixedColWidth = 24;
-      // The pipeline grid includes a final fixed-width gutter column for the clear button.
-      // Account for that fixed column and its extra gap so we measure the 8 stage columns correctly.
       const availableWidth = totalWidth - trailingFixedColWidth - columnGap;
       
-      // Prioritise labels in the header. When space is tight, use carousel,
-      // but avoid switching the header to icon-only mode.
-
       const minFull = CHIP_MIN_WIDTHS.full;
       const minShort = CHIP_MIN_WIDTHS.short;
 
       let nextMode: PipelineChipLabelMode = 'short';
-      let nextCount = 8;
+      let nextCount = 7;
 
       const widthRef = (count: number, width: number) => count * width + (count - 1) * columnGap;
-      const widthAvailableForCarousel = availableWidth - 24; // Reserve nav space
+      const widthAvailableForCarousel = availableWidth - 24;
 
-      if (availableWidth >= widthRef(8, minFull)) {
+      if (availableWidth >= widthRef(7, minFull)) {
         nextMode = 'full';
-        nextCount = 8;
-      } else if (availableWidth >= widthRef(8, minShort)) {
+        nextCount = 7;
+      } else if (availableWidth >= widthRef(7, minShort)) {
         nextMode = 'short';
-        nextCount = 8;
+        nextCount = 7;
       } else {
         const possibleShortCount = Math.floor((widthAvailableForCarousel + columnGap) / (minShort + columnGap));
         nextMode = 'short';
-        nextCount = Math.max(3, Math.min(8, possibleShortCount)); // Minimum 3 chips to prevent next button wrapping
+        nextCount = Math.max(3, Math.min(7, possibleShortCount));
       }
 
       setPipelineChipLabelMode((prev) => (prev === nextMode ? prev : nextMode));
@@ -681,7 +773,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
     observer.observe(el);
     return () => observer.disconnect();
-  }, [viewMode]);
+  }, [viewMode, pipelineRemeasureKey]); // Re-run when returning from detail view
   
   // POC filter - dropdown with team members (separate from toggle filters)
   const [selectedPocFilter, setSelectedPocFilter] = useState<string | null>(null);
@@ -756,7 +848,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   }, [pipelineScrollOffsets]);
   
   // Check if pipeline needs carousel navigation for a row
-  const pipelineNeedsCarousel = visiblePipelineChipCount < 8;
+  const pipelineNeedsCarousel = visiblePipelineChipCount < 7;
   
   // Helper: Render pipeline chips with carousel if needed
   // This wraps chips in a scrollable container when width is constrained
@@ -765,7 +857,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     children: React.ReactNode[],
     isDark: boolean
   ) => {
-    const totalChips = 8;
+    const totalChips = 7;
     const offset = getPipelineScrollOffset(enquiryId);
     const showNav = pipelineNeedsCarousel;
     const hasMoreChips = showNav && offset < totalChips - visiblePipelineChipCount;
@@ -778,7 +870,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     // Grid template for visible chips only
     const gridCols = showNav 
       ? `repeat(${visiblePipelineChipCount}, minmax(0, 1fr)) 24px`
-      : 'repeat(8, minmax(0, 1fr)) 24px';
+      : 'repeat(7, minmax(0, 1fr)) 24px';
     
     return (
       <div style={{ position: 'relative', height: '100%', width: '100%' }}>
@@ -1100,13 +1192,13 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   type EnquiriesActiveState = '' | 'Claimed' | 'Claimable' | 'Triaged';
   const [activeState, setActiveState] = useState<EnquiriesActiveState>('Claimed');
 
-  // In Claimed view, claim is guaranteed by definition, so drop any persisted claim-stage filter.
+  // In Claimed view, POC is guaranteed by definition, so drop any persisted poc-stage filter.
   useEffect(() => {
     if (activeState !== 'Claimed') return;
     setEnquiryPipelineFilters(prev => {
-      if (!prev.has('claimed')) return prev;
+      if (!prev.has('poc')) return prev;
       const next = new Map(prev);
-      next.delete('claimed');
+      next.delete('poc');
       return next;
     });
   }, [activeState]);
@@ -2823,9 +2915,13 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     setActiveSubTab(key);
   }, []);
 
-  const openEnquiryWorkbench = useCallback((enquiry: Enquiry, tab: 'Pitch' | 'Timeline') => {
+  // State for initial timeline filter (used when opening from pipeline chips)
+  const [timelineInitialFilter, setTimelineInitialFilter] = useState<'pitch' | null>(null);
+
+  const openEnquiryWorkbench = useCallback((enquiry: Enquiry, tab: 'Pitch' | 'Timeline', options?: { filter?: 'pitch' }) => {
     setSelectedEnquiry(enquiry);
     setActiveSubTab(tab);
+    setTimelineInitialFilter(options?.filter ?? null);
   }, []);
 
   const handleSelectEnquiry = useCallback((enquiry: Enquiry) => {
@@ -2839,6 +2935,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
   const handleBackToList = useCallback(() => {
     setSelectedEnquiry(null);
+    // Trigger pipeline grid re-measurement when returning to list view
+    setPipelineRemeasureKey(prev => prev + 1);
   }, []);
 
   useEffect(() => {
@@ -3584,7 +3682,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       filtered = filtered.filter(enquiry => {
         try {
           const enrichmentData = enrichmentMap.get(String(enquiry.ID));
-          const inlineWorkbenchItem = enquiry.ID ? inlineWorkbenchByEnquiryId.get(String(enquiry.ID)) : undefined;
+          const inlineWorkbenchKey = getEnquiryWorkbenchKey(enquiry);
+          const inlineWorkbenchItem = inlineWorkbenchKey ? inlineWorkbenchByEnquiryId.get(inlineWorkbenchKey) : undefined;
           const inst = inlineWorkbenchItem?.instruction;
           const deal = inlineWorkbenchItem?.deal;
           const instructionRef = (inst?.InstructionRef ?? inst?.instructionRef ?? deal?.InstructionRef ?? deal?.instructionRef) as string | undefined;
@@ -3592,15 +3691,14 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
           // Check each active filter
           for (const [stage, requiredStatus] of enquiryPipelineFilters.entries()) {
-            if (activeState === 'Claimed' && stage === 'claimed') {
+            if (activeState === 'Claimed' && stage === 'poc') {
               continue;
             }
             let hasStage = false;
 
-            if (stage === 'teams') {
-              hasStage = !!(enrichmentData?.teamsData);
-            } else if (stage === 'claimed') {
-              hasStage = Boolean(poc) && poc !== 'team@helix-law.com';
+            if (stage === 'poc') {
+              // POC is active if there's Teams data OR a valid POC assignment
+              hasStage = !!(enrichmentData?.teamsData) || (Boolean(poc) && poc !== 'team@helix-law.com');
             } else if (stage === 'pitched') {
               hasStage = !!(enrichmentData?.pitchData);
             } else if (stage === 'instructed') {
@@ -3888,8 +3986,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         return; // All visible items already enriched
       }
       
-      // **CRITICAL**: Limit batch size to prevent spam (max 20 items per batch for viewport)
-      const BATCH_LIMIT = 20; // Smaller batch since we're only doing visible items
+      // **CRITICAL**: Prefer speed over load; larger batches for faster enrichment
+      const BATCH_LIMIT = 30;
       const batchToEnrich = displayedEnquiriesSnapshot.slice(0, BATCH_LIMIT);
       
       // Update UI feedback
@@ -4013,7 +4111,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
     // Use longer debounce for large datasets to prevent spam
     const datasetSize = dedupedEnquiries.length;
-    const debounceTime = datasetSize > 100 ? 300 : 50; // Reduced debounce for faster response
+    const debounceTime = 0; // Prioritise speed: enrich immediately
     
     const timeoutId = setTimeout(fetchProgressiveEnrichment, debounceTime);
     return () => clearTimeout(timeoutId);
@@ -4023,13 +4121,92 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     itemsToShow, // When user loads more
     showMineOnly, // When switching All/Mine (affects dataset)
     visibleEnquiryIds.size, // When viewport visibility changes
+    enquiryPipelineFilters.size,
   ]); // Removed unstable deps: displayedItems, filteredEnquiries.length, etc.
+
+  // EAGER PRE-FETCH: Immediately enrich the first batch of items on initial data load
+  // This ensures hover data is ready before user even scrolls
+  const eagerPrefetchDoneRef = useRef<boolean>(false);
+  useEffect(() => {
+    // Only run once per data load
+    if (eagerPrefetchDoneRef.current || selectedEnquiry || displayedItems.length === 0) return;
+    
+    const eagerPrefetch = async () => {
+      // Get first 60 items (typical viewport + buffer)
+      const firstBatch = displayedItems
+        .slice(0, 60)
+        .filter((item): item is (Enquiry & { __sourceType: 'new' | 'legacy' }) => 
+          'ID' in item && Boolean(item.ID) && !enrichmentMap.has(String(item.ID))
+        );
+      
+      if (firstBatch.length === 0) return;
+      
+      // Mark as done immediately to prevent duplicate calls
+      eagerPrefetchDoneRef.current = true;
+      
+      // Split into 3 parallel micro-batches for faster response
+      const batchSize = Math.ceil(firstBatch.length / 3);
+      const microBatches = [
+        firstBatch.slice(0, batchSize),
+        firstBatch.slice(batchSize, batchSize * 2),
+        firstBatch.slice(batchSize * 2),
+      ].filter(b => b.length > 0);
+      
+      // Fire all batches in parallel
+      await Promise.all(microBatches.map(async (batch) => {
+        const v2Ids = batch
+          .filter(e => e.__sourceType === 'new' || (e as any).source === 'instructions')
+          .map(e => String(e.ID))
+          .filter(Boolean);
+        
+        const emails = batch
+          .map(e => e.Email)
+          .filter((email): email is string => Boolean(email) && email.toLowerCase() !== 'team@helix-law.com');
+        
+        if (v2Ids.length === 0 && emails.length === 0) return;
+        
+        try {
+          const result = await fetchEnquiryEnrichment(v2Ids, emails);
+          
+          setEnrichmentMap(prev => {
+            const next = new Map(prev);
+            result.enquiryData.forEach((data: EnquiryEnrichmentData) => {
+              next.set(String(data.enquiryId), data);
+            });
+            batch.forEach(e => {
+              if (e.Email && e.ID) {
+                const pitchData = result.pitchByEmail[e.Email.toLowerCase()];
+                if (pitchData) {
+                  const key = String(e.ID);
+                  next.set(key, { ...next.get(key) || { enquiryId: key }, pitchData });
+                }
+              }
+              // Create empty record if no data (stops spinners)
+              const key = String(e.ID);
+              if (!next.has(key)) next.set(key, { enquiryId: key });
+            });
+            return next;
+          });
+        } catch (err) {
+          console.error('[Eager Prefetch] Batch failed:', err);
+        }
+      }));
+    };
+    
+    // Fire immediately, no delay
+    eagerPrefetch();
+  }, [displayedItems.length > 0]); // Only trigger when items first appear
+
+  // Reset eager prefetch when filters/view changes significantly
+  useEffect(() => {
+    eagerPrefetchDoneRef.current = false;
+  }, [activeState, showMineOnly, selectedArea, debouncedSearchTerm]);
 
   // Track visible enquiries using IntersectionObserver (viewport-based enrichment)
   useEffect(() => {
     const observerOptions = {
       root: null, // viewport
-      rootMargin: '100px', // Start enriching slightly before item enters view
+      rootMargin: '800px', // Start enriching much earlier to reduce visible lag
       threshold: 0.01, // Trigger as soon as 1% is visible
     };
 
@@ -4377,12 +4554,17 @@ const Enquiries: React.FC<EnquiriesProps> = ({
               setSelectedPitchScenario(scenarioId);
               setActiveSubTab('Pitch');
             }}
-            inlineWorkbenchItem={enquiry.ID ? inlineWorkbenchByEnquiryId.get(String(enquiry.ID)) : undefined}
+            inlineWorkbenchItem={(() => {
+              const inlineWorkbenchKey = getEnquiryWorkbenchKey(enquiry);
+              return inlineWorkbenchKey ? inlineWorkbenchByEnquiryId.get(inlineWorkbenchKey) : undefined;
+            })()}
+            enrichmentPitchData={enquiry.ID ? enrichmentMap.get(String(enquiry.ID))?.pitchData : undefined}
+            initialFilter={timelineInitialFilter ?? undefined}
           />
         )}
       </>
     ),
-  [activeSubTab, userData, isLocalhost, featureToggles, setActiveSubTab, inlineWorkbenchByEnquiryId]
+  [activeSubTab, userData, isLocalhost, featureToggles, setActiveSubTab, inlineWorkbenchByEnquiryId, enrichmentMap, timelineInitialFilter]
   );
 
   const enquiriesCountPerMember = useMemo(() => {
@@ -5431,9 +5613,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                     0% { opacity: 0; transform: translateY(-6px) scale(0.9); }
                     100% { opacity: 1; transform: translateY(0) scale(1); }
                   }
-                  @keyframes action-dot-pulse {
-                    0%, 100% { opacity: 0.6; }
-                    50% { opacity: 1; }
+                  @keyframes pipeline-action-pulse {
+                    0%, 100% { opacity: 0.45; transform: scale(0.9); }
+                    50% { opacity: 1; transform: scale(1); }
                   }
                 `}</style>
 
@@ -5536,7 +5718,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                       } else {
                         const pocLower = (item.Point_of_Contact || (item as any).poc || '').toLowerCase();
                         const isUnclaimed = pocLower === 'team@helix-law.com';
-                        const inlineWorkbenchItem = item.ID ? inlineWorkbenchByEnquiryId.get(String(item.ID)) : undefined;
+                        const inlineWorkbenchKey = getEnquiryWorkbenchKey(item);
+                        const inlineWorkbenchItem = inlineWorkbenchKey ? inlineWorkbenchByEnquiryId.get(inlineWorkbenchKey) : undefined;
                         if (isUnclaimed) {
                           return (
                             <div key={`${item.ID}-${item.First_Name || ''}-${item.Last_Name || ''}-${item.Touchpoint_Date || ''}-${item.Point_of_Contact || ''}`} data-enquiry-id={item.ID ? String(item.ID) : undefined}>
@@ -5796,7 +5979,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               display: 'grid',
                               gridTemplateColumns: pipelineNeedsCarousel 
                                 ? `repeat(${visiblePipelineChipCount}, minmax(0, 1fr)) 24px`
-                                : 'repeat(8, minmax(0, 1fr)) 24px',
+                                : 'repeat(7, minmax(0, 1fr)) 24px',
                               columnGap: 8,
                               width: '100%',
                               alignItems: 'center',
@@ -5807,68 +5990,14 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                             {(() => {
                               const headerOffset = getPipelineScrollOffset('__header__');
                               const headerVisibleEnd = headerOffset + visiblePipelineChipCount;
-                              const headerHasMore = pipelineNeedsCarousel && headerOffset < 8 - visiblePipelineChipCount;
+                              const headerHasMore = pipelineNeedsCarousel && headerOffset < 7 - visiblePipelineChipCount;
                               const headerIsVisible = (idx: number) => 
                                 !pipelineNeedsCarousel || (idx >= headerOffset && idx < headerVisibleEnd);
 
                               return (
                                 <>
-                            {/* Teams - chip index 0 */}
+                            {/* POC - merged Teams+Claim - chip index 0: POC selector with Teams icon. */}
                             {headerIsVisible(0) && (
-                            <div>
-                              {(() => {
-                                const filterState = getEnquiryStageFilterState('teams');
-                                const hasFilter = filterState !== null;
-                                const getFilterColor = () => {
-                                  if (!filterState) return isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)';
-                                  if (filterState === 'yes') return '#22c55e';
-                                  if (filterState === 'no') return '#ef4444';
-                                  return colours.highlight;
-                                };
-                                const filterColor = getFilterColor();
-                                const stateLabel = filterState === 'yes' ? 'Has' : filterState === 'no' ? 'No' : null;
-
-                                return (
-                                  <button
-                                    type="button"
-                                    title={hasFilter
-                                      ? `Teams: ${stateLabel} (click to cycle)`
-                                      : `Filter by Teams (click to activate)`}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      cycleEnquiryPipelineFilter('teams');
-                                    }}
-                                    style={{
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      justifyContent: 'center',
-                                      gap: 4,
-                                      height: 22,
-                                      width: '100%',
-                                      padding: '0 8px',
-                                      background: hasFilter
-                                        ? (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)')
-                                        : 'transparent',
-                                      border: hasFilter
-                                        ? `1px solid ${filterColor}40`
-                                        : `1px solid ${isDarkMode ? 'rgba(148,163,184,0.18)' : 'rgba(100,116,139,0.14)'}`,
-                                      borderRadius: 0,
-                                      cursor: 'pointer',
-                                      transition: 'all 150ms ease',
-                                      opacity: hasFilter ? 1 : 0.85,
-                                    }}
-                                  >
-                                    <span style={{ fontSize: 9, fontWeight: 700, color: filterColor, textTransform: 'uppercase' }}>
-                                      {pipelineChipLabelMode === 'full' ? 'Card' : 'Card'}
-                                    </span>
-                                  </button>
-                                );
-                              })()}
-                            </div>
-                            )}
-
-                            {/* Claim column - chip index 1: POC selector only in Claimed tab (claim is guaranteed there). */}
-                            {headerIsVisible(1) && (
                             <div
                               style={{
                                 display: 'flex',
@@ -5878,14 +6007,14 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               }}
                             >
                               {activeState === 'Claimable' ? (
-                                // In Unclaimed view, just show "Claim" label (no filter needed - they're all unclaimed)
+                                // In Unclaimed view, just show "POC" label (no filter needed - they're all unclaimed)
                                 <span style={{ 
                                   fontSize: 9, 
                                   fontWeight: 700, 
                                   color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)', 
                                   textTransform: 'uppercase' 
                                 }}>
-                                  {pipelineChipLabelMode === 'full' ? 'Claimed' : 'Claim'}
+                                  POC
                                 </span>
                               ) : (
                               (() => {
@@ -5948,7 +6077,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                           opacity: isFiltered ? 1 : 0.85,
                                         }}
                                       >
-                                        <Icon iconName="Contact" styles={{ root: { fontSize: 10, color: filterColor } }} />
+                                        <Icon iconName="TeamsLogo" styles={{ root: { fontSize: 10, color: filterColor } }} />
                                         <span style={{ fontSize: 9, fontWeight: 600, color: filterColor, textTransform: 'uppercase' }}>
                                           {getFilteredInitials()}
                                         </span>
@@ -6081,7 +6210,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                         opacity: mineIsFiltered ? 1 : 0.85,
                                       }}
                                     >
-                                      <Icon iconName="Contact" styles={{ root: { fontSize: 10, color: mineFilterColor } }} />
+                                      <Icon iconName="TeamsLogo" styles={{ root: { fontSize: 10, color: mineFilterColor } }} />
                                       <span style={{ fontSize: 9, fontWeight: 700, color: mineFilterColor, textTransform: 'uppercase' }}>
                                         {currentUserInitials}
                                       </span>
@@ -6093,8 +6222,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                             </div>
                             )}
 
-                            {/* Pitch - chip index 2 - tri-state toggle */}
-                            {headerIsVisible(2) && (
+                            {/* Pitch - chip index 1 - tri-state toggle */}
+                            {headerIsVisible(1) && (
                             (() => {
                               const filterState = getEnquiryStageFilterState('pitched');
                               const hasFilter = filterState !== null;
@@ -6143,13 +6272,13 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                             })()
                             )}
 
-                            {/* Inst / ID / Pay / Risk / Matter - chip indices 3-7 - tri-state toggles */}
+                            {/* Inst / ID / Pay / Risk / Matter - chip indices 2-6 - tri-state toggles */}
                             {([
-                              { stage: 'instructed' as const, label: 'Inst', icon: 'CheckMark', textIcon: null, chipIndex: 3 },
-                              { stage: 'idcheck' as const, label: 'ID', icon: 'ContactCard', textIcon: null, chipIndex: 4 },
-                              { stage: 'paid' as const, label: 'Pay', icon: null, textIcon: '£', chipIndex: 5 },
-                              { stage: 'risk' as const, label: 'Risk', icon: 'Shield', textIcon: null, chipIndex: 6 },
-                              { stage: 'matter' as const, label: 'Matter', icon: 'OpenFolderHorizontal', textIcon: null, chipIndex: 7 },
+                              { stage: 'instructed' as const, label: 'Inst', icon: 'CheckMark', textIcon: null, chipIndex: 2 },
+                              { stage: 'idcheck' as const, label: 'ID', icon: 'ContactCard', textIcon: null, chipIndex: 3 },
+                              { stage: 'paid' as const, label: 'Pay', icon: null, textIcon: '£', chipIndex: 4 },
+                              { stage: 'risk' as const, label: 'Risk', icon: 'Shield', textIcon: null, chipIndex: 5 },
+                              { stage: 'matter' as const, label: 'Matter', icon: 'OpenFolderHorizontal', textIcon: null, chipIndex: 6 },
                             ] as const).filter(({ chipIndex }) => headerIsVisible(chipIndex)).map(({ stage, label, icon, textIcon }) => {
                               const filterState = getEnquiryStageFilterState(stage);
                               const hasFilter = filterState !== null;
@@ -6205,9 +6334,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  advancePipelineScroll('__header__', 8, visiblePipelineChipCount);
+                                  advancePipelineScroll('__header__', 7, visiblePipelineChipCount);
                                 }}
-                                title={headerHasMore ? `View more stages (${8 - headerVisibleEnd} hidden)` : 'Back to start'}
+                                title={headerHasMore ? `View more stages (${7 - headerVisibleEnd} hidden)` : 'Back to start'}
                                 style={{
                                   display: 'flex',
                                   alignItems: 'center',
@@ -6701,7 +6830,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                             const childHasNotes = childEnquiry.Initial_first_call_notes && childEnquiry.Initial_first_call_notes.trim().length > 0;
                             const childNoteKey = buildEnquiryIdentityKey(childEnquiry);
                             const childNotesExpanded = expandedNotesInTable.has(childNoteKey);
-                            const childInlineWorkbenchItem = childEnquiry.ID ? inlineWorkbenchByEnquiryId.get(String(childEnquiry.ID)) : undefined;
+                            const childInlineWorkbenchKey = getEnquiryWorkbenchKey(childEnquiry);
+                            const childInlineWorkbenchItem = childInlineWorkbenchKey ? inlineWorkbenchByEnquiryId.get(childInlineWorkbenchKey) : undefined;
                             const childHasInlineWorkbench = Boolean(childInlineWorkbenchItem);
                             const childPocIdentifier = childEnquiry.Point_of_Contact || (childEnquiry as any).poc || '';
                             const childPocEmail = childPocIdentifier.toLowerCase();
@@ -7011,7 +7141,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                         <div
                                           style={{
                                             display: 'grid',
-                                            gridTemplateColumns: 'repeat(8, minmax(0, 1fr)) 24px',
+                                            gridTemplateColumns: 'repeat(7, minmax(0, 1fr)) 24px',
                                             columnGap: 8,
                                             alignItems: 'center',
                                             width: '100%',
@@ -7022,8 +7152,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                             { icon: 'TeamsLogo', label: 'Teams' },
                                             { icon: 'Contact', label: 'Claim' },
                                             { icon: 'Send', label: 'Pitch' },
-                                            { icon: 'CreditCard', label: 'Card' },
-                                            { icon: 'CheckMark', label: 'ID' },
+                                            { icon: 'CheckMark', label: 'Inst' },
+                                            { icon: 'ContactCard', label: 'ID' },
                                             { icon: 'CurrencyPound', label: 'Payment' },
                                             { icon: 'ShieldAlert', label: 'Risk' },
                                             { icon: 'FolderHorizontal', label: 'Matter' },
@@ -7039,15 +7169,11 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                                 animation: `pipeline-pulse 1.5s ease-in-out infinite ${idx * 0.1}s`,
                                               }}
                                             >
-                                              <Icon 
-                                                iconName={stage.icon} 
-                                                styles={{ 
-                                                  root: { 
-                                                    fontSize: 14, 
-                                                    color: isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)',
-                                                  } 
-                                                }} 
-                                              />
+                                              {renderPipelineIcon(
+                                                stage.icon,
+                                                isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)',
+                                                14
+                                              )}
                                             </div>
                                           ))}
                                           <div /> {/* Phone action placeholder */}
@@ -7071,14 +7197,14 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                   // Pipeline carousel state for this row
                                   const childPipelineOffset = getPipelineScrollOffset(childEnquiry.ID);
                                   const childVisibleEnd = childPipelineOffset + visiblePipelineChipCount;
-                                  const childHasMoreChips = pipelineNeedsCarousel && childPipelineOffset < 8 - visiblePipelineChipCount;
+                                  const childHasMoreChips = pipelineNeedsCarousel && childPipelineOffset < 7 - visiblePipelineChipCount;
                                   const childIsChipVisible = (chipIndex: number) => 
                                     !pipelineNeedsCarousel || (chipIndex >= childPipelineOffset && chipIndex < childVisibleEnd);
                                   
                                   // Dynamic grid columns based on carousel state
                                   const childGridCols = pipelineNeedsCarousel 
                                     ? `repeat(${visiblePipelineChipCount}, minmax(0, 1fr)) 24px`
-                                    : 'repeat(8, minmax(0, 1fr)) 24px';
+                                    : 'repeat(7, minmax(0, 1fr)) 24px';
                                   
                                   // Cascade animation helper
                                   const getCascadeStyle = (chipIndex: number) => ({
@@ -7097,176 +7223,130 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                           height: '100%',
                                         }}
                                       >
-                                        {/* Teams - chip index 0 */}
+                                        {/* POC - merged Teams+Claim - chip index 0 */}
                                         <div style={getCascadeStyle(0)}>{childIsChipVisible(0) && (
                                         <>
-                                          {showTeamsStage ? (
-                                            <button
-                                              className="pipeline-chip"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                const link = childTeamsData?.teamsLink || getAreaSpecificChannelUrl(childEnquiry.Area_of_Work);
-                                                if (link) window.open(link, '_blank');
-                                              }}
-                                              onMouseEnter={(e) => showPipelineHover(e, {
-                                                title: 'Teams Card',
-                                                status: 'Activity logged',
-                                                subtitle: childContactName,
-                                                color: colours.blue,
-                                                iconName: 'TeamsLogo',
-                                              })}
-                                              onMouseMove={movePipelineHover}
-                                              onMouseLeave={hidePipelineHover}
-                                              style={{
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                width: '100%',
-                                                height: 22,
-                                                padding: 0,
-                                                borderRadius: 0,
-                                                background: 'transparent',
-                                                border: 'none',
-                                                cursor: 'pointer',
-                                              }}
-                                            >
-                                              <Icon iconName="TeamsLogo" styles={{ root: { fontSize: 14, color: isDarkMode ? 'rgba(54, 144, 206, 0.85)' : 'rgba(54, 144, 206, 0.75)' } }} />
-                                              <span style={getPipelineDotStyle(true, colours.blue, isDarkMode)} />
-                                            </button>
-                                          ) : showLegacyPlaceholder ? (
-                                            <div
-                                              style={{
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: 6,
-                                                padding: '4px 8px',
-                                                borderRadius: 0,
-                                                background: isDarkMode ? 'rgba(148,163,184,0.06)' : 'rgba(148,163,184,0.04)',
-                                                border: `1px dashed ${isDarkMode ? 'rgba(148,163,184,0.25)' : 'rgba(100,116,139,0.2)'}`,
-                                                fontSize: 9,
-                                                fontWeight: 500,
-                                                color: isDarkMode ? 'rgba(148,163,184,0.6)' : 'rgba(71,85,105,0.6)',
-                                                whiteSpace: 'nowrap',
-                                                width: '100%',
-                                                justifyContent: 'center',
-                                              }}
-                                            >
-                                              <span style={{ fontSize: 9 }}>legacy</span>
-                                            </div>
-                                          ) : (
-                                            <div
-                                              onMouseEnter={(e) => showPipelineHover(e, {
-                                                title: 'Teams Card',
-                                                status: 'No activity yet',
-                                                subtitle: childContactName,
-                                                color: colours.blue,
-                                                iconName: 'TeamsLogo',
-                                              })}
-                                              onMouseMove={movePipelineHover}
-                                              onMouseLeave={hidePipelineHover}
-                                              style={{
-                                                display: 'inline-flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                width: '100%',
-                                                height: 22,
-                                                border: 'none',
-                                                borderRadius: 0,
-                                                background: 'transparent',
-                                              }}
-                                            >
-                                              <Icon iconName="TeamsLogo" styles={{ root: { fontSize: 14, color: isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)' } }} />
-                                              <span style={getPipelineDotStyle(false, colours.blue, isDarkMode)} />
-                                            </div>
-                                          )}
+                                          {(() => {
+                                            // Merged POC chip: Teams icon + claimer initials + chevron
+                                            const hasPocActivity = showTeamsStage || showClaimer;
+                                            const isUnclaimed = !showClaimer || childPocEmail === 'team@helix-law.com';
+                                            const pocColor = hasPocActivity ? colours.green : (isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)');
+                                            const teamsIconColor = showTeamsStage 
+                                              ? (isDarkMode ? 'rgba(54, 144, 206, 0.85)' : 'rgba(54, 144, 206, 0.75)')
+                                              : (isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)');
+                                            
+                                            if (showLegacyPlaceholder && !showClaimer) {
+                                              // Legacy enquiry with no claim
+                                              return (
+                                                <div
+                                                  style={{
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: 6,
+                                                    padding: '4px 8px',
+                                                    borderRadius: 0,
+                                                    background: isDarkMode ? 'rgba(148,163,184,0.06)' : 'rgba(148,163,184,0.04)',
+                                                    border: `1px dashed ${isDarkMode ? 'rgba(148,163,184,0.25)' : 'rgba(100,116,139,0.2)'}`,
+                                                    fontSize: 9,
+                                                    fontWeight: 500,
+                                                    color: isDarkMode ? 'rgba(148,163,184,0.6)' : 'rgba(71,85,105,0.6)',
+                                                    whiteSpace: 'nowrap',
+                                                    width: '100%',
+                                                    justifyContent: 'center',
+                                                  }}
+                                                >
+                                                  <span style={{ fontSize: 9 }}>legacy</span>
+                                                </div>
+                                              );
+                                            }
+                                            
+                                            if (isUnclaimed) {
+                                              // Unclaimed - show claim prompt or just Teams icon
+                                              if (childPocEmail === 'team@helix-law.com' && !childPocEmail.toLowerCase().includes('triage')) {
+                                                return renderClaimPromptChip({
+                                                  size: 'compact',
+                                                  teamsLink: childTeamsLink,
+                                                  leadName: childContactName,
+                                                  areaOfWork: childEnquiry['Area_of_Work'],
+                                                  enquiryId: childEnquiry.ID,
+                                                  dataSource: childIsV2 ? 'new' : 'legacy',
+                                                  iconOnly: false,
+                                                });
+                                              }
+                                              // No claimer, show inactive Teams icon
+                                              return (
+                                                <div
+                                                  onMouseEnter={(e) => showPipelineHover(e, {
+                                                    title: 'POC',
+                                                    status: showTeamsStage ? 'Card posted, unclaimed' : 'Unclaimed',
+                                                    subtitle: childContactName,
+                                                    color: colours.green,
+                                                    iconName: 'TeamsLogo',
+                                                  })}
+                                                  onMouseMove={movePipelineHover}
+                                                  onMouseLeave={hidePipelineHover}
+                                                  style={{
+                                                    display: 'inline-flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    gap: 4,
+                                                    width: '100%',
+                                                    height: 22,
+                                                    border: 'none',
+                                                    borderRadius: 0,
+                                                    background: 'transparent',
+                                                  }}
+                                                >
+                                                  <Icon iconName="TeamsLogo" styles={{ root: { fontSize: 14, color: teamsIconColor } }} />
+                                                </div>
+                                              );
+                                            }
+                                            
+                                            // Claimed - show Teams icon + initials + chevron
+                                            return (
+                                              <button
+                                                className="pipeline-chip"
+                                                onClick={(e) => handleReassignClick(String(childEnquiry.ID), e)}
+                                                onMouseEnter={(e) => showPipelineHover(e, {
+                                                  title: 'POC',
+                                                  status: `${showTeamsStage ? 'Card + ' : ''}Claimed by ${childPocIdentifier}`,
+                                                  subtitle: childContactName,
+                                                  color: colours.green,
+                                                  iconName: 'TeamsLogo',
+                                                })}
+                                                onMouseMove={movePipelineHover}
+                                                onMouseLeave={hidePipelineHover}
+                                                style={{
+                                                  display: 'inline-flex',
+                                                  alignItems: 'center',
+                                                  justifyContent: 'center',
+                                                  gap: 4,
+                                                  width: '100%',
+                                                  height: 22,
+                                                  padding: 0,
+                                                  borderRadius: 0,
+                                                  border: 'none',
+                                                  background: 'transparent',
+                                                  color: colours.green,
+                                                  fontSize: 10,
+                                                  fontWeight: 700,
+                                                  textTransform: 'uppercase',
+                                                  letterSpacing: '0.3px',
+                                                  cursor: 'pointer',
+                                                  fontFamily: 'inherit',
+                                                }}
+                                              >
+                                                <Icon iconName="TeamsLogo" styles={{ root: { fontSize: 14, color: teamsIconColor, flexShrink: 0 } }} />
+                                                <span style={{ width: 22, textAlign: 'center' }}>{childClaimerLabel}</span>
+                                                <Icon iconName="ChevronDown" styles={{ root: { fontSize: 8, color: 'inherit', opacity: 0.6 } }} />
+                                              </button>
+                                            );
+                                          })()}
                                         </>
                                         )}</div>
 
-                                        {/* Claim - chip index 1 */}
+                                        {/* Pitch - chip index 1 */}
                                         <div style={getCascadeStyle(1)}>{childIsChipVisible(1) && (
-                                        <>
-                                          {!showClaimer ? (
-                                            <div
-                                              onMouseEnter={(e) => showPipelineHover(e, {
-                                                title: 'Claimed',
-                                                status: 'Unclaimed',
-                                                subtitle: childContactName,
-                                                color: colours.green,
-                                                iconName: 'Contact',
-                                              })}
-                                              onMouseMove={movePipelineHover}
-                                              onMouseLeave={hidePipelineHover}
-                                              style={{
-                                                display: 'inline-flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                width: '100%',
-                                                height: 22,
-                                                border: 'none',
-                                                borderRadius: 0,
-                                                background: 'transparent',
-                                              }}
-                                            >
-                                              <Icon iconName="Contact" styles={{ root: { fontSize: 14, color: isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)' } }} />
-                                              <span style={getPipelineDotStyle(false, colours.green, isDarkMode)} />
-                                            </div>
-                                          ) : (
-                                            <div style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
-                                              {childPocEmail === 'team@helix-law.com' && !childPocEmail.toLowerCase().includes('triage')
-                                                ? renderClaimPromptChip({
-                                                    size: 'compact',
-                                                    teamsLink: childTeamsLink,
-                                                    leadName: childContactName,
-                                                    areaOfWork: childEnquiry['Area_of_Work'],
-                                                    enquiryId: childEnquiry.ID,
-                                                    dataSource: childIsV2 ? 'new' : 'legacy',
-                                                    iconOnly: true,
-                                                  })
-                                                : (
-                                                  <button
-                                                    className="pipeline-chip"
-                                                    onClick={(e) => handleReassignClick(String(childEnquiry.ID), e)}
-                                                    onMouseEnter={(e) => showPipelineHover(e, {
-                                                      title: 'Claimed',
-                                                      status: `Claimed by ${childPocIdentifier}`,
-                                                      subtitle: childContactName,
-                                                      color: colours.green,
-                                                      iconName: 'Contact',
-                                                    })}
-                                                    onMouseMove={movePipelineHover}
-                                                    onMouseLeave={hidePipelineHover}
-                                                    style={{
-                                                      display: 'inline-flex',
-                                                      alignItems: 'center',
-                                                      justifyContent: 'center',
-                                                      gap: 4,
-                                                      width: '100%',
-                                                      height: 22,
-                                                      padding: 0,
-                                                      borderRadius: 0,
-                                                      border: 'none',
-                                                      background: 'transparent',
-                                                      color: colours.green,
-                                                      fontSize: 10,
-                                                      fontWeight: 700,
-                                                      textTransform: 'uppercase',
-                                                      letterSpacing: '0.3px',
-                                                      cursor: 'pointer',
-                                                      fontFamily: 'inherit',
-                                                    }}
-                                                  >
-                                                    {childClaimerLabel}
-                                                    <Icon iconName="ChevronDown" styles={{ root: { fontSize: 8, color: 'inherit', opacity: 0.6, marginLeft: 3 } }} />
-                                                    <span style={getPipelineDotStyle(true, colours.green, isDarkMode)} />
-                                                  </button>
-                                                )}
-                                            </div>
-                                          )}
-                                        </>
-                                        )}</div>
-
-                                        {/* Pitch - chip index 2 */}
-                                        <div style={getCascadeStyle(2)}>{childIsChipVisible(2) && (
                                         <>
                                           {showPitch ? (
                                             <button
@@ -7274,7 +7354,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                               className="pipeline-chip"
                                               onClick={(e) => {
                                                 e.stopPropagation();
-                                                openEnquiryWorkbench(childEnquiry, 'Pitch');
+                                                openEnquiryWorkbench(childEnquiry, 'Timeline', { filter: 'pitch' });
                                               }}
                                               onMouseEnter={(e) => showPipelineHover(e, {
                                                 title: 'Pitch',
@@ -7342,7 +7422,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                                 boxShadow: `0 0 8px ${isDarkMode ? 'rgba(148, 163, 184, 0.8)' : 'rgba(100, 116, 139, 0.7)'}99`,
                                                 marginLeft: 6,
                                                 flexShrink: 0,
-                                                animation: 'action-dot-pulse 2s ease-in-out infinite',
+                                                animation: 'pipeline-action-pulse 2.6s ease-in-out infinite',
                                               }} />
                                             </button>
                                           ) : (
@@ -7382,8 +7462,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                           const hasInstruction = Boolean(instructionRef);
                                           const hasEid = Boolean(childInlineWorkbenchItem?.eid);
                                           const eidResult = (childInlineWorkbenchItem?.eid as any)?.EIDOverallResult?.toLowerCase() ?? '';
-                                          const eidColor = eidResult === 'passed' || eidResult === 'pass' ? colours.green : eidResult === 'refer' ? colours.orange : colours.highlight;
-                                          const eidLabel = eidResult === 'passed' || eidResult === 'pass' ? 'Pass' : eidResult === 'refer' ? 'Refer' : eidResult || 'ID';
+                                          const eidColor = eidResult === 'passed' || eidResult === 'pass' || eidResult === 'verified' ? colours.green : eidResult === 'refer' ? colours.orange : eidResult === 'review' ? colours.red : colours.highlight;
+                                          const eidLabel = eidResult === 'passed' || eidResult === 'pass' || eidResult === 'verified' ? 'Pass' : eidResult === 'refer' ? 'Refer' : eidResult === 'review' ? 'Review' : eidResult || 'ID';
                                           
                                           // Payment detection with method and confirmation status
                                           const payments = Array.isArray(childInlineWorkbenchItem?.payments) ? childInlineWorkbenchItem.payments : [];
@@ -7404,13 +7484,18 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                           const combinedMethod = methodRaw || metaMethod || (intentIsBank ? 'bank' : intentIsCard ? 'card' : '');
                                           const isCardPayment = combinedMethod.includes('card') || combinedMethod.includes('stripe') || combinedMethod === 'cc' || intentIsCard;
                                           const isBankPayment = combinedMethod.includes('bank') || combinedMethod.includes('transfer') || combinedMethod.includes('bacs') || intentIsBank;
-                                          const paymentStatus = (latestPayment?.status || latestPayment?.Status || '').toString().toLowerCase();
-                                          const isCardConfirmed = isCardPayment && (paymentStatus === 'succeeded' || paymentStatus === 'success' || paymentStatus === 'complete' || paymentStatus === 'completed' || paymentStatus === 'paid');
+                                          // DB column is payment_status, but also check status/Status variants
+                                          const paymentStatus = (latestPayment?.payment_status || latestPayment?.paymentStatus || latestPayment?.status || latestPayment?.Status || '').toString().toLowerCase();
+                                          const isSucceededStatus = paymentStatus === 'succeeded' || paymentStatus === 'success' || paymentStatus === 'complete' || paymentStatus === 'completed' || paymentStatus === 'paid';
+                                          const isCardConfirmed = isCardPayment && isSucceededStatus;
                                           const isBankConfirmed = isBankPayment && (latestPayment?.confirmed === true || latestPayment?.Confirmed === true || paymentStatus === 'confirmed');
-                                          const hasConfirmedPayment = isCardConfirmed || isBankConfirmed;
+                                          // Also treat as confirmed if status is succeeded even if method not detected
+                                          const hasConfirmedPayment = isCardConfirmed || isBankConfirmed || isSucceededStatus;
                                           const hasPayment = payments.length > 0;
                                           const paymentLabel = hasConfirmedPayment ? 'Paid' : hasPayment ? (isBankPayment ? 'Pending' : '£') : '£';
-                                          const paymentIcon = hasConfirmedPayment ? (isCardPayment ? 'PaymentCard' : 'Bank') : hasPayment ? (isBankPayment ? 'Bank' : 'Money') : 'Money';
+                                          const paymentIcon = hasConfirmedPayment
+                                            ? (isCardPayment ? 'PaymentCard' : 'Bank')
+                                            : 'CurrencyPound';
                                           const paymentColor = hasConfirmedPayment ? colours.green : hasPayment ? (isBankPayment ? colours.orange : colours.blue) : colours.blue;
                                           const paymentTitle = hasConfirmedPayment 
                                             ? `Paid via ${isCardPayment ? 'card' : 'bank transfer'}` 
@@ -7419,20 +7504,21 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                               : 'No payment yet';
                                           
                                           const hasRisk = Boolean(childInlineWorkbenchItem?.risk);
+                                          const riskResult = (childInlineWorkbenchItem?.risk as any)?.RiskAssessmentResult?.toLowerCase() ?? '';
+                                          const riskIcon = riskResult === 'low' || riskResult === 'approved' ? 'ShieldSolid' : riskResult === 'medium' ? 'HalfCircle' : 'Shield';
                                           const hasMatter = Boolean(inst?.MatterId ?? inst?.matterId) || (Array.isArray(childInlineWorkbenchItem?.matters) && childInlineWorkbenchItem.matters.length > 0);
                                           const shouldShowPostPitch = Boolean(childInlineWorkbenchItem) || showPitch;
 
-                                          // Determine next incomplete stage in pipeline order
-                                          // Only consider stages that are "in play" - skip Teams if no activity, then look for first incomplete
+                                          // Determine next incomplete stage in pipeline order (7 stages after merging Teams+Claim into POC)
+                                          const hasPocActivity = showTeamsStage || showClaimer;
                                           const pipelineStages = [
-                                            { done: showTeamsStage, index: 0, inPlay: showTeamsStage || showLegacyPlaceholder },
-                                            { done: showClaimer, index: 1, inPlay: true },
-                                            { done: showPitch, index: 2, inPlay: true },
-                                            { done: hasInstruction, index: 3, inPlay: shouldShowPostPitch },
-                                            { done: hasEid, index: 4, inPlay: shouldShowPostPitch },
-                                            { done: hasConfirmedPayment, index: 5, inPlay: shouldShowPostPitch },
-                                            { done: hasRisk, index: 6, inPlay: shouldShowPostPitch },
-                                            { done: hasMatter, index: 7, inPlay: shouldShowPostPitch },
+                                            { done: hasPocActivity, index: 0, inPlay: true },
+                                            { done: showPitch, index: 1, inPlay: true },
+                                            { done: hasInstruction, index: 2, inPlay: shouldShowPostPitch },
+                                            { done: hasEid, index: 3, inPlay: shouldShowPostPitch },
+                                            { done: hasConfirmedPayment, index: 4, inPlay: shouldShowPostPitch },
+                                            { done: hasRisk, index: 5, inPlay: shouldShowPostPitch },
+                                            { done: hasMatter, index: 6, inPlay: shouldShowPostPitch },
                                           ];
                                           const nextIncompleteIndex = pipelineStages.find(s => s.inPlay && !s.done)?.index ?? -1;
                                           
@@ -7455,6 +7541,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                             shortLabel,
                                             fullLabel,
                                             done,
+                                            inProgress,
                                             color,
                                             title,
                                             iconName,
@@ -7466,6 +7553,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                             shortLabel: string;
                                             fullLabel: string;
                                             done: boolean;
+                                            inProgress?: boolean;
                                             color: string;
                                             title: string;
                                             iconName: string;
@@ -7501,7 +7589,11 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                                 fontFamily: 'inherit',
                                               }}
                                             >
-                                              <Icon iconName={iconName} styles={{ root: { fontSize: 14, color: done ? color : (isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)') } }} />
+                                              {renderPipelineIcon(
+                                                iconName,
+                                                (done || inProgress) ? color : (isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)'),
+                                                14
+                                              )}
                                               {isNextAction && !done ? (
                                                 <span style={{
                                                   width: 6,
@@ -7511,18 +7603,18 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                                   boxShadow: `0 0 8px ${isDarkMode ? 'rgba(148, 163, 184, 0.8)' : 'rgba(100, 116, 139, 0.7)'}99`,
                                                   marginLeft: 6,
                                                   flexShrink: 0,
-                                                  animation: 'action-dot-pulse 2s ease-in-out infinite',
+                                                  animation: 'pipeline-action-pulse 2.6s ease-in-out infinite',
                                                 }} />
                                               ) : (
-                                                <span style={getPipelineDotStyle(done, color, isDarkMode)} />
+                                                <span style={getPipelineDotStyle(done || !!inProgress, color, isDarkMode)} />
                                               )}
                                             </button>
                                           );
 
                                           return (
                                             <>
-                                              {/* Inst - chip index 3 */}
-                                              <div style={getCascadeStyle(3)}>{(shouldShowPostPitch || childIsChipVisible(3)) && (
+                                              {/* Inst - chip index 2 */}
+                                              <div style={getCascadeStyle(2)}>{(shouldShowPostPitch || childIsChipVisible(2)) && (
                                               <Mini
                                                 shortLabel="Inst"
                                                 fullLabel="Instructed"
@@ -7532,15 +7624,15 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                                 statusText={hasInstruction ? `Instruction linked (${instructionRef})` : 'Not instructed'}
                                                 subtitle={childContactName}
                                                 title={hasInstruction ? `Instructed (${instructionRef})` : 'Not instructed yet'}
-                                                isNextAction={nextIncompleteIndex === 3}
+                                                isNextAction={nextIncompleteIndex === 2}
                                                 onClick={(e) => {
                                                   e.stopPropagation();
-                                                  openEnquiryWorkbench(childEnquiry, 'Timeline');
+                                                  openEnquiryWorkbench(childEnquiry, 'Timeline', { filter: 'pitch' });
                                                 }}
                                               />
                                               )}</div>
-                                              {/* ID - chip index 4 */}
-                                              <div style={getCascadeStyle(4)}>{(shouldShowPostPitch || childIsChipVisible(4)) && (
+                                              {/* ID - chip index 3 */}
+                                              <div style={getCascadeStyle(3)}>{(shouldShowPostPitch || childIsChipVisible(3)) && (
                                               <Mini
                                                 shortLabel={hasEid ? eidLabel : 'ID'}
                                                 fullLabel={hasEid ? eidLabel : 'ID Check'}
@@ -7550,64 +7642,65 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                                 statusText={hasEid ? `ID: ${eidLabel}` : 'ID not started'}
                                                 subtitle={childContactName}
                                                 title={hasEid ? `ID: ${eidLabel}` : 'ID not started'}
-                                                isNextAction={nextIncompleteIndex === 4}
+                                                isNextAction={nextIncompleteIndex === 3}
                                                 onClick={(e) => {
                                                   e.stopPropagation();
-                                                  openEnquiryWorkbench(childEnquiry, 'Timeline');
+                                                  openEnquiryWorkbench(childEnquiry, 'Timeline', { filter: 'pitch' });
                                                 }}
                                               />
                                               )}</div>
-                                              {/* Pay - chip index 5 */}
-                                              <div style={getCascadeStyle(5)}>{(shouldShowPostPitch || childIsChipVisible(5)) && (
+                                              {/* Pay - chip index 4 */}
+                                              <div style={getCascadeStyle(4)}>{(shouldShowPostPitch || childIsChipVisible(4)) && (
                                               <Mini
                                                 shortLabel={paymentLabel}
                                                 fullLabel={hasConfirmedPayment ? 'Paid' : hasPayment ? (isBankPayment ? 'Pending' : 'Payment') : 'Payment'}
                                                 done={shouldShowPostPitch && hasConfirmedPayment}
+                                                inProgress={shouldShowPostPitch && hasPayment && !hasConfirmedPayment}
                                                 color={paymentColor}
                                                 iconName={paymentIcon}
                                                 statusText={hasConfirmedPayment ? 'Paid' : hasPayment ? (isBankPayment ? 'Bank pending' : 'Payment recorded') : 'No payment'}
                                                 subtitle={childContactName}
                                                 title={paymentTitle}
-                                                isNextAction={nextIncompleteIndex === 5}
+                                                isNextAction={nextIncompleteIndex === 4}
                                                 onClick={(e) => {
                                                   e.stopPropagation();
-                                                  openEnquiryWorkbench(childEnquiry, 'Timeline');
+                                                  openEnquiryWorkbench(childEnquiry, 'Timeline', { filter: 'pitch' });
                                                 }}
                                               />
                                               )}</div>
-                                              {/* Risk - chip index 6 */}
-                                              <div style={getCascadeStyle(6)}>{(shouldShowPostPitch || childIsChipVisible(6)) && (
+                                              {/* Risk - chip index 5 */}
+                                              <div style={getCascadeStyle(5)}>{(shouldShowPostPitch || childIsChipVisible(5)) && (
                                               <Mini
                                                 shortLabel="Risk"
                                                 fullLabel="Risk"
                                                 done={shouldShowPostPitch && hasRisk}
-                                                color={colours.orange}
-                                                iconName="Shield"
+                                                color={colours.green}
+                                                iconName={riskIcon}
                                                 statusText={hasRisk ? 'Risk recorded' : 'No risk record'}
                                                 subtitle={childContactName}
                                                 title={hasRisk ? 'Risk record present' : 'Risk not started'}
-                                                isNextAction={nextIncompleteIndex === 6}
+                                                isNextAction={nextIncompleteIndex === 5}
                                                 onClick={(e) => {
                                                   e.stopPropagation();
-                                                  openEnquiryWorkbench(childEnquiry, 'Timeline');
+                                                  openEnquiryWorkbench(childEnquiry, 'Timeline', { filter: 'pitch' });
                                                 }}
                                               />
                                               )}</div>
-                                              {/* Matter - chip index 7 */}
-                                              <div style={getCascadeStyle(7)}>{(shouldShowPostPitch || childIsChipVisible(7)) && (
+                                              {/* Matter - chip index 6 */}
+                                              <div style={getCascadeStyle(6)}>{(shouldShowPostPitch || childIsChipVisible(6)) && (
                                               <Mini
                                                 shortLabel="Matter"
                                                 fullLabel="Matter"
                                                 done={shouldShowPostPitch && hasMatter}
-                                                color={colours.accent}
+                                                color={colours.green}
                                                 iconName="OpenFolderHorizontal"
                                                 statusText={hasMatter ? 'Matter linked' : 'No matter yet'}
                                                 subtitle={childContactName}
                                                 title={hasMatter ? 'Matter linked/opened' : 'Matter not opened'}
-                                                isNextAction={nextIncompleteIndex === 7}
+                                                isNextAction={nextIncompleteIndex === 6}
                                                 onClick={(e) => {
                                                   e.stopPropagation();
-                                                  openEnquiryWorkbench(childEnquiry, 'Timeline');
+                                                  openEnquiryWorkbench(childEnquiry, 'Timeline', { filter: 'pitch' });
                                                 }}
                                               />
                                               )}</div>
@@ -7621,9 +7714,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                             type="button"
                                             onClick={(e) => {
                                               e.stopPropagation();
-                                              advancePipelineScroll(childEnquiry.ID, 8, visiblePipelineChipCount);
+                                              advancePipelineScroll(childEnquiry.ID, 7, visiblePipelineChipCount);
                                             }}
-                                            title={childHasMoreChips ? `View more stages (${8 - childVisibleEnd} hidden)` : 'Back to start'}
+                                            title={childHasMoreChips ? `View more stages (${7 - childVisibleEnd} hidden)` : 'Back to start'}
                                             style={{
                                               display: 'flex',
                                               alignItems: 'center',
@@ -7972,7 +8065,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                         const hasNotes = item.Initial_first_call_notes && item.Initial_first_call_notes.trim().length > 0;
                         const noteKey = buildEnquiryIdentityKey(item);
                         const isNotesExpanded = expandedNotesInTable.has(noteKey);
-                        const inlineWorkbenchItem = item.ID ? inlineWorkbenchByEnquiryId.get(String(item.ID)) : undefined;
+                        const inlineWorkbenchKey = getEnquiryWorkbenchKey(item);
+                        const inlineWorkbenchItem = inlineWorkbenchKey ? inlineWorkbenchByEnquiryId.get(inlineWorkbenchKey) : undefined;
                         const hasInlineWorkbench = Boolean(inlineWorkbenchItem);
                         const enrichmentDataKey = item.ID ?? (item as any).id ?? '';
                         const enrichmentData = enrichmentDataKey
@@ -8422,7 +8516,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                         display: 'grid',
                                         gridTemplateColumns: pipelineNeedsCarousel 
                                           ? `repeat(${visiblePipelineChipCount}, minmax(0, 1fr)) 24px`
-                                          : 'repeat(8, minmax(0, 1fr)) 24px',
+                                          : 'repeat(7, minmax(0, 1fr)) 24px',
                                         columnGap: 8,
                                         alignItems: 'center',
                                         width: '100%',
@@ -8430,14 +8524,13 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                       }}
                                     >
                                       {[
-                                        { icon: 'TeamsLogo', label: 'Teams' },
-                                        { icon: 'Contact', label: 'Claim' },
+                                        { icon: 'TeamsLogo', label: 'POC' },
                                         { icon: 'Send', label: 'Pitch' },
-                                        { icon: 'CreditCard', label: 'Card' },
-                                        { icon: 'CheckMark', label: 'ID' },
-                                        { icon: 'Money', label: 'Payment' },
-                                        { icon: 'ShieldAlert', label: 'Risk' },
-                                        { icon: 'FolderHorizontal', label: 'Matter' },
+                                        { icon: 'CheckMark', label: 'Inst' },
+                                        { icon: 'ContactCard', label: 'ID' },
+                                        { icon: 'CurrencyPound', label: 'Pay' },
+                                        { icon: 'Shield', label: 'Risk' },
+                                        { icon: 'OpenFolderHorizontal', label: 'Matter' },
                                       ].map((stage, idx) => {
                                         const mainPipelineOffset = getPipelineScrollOffset(item.ID);
                                         const mainVisibleEnd = mainPipelineOffset + visiblePipelineChipCount;
@@ -8457,15 +8550,11 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                               animation: `pipeline-pulse 1.5s ease-in-out infinite ${idx * 0.1}s`,
                                             }}
                                           >
-                                            <Icon 
-                                              iconName={stage.icon} 
-                                              styles={{ 
-                                                root: { 
-                                                  fontSize: 14, 
-                                                  color: isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)',
-                                                } 
-                                              }} 
-                                            />
+                                            {renderPipelineIcon(
+                                              stage.icon,
+                                              isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)',
+                                              14
+                                            )}
                                           </div>
                                         );
                                       })}
@@ -8495,14 +8584,14 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               // Pipeline carousel state for this row
                               const mainPipelineOffset = getPipelineScrollOffset(item.ID);
                               const mainVisibleEnd = mainPipelineOffset + visiblePipelineChipCount;
-                              const mainHasMoreChips = pipelineNeedsCarousel && mainPipelineOffset < 8 - visiblePipelineChipCount;
+                              const mainHasMoreChips = pipelineNeedsCarousel && mainPipelineOffset < 7 - visiblePipelineChipCount;
                               const mainIsChipVisible = (chipIndex: number) => 
                                 !pipelineNeedsCarousel || (chipIndex >= mainPipelineOffset && chipIndex < mainVisibleEnd);
                               
                               // Dynamic grid columns based on carousel state
                               const mainGridCols = pipelineNeedsCarousel 
                                 ? `repeat(${visiblePipelineChipCount}, minmax(0, 1fr)) 24px`
-                                : 'repeat(8, minmax(0, 1fr)) 24px';
+                                : 'repeat(7, minmax(0, 1fr)) 24px';
                               
                               // Cascade animation helper
                               const getMainCascadeStyle = (chipIndex: number) => ({
@@ -8521,183 +8610,152 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                       height: '100%',
                                     }}
                                   >
-                                    {/* Teams - chip index 0 */}
+                                    {/* POC - merged Teams + Claim - chip index 0 */}
                                     {mainIsChipVisible(0) && (
                                     <div style={getMainCascadeStyle(0)}>
-                                      {showTeamsStage ? (
-                                        <button
-                                          className="pipeline-chip"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            const link = teamsData?.teamsLink || getAreaSpecificChannelUrl(item['Area_of_Work']);
-                                            if (link) window.open(link, '_blank');
-                                          }}
-                                          onMouseEnter={(e) => showPipelineHover(e, {
-                                            title: 'Teams Card',
-                                            status: 'Activity logged',
-                                            subtitle: contactName,
-                                            color: colours.blue,
-                                            iconName: 'TeamsLogo',
-                                          })}
-                                          onMouseMove={movePipelineHover}
-                                          onMouseLeave={hidePipelineHover}
-                                          style={{
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            width: '100%',
-                                            height: 22,
-                                            padding: 0,
-                                            borderRadius: 0,
-                                            background: 'transparent',
-                                            border: 'none',
-                                            cursor: 'pointer',
-                                          }}
-                                        >
-                                          <Icon iconName="TeamsLogo" styles={{ root: { fontSize: 14, color: isDarkMode ? 'rgba(54, 144, 206, 0.85)' : 'rgba(54, 144, 206, 0.75)' } }} />
-                                          <span style={getPipelineDotStyle(true, colours.blue, isDarkMode)} />
-                                        </button>
-                                      ) : showLegacyPlaceholder ? (
-                                        <div
-                                          style={{
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: 6,
-                                            padding: '4px 8px',
-                                            borderRadius: 0,
-                                            background: isDarkMode ? 'rgba(148,163,184,0.06)' : 'rgba(148,163,184,0.04)',
-                                            border: `1px dashed ${isDarkMode ? 'rgba(148,163,184,0.25)' : 'rgba(100,116,139,0.2)'}`,
-                                            fontSize: 9,
-                                            fontWeight: 500,
-                                            color: isDarkMode ? 'rgba(148,163,184,0.6)' : 'rgba(71,85,105,0.6)',
-                                            whiteSpace: 'nowrap',
-                                            width: '100%',
-                                            justifyContent: 'center',
-                                          }}
-                                        >
-                                          <span style={{ fontSize: 9 }}>legacy</span>
-                                        </div>
-                                      ) : (
-                                        <div
-                                          onMouseEnter={(e) => showPipelineHover(e, {
-                                            title: 'Teams Card',
-                                            status: 'No activity yet',
-                                            subtitle: contactName,
-                                            color: colours.blue,
-                                            iconName: 'TeamsLogo',
-                                          })}
-                                          onMouseMove={movePipelineHover}
-                                          onMouseLeave={hidePipelineHover}
-                                          style={{
-                                            display: 'inline-flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            width: '100%',
-                                            height: 22,
-                                            border: 'none',
-                                            borderRadius: 0,
-                                            background: 'transparent',
-                                          }}
-                                        >
-                                          <Icon iconName="TeamsLogo" styles={{ root: { fontSize: 14, color: isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)' } }} />
-                                          <span style={getPipelineDotStyle(false, colours.blue, isDarkMode)} />
-                                        </div>
-                                      )}
+                                      {(() => {
+                                        const hasPocActivity = showTeamsStage || showClaimer;
+                                        const pocIconColor = hasPocActivity
+                                          ? (isDarkMode ? 'rgba(54, 144, 206, 0.85)' : 'rgba(54, 144, 206, 0.75)')
+                                          : (isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)');
+                                        const initialsColor = showClaimer
+                                          ? colours.green
+                                          : (isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(100, 116, 139, 0.35)');
+                                        
+                                        // Show legacy placeholder
+                                        if (showLegacyPlaceholder && !showClaimer && !showTeamsStage) {
+                                          return (
+                                            <div
+                                              style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: 6,
+                                                padding: '4px 8px',
+                                                borderRadius: 0,
+                                                background: isDarkMode ? 'rgba(148,163,184,0.06)' : 'rgba(148,163,184,0.04)',
+                                                border: `1px dashed ${isDarkMode ? 'rgba(148,163,184,0.25)' : 'rgba(100,116,139,0.2)'}`,
+                                                fontSize: 9,
+                                                fontWeight: 500,
+                                                color: isDarkMode ? 'rgba(148,163,184,0.6)' : 'rgba(71,85,105,0.6)',
+                                                whiteSpace: 'nowrap',
+                                                width: '100%',
+                                                justifyContent: 'center',
+                                              }}
+                                            >
+                                              <span style={{ fontSize: 9 }}>legacy</span>
+                                            </div>
+                                          );
+                                        }
+                                        
+                                        // Unclaimed state - show claim prompt or inactive
+                                        if (!showClaimer) {
+                                          if (pocLower === 'team@helix-law.com' && !pocLower.includes('triage')) {
+                                            return renderClaimPromptChip({
+                                              teamsLink: enquiryTeamsLink,
+                                              leadName: contactName,
+                                              areaOfWork: item['Area_of_Work'],
+                                              enquiryId: item.ID,
+                                              dataSource: isFromInstructions ? 'new' : 'legacy',
+                                              iconOnly: true,
+                                            });
+                                          }
+                                          return (
+                                            <div
+                                              onMouseEnter={(e) => showPipelineHover(e, {
+                                                title: 'POC',
+                                                status: showTeamsStage ? 'Teams activity - unclaimed' : 'Unclaimed',
+                                                subtitle: contactName,
+                                                color: colours.blue,
+                                                iconName: 'TeamsLogo',
+                                              })}
+                                              onMouseMove={movePipelineHover}
+                                              onMouseLeave={hidePipelineHover}
+                                              style={{
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                gap: 4,
+                                                width: '100%',
+                                                height: 22,
+                                                border: 'none',
+                                                borderRadius: 0,
+                                                background: 'transparent',
+                                              }}
+                                            >
+                                              <Icon iconName="TeamsLogo" styles={{ root: { fontSize: 14, color: pocIconColor, flexShrink: 0 } }} />
+                                            </div>
+                                          );
+                                        }
+                                        
+                                        // Claimed state - show initials with reassign chevron
+                                        return (
+                                          <button
+                                            className="pipeline-chip"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              const link = teamsData?.teamsLink || getAreaSpecificChannelUrl(item['Area_of_Work']);
+                                              if (link) window.open(link, '_blank');
+                                            }}
+                                            onMouseEnter={(e) => showPipelineHover(e, {
+                                              title: 'POC',
+                                              status: showTeamsStage ? `${pocDisplayName} - Teams activity` : `Claimed by ${pocDisplayName}`,
+                                              subtitle: contactName,
+                                              color: colours.blue,
+                                              iconName: 'TeamsLogo',
+                                            })}
+                                            onMouseMove={movePipelineHover}
+                                            onMouseLeave={hidePipelineHover}
+                                            style={{
+                                              display: 'inline-flex',
+                                              alignItems: 'center',
+                                              justifyContent: 'center',
+                                              gap: 4,
+                                              width: '100%',
+                                              height: 22,
+                                              padding: 0,
+                                              borderRadius: 0,
+                                              border: 'none',
+                                              background: 'transparent',
+                                              cursor: 'pointer',
+                                              fontFamily: 'inherit',
+                                            }}
+                                          >
+                                            <Icon iconName="TeamsLogo" styles={{ root: { fontSize: 14, color: pocIconColor, flexShrink: 0 } }} />
+                                            <span style={{
+                                              width: 22,
+                                              textAlign: 'center',
+                                              fontSize: 10,
+                                              fontWeight: 700,
+                                              color: initialsColor,
+                                              textTransform: 'uppercase',
+                                              letterSpacing: '0.3px',
+                                            }}>
+                                              {claimerLabel}
+                                            </span>
+                                            <Icon 
+                                              iconName="ChevronDown" 
+                                              onClick={(e: React.MouseEvent) => {
+                                                e.stopPropagation();
+                                                handleReassignClick(String(item.ID), e as any);
+                                              }}
+                                              styles={{ root: { fontSize: 8, color: initialsColor, opacity: 0.6, cursor: 'pointer' } }} 
+                                            />
+                                          </button>
+                                        );
+                                      })()}
                                     </div>
                                     )}
 
-                                    {/* Claim - chip index 1 */}
+                                    {/* Pitch - chip index 1 */}
                                     {mainIsChipVisible(1) && (
                                     <div style={getMainCascadeStyle(1)}>
-                                      {!showClaimer ? (
-                                        <div
-                                          onMouseEnter={(e) => showPipelineHover(e, {
-                                            title: 'Claimed',
-                                            status: 'Unclaimed',
-                                            subtitle: contactName,
-                                            color: colours.green,
-                                            iconName: 'Contact',
-                                          })}
-                                          onMouseMove={movePipelineHover}
-                                          onMouseLeave={hidePipelineHover}
-                                          style={{
-                                            display: 'inline-flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            width: '100%',
-                                            height: 22,
-                                            border: 'none',
-                                            borderRadius: 0,
-                                            background: 'transparent',
-                                          }}
-                                        >
-                                          <Icon iconName="Contact" styles={{ root: { fontSize: 14, color: isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)' } }} />
-                                          <span style={getPipelineDotStyle(false, colours.green, isDarkMode)} />
-                                        </div>
-                                      ) : (
-                                        <div style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
-                                          {pocLower === 'team@helix-law.com' && !pocLower.includes('triage')
-                                            ? renderClaimPromptChip({
-                                                teamsLink: enquiryTeamsLink,
-                                                leadName: contactName,
-                                                areaOfWork: item['Area_of_Work'],
-                                                enquiryId: item.ID,
-                                                dataSource: isFromInstructions ? 'new' : 'legacy',
-                                                iconOnly: true,
-                                              })
-                                            : (
-                                              <button
-                                                className="pipeline-chip"
-                                                onClick={(e) => handleReassignClick(String(item.ID), e)}
-                                                onMouseEnter={(e) => showPipelineHover(e, {
-                                                  title: 'Claimed',
-                                                  status: `Claimed by ${pocDisplayName}`,
-                                                  subtitle: contactName,
-                                                  color: colours.green,
-                                                  iconName: 'Contact',
-                                                })}
-                                                onMouseMove={movePipelineHover}
-                                                onMouseLeave={hidePipelineHover}
-                                                style={{
-                                                  display: 'inline-flex',
-                                                  alignItems: 'center',
-                                                  justifyContent: 'center',
-                                                  gap: 4,
-                                                  width: '100%',
-                                                  height: 22,
-                                                  padding: 0,
-                                                  borderRadius: 0,
-                                                  border: 'none',
-                                                  background: 'transparent',
-                                                  color: colours.green,
-                                                  fontSize: 10,
-                                                  fontWeight: 700,
-                                                  textTransform: 'uppercase',
-                                                  letterSpacing: '0.3px',
-                                                  cursor: 'pointer',
-                                                  fontFamily: 'inherit',
-                                                }}
-                                              >
-                                                {claimerLabel}
-                                                <Icon iconName="ChevronDown" styles={{ root: { fontSize: 8, color: 'inherit', opacity: 0.6, marginLeft: 3 } }} />
-                                                <span style={getPipelineDotStyle(true, colours.green, isDarkMode)} />
-                                              </button>
-                                            )}
-                                        </div>
-                                      )}
-                                    </div>
-                                    )}
-
-                                    {/* Pitch - chip index 2 */}
-                                    {mainIsChipVisible(2) && (
-                                    <div style={getMainCascadeStyle(2)}>
                                       {showPitch ? (
                                         <button
                                           type="button"
                                           className="pipeline-chip"
                                           onClick={(e) => {
                                             e.stopPropagation();
-                                            openEnquiryWorkbench(item, 'Pitch');
+                                            openEnquiryWorkbench(item, 'Timeline', { filter: 'pitch' });
                                           }}
                                           onMouseEnter={(e) => showPipelineHover(e, {
                                             title: 'Pitch',
@@ -8765,7 +8823,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                             boxShadow: `0 0 8px ${isDarkMode ? 'rgba(148, 163, 184, 0.8)' : 'rgba(100, 116, 139, 0.7)'}99`,
                                             marginLeft: 6,
                                             flexShrink: 0,
-                                            animation: 'action-dot-pulse 2s ease-in-out infinite',
+                                            animation: 'pipeline-action-pulse 2.6s ease-in-out infinite',
                                           }} />
                                         </button>
                                       ) : (
@@ -8805,8 +8863,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                       const hasInstruction = Boolean(instructionRef);
                                       const hasEid = Boolean(inlineWorkbenchItem?.eid);
                                       const eidResult = (inlineWorkbenchItem?.eid as any)?.EIDOverallResult?.toLowerCase() ?? '';
-                                      const eidColor = eidResult === 'passed' || eidResult === 'pass' ? colours.green : eidResult === 'refer' ? colours.orange : colours.highlight;
-                                      const eidLabel = eidResult === 'passed' || eidResult === 'pass' ? 'Pass' : eidResult === 'refer' ? 'Refer' : eidResult || 'ID';
+                                      const eidColor = eidResult === 'passed' || eidResult === 'pass' || eidResult === 'verified' ? colours.green : eidResult === 'refer' ? colours.orange : eidResult === 'review' ? colours.red : colours.highlight;
+                                      const eidLabel = eidResult === 'passed' || eidResult === 'pass' || eidResult === 'verified' ? 'Pass' : eidResult === 'refer' ? 'Refer' : eidResult === 'review' ? 'Review' : eidResult || 'ID';
                                       
                                       // Payment detection with method and confirmation status
                                       const payments = Array.isArray(inlineWorkbenchItem?.payments) ? inlineWorkbenchItem.payments : [];
@@ -8828,14 +8886,18 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                       const combinedMethod = methodRaw || metaMethod || (intentIsBank ? 'bank' : intentIsCard ? 'card' : '');
                                       const isCardPayment = combinedMethod.includes('card') || combinedMethod.includes('stripe') || combinedMethod === 'cc' || intentIsCard;
                                       const isBankPayment = combinedMethod.includes('bank') || combinedMethod.includes('transfer') || combinedMethod.includes('bacs') || intentIsBank;
-                                      // Check payment status - card payments are auto-confirmed, bank needs manual confirmation
-                                      const paymentStatus = (latestPayment?.status || latestPayment?.Status || '').toString().toLowerCase();
-                                      const isCardConfirmed = isCardPayment && (paymentStatus === 'succeeded' || paymentStatus === 'success' || paymentStatus === 'complete' || paymentStatus === 'completed' || paymentStatus === 'paid');
+                                      // Check payment status - DB column is payment_status, also check variants
+                                      const paymentStatus = (latestPayment?.payment_status || latestPayment?.paymentStatus || latestPayment?.status || latestPayment?.Status || '').toString().toLowerCase();
+                                      const isSucceededStatus = paymentStatus === 'succeeded' || paymentStatus === 'success' || paymentStatus === 'complete' || paymentStatus === 'completed' || paymentStatus === 'paid';
+                                      const isCardConfirmed = isCardPayment && isSucceededStatus;
                                       const isBankConfirmed = isBankPayment && (latestPayment?.confirmed === true || latestPayment?.Confirmed === true || paymentStatus === 'confirmed');
-                                      const hasConfirmedPayment = isCardConfirmed || isBankConfirmed;
+                                      // Also treat as confirmed if status is succeeded even if method not detected
+                                      const hasConfirmedPayment = isCardConfirmed || isBankConfirmed || isSucceededStatus;
                                       const hasPayment = payments.length > 0;
                                       const paymentLabel = hasConfirmedPayment ? 'Paid' : hasPayment ? (isBankPayment ? 'Pending' : '£') : '£';
-                                      const paymentIcon = hasConfirmedPayment ? (isCardPayment ? 'PaymentCard' : 'Bank') : hasPayment ? (isBankPayment ? 'Bank' : 'Money') : 'Money';
+                                      const paymentIcon = hasConfirmedPayment
+                                        ? (isCardPayment ? 'PaymentCard' : 'Bank')
+                                        : 'CurrencyPound';
                                       const paymentColor = hasConfirmedPayment ? colours.green : hasPayment ? (isBankPayment ? colours.orange : colours.blue) : colours.blue;
                                       const paymentTitle = hasConfirmedPayment 
                                         ? `Paid via ${isCardPayment ? 'card' : 'bank transfer'}` 
@@ -8844,20 +8906,21 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                           : 'No payment yet';
                                       
                                       const hasRisk = Boolean(inlineWorkbenchItem?.risk);
+                                      const riskResult = (inlineWorkbenchItem?.risk as any)?.RiskAssessmentResult?.toLowerCase() ?? '';
+                                      const riskIcon = riskResult === 'low' || riskResult === 'approved' ? 'ShieldSolid' : riskResult === 'medium' ? 'HalfCircle' : 'Shield';
                                       const hasMatter = Boolean(inst?.MatterId ?? inst?.matterId) || (Array.isArray(inlineWorkbenchItem?.matters) && inlineWorkbenchItem.matters.length > 0);
                                       const shouldShowPostPitch = Boolean(inlineWorkbenchItem) || showPitch;
 
                                       // Determine next incomplete stage in pipeline order
-                                      // Only consider stages that are "in play" - skip Teams if no activity, then look for first incomplete
+                                      // Only consider stages that are "in play" - skip POC if no activity, then look for first incomplete
                                       const mainPipelineStages = [
-                                        { done: showTeamsStage, index: 0, inPlay: showTeamsStage || showLegacyPlaceholder },
-                                        { done: showClaimer, index: 1, inPlay: true },
-                                        { done: showPitch, index: 2, inPlay: true },
-                                        { done: hasInstruction, index: 3, inPlay: shouldShowPostPitch },
-                                        { done: hasEid, index: 4, inPlay: shouldShowPostPitch },
-                                        { done: hasConfirmedPayment, index: 5, inPlay: shouldShowPostPitch },
-                                        { done: hasRisk, index: 6, inPlay: shouldShowPostPitch },
-                                        { done: hasMatter, index: 7, inPlay: shouldShowPostPitch },
+                                        { done: showTeamsStage || showClaimer, index: 0, inPlay: showTeamsStage || showClaimer || showLegacyPlaceholder },
+                                        { done: showPitch, index: 1, inPlay: true },
+                                        { done: hasInstruction, index: 2, inPlay: shouldShowPostPitch },
+                                        { done: hasEid, index: 3, inPlay: shouldShowPostPitch },
+                                        { done: hasConfirmedPayment, index: 4, inPlay: shouldShowPostPitch },
+                                        { done: hasRisk, index: 5, inPlay: shouldShowPostPitch },
+                                        { done: hasMatter, index: 6, inPlay: shouldShowPostPitch },
                                       ];
                                       const mainNextIncompleteIndex = mainPipelineStages.find(s => s.inPlay && !s.done)?.index ?? -1;
                                       
@@ -8880,6 +8943,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                         shortLabel,
                                         fullLabel,
                                         done,
+                                        inProgress,
                                         color,
                                         title,
                                         iconName,
@@ -8891,6 +8955,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                         shortLabel: string;
                                         fullLabel: string;
                                         done: boolean;
+                                        inProgress?: boolean;
                                         color: string;
                                         title: string;
                                         iconName: string;
@@ -8926,7 +8991,11 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                             fontFamily: 'inherit',
                                           }}
                                         >
-                                          <Icon iconName={iconName} styles={{ root: { fontSize: 14, color: done ? color : (isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)') } }} />
+                                            {renderPipelineIcon(
+                                              iconName,
+                                              (done || inProgress) ? color : (isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)'),
+                                              14
+                                            )}
                                           {isNextAction && !done ? (
                                             <span style={{
                                               width: 6,
@@ -8936,18 +9005,18 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                               boxShadow: `0 0 8px ${isDarkMode ? 'rgba(148, 163, 184, 0.8)' : 'rgba(100, 116, 139, 0.7)'}99`,
                                               marginLeft: 6,
                                               flexShrink: 0,
-                                              animation: 'action-dot-pulse 2s ease-in-out infinite',
+                                              animation: 'pipeline-action-pulse 2.6s ease-in-out infinite',
                                             }} />
                                           ) : (
-                                            <span style={getPipelineDotStyle(done, color, isDarkMode)} />
+                                            <span style={getPipelineDotStyle(done || !!inProgress, color, isDarkMode)} />
                                           )}
                                         </button>
                                       );
 
                                       return (
                                         <>
-                                          {/* Inst - chip index 3 */}
-                                          <div style={getMainCascadeStyle(3)}>{(shouldShowPostPitch || mainIsChipVisible(3)) && (
+                                          {/* Inst - chip index 2 */}
+                                          <div style={getMainCascadeStyle(2)}>{(shouldShowPostPitch || mainIsChipVisible(2)) && (
                                           <Mini
                                             shortLabel="Inst"
                                             fullLabel="Instructed"
@@ -8957,20 +9026,20 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                             statusText={hasInstruction ? `Instruction linked (${instructionRef})` : 'Not instructed'}
                                             subtitle={contactName}
                                             title={hasInstruction ? `Instructed (${instructionRef})` : 'Not instructed yet'}
-                                            isNextAction={mainNextIncompleteIndex === 3}
+                                            isNextAction={mainNextIncompleteIndex === 2}
                                             onClick={(e) => {
                                               e.stopPropagation();
-                                              openEnquiryWorkbench(item, 'Timeline');
+                                              openEnquiryWorkbench(item, 'Timeline', { filter: 'pitch' });
                                             }}
                                           />
                                           )}</div>
-                                          {/* ID - chip index 4 */}
-                                          <div style={getMainCascadeStyle(4)}>{(shouldShowPostPitch || mainIsChipVisible(4)) && (
+                                          {/* ID - chip index 3 */}
+                                          <div style={getMainCascadeStyle(3)}>{(shouldShowPostPitch || mainIsChipVisible(3)) && (
                                           <Mini
                                             shortLabel={hasEid ? eidLabel : 'ID'}
                                             fullLabel={hasEid ? eidLabel : 'ID Check'}
                                             done={shouldShowPostPitch && hasEid}
-                                            isNextAction={mainNextIncompleteIndex === 4}
+                                            isNextAction={mainNextIncompleteIndex === 3}
                                             color={hasEid ? eidColor : colours.highlight}
                                             iconName="ContactCard"
                                             statusText={hasEid ? `ID: ${eidLabel}` : 'ID not started'}
@@ -8978,61 +9047,62 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                             title={hasEid ? `ID: ${eidLabel}` : 'ID not started'}
                                             onClick={(e) => {
                                               e.stopPropagation();
-                                              openEnquiryWorkbench(item, 'Timeline');
+                                              openEnquiryWorkbench(item, 'Timeline', { filter: 'pitch' });
                                             }}
                                           />
                                           )}</div>
-                                          {/* Pay - chip index 5 */}
-                                          <div style={getMainCascadeStyle(5)}>{(shouldShowPostPitch || mainIsChipVisible(5)) && (
+                                          {/* Pay - chip index 4 */}
+                                          <div style={getMainCascadeStyle(4)}>{(shouldShowPostPitch || mainIsChipVisible(4)) && (
                                           <Mini
                                             shortLabel={paymentLabel}
                                             fullLabel={hasConfirmedPayment ? 'Paid' : hasPayment ? (isBankPayment ? 'Pending' : 'Payment') : 'Payment'}
                                             done={shouldShowPostPitch && hasConfirmedPayment}
+                                            inProgress={shouldShowPostPitch && hasPayment && !hasConfirmedPayment}
                                             color={paymentColor}
                                             iconName={paymentIcon}
                                             statusText={hasConfirmedPayment ? 'Paid' : hasPayment ? (isBankPayment ? 'Bank pending' : 'Payment recorded') : 'No payment'}
                                             subtitle={contactName}
                                             title={paymentTitle}
-                                            isNextAction={mainNextIncompleteIndex === 5}
+                                            isNextAction={mainNextIncompleteIndex === 4}
                                             onClick={(e) => {
                                               e.stopPropagation();
-                                              openEnquiryWorkbench(item, 'Timeline');
+                                              openEnquiryWorkbench(item, 'Timeline', { filter: 'pitch' });
                                             }}
                                           />
                                           )}</div>
-                                          {/* Risk - chip index 6 */}
-                                          <div style={getMainCascadeStyle(6)}>{(shouldShowPostPitch || mainIsChipVisible(6)) && (
+                                          {/* Risk - chip index 5 */}
+                                          <div style={getMainCascadeStyle(5)}>{(shouldShowPostPitch || mainIsChipVisible(5)) && (
                                           <Mini
                                             shortLabel="Risk"
                                             fullLabel="Risk"
                                             done={shouldShowPostPitch && hasRisk}
-                                            color={colours.orange}
-                                            isNextAction={mainNextIncompleteIndex === 6}
-                                            iconName="Shield"
+                                            color={colours.green}
+                                            isNextAction={mainNextIncompleteIndex === 5}
+                                            iconName={riskIcon}
                                             statusText={hasRisk ? 'Risk recorded' : 'No risk record'}
                                             subtitle={contactName}
                                             title={hasRisk ? 'Risk record present' : 'Risk not started'}
                                             onClick={(e) => {
                                               e.stopPropagation();
-                                              openEnquiryWorkbench(item, 'Timeline');
+                                              openEnquiryWorkbench(item, 'Timeline', { filter: 'pitch' });
                                             }}
                                           />
                                           )}</div>
-                                          {/* Matter - chip index 7 */}
-                                          <div style={getMainCascadeStyle(7)}>{(shouldShowPostPitch || mainIsChipVisible(7)) && (
+                                          {/* Matter - chip index 6 */}
+                                          <div style={getMainCascadeStyle(6)}>{(shouldShowPostPitch || mainIsChipVisible(6)) && (
                                           <Mini
                                             shortLabel="Matter"
                                             fullLabel="Matter"
                                             done={shouldShowPostPitch && hasMatter}
-                                            color={colours.accent}
+                                            color={colours.green}
                                             iconName="OpenFolderHorizontal"
                                             statusText={hasMatter ? 'Matter linked' : 'No matter yet'}
                                             subtitle={contactName}
                                             title={hasMatter ? 'Matter linked/opened' : 'Matter not opened'}
-                                            isNextAction={mainNextIncompleteIndex === 7}
+                                            isNextAction={mainNextIncompleteIndex === 6}
                                             onClick={(e) => {
                                               e.stopPropagation();
-                                              openEnquiryWorkbench(item, 'Timeline');
+                                              openEnquiryWorkbench(item, 'Timeline', { filter: 'pitch' });
                                             }}
                                           />
                                           )}</div>
@@ -9046,9 +9116,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                         type="button"
                                         onClick={(e) => {
                                           e.stopPropagation();
-                                          advancePipelineScroll(item.ID, 8, visiblePipelineChipCount);
+                                          advancePipelineScroll(item.ID, 7, visiblePipelineChipCount);
                                         }}
-                                        title={mainHasMoreChips ? `View more stages (${8 - mainVisibleEnd} hidden)` : 'Back to start'}
+                                        title={mainHasMoreChips ? `View more stages (${7 - mainVisibleEnd} hidden)` : 'Back to start'}
                                         style={{
                                           display: 'flex',
                                           alignItems: 'center',
@@ -9590,9 +9660,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            {pipelineHover.iconName && (
-              <Icon iconName={pipelineHover.iconName} styles={{ root: { fontSize: 14, color: pipelineHover.color } }} />
-            )}
+            {pipelineHover.iconName && renderPipelineIcon(pipelineHover.iconName, pipelineHover.color, 14)}
             <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.2px' }}>
               {pipelineHover.title}
             </div>

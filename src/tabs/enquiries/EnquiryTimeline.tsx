@@ -644,13 +644,42 @@ interface EnquiryTimelineProps {
   onOpenPitchBuilder?: (scenarioId?: string) => void;
   /** Pre-fetched instruction workbench item for this enquiry (from parent instructionData) */
   inlineWorkbenchItem?: any;
+  /** Pre-fetched pitch data from enrichment (email-based lookup fallback) */
+  enrichmentPitchData?: {
+    dealId: number;
+    email: string;
+    serviceDescription?: string;
+    amount?: number;
+    status?: string;
+    areaOfWork?: string;
+    pitchedBy?: string;
+    pitchedDate?: string;
+    pitchedTime?: string;
+    closeDate?: string;
+    closeTime?: string;
+    instructionRef?: string;
+    displayNumber?: string;
+    pitchContent?: string;
+    scenarioId?: string;
+    scenarioDisplay?: string;
+  };
+  /** Initial filter to apply on mount (e.g. 'pitch' to show deals at top) */
+  initialFilter?: 'pitch' | 'link-enabled' | 'email' | 'call' | 'instruction' | 'note' | 'document';
 }
 
-const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoadingStatus = true, userInitials, userEmail, featureToggles, demoModeEnabled = false, onOpenPitchBuilder, inlineWorkbenchItem }) => {
+const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoadingStatus = true, userInitials, userEmail, featureToggles, demoModeEnabled = false, onOpenPitchBuilder, inlineWorkbenchItem, enrichmentPitchData, initialFilter }) => {
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
   const [selectedItem, setSelectedItem] = useState<TimelineItem | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeFilters, setActiveFilters] = useState<CommunicationType[]>([]);
+  const [activeFilters, setActiveFilters] = useState<CommunicationType[]>(initialFilter ? [initialFilter] : []);
+  
+  // Update filter when initialFilter prop changes (e.g. opening from different chip)
+  useEffect(() => {
+    if (initialFilter) {
+      setActiveFilters([initialFilter]);
+    }
+  }, [initialFilter]);
+  
   const [hiddenItemIds, setHiddenItemIds] = useState<Set<string>>(() => {
     try {
       const saved = localStorage.getItem(`hiddenTimelineItems_${enquiry?.ID}`);
@@ -2394,14 +2423,25 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         emails: cached.sourceProgress.emails.status !== 'loading',
       });
       setLoading(false);
-      setSelectedItem((prevSelected) => prevSelected ?? (cached.timeline.length > 0 ? cached.timeline[0] : null));
+      // When initialFilter is set, auto-select first matching item; otherwise fall back to first item
+      setSelectedItem((prevSelected) => {
+        if (prevSelected) return prevSelected;
+        if (initialFilter) {
+          const firstMatch = cached.timeline.find((t) => t.type === initialFilter);
+          if (firstMatch) return firstMatch;
+        }
+        return cached.timeline.length > 0 ? cached.timeline[0] : null;
+      });
     }
 
     const fetchTimeline = async (options?: { background?: boolean }) => {
       if (!options?.background) {
         setLoading(true);
         setTimeline([]);
-        setSelectedItem(null);
+        // Don't clear selection if entering via chip (initialFilter set) - auto-select will handle it
+        if (!initialFilter) {
+          setSelectedItem(null);
+        }
       }
       setLoadingStates({ pitches: true, emails: true, calls: true, documents: true });
       setCompletedSources({ pitches: false, emails: false });
@@ -2578,7 +2618,15 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         setInstructionStatuses(statusMap);
         setLoadingStates({ pitches: false, emails: false, calls: false, documents: false });
         setCompletedSources({ pitches: true, emails: true });
-        setSelectedItem((prevSelected) => prevSelected ?? (timelineItems.length > 0 ? timelineItems[0] : null));
+        // When initialFilter is set, auto-select first matching item
+        setSelectedItem((prevSelected) => {
+          if (prevSelected) return prevSelected;
+          if (initialFilter) {
+            const firstMatch = timelineItems.find((t) => t.type === initialFilter);
+            if (firstMatch) return firstMatch;
+          }
+          return timelineItems.length > 0 ? timelineItems[0] : null;
+        });
         setLoading(false);
         return; // Skip all API fetches for test record
       }
@@ -2592,7 +2640,25 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         });
         if (pitchesRes.ok) {
           const pitchesData = await pitchesRes.json();
-          const pitches = pitchesData.pitches || [];
+          let pitches = pitchesData.pitches || [];
+
+          // FALLBACK: If no pitches from API but enrichment data exists (email-based lookup), use that
+          if (pitches.length === 0 && enrichmentPitchData) {
+            console.log('[Timeline] No pitches from API, using enrichment fallback for:', enquiry.Email);
+            pitches = [{
+              DealId: enrichmentPitchData.dealId,
+              CreatedAt: enrichmentPitchData.pitchedDate ? `${enrichmentPitchData.pitchedDate}T${enrichmentPitchData.pitchedTime || '00:00:00'}` : new Date().toISOString(),
+              CreatedBy: enrichmentPitchData.pitchedBy || 'Unknown',
+              Amount: enrichmentPitchData.amount,
+              ServiceDescription: enrichmentPitchData.serviceDescription,
+              ScenarioId: enrichmentPitchData.scenarioId,
+              DealStatus: enrichmentPitchData.status,
+              InstructionRef: enrichmentPitchData.instructionRef,
+              // No email content for fallback (deal only)
+              EmailSubject: null,
+              EmailBody: null,
+            }];
+          }
 
           const pitchItems: TimelineItem[] = [];
           
@@ -2936,13 +3002,41 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
   }, [enquiry.ID, timelineUnlocked]);
 
   // Auto-select the first item only on initial timeline load (not when user collapses).
+  // When initialFilter is set (e.g. 'pitch' from chip click), auto-select first matching item.
   const hasAutoSelectedRef = React.useRef(false);
   useEffect(() => {
     if (!hasAutoSelectedRef.current && timeline.length > 0) {
-      setSelectedItem(timeline[0]);
+      // If we have an initialFilter, find the first matching item
+      if (initialFilter) {
+        const firstMatchingItem = timeline.find((item) => item.type === initialFilter);
+        if (firstMatchingItem) {
+          setSelectedItem(firstMatchingItem);
+          // Scroll to Quick Access section with offset to ensure full visibility
+          setTimeout(() => {
+            const quickAccessEl = document.getElementById('quick-access-section');
+            if (quickAccessEl) {
+              const rect = quickAccessEl.getBoundingClientRect();
+              const scrollContainer = quickAccessEl.closest('[style*="overflow"]') || window;
+              const offset = 80; // Padding from top to ensure header is visible
+              if (scrollContainer === window) {
+                window.scrollTo({
+                  top: window.scrollY + rect.top - offset,
+                  behavior: 'smooth'
+                });
+              } else {
+                quickAccessEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }
+            }
+          }, 200);
+        } else {
+          setSelectedItem(timeline[0]);
+        }
+      } else {
+        setSelectedItem(timeline[0]);
+      }
       hasAutoSelectedRef.current = true;
     }
-  }, [timeline]);
+  }, [timeline, initialFilter]);
 
   // Reset auto-select flag when enquiry changes.
   useEffect(() => {
@@ -3661,7 +3755,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 e.currentTarget.style.color = isDarkMode ? 'rgb(148, 163, 184)' : 'rgba(51, 65, 85, 0.7)';
               }}
             >
-              <FaEnvelope size={14} />
+              <FaEnvelope size={14} style={{ color: 'currentColor' }} />
             </button>
             <button
               onClick={() => enquiry.Phone_Number && copyToClipboard(enquiry.Phone_Number, 'Phone')}
@@ -3692,7 +3786,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 e.currentTarget.style.color = isDarkMode ? 'rgb(148, 163, 184)' : 'rgba(51, 65, 85, 0.7)';
               }}
             >
-              <FaPhone size={14} />
+              <FaPhone size={14} style={{ color: 'currentColor' }} />
             </button>
           </div>
 
@@ -3868,6 +3962,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
 
       {/* Quick Access (only shows when a Journey Timeline chip is selected) */}
       {activeFilters.length > 0 ? (
+      <div id="quick-access-section">
       <SectionCard
         variant="default"
         styleOverrides={{
@@ -4156,7 +4251,9 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             {quickAccessItemsWithoutWorkspace.map((item) => {
               const isDocument = item.type === 'document';
               const isEmail = item.type === 'email';
+              const isPitch = item.type === 'pitch';
               const isQuickAccessEmailExpanded = isEmail && expandedQuickAccessEmailIds.has(item.id);
+              const isQuickAccessPitchSelected = isPitch && selectedItem?.id === item.id;
               const filename = isDocument ? getDocumentFilename(item) : item.subject;
               const downloadHref = isDocument ? getDocumentDownloadHref(item) : null;
               const safeEmailHtml = item.contentHtml ? sanitizeEmailHtml(item.contentHtml) : '';
@@ -4325,7 +4422,104 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                       </div>
                     )}
                   </div>
+                ) : isPitch ? (
+                  // Pitch items - show inline workbench directly in Quick Access
+                  <div
+                    key={item.id}
+                    style={{
+                      padding: '12px 14px',
+                      borderRadius: '2px',
+                      border: `1px solid ${isQuickAccessPitchSelected ? colours.green : (isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.22)')}`,
+                      borderLeft: `3px solid ${colours.green}`,
+                      background: isDarkMode
+                        ? 'linear-gradient(180deg, rgba(2, 6, 23, 0.40) 0%, rgba(2, 6, 23, 0.22) 100%)'
+                        : 'linear-gradient(180deg, rgba(255, 255, 255, 0.75) 0%, rgba(248, 250, 252, 0.70) 100%)',
+                    }}
+                  >
+                    {/* Pitch header */}
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
+                        <span style={{ color: colours.green, display: 'flex', alignItems: 'center', flex: '0 0 auto' }}>
+                          {getTypeIcon(item.type)}
+                        </span>
+                        <div
+                          style={{
+                            fontSize: '13px',
+                            fontWeight: 600,
+                            color: isDarkMode ? colours.dark.text : colours.light.text,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {item.subject || 'Pitch'}
+                        </div>
+                        {item.metadata?.amount && (
+                          <span style={{
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            padding: '2px 6px',
+                            borderRadius: '2px',
+                            background: isDarkMode ? 'rgba(74, 222, 128, 0.15)' : 'rgba(34, 197, 94, 0.12)',
+                            color: colours.green,
+                          }}>
+                            £{item.metadata.amount.toLocaleString()}
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => setSelectedItem(isQuickAccessPitchSelected ? null : item)}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          padding: '6px 10px',
+                          borderRadius: '2px',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          background: isQuickAccessPitchSelected 
+                            ? (isDarkMode ? 'rgba(74, 222, 128, 0.15)' : 'rgba(34, 197, 94, 0.12)')
+                            : colours.highlight,
+                          color: isQuickAccessPitchSelected ? colours.green : '#ffffff',
+                          border: 'none',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {isQuickAccessPitchSelected ? 'Collapse' : 'Expand'}
+                      </button>
+                    </div>
+
+                    {/* Pitch metadata */}
+                    <div style={{
+                      marginTop: '6px',
+                      fontSize: '11px',
+                      color: isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(15, 23, 42, 0.6)',
+                      display: 'flex',
+                      gap: '10px',
+                      flexWrap: 'wrap',
+                    }}>
+                      <span>{formatDocDate(item.date)}</span>
+                      {item.createdBy && <span>by {item.createdBy}</span>}
+                      {item.metadata?.scenarioId && <span>{getScenarioName(item.metadata.scenarioId)}</span>}
+                    </div>
+
+                    {/* Inline Workbench - expanded in Quick Access */}
+                    {isQuickAccessPitchSelected && inlineWorkbenchItem && (
+                      <div style={{ marginTop: '12px' }}>
+                        <InlineWorkbench
+                          item={{ ...(inlineWorkbenchItem ?? {}), enquiry, pitch: item }}
+                          isDarkMode={isDarkMode}
+                        />
+                      </div>
+                    )}
+                    {isQuickAccessPitchSelected && !inlineWorkbenchItem && (
+                      <div style={{ marginTop: '12px' }}>
+                        {renderInstructionStatus(item.id)}
+                      </div>
+                    )}
+                  </div>
                 ) : (
+                  // Non-pitch, non-email items (documents, calls, etc.)
                   <div
                     key={item.id}
                     style={{
@@ -4460,6 +4654,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
           </div>
         )}
       </SectionCard>
+      </div>
       ) : null}
 
       {/* Client Journey Timeline */}
