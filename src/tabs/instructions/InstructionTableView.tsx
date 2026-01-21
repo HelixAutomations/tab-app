@@ -55,6 +55,7 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
   const [collapsedDays, setCollapsedDays] = useState<Set<string>>(new Set());
   const [expandedClientsInTable, setExpandedClientsInTable] = useState<Set<string>>(new Set());
   const [hoveredDayKey, setHoveredDayKey] = useState<string | null>(null);
+  const [hoveredRowKey, setHoveredRowKey] = useState<string | null>(null);
   const [areActionsEnabled, setAreActionsEnabled] = useState(false);
   const [sortColumn, setSortColumn] = useState<string>('date');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
@@ -744,8 +745,10 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
     // Stage connector
     const StageConnector = ({ complete }: { complete: boolean }) => (
       <div style={{ 
-        width: 8, 
-        height: 1, 
+        width: 8,
+        height: 1,
+        marginLeft: -1,
+        marginRight: -1,
         background: complete
           ? (isDarkMode ? `linear-gradient(to right, #22c55e, rgba(34, 197, 94, 0.3))` : `linear-gradient(to right, #22c55e, rgba(34, 197, 94, 0.2))`)
           : (isDarkMode ? 'linear-gradient(to right, rgba(148, 163, 184, 0.3), rgba(148, 163, 184, 0.15))' : 'linear-gradient(to right, rgba(148, 163, 184, 0.25), rgba(148, 163, 184, 0.1))')
@@ -1148,29 +1151,29 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
         >
           <Icon iconName={expandedNotes.has(item.id || item.reference || '') ? "ChevronUp" : "ChevronDown"} styles={{ root: { fontSize: '12px' } }} />
         </div>
-        <div 
-          title="Edit instruction" 
-          style={{
-            width: '24px',
-            height: '24px',
-            borderRadius: '0px',
-            background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.1)',
-            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.3)'}`,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: areActionsEnabled ? 'pointer' : 'not-allowed',
-            transition: '0.2s',
-            opacity: areActionsEnabled ? 1 : 0.4
-          }}
-          onClick={(e) => {
-            e.stopPropagation();
-            if (!areActionsEnabled) return;
-            onRowClick?.(item.rawData);
-          }}
-        >
-          <Icon iconName="Edit" styles={{ root: { fontSize: '12px' } }} />
-        </div>
+        {areActionsEnabled && (
+          <div 
+            title="Edit instruction" 
+            style={{
+              width: '24px',
+              height: '24px',
+              borderRadius: '0px',
+              background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.1)',
+              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.3)'}`,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              transition: '0.2s'
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onRowClick?.(item.rawData);
+            }}
+          >
+            <Icon iconName="Edit" styles={{ root: { fontSize: '12px' } }} />
+          </div>
+        )}
       </div>
     );
   };
@@ -1197,26 +1200,45 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
     }
   };
 
+  const getRowKey = useCallback((item: any) => {
+    return String(
+      item?.id ||
+      item?.reference ||
+      item?.rawData?.instruction?.InstructionRef ||
+      item?.rawData?.deal?.DealId ||
+      ''
+    );
+  }, []);
+
   // Client renderer
   const renderClient = (item: any) => {
+    const rowKey = getRowKey(item);
     return (
-      <div>
+      <div style={{ position: 'relative', minHeight: 26, paddingTop: 2, paddingBottom: 2, overflow: 'hidden' }}>
         <div style={{ 
           fontWeight: '500',
-          marginBottom: '2px',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap'
+          whiteSpace: 'nowrap',
+          transform: 'translateY(0px)',
+          transition: 'transform 0.15s ease'
         }}>
           {item.clientName}
         </div>
         {item.clientEmail && (
           <div style={{ 
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            bottom: 0,
             fontSize: '10px', 
             opacity: 0.7,
             overflow: 'hidden',
             textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap'
+            whiteSpace: 'nowrap',
+            transform: 'translateY(0px)',
+            transition: 'opacity 0.15s ease, transform 0.15s ease',
+            pointerEvents: 'none'
           }}>
             {item.clientEmail}
           </div>
@@ -1231,7 +1253,7 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
       {
         key: 'date',
         header: 'Date',
-        width: '70px',
+        width: '90px',
         sortable: true,
         render: renderDate,
         tooltip: 'Sort by submission date'
@@ -1239,14 +1261,14 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
       {
         key: 'area',
         header: 'AOW',
-        width: '50px',
+        width: '56px',
         render: renderArea,
         tooltip: 'Area of work'
       },
       {
         key: 'reference',
         header: 'ID',
-        width: '0.6fr',
+        width: '90px',
         render: (item) => {
           const amount = item.amount;
           return (
@@ -1272,6 +1294,9 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
                   fontSize: '10px',
                   fontWeight: '600',
                   color: '#22c55e',
+                  opacity: 1,
+                  transform: 'translateY(0px)',
+                  transition: 'opacity 0.15s ease, transform 0.15s ease',
                 }}>
                   £{amount.toLocaleString()}
                 </span>
@@ -1291,14 +1316,14 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
       {
         key: 'status',
         header: 'Instruction | Pipeline',
-        width: '2.2fr',
+        width: '2.5fr',
         render: renderStatusPipeline,
         tooltip: 'Instruction reference and status progression pipeline'
       },
       {
         key: 'actions',
         header: 'Actions',
-        width: '0.5fr',
+        width: '0.45fr',
         render: renderActions
       }
     ],
@@ -1761,17 +1786,12 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
                       : '1fr auto',
                     gap: '12px',
                     alignItems: 'center',
-                    padding: '8px 16px',
+                    padding: '10px 16px',
                     cursor: 'pointer',
                     userSelect: 'none',
                     position: 'relative',
                     zIndex: 1,
-                    background:
-                      hoveredDayKey === group.date
-                        ? (isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.08)')
-                        : (isDarkMode ? 'rgba(30, 41, 59, 0.6)' : 'rgba(241, 245, 249, 0.8)'),
-                    borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.25)'}`,
-                    borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.25)'}`,
+                    background: 'transparent',
                   }}
                 >
                   {/* Timeline cell with line and dot */}
@@ -1863,6 +1883,21 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
                     />
                   </div>
 
+                  {/* Separator line to the right of the label */}
+                  <div
+                    style={{
+                      height: 1,
+                      flex: 1,
+                      marginLeft: 12,
+                      marginRight: 12,
+                      background: hoveredDayKey === group.date
+                        ? (isDarkMode ? 'rgba(125, 211, 252, 0.35)' : 'rgba(54, 144, 206, 0.3)')
+                        : (isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.2)'),
+                      transition: 'background 0.15s ease',
+                      pointerEvents: 'none',
+                    }}
+                  />
+
                   {/* Collapsed eye indicator */}
                   <div style={{ 
                     display: 'flex', 
@@ -1920,9 +1955,11 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
                               }}
                               onMouseEnter={(e) => {
                                 e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)';
+                                setHoveredRowKey(`client-${group.date}-${clientGroup.clientKey}`);
                               }}
                               onMouseLeave={(e) => {
                                 e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.04)' : 'rgba(54, 144, 206, 0.03)';
+                                setHoveredRowKey((prev) => (prev === `client-${group.date}-${clientGroup.clientKey}` ? null : prev));
                               }}
                             >
                               {/* Timeline cell - empty for group headers */}
@@ -1998,10 +2035,11 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
                                   const latestItem = clientGroup.latestItem;
                                   const clientName = latestItem.clientName || 'Unknown Client';
                                   const clientEmail = latestItem.clientEmail || latestItem.rawData?.instruction?.ClientEmail || latestItem.rawData?.instruction?.Email;
+                                  const rowKey = `client-${group.date}-${clientGroup.clientKey}`;
                                   
                                   return (
                                     <div key={col.key} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                      <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', minWidth: 0, flex: 1 }}>
+                                      <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', gap: '1px', minWidth: 0, flex: 1, paddingTop: 2, paddingBottom: 2, minHeight: 26 }}>
                                         <div style={{ 
                                           fontWeight: 600, 
                                           fontSize: '12px', 
@@ -2009,7 +2047,9 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
                                           marginBottom: '2px',
                                           overflow: 'hidden',
                                           textOverflow: 'ellipsis',
-                                          whiteSpace: 'nowrap'
+                                          whiteSpace: 'nowrap',
+                                          transform: 'translateY(0px)',
+                                          transition: 'transform 0.15s ease'
                                         }}>
                                           {clientName}
                                         </div>
@@ -2020,7 +2060,14 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
                                             overflow: 'hidden',
                                             textOverflow: 'ellipsis',
                                             whiteSpace: 'nowrap',
-                                            color: isDarkMode ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.5)'
+                                            color: isDarkMode ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.5)',
+                                            transform: 'translateY(0px)',
+                                            transition: 'opacity 0.15s ease, transform 0.15s ease',
+                                            position: 'absolute',
+                                            left: 0,
+                                            right: 0,
+                                            bottom: 0,
+                                            pointerEvents: 'none'
                                           }}>
                                             {clientEmail}
                                           </div>
@@ -2080,6 +2127,7 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
                             {/* Expanded client instructions */}
                             {clientGroup.isExpanded && clientGroup.items.map((item: any, idx: number) => {
                               const notesKey = item.id || item.reference || '';
+                              const rowKey = getRowKey(item) || notesKey;
                               const isExpanded = expandedNotes.has(notesKey);
                               const rawData = item.rawData;
                               return (
@@ -2119,9 +2167,11 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
                                     }}
                                     onMouseEnter={(e) => {
                                       e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.02)';
+                                      setHoveredRowKey(rowKey);
                                     }}
                                     onMouseLeave={(e) => {
                                       e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(255, 255, 255, 0.01)' : 'rgba(0, 0, 0, 0.005)';
+                                      setHoveredRowKey((prev) => (prev === rowKey ? null : prev));
                                     }}
                                   >
                                     {/* Timeline cell - connector to parent */}
@@ -2195,6 +2245,7 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
                         // Single instruction from this client - render normally
                         const item = clientGroup.items[0];
                         const notesKey = item.id || item.reference || '';
+                        const rowKey = getRowKey(item) || notesKey;
                         const isExpanded = expandedNotes.has(notesKey);
                         const rawData = item.rawData;
                         return (
@@ -2234,10 +2285,12 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
                               onMouseEnter={(e) => {
                                 e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.02)';
                                 setHoveredDayKey(group.date);
+                                setHoveredRowKey(rowKey);
                               }}
                               onMouseLeave={(e) => {
                                 e.currentTarget.style.backgroundColor = 'transparent';
                                 setHoveredDayKey((prev) => (prev === group.date ? null : prev));
+                                setHoveredRowKey((prev) => (prev === rowKey ? null : prev));
                               }}
                             >
                               {/* Timeline cell */}
@@ -2304,6 +2357,7 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
                     // No client groups - render items normally (fallback to original logic)
                     return group.items.map((item: any, idx: number) => {
                     const notesKey = item.id || item.reference || '';
+                    const rowKey = getRowKey(item) || notesKey;
                     const isExpanded = expandedNotes.has(notesKey);
 
                     const rawData = item.rawData;
@@ -2351,12 +2405,14 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
                               ? 'rgba(255, 255, 255, 0.05)'
                               : 'rgba(0, 0, 0, 0.02)';
                             setHoveredDayKey(group.date);
+                            setHoveredRowKey(rowKey);
                           }}
                           onMouseLeave={(e) => {
                             e.currentTarget.style.backgroundColor = idx % 2 === 0
                               ? (isDarkMode ? 'rgba(255, 255, 255, 0.02)' : 'rgba(0, 0, 0, 0.01)')
                               : 'transparent';
                             setHoveredDayKey((prev) => (prev === group.date ? null : prev));
+                            setHoveredRowKey((prev) => (prev === rowKey ? null : prev));
                           }}
                         >
                           {/* Timeline cell */}

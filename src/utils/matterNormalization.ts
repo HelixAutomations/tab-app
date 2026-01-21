@@ -47,9 +47,23 @@ function normalizePersonName(name: string): string {
 function namesMatch(name1: string, name2: string): boolean {
   const n1 = normalizePersonName(name1);
   const n2 = normalizePersonName(name2);
+  const compact1 = n1.replace(/\s+/g, '');
+  const compact2 = n2.replace(/\s+/g, '');
+  const initialsFrom = (value: string) =>
+    value
+      .split(/\s+/)
+      .filter(Boolean)
+      .map(part => part[0] || '')
+      .join('');
   
   // Exact match
   if (n1 === n2) return true;
+
+  // Initials match (e.g., "LZ" vs "Luke Zemanek")
+  const initials1 = initialsFrom(n1);
+  const initials2 = initialsFrom(n2);
+  if (compact1 && compact1.length <= 3 && compact1 === initials2) return true;
+  if (compact2 && compact2.length <= 3 && compact2 === initials1) return true;
   
   // Common name variations mapping
   const nameVariations: { [key: string]: string[] } = {

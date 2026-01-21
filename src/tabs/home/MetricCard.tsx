@@ -1,7 +1,6 @@
-import React, { useMemo } from 'react';
+import React from 'react';
 // invisible change 2
 import { Text, mergeStyles, TooltipHost, DirectionalHint, Icon } from '@fluentui/react';
-import CountUp from 'react-countup';
 import { colours } from '../../app/styles/colours';
 import '../../app/styles/MetricCard.css'; // Import the CSS file
 
@@ -27,6 +26,68 @@ interface MetricCardProps {
   highlightDial?: boolean;
   dialSuffix?: string;
 }
+
+const formatNumber = (value: number, decimals: number) =>
+  value.toLocaleString(undefined, {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  });
+
+interface AnimatedNumberProps {
+  value: number;
+  decimals?: number;
+  durationMs?: number;
+  animate?: boolean;
+  prefix?: string;
+  suffix?: string;
+  onDone?: () => void;
+}
+
+const AnimatedNumber: React.FC<AnimatedNumberProps> = ({
+  value,
+  decimals = 0,
+  durationMs = 2500,
+  animate = true,
+  prefix = '',
+  suffix = '',
+  onDone,
+}) => {
+  const [display, setDisplay] = React.useState(() => (animate ? 0 : value));
+  const hasAnimatedRef = React.useRef(false);
+  const doneRef = React.useRef(false);
+
+  React.useEffect(() => {
+    if (!Number.isFinite(value)) {
+      setDisplay(0);
+      return;
+    }
+    if (!animate || hasAnimatedRef.current) {
+      setDisplay(value);
+      return;
+    }
+    const start = performance.now();
+    let raf = 0;
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / durationMs);
+      const eased = 1 - Math.pow(1 - t, 3);
+      setDisplay(value * eased);
+      if (t < 1) {
+        raf = requestAnimationFrame(tick);
+      } else {
+        hasAnimatedRef.current = true;
+        setDisplay(value);
+        if (!doneRef.current) {
+          doneRef.current = true;
+          onDone?.();
+        }
+      }
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [animate, durationMs, onDone, value]);
+
+  return <>{`${prefix}${formatNumber(display, decimals)}${suffix}`}</>;
+};
 
 const cardStyle = (isDarkMode: boolean) =>
   mergeStyles({
@@ -124,7 +185,9 @@ const renderDialLayout = (
   value: number | undefined,
   isDarkMode: boolean,
   dialTarget: number | undefined,
-  dialSuffix?: string
+  dialSuffix?: string,
+  animate?: boolean,
+  onAnimateDone?: () => void
 ) => {
   const progress = dialTarget && value ? Math.min((value / dialTarget) * 100, 100) : 0;
   return (
@@ -171,13 +234,11 @@ const renderDialLayout = (
               color: colours.highlight,
             })}
           >
-            <CountUp
-              start={0}
-              end={value ? Number(value) : 0}
-              duration={2.5}
-              separator=","
+            <AnimatedNumber
+              value={value ? Number(value) : 0}
               decimals={2}
-              preserveValue
+              animate={!!animate}
+              onDone={onAnimateDone}
             />
             {dialSuffix}
           </Text>
@@ -185,24 +246,20 @@ const renderDialLayout = (
           <Text className={mergeStyles({ display: 'flex', alignItems: 'center' })}>
               <span className={moneyStyle(isDarkMode)}>
               £
-              <CountUp
-                start={0}
-                end={typeof money === 'number' ? Number(money) : 0}
-                duration={2.5}
-                separator=","
+              <AnimatedNumber
+                value={typeof money === 'number' ? Number(money) : 0}
                 decimals={typeof money === 'number' && money > 1000 ? 2 : 0}
-                preserveValue
+                animate={!!animate}
+                onDone={onAnimateDone}
               />
             </span>
             <span className={pipeStyle}>|</span>
             <span className={hoursStyle}>
-              <CountUp
-                start={0}
-                end={value ? Number(value) : 0}
-                duration={2.5}
-                separator=","
+              <AnimatedNumber
+                value={value ? Number(value) : 0}
                 decimals={2}
-                preserveValue
+                animate={!!animate}
+                onDone={onAnimateDone}
               />{' '}
               hrs
             </span>
@@ -231,6 +288,18 @@ const MetricCard: React.FC<MetricCardProps> = ({
   highlightDial,
   dialSuffix,
 }) => {
+
+  const animationKey = `home_metric_animated_${title}`;
+  const [animateOnMount, setAnimateOnMount] = React.useState<boolean>(() => {
+    try { return sessionStorage.getItem(animationKey) !== 'true'; } catch { return true; }
+  });
+  const animationDoneRef = React.useRef(false);
+  const handleAnimationDone = React.useCallback(() => {
+    if (animationDoneRef.current) return;
+    animationDoneRef.current = true;
+    try { sessionStorage.setItem(animationKey, 'true'); } catch {}
+    setAnimateOnMount(false);
+  }, [animationKey]);
 
   const calculateChange = (current: number, previous: number) => {
     const change = current - previous;
@@ -288,19 +357,6 @@ const MetricCard: React.FC<MetricCardProps> = ({
   } else if (countChange) {
     percentageChange = countChange.percentage;
   }
-
-  const displayMoneyComponent = useMemo(() => (
-    <CountUp
-      key={`${title}-money`}
-      start={0}
-      end={typeof money === 'number' ? Number(money) : 0}
-      duration={2.5}
-      decimals={typeof money === 'number' && money > 1000 ? 2 : 0}
-      separator=","
-      preserveValue
-      suffix={typeof money === 'number' && money > 1000 ? "k" : ""}
-    />
-  ), [money, title]);
 
   const tooltipContent = () => {
     if (isMoneyOnly) {
@@ -382,7 +438,16 @@ const MetricCard: React.FC<MetricCardProps> = ({
         aria-label={`${title} metric card`}
       >
         {showDial ? (
-          renderDialLayout(title, money, dialValue !== undefined ? dialValue : hours, isDarkMode, dialTarget, dialSuffix)
+          renderDialLayout(
+            title,
+            money,
+            dialValue !== undefined ? dialValue : hours,
+            isDarkMode,
+            dialTarget,
+            dialSuffix,
+            animateOnMount,
+            handleAnimationDone
+          )
         ) : (
           <>
             <Text className={metricTitleStyle}>{title}</Text>
@@ -391,7 +456,16 @@ const MetricCard: React.FC<MetricCardProps> = ({
                   const valueEl = typeof money === 'string' ? (
                     <Text className={mergeStyles({ fontSize: '18px', fontWeight: '700', color: isDarkMode ? colours.dark.text : colours.light.text })}>£{money}</Text>
                   ) : (
-                    <Text className={mergeStyles({ fontSize: '18px', fontWeight: '700', color: isDarkMode ? colours.dark.text : colours.light.text })}>£{displayMoneyComponent}</Text>
+                    <Text className={mergeStyles({ fontSize: '18px', fontWeight: '700', color: isDarkMode ? colours.dark.text : colours.light.text })}>
+                      £
+                      <AnimatedNumber
+                        value={typeof money === 'number' ? Number(money) : 0}
+                        decimals={typeof money === 'number' && money > 1000 ? 2 : 0}
+                        animate={animateOnMount}
+                        suffix={typeof money === 'number' && money > 1000 ? 'k' : ''}
+                        onDone={handleAnimationDone}
+                      />
+                    </Text>
                   );
                   const showPrevMonth = prevMoney !== undefined && prevMoney > 0;
                   return (
@@ -415,24 +489,20 @@ const MetricCard: React.FC<MetricCardProps> = ({
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       <span className={moneyStyle(isDarkMode)}>
                         £
-                        <CountUp
-                          start={0}
-                          end={typeof money === 'number' ? Number(money) : 0}
-                          duration={2.5}
-                          separator=","
+                        <AnimatedNumber
+                          value={typeof money === 'number' ? Number(money) : 0}
                           decimals={typeof money === 'number' && money > 1000 ? 2 : 0}
-                          preserveValue
+                          animate={animateOnMount}
+                          onDone={handleAnimationDone}
                         />
                       </span>
                       <span className={pipeStyle}>|</span>
                       <span className={hoursStyle}>
-                        <CountUp
-                          start={0}
-                          end={hours ? Number(hours) : 0}
-                          duration={2.5}
-                          separator=","
+                        <AnimatedNumber
+                          value={hours ? Number(hours) : 0}
                           decimals={2}
-                          preserveValue
+                          animate={animateOnMount}
+                          onDone={handleAnimationDone}
                         />{' '}
                         hrs
                       </span>
@@ -448,7 +518,12 @@ const MetricCard: React.FC<MetricCardProps> = ({
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <Text className={mergeStyles({ fontSize: '18px', fontWeight: '700', color: isDarkMode ? colours.dark.text : colours.light.text })}>
                       {count !== undefined ? (
-                        <CountUp start={0} end={Number(count)} duration={2.5} separator="," preserveValue />
+                        <AnimatedNumber
+                          value={Number(count)}
+                          decimals={0}
+                          animate={animateOnMount}
+                          onDone={handleAnimationDone}
+                        />
                       ) : ''}
                     </Text>
                   </div>

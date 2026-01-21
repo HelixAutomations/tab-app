@@ -54,9 +54,10 @@ export interface FilterBannerProps {
   
   // Search functionality
   search?: {
-    value: string;
+    value?: string;
     onChange: (value: string) => void;
     placeholder: string;
+    debounceMs?: number;
   };
   
   // Refresh functionality
@@ -109,9 +110,27 @@ const FilterBanner: React.FC<FilterBannerProps> = React.memo(({
   collapsibleSearch = false
 }) => {
   const { isDarkMode } = useTheme();
-  const [searchOpen, setSearchOpen] = React.useState<boolean>(!collapsibleSearch || !!search?.value);
+  const [localSearchValue, setLocalSearchValue] = React.useState<string>(search?.value ?? '');
+  const searchDebounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const resolvedSearchValue = search?.debounceMs ? localSearchValue : (search?.value ?? '');
+  const [searchOpen, setSearchOpen] = React.useState<boolean>(!collapsibleSearch || !!resolvedSearchValue);
   const [refreshOpen, setRefreshOpen] = React.useState<boolean>(!refresh?.collapsible);
   const searchInputRef = React.useRef<any>(null);
+
+  // Keep local value in sync when external value changes (e.g., clear filters)
+  React.useEffect(() => {
+    if (!search?.debounceMs) {
+      return;
+    }
+    const next = search.value ?? '';
+    setLocalSearchValue(next);
+  }, [search?.debounceMs, search?.value]);
+
+  React.useEffect(() => () => {
+    if (searchDebounceRef.current) {
+      clearTimeout(searchDebounceRef.current);
+    }
+  }, []);
 
   // Auto-focus search when it opens
   React.useEffect(() => {
@@ -184,7 +203,7 @@ const FilterBanner: React.FC<FilterBannerProps> = React.memo(({
   });
 
   // Dynamic width based on search state - collapsed search takes minimal space
-  const isSearchCollapsed = collapsibleSearch && !searchOpen && !search?.value;
+  const isSearchCollapsed = collapsibleSearch && !searchOpen && !resolvedSearchValue;
   
   const searchContainerStyle = mergeStyles({
     display: 'flex',
@@ -339,7 +358,7 @@ const FilterBanner: React.FC<FilterBannerProps> = React.memo(({
           <div className={rightClusterStyle}>
           {search && (
             <div className={searchContainerStyle}>
-              {collapsibleSearch && !searchOpen && !search.value ? (
+              {collapsibleSearch && !searchOpen && !resolvedSearchValue ? (
                 <div style={{ 
                   display: 'flex', 
                   justifyContent: 'flex-end', 
@@ -368,17 +387,30 @@ const FilterBanner: React.FC<FilterBannerProps> = React.memo(({
                 </div>
               ) : null}
               <div ref={searchInputRef} style={{ 
-                display: collapsibleSearch && !searchOpen && !search.value ? 'none' : 'flex',
+                display: collapsibleSearch && !searchOpen && !resolvedSearchValue ? 'none' : 'flex',
                 flex: 1,
                 width: '100%'
               }}>
                 <SearchBox
                   placeholder={search.placeholder}
-                  value={search.value}
-                  onChange={(_, newValue) => search.onChange(newValue || '')}
+                  value={resolvedSearchValue}
+                  onChange={(_, newValue) => {
+                    const nextValue = newValue || '';
+                    if (search.debounceMs) {
+                      setLocalSearchValue(nextValue);
+                      if (searchDebounceRef.current) {
+                        clearTimeout(searchDebounceRef.current);
+                      }
+                      searchDebounceRef.current = setTimeout(() => {
+                        search.onChange(nextValue);
+                      }, search.debounceMs);
+                      return;
+                    }
+                    search.onChange(nextValue);
+                  }}
                   onFocus={() => setSearchOpen(true)}
                   onBlur={() => {
-                    if (collapsibleSearch && !search.value) setSearchOpen(false);
+                    if (collapsibleSearch && !resolvedSearchValue) setSearchOpen(false);
                   }}
                   styles={sharedSearchBoxStyle(isDarkMode)}
                   iconProps={{ iconName: 'Search' }}

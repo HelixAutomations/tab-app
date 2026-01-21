@@ -146,7 +146,7 @@ const Instructions: React.FC<InstructionsProps> = ({
   const [activeTab, setActiveTab] = useState<'pitches' | 'clients' | 'risk'>('clients');
   
   // Search state
-  const [searchTerm, setSearchTerm] = useState<string>('');
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState<string>('');
   
   // Comprehensive workbench tab management
   const [activeWorkbenchTab, setActiveWorkbenchTab] = useState('identity');
@@ -157,6 +157,11 @@ const Instructions: React.FC<InstructionsProps> = ({
   // Editing state for inline risk assessment editing
   const [editingField, setEditingField] = useState<{category: string, field: string, currentValue: any} | null>(null);
   
+  // Search handler (debounced in FilterBanner for input responsiveness)
+  const handleSearchChange = useCallback((value: string) => {
+    setDebouncedSearchTerm(value);
+  }, []);
+
   const toggleSection = (sectionKey: string) => {
     setExpandedSections(prev => ({
       ...prev,
@@ -2155,9 +2160,10 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
             />
           }
           search={{
-            value: searchTerm,
-            onChange: setSearchTerm,
-            placeholder: "Search (name, company, reference, email)"
+            value: debouncedSearchTerm,
+            onChange: handleSearchChange,
+            placeholder: "Search (name, company, reference, email)",
+            debounceMs: 300
           }}
           secondaryFilter={
             <div style={{ 
@@ -2330,34 +2336,10 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
   ]);
 
   const containerStyle = mergeStyles({
-    background: isDarkMode
-      ? 'linear-gradient(135deg, rgba(15,23,42,0.72) 0%, rgba(17,24,39,0.74) 50%, rgba(15,23,42,0.72) 100%)'
-      : colours.light.background,
-    backdropFilter: 'none',
-    WebkitBackdropFilter: 'none',
+    backgroundColor: isDarkMode ? colours.dark.background : colours.light.background,
     minHeight: "100vh",
     boxSizing: "border-box",
     color: isDarkMode ? colours.light.text : colours.dark.text,
-    position: 'relative',
-    borderTop: isDarkMode ? '1px solid rgba(148,163,184,0.12)' : '1px solid rgba(148,163,184,0.10)',
-    boxShadow: isDarkMode
-      ? 'inset 0 1px 0 rgba(255,255,255,0.04), 0 10px 30px rgba(0,0,0,0.20)'
-      : 'inset 0 1px 0 rgba(255,255,255,0.65), 0 10px 30px rgba(6,23,51,0.08)',
-    '&::before': {
-      content: '""',
-      position: 'fixed',
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-      background: 'none',
-      backgroundImage: helixWatermarkSvg(isDarkMode),
-      backgroundRepeat: 'no-repeat',
-      backgroundPosition: isDarkMode ? 'right -120px top -80px' : 'right -140px top -100px',
-      backgroundSize: 'min(52vmin, 520px)',
-      pointerEvents: 'none',
-      zIndex: 0
-    }
   });
 
   const newMatterContainerStyle = mergeStyles(containerStyle, {
@@ -3348,8 +3330,8 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
     }
     
     // Filter by search term
-    if (searchTerm.trim()) {
-      const search = searchTerm.toLowerCase();
+    if (debouncedSearchTerm.trim()) {
+      const search = debouncedSearchTerm.toLowerCase();
       items = items.filter(item => {
         const instruction = item.instruction;
         if (!instruction) return false;
@@ -3413,7 +3395,7 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
     }
     
     return items;
-  }, [overviewItemsWithNextAction, clientsActionFilter, searchTerm, pipelineFilters, selectedAreaFilters]);
+  }, [overviewItemsWithNextAction, clientsActionFilter, debouncedSearchTerm, pipelineFilters, selectedAreaFilters]);
 
   const DEMO_INSTRUCTION_REF = 'HLX-DEMO-00001';
   const [demoEidState, setDemoEidState] = useState<'idle' | 'processing' | 'complete'>('idle');

@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { Modal, TextField, PrimaryButton, DefaultButton, Text, IconButton, MessageBar, MessageBarType } from '@fluentui/react';
+import { Modal, TextField, PrimaryButton, DefaultButton, Text, IconButton, Icon } from '@fluentui/react';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';
 import { Enquiry } from '../../app/functionality/types';
@@ -119,14 +119,14 @@ const EditEnquiryModal: React.FC<EditEnquiryModalProps> = ({
 
   const modalStyles = {
     main: {
-      background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
+      background: isDarkMode ? '#1f2937' : '#ffffff',
       borderRadius: 12,
-      border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-      boxShadow: isDarkMode 
-        ? '0 20px 40px rgba(0,0,0,0.6)' 
-        : '0 20px 40px rgba(0,0,0,0.15)',
+      border: `1px solid ${isDarkMode ? 'rgba(55, 65, 81, 0.9)' : 'rgba(203, 213, 225, 0.9)'}`,
+      boxShadow: isDarkMode
+        ? '0 20px 50px rgba(0,0,0,0.55)'
+        : '0 20px 50px rgba(0,0,0,0.18)',
       padding: 0,
-      maxWidth: 500,
+      maxWidth: 600,
       width: '90vw'
     }
   };
@@ -135,25 +135,96 @@ const EditEnquiryModal: React.FC<EditEnquiryModalProps> = ({
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: '20px 24px 16px 24px',
-    borderBottom: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-    background: isDarkMode 
+    padding: '18px 24px 14px 24px',
+    borderBottom: `1px solid ${isDarkMode ? 'rgba(55, 65, 81, 0.9)' : 'rgba(226, 232, 240, 0.9)'}`,
+    background: isDarkMode
       ? 'linear-gradient(135deg, rgba(255,255,255,0.02) 0%, rgba(255,255,255,0.01) 100%)'
-      : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)'
+      : 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)'
   };
 
   const contentStyle = {
-    padding: '24px',
+    padding: '22px 24px 24px 24px',
     display: 'flex',
     flexDirection: 'column' as const,
-    gap: 20
+    gap: 16
   };
 
   const buttonRowStyle = {
     display: 'flex',
     gap: 12,
     justifyContent: 'flex-end',
-    paddingTop: 8
+    paddingTop: 4
+  };
+
+  const fieldLabelStyle = {
+    root: {
+      fontSize: 12,
+      fontWeight: 600,
+      color: isDarkMode ? '#e5e7eb' : '#0f172a'
+    }
+  };
+
+  const fieldGroupStyle = {
+    borderColor: isDarkMode ? 'rgba(55, 65, 81, 0.95)' : 'rgba(203, 213, 225, 0.9)',
+    background: isDarkMode ? 'rgba(55, 65, 81, 0.85)' : 'rgba(248, 250, 252, 0.95)',
+    borderRadius: 6
+  };
+
+  const promptPalette = {
+    warning: {
+      bg: isDarkMode ? 'rgba(251, 191, 36, 0.12)' : 'rgba(251, 191, 36, 0.08)',
+      border: '#f59e0b',
+      text: '#f59e0b',
+      icon: 'Warning'
+    },
+    error: {
+      bg: isDarkMode ? 'rgba(239, 68, 68, 0.12)' : 'rgba(239, 68, 68, 0.08)',
+      border: '#ef4444',
+      text: '#ef4444',
+      icon: 'StatusErrorFull'
+    },
+    success: {
+      bg: isDarkMode ? 'rgba(34, 197, 94, 0.12)' : 'rgba(34, 197, 94, 0.08)',
+      border: '#22c55e',
+      text: '#22c55e',
+      icon: 'Completed'
+    },
+    info: {
+      bg: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)',
+      border: isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.22)',
+      text: isDarkMode ? 'rgba(148, 163, 184, 0.85)' : 'rgba(100, 116, 139, 0.9)',
+      icon: 'Info'
+    }
+  } as const;
+
+  const renderPromptBanner = (
+    type: keyof typeof promptPalette,
+    title: string,
+    message: string
+  ) => {
+    const colors = promptPalette[type];
+    return (
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 12,
+        padding: '10px 12px',
+        background: colors.bg,
+        border: `1px solid ${colors.border}`,
+        borderRadius: 0
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ color: colors.text, display: 'flex', alignItems: 'center' }}>
+            <Icon iconName={colors.icon} style={{ fontSize: 12 }} />
+          </span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: colors.text, textTransform: 'uppercase', letterSpacing: '0.4px' }}>{title}</span>
+            <span style={{ fontSize: 10, color: isDarkMode ? 'rgba(226, 232, 240, 0.8)' : 'rgba(15, 23, 42, 0.78)' }}>{message}</span>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -164,11 +235,11 @@ const EditEnquiryModal: React.FC<EditEnquiryModalProps> = ({
       styles={{ main: modalStyles.main }}
     >
       <div style={headerStyle}>
-        <Text variant="large" styles={{ 
-          root: { 
-            fontWeight: 600, 
-            color: isDarkMode ? colours.dark.text : colours.light.text 
-          } 
+        <Text variant="large" styles={{
+          root: {
+            fontWeight: 600,
+            color: isDarkMode ? '#e5e7eb' : '#0f172a'
+          }
         }}>
           Edit Enquiry
         </Text>
@@ -177,41 +248,29 @@ const EditEnquiryModal: React.FC<EditEnquiryModalProps> = ({
           onClick={onClose}
           styles={{
             root: {
-              color: isDarkMode ? colours.dark.subText : colours.light.subText,
+              color: isDarkMode ? 'rgba(156, 163, 175, 0.9)' : 'rgba(100, 116, 139, 0.9)',
+              borderRadius: 6
             }
           }}
         />
       </div>
 
       <div style={contentStyle}>
-        {!isOwner && (
-          <MessageBar messageBarType={MessageBarType.warning}>
-            You can only edit enquiries that you have claimed.
-          </MessageBar>
-        )}
+        {!isOwner && renderPromptBanner('warning', 'Access', 'Only the claimant can edit this enquiry.')}
 
-        {error && (
-          <MessageBar messageBarType={MessageBarType.error}>
-            {error}
-          </MessageBar>
-        )}
+        {error && renderPromptBanner('error', 'Update failed', error)}
 
-        {success && (
-          <MessageBar messageBarType={MessageBarType.success}>
-            {success}
-          </MessageBar>
-        )}
+        {success && renderPromptBanner('success', 'Saved', success)}
 
-        <Text variant="medium" styles={{ 
-          root: { 
-            color: isDarkMode ? colours.dark.subText : colours.light.subText,
-            marginBottom: 4
-          } 
+        <Text variant="small" styles={{
+          root: {
+            color: isDarkMode ? 'rgba(148, 163, 184, 0.8)' : 'rgba(100, 116, 139, 0.9)'
+          }
         }}>
           Enquiry ID: {enquiry.ID} • Claimed by: {enquiry.Point_of_Contact}
         </Text>
 
-        <div style={{ display: 'flex', gap: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
           <TextField
             label="First Name"
             value={formData.First_Name}
@@ -220,10 +279,9 @@ const EditEnquiryModal: React.FC<EditEnquiryModalProps> = ({
             required
             styles={{
               root: { flex: 1 },
-              fieldGroup: {
-                borderColor: isDarkMode ? colours.dark.border : colours.light.border,
-                background: isDarkMode ? colours.dark.inputBackground : colours.light.inputBackground
-              }
+              fieldGroup: fieldGroupStyle,
+              field: { color: isDarkMode ? '#e5e7eb' : '#0f172a' },
+              subComponentStyles: { label: fieldLabelStyle }
             }}
           />
           <TextField
@@ -234,10 +292,9 @@ const EditEnquiryModal: React.FC<EditEnquiryModalProps> = ({
             required
             styles={{
               root: { flex: 1 },
-              fieldGroup: {
-                borderColor: isDarkMode ? colours.dark.border : colours.light.border,
-                background: isDarkMode ? colours.dark.inputBackground : colours.light.inputBackground
-              }
+              fieldGroup: fieldGroupStyle,
+              field: { color: isDarkMode ? '#e5e7eb' : '#0f172a' },
+              subComponentStyles: { label: fieldLabelStyle }
             }}
           />
         </div>
@@ -250,10 +307,9 @@ const EditEnquiryModal: React.FC<EditEnquiryModalProps> = ({
           required
           type="email"
           styles={{
-            fieldGroup: {
-              borderColor: isDarkMode ? colours.dark.border : colours.light.border,
-              background: isDarkMode ? colours.dark.inputBackground : colours.light.inputBackground
-            }
+            fieldGroup: fieldGroupStyle,
+            field: { color: isDarkMode ? '#e5e7eb' : '#0f172a' },
+            subComponentStyles: { label: fieldLabelStyle }
           }}
         />
 
@@ -264,10 +320,9 @@ const EditEnquiryModal: React.FC<EditEnquiryModalProps> = ({
           disabled={!isOwner || isSaving}
           placeholder="e.g. £10,000, $50k, etc."
           styles={{
-            fieldGroup: {
-              borderColor: isDarkMode ? colours.dark.border : colours.light.border,
-              background: isDarkMode ? colours.dark.inputBackground : colours.light.inputBackground
-            }
+            fieldGroup: fieldGroupStyle,
+            field: { color: isDarkMode ? '#e5e7eb' : '#0f172a' },
+            subComponentStyles: { label: fieldLabelStyle }
           }}
         />
 
@@ -280,10 +335,9 @@ const EditEnquiryModal: React.FC<EditEnquiryModalProps> = ({
           rows={4}
           placeholder="Initial call notes..."
           styles={{
-            fieldGroup: {
-              borderColor: isDarkMode ? colours.dark.border : colours.light.border,
-              background: isDarkMode ? colours.dark.inputBackground : colours.light.inputBackground
-            }
+            fieldGroup: fieldGroupStyle,
+            field: { color: isDarkMode ? '#e5e7eb' : '#0f172a' },
+            subComponentStyles: { label: fieldLabelStyle }
           }}
         />
 
@@ -292,11 +346,25 @@ const EditEnquiryModal: React.FC<EditEnquiryModalProps> = ({
             text="Cancel"
             onClick={onClose}
             disabled={isSaving}
+            styles={{
+              root: {
+                borderRadius: 6,
+                border: `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.9)' : 'rgba(148, 163, 184, 0.9)'}`,
+                background: 'transparent',
+                color: isDarkMode ? '#e5e7eb' : '#0f172a'
+              }
+            }}
           />
           <PrimaryButton
             text={isSaving ? 'Saving...' : 'Save Changes'}
             onClick={handleSave}
             disabled={!isOwner || isSaving}
+            styles={{
+              root: {
+                borderRadius: 6,
+                background: isDarkMode ? '#3b82f6' : '#3b82f6'
+              }
+            }}
           />
         </div>
       </div>

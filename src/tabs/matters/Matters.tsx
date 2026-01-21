@@ -1,9 +1,9 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { Stack, Text, Spinner, SpinnerSize, MessageBar, MessageBarType, IconButton, mergeStyles, Icon } from '@fluentui/react';
+import { Text, SpinnerSize, MessageBar, MessageBarType, IconButton, mergeStyles, Icon } from '@fluentui/react';
 import ThemedSpinner from '../../components/ThemedSpinner';
-import ToggleSwitch from '../../components/ToggleSwitch';
 import SegmentedControl from '../../components/filter/SegmentedControl';
 import FilterBanner from '../../components/filter/FilterBanner';
+import EmptyState from '../../components/states/EmptyState';
 import { NormalizedMatter, UserData } from '../../app/functionality/types';
 import {
   filterMattersByStatus,
@@ -13,7 +13,6 @@ import {
   getUniquePracticeAreas
 } from '../../utils/matterNormalization';
 import { isAdminUser } from '../../app/admin';
-import MatterLineItem from './MatterLineItem';
 import MatterOverview from './MatterOverview';
 import MatterTableView from './MatterTableView';
 import { colours } from '../../app/styles/colours';
@@ -39,13 +38,19 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
   // Debug inspector removed with MatterApiDebugger
   // Scope & dataset selection
   const [scope, setScope] = useState<'mine' | 'all'>('mine');
-  const [useNewData, setUseNewData] = useState<boolean>(false); // Admin-only toggle to view VNet (new) data
-  const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
-  const [twoColumn, setTwoColumn] = useState<boolean>(false);
 
-  const userFullName = userData?.[0]?.FullName?.toLowerCase();
-  const userRole = userData?.[0]?.Role?.toLowerCase();
-  const isAdmin = isAdminUser(userData?.[0] || null);
+  const userRec = userData?.[0] || {};
+  const userRecAny = userRec as unknown as Record<string, unknown>;
+  const userFullName = String(
+    userRec.FullName ||
+    userRecAny['Full Name'] ||
+    [userRec.First, userRec.Last].filter(Boolean).join(' ') ||
+    userRec.Email ||
+    ''
+  ).toLowerCase();
+  const userRoleRaw = (userRec.Role || userRecAny.role || '').toString().toLowerCase();
+  const isAdmin = isAdminUser(userRec || null);
+  const userRole = isAdmin ? 'admin' : userRoleRaw;
   const isLocalhost = (typeof window !== 'undefined') && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
 
@@ -54,10 +59,7 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
     let result = matters;
 
     // Decide dataset and scope to construct allowed sources
-    const effectiveUseNew = isAdmin ? useNewData : false;
-    const allowedSources = new Set<string>([
-      ...(effectiveUseNew ? ['vnet_direct'] : ['legacy_all', 'legacy_user']),
-    ]);
+    const allowedSources = new Set<string>(['legacy_all', 'legacy_user', 'vnet_direct']);
     if (allowedSources.size > 0) {
       result = result.filter((m) => allowedSources.has(m.dataSource));
     } else {
@@ -72,9 +74,6 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
   result = applyAdminFilter(result, effectiveShowEveryone, userFullName || '', userRole || '');
 
     // For New data + Mine, restrict to Responsible solicitor only
-    if (effectiveUseNew && scope === 'mine') {
-      result = result.filter(m => m.role === 'responsible' || m.role === 'both');
-    }
 
     // Apply status filter
     // Admin-only extra option: 'Matter Requests' filters by originalStatus === 'MatterRequest'
@@ -88,8 +87,9 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
     // Apply area filter
     result = filterMattersByArea(result, activeAreaFilter);
 
-    // Apply role filter
-    if (activeRoleFilter !== 'All') {
+    // Apply role filter (skip when admin is viewing All scope)
+    const shouldApplyRoleFilter = !(isAdmin && scope === 'all');
+    if (activeRoleFilter !== 'All' && shouldApplyRoleFilter) {
       const allowedRoles = activeRoleFilter === 'Responsible' ? ['responsible'] :
                           activeRoleFilter === 'Originating' ? ['originating'] :
                           ['responsible', 'originating'];
@@ -117,25 +117,18 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
     activeRoleFilter,
     searchTerm,
     scope,
-    useNewData,
     isAdmin,
   ]);
 
   // Dataset count (post-source selection only, before other filters)
   const datasetCount = useMemo(() => {
-    const effectiveUseNew = isAdmin ? useNewData : false;
-    const allowedSources = new Set<string>([
-      ...(effectiveUseNew ? ['vnet_direct'] : ['legacy_all', 'legacy_user']),
-    ]);
+    const allowedSources = new Set<string>(['legacy_all', 'legacy_user', 'vnet_direct']);
     return matters.filter(m => allowedSources.has(m.dataSource)).length;
-  }, [matters, useNewData, isAdmin]);
+  }, [matters]);
 
   // Pre-compute scope counts for a compact scope control with badges
   const scopeCounts = useMemo(() => {
-    const effectiveUseNew = isAdmin ? useNewData : false;
-    const allowedSources = new Set<string>([
-      ...(effectiveUseNew ? ['vnet_direct'] : ['legacy_all', 'legacy_user']),
-    ]);
+    const allowedSources = new Set<string>(['legacy_all', 'legacy_user', 'vnet_direct']);
 
     // Base after sources
     let base = matters.filter(m => allowedSources.has(m.dataSource));
@@ -150,12 +143,14 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
     // Apply area filter
     base = filterMattersByArea(base, activeAreaFilter);
 
-    // Apply role filter
+    // Apply role filter to Mine count only (All count should reflect all matters for admins)
+    const baseAll = base;
+    let baseMine = baseAll;
     if (activeRoleFilter !== 'All') {
       const allowedRoles = activeRoleFilter === 'Responsible' ? ['responsible'] :
                           activeRoleFilter === 'Originating' ? ['originating'] :
                           ['responsible', 'originating'];
-      base = filterMattersByRole(base, allowedRoles as any);
+      baseMine = filterMattersByRole(baseAll, allowedRoles as any);
     }
 
     // Apply search
@@ -170,15 +165,9 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
     }
 
     // Counts per scope
-    const mineList = (() => {
-      let arr = applyAdminFilter(base, false, userFullName || '', userRole || '');
-      if (effectiveUseNew) {
-        arr = arr.filter(m => m.role === 'responsible' || m.role === 'both');
-      }
-      return arr;
-    })();
+    const mineList = applyAdminFilter(baseMine, false, userFullName || '', userRole || '');
 
-    const allList = applyAdminFilter(base, true, userFullName || '', userRole || '');
+    const allList = applyAdminFilter(baseAll, true, userFullName || '', userRole || '');
 
     return {
       mine: mineList.length,
@@ -186,7 +175,6 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
     };
   }, [
     matters,
-    useNewData,
     isAdmin,
     activeFilter,
     activeAreaFilter,
@@ -206,247 +194,247 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
   // Set up navigation content with filter bar
   useEffect(() => {
     if (!selected) {
+      const StatusFilter = () => {
+        const height = 32;
+        const isOpen = activeFilter === 'Active' || activeFilter === 'All';
+        const isArchived = activeFilter === 'Closed';
+
+        const iconOpen = (
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+            <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.5" fill="none" />
+            <path d="M5 8.5L7.5 11L11.5 5.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        );
+
+        const iconArchived = (
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+            <path d="M3 5h10v7H3z" stroke="currentColor" strokeWidth="1.5" fill="none" />
+            <path d="M2.5 3h11v2H2.5z" stroke="currentColor" strokeWidth="1.5" fill="none" />
+          </svg>
+        );
+
+        return (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 0,
+              background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+              borderRadius: height / 2,
+              padding: 4,
+              height,
+              fontFamily: 'Raleway, sans-serif',
+              userSelect: 'none',
+              overflow: 'hidden',
+            }}
+          >
+            <button
+              type="button"
+              aria-pressed={isOpen}
+              onClick={() => setActiveFilter('Active')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 5,
+                background: isOpen ? (isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.9)') : 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                padding: '0 12px',
+                height: height - 8,
+                fontSize: 12,
+                fontWeight: 500,
+                color: isOpen ? (isDarkMode ? 'rgba(255,255,255,0.95)' : '#1f2937') : (isDarkMode ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.55)'),
+                transition: 'color 200ms ease',
+                whiteSpace: 'nowrap',
+                outline: 'none',
+                borderRadius: (height - 8) / 2,
+                boxShadow: isOpen ? (isDarkMode ? '0 1px 2px rgba(0,0,0,0.2)' : '0 1px 2px rgba(0,0,0,0.06)') : 'none',
+              }}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', color: 'inherit' }}>{iconOpen}</span>
+              <span>Open</span>
+            </button>
+            <button
+              type="button"
+              aria-pressed={isArchived}
+              onClick={() => setActiveFilter('Closed')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 5,
+                background: isArchived ? (isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.9)') : 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                padding: '0 12px',
+                height: height - 8,
+                fontSize: 12,
+                fontWeight: 500,
+                color: isArchived ? (isDarkMode ? 'rgba(255,255,255,0.95)' : '#1f2937') : (isDarkMode ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.55)'),
+                transition: 'color 200ms ease',
+                whiteSpace: 'nowrap',
+                outline: 'none',
+                borderRadius: (height - 8) / 2,
+                boxShadow: isArchived ? (isDarkMode ? '0 1px 2px rgba(0,0,0,0.2)' : '0 1px 2px rgba(0,0,0,0.06)') : 'none',
+              }}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', color: 'inherit' }}>{iconArchived}</span>
+              <span>Archived</span>
+            </button>
+          </div>
+        );
+      };
+
+      const RoleFilter = () => {
+        const height = 32;
+        const isResponsible = activeRoleFilter === 'Responsible' || activeRoleFilter === 'All';
+        const isOriginating = activeRoleFilter === 'Originating';
+
+        const iconResponsible = (
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+            <circle cx="8" cy="5" r="3" stroke="currentColor" strokeWidth="1.5" />
+            <path d="M3 14c1.5-3 8.5-3 10 0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+        );
+
+        const iconOriginating = (
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+            <path d="M8 2v7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            <path d="M5 6l3-3 3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M3 14h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+        );
+
+        return (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 0,
+              background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+              borderRadius: height / 2,
+              padding: 4,
+              height,
+              fontFamily: 'Raleway, sans-serif',
+              userSelect: 'none',
+              overflow: 'hidden',
+            }}
+          >
+            <button
+              type="button"
+              aria-pressed={isResponsible}
+              onClick={() => setActiveRoleFilter('Responsible')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 5,
+                background: isResponsible ? (isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.9)') : 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                padding: '0 12px',
+                height: height - 8,
+                fontSize: 12,
+                fontWeight: 500,
+                color: isResponsible ? (isDarkMode ? 'rgba(255,255,255,0.95)' : '#1f2937') : (isDarkMode ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.55)'),
+                transition: 'color 200ms ease',
+                whiteSpace: 'nowrap',
+                outline: 'none',
+                borderRadius: (height - 8) / 2,
+                boxShadow: isResponsible ? (isDarkMode ? '0 1px 2px rgba(0,0,0,0.2)' : '0 1px 2px rgba(0,0,0,0.06)') : 'none',
+              }}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', color: 'inherit' }}>{iconResponsible}</span>
+              <span>Responsible</span>
+            </button>
+            <button
+              type="button"
+              aria-pressed={isOriginating}
+              onClick={() => setActiveRoleFilter('Originating')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 5,
+                background: isOriginating ? (isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.9)') : 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                padding: '0 12px',
+                height: height - 8,
+                fontSize: 12,
+                fontWeight: 500,
+                color: isOriginating ? (isDarkMode ? 'rgba(255,255,255,0.95)' : '#1f2937') : (isDarkMode ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.55)'),
+                transition: 'color 200ms ease',
+                whiteSpace: 'nowrap',
+                outline: 'none',
+                borderRadius: (height - 8) / 2,
+                boxShadow: isOriginating ? (isDarkMode ? '0 1px 2px rgba(0,0,0,0.2)' : '0 1px 2px rgba(0,0,0,0.06)') : 'none',
+              }}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', color: 'inherit' }}>{iconOriginating}</span>
+              <span>Originating</span>
+            </button>
+          </div>
+        );
+      };
+
       setContent(
         <FilterBanner
           seamless
           dense
           collapsibleSearch
-          primaryFilter={{
-            value: activeFilter === 'All' ? 'Active' : activeFilter,
-            onChange: setActiveFilter,
-            options: ['Active', 'Closed'].map(o => ({ key: o, label: o })),
-            ariaLabel: "Filter matters by status"
-          }}
-          secondaryFilter={{
-            value: activeRoleFilter === 'All' ? 'Responsible' : activeRoleFilter,
-            onChange: setActiveRoleFilter,
-            options: ['Responsible','Originating'].map(o => ({ key: o, label: o })),
-            ariaLabel: "Filter matters by role"
-          }}
+          primaryFilter={(
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <SegmentedControl
+                id="matters-scope-seg"
+                ariaLabel="Scope mine or all"
+                value={scope}
+                onChange={(k) => setScope(k as 'mine' | 'all')}
+                options={[
+                  { key: 'mine', label: 'Mine', badge: scopeCounts.mine },
+                  { key: 'all', label: 'All', badge: scopeCounts.all, disabled: !isAdmin }
+                ]}
+              />
+              <StatusFilter />
+            </div>
+          )}
+          secondaryFilter={(
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <RoleFilter />
+              {availableAreas.length > 1 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 11, fontWeight: 500, color: isDarkMode ? colours.dark.text : colours.light.text }}>Area:</span>
+                  <select
+                    value={activeAreaFilter}
+                    onChange={(e) => setActiveAreaFilter(e.target.value)}
+                    style={{
+                      padding: '4px 10px',
+                      borderRadius: 10,
+                      border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                      background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
+                      color: isDarkMode ? colours.dark.text : colours.light.text,
+                      fontSize: 12,
+                      fontFamily: 'Raleway, sans-serif',
+                      minWidth: activeAreaFilter === 'All' ? '88px' : '120px'
+                    }}
+                  >
+                    <option value="All">All Areas</option>
+                    {availableAreas.map((area) => (
+                      <option key={area} value={area}>{area}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+          )}
           search={{
             value: searchTerm,
             onChange: setSearchTerm,
             placeholder: "Search…"
           }}
-        >
-          {/* Area dropdown - scalable for many areas */}
-          {availableAreas.length > 1 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 11, fontWeight: 500, color: isDarkMode ? colours.dark.text : colours.light.text }}>Area:</span>
-              <select
-                value={activeAreaFilter}
-                onChange={(e) => setActiveAreaFilter(e.target.value)}
-                style={{
-                  padding: '4px 10px',
-                  borderRadius: 10,
-                  border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-                  background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
-                  color: isDarkMode ? colours.dark.text : colours.light.text,
-                  fontSize: 12,
-                  fontFamily: 'Raleway, sans-serif',
-                  minWidth: '120px'
-                }}
-              >
-                <option value="All">All Areas</option>
-                {availableAreas.map((area) => (
-                  <option key={area} value={area}>{area}</option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          {/* Secondary controls row */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            {/* Scope filter */}
-            <SegmentedControl
-              id="matters-scope-seg"
-              ariaLabel="Scope mine or all"
-              value={scope}
-              onChange={(k) => setScope(k as 'mine' | 'all')}
-              options={[
-                { key: 'mine', label: 'Mine', badge: scopeCounts.mine },
-                { key: 'all', label: 'All', badge: scopeCounts.all, disabled: !isAdmin }
-              ]}
-            />
-
-            {/* View Mode Toggle: Cards vs Table */}
-            <div 
-              role="group" 
-              aria-label="View mode: cards or table"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4,
-                height: 28,
-                padding: '2px 4px',
-                background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-                borderRadius: 14,
-                fontFamily: 'Raleway, sans-serif',
-              }}
-            >
-              <button
-                type="button"
-                title="Card view"
-                aria-label="Card view"
-                aria-pressed={viewMode === 'cards'}
-                onClick={() => setViewMode('cards')}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  width: 22,
-                  height: 22,
-                  background: viewMode === 'cards' ? '#FFFFFF' : 'transparent',
-                  border: 'none',
-                  borderRadius: 11,
-                  cursor: 'pointer',
-                  transition: 'all 200ms ease',
-                  opacity: viewMode === 'cards' ? 1 : 0.6,
-                  boxShadow: viewMode === 'cards' 
-                    ? (isDarkMode
-                        ? '0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.24)'
-                        : '0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08)')
-                    : 'none',
-                }}
-              >
-                <Icon
-                  iconName="GridViewMedium"
-                  style={{
-                    fontSize: 10,
-                    color: viewMode === 'cards' 
-                      ? (isDarkMode ? '#1f2937' : '#1f2937')
-                      : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),
-                  }}
-                />
-              </button>
-              <button
-                type="button"
-                title="Table view"
-                aria-label="Table view"
-                aria-pressed={viewMode === 'table'}
-                onClick={() => setViewMode('table')}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  width: 22,
-                  height: 22,
-                  background: viewMode === 'table' ? '#FFFFFF' : 'transparent',
-                  border: 'none',
-                  borderRadius: 11,
-                  cursor: 'pointer',
-                  transition: 'all 200ms ease',
-                  opacity: viewMode === 'table' ? 1 : 0.6,
-                  boxShadow: viewMode === 'table' 
-                    ? (isDarkMode
-                        ? '0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.24)'
-                        : '0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08)')
-                    : 'none',
-                }}
-              >
-                <Icon
-                  iconName="BulletedList"
-                  style={{
-                    fontSize: 10,
-                    color: viewMode === 'table' 
-                      ? (isDarkMode ? '#1f2937' : '#1f2937')
-                      : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),
-                  }}
-                />
-              </button>
-            </div>
-
-            {/* Layout toggle with icons (only for card view) */}
-            {viewMode === 'cards' && (
-              <div 
-                role="group" 
-                aria-label="Layout: choose 1 or 2 columns"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 4,
-                  height: 28,
-                  padding: '2px 4px',
-                  background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-                  borderRadius: 14,
-                  fontFamily: 'Raleway, sans-serif',
-                }}
-              >
-                <button
-                  type="button"
-                  title="Single column layout"
-                  aria-label="Single column layout"
-                  aria-pressed={!twoColumn}
-                  onClick={() => setTwoColumn(false)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    width: 22,
-                    height: 22,
-                    background: !twoColumn ? '#FFFFFF' : 'transparent',
-                    border: 'none',
-                    borderRadius: 11,
-                    cursor: 'pointer',
-                    transition: 'all 200ms ease',
-                    opacity: !twoColumn ? 1 : 0.6,
-                    boxShadow: !twoColumn 
-                      ? (isDarkMode
-                          ? '0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.24)'
-                          : '0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08)')
-                      : 'none',
-                  }}
-                >
-                  <Icon
-                    iconName="SingleColumn"
-                    style={{
-                      fontSize: 10,
-                      color: !twoColumn 
-                        ? (isDarkMode ? '#1f2937' : '#1f2937')
-                        : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),
-                    }}
-                  />
-                </button>
-                <button
-                  type="button"
-                  title="Two column layout"
-                  aria-label="Two column layout"
-                  aria-pressed={twoColumn}
-                  onClick={() => setTwoColumn(true)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    width: 22,
-                    height: 22,
-                    background: twoColumn ? '#FFFFFF' : 'transparent',
-                    border: 'none',
-                    borderRadius: 11,
-                    cursor: 'pointer',
-                    transition: 'all 200ms ease',
-                    opacity: twoColumn ? 1 : 0.6,
-                    boxShadow: twoColumn 
-                      ? (isDarkMode
-                          ? '0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.24)'
-                          : '0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08)')
-                      : 'none',
-                  }}
-                >
-                  <Icon
-                    iconName="DoubleColumn"
-                    style={{
-                      fontSize: 10,
-                      color: twoColumn 
-                        ? (isDarkMode ? '#1f2937' : '#1f2937')
-                        : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),
-                    }}
-                  />
-                </button>
-              </div>
-            )}
-
-            {/* Admin data toggle */}
-            {(isAdmin || isLocalhost) && (
+          middleActions={(isAdmin || isLocalhost) && (
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <div
                 style={{
                   display: 'flex',
@@ -455,28 +443,21 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
                   padding: '4px 10px',
                   height: 28,
                   borderRadius: 14,
-                  background: isDarkMode ? 'rgba(255,193,7,0.15)' : 'rgba(255,193,7,0.12)',
-                  border: `1px solid ${isDarkMode ? 'rgba(255,193,7,0.3)' : 'rgba(255,193,7,0.25)'}`,
+                  background: 'transparent',
+                  border: `1px solid ${isDarkMode ? 'rgba(255,183,77,0.35)' : 'rgba(255,152,0,0.3)'}`,
                   fontSize: 10,
                   fontWeight: 600,
-                  color: isDarkMode ? '#ffd54f' : '#f57c00'
+                  color: isDarkMode ? '#FFB74D' : '#E65100'
                 }}
-                title="Admin controls (alex, luke, cass only)"
+                title="Admin only"
+                aria-label="Admin only"
               >
+                <Icon iconName="Shield" style={{ fontSize: 10, opacity: 0.7 }} />
                 <span style={{ fontSize: 10, whiteSpace: 'nowrap' }}>{filtered.length}/{datasetCount}</span>
-                <div style={{ width: 1, height: 14, background: 'currentColor', opacity: 0.3 }} />
-                <ToggleSwitch
-                  id="matters-new-data-toggle"
-                  checked={useNewData}
-                  onChange={(v) => setUseNewData(v)}
-                  size="sm"
-                  onText="New"
-                  offText="Legacy"
-                  ariaLabel="Toggle dataset between legacy and new"
-                />
               </div>
-            )}
-          </div>
+            </div>
+          )}
+        >
         </FilterBanner>
       );
     } else {
@@ -535,22 +516,16 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
     activeAreaFilter,
     availableAreas,
     searchTerm,
-  scope,
-  useNewData,
+    scope,
     activeRoleFilter,
     filtered.length,
     datasetCount,
     isAdmin,
     isLocalhost,
-    twoColumn,
   ]);
 
   if (selected) {
-    return (
-      <div style={{ padding: 20 }}>
-        <MatterOverview matter={selected} />
-      </div>
-    );
+    return <MatterOverview matter={selected} />;
   }
 
   if (isLoading) {
@@ -579,270 +554,55 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
   }
 
   if (filtered.length === 0 && !isLoading && !error) {
+    const hasFilters = Boolean(
+      searchTerm.trim() ||
+      activeFilter !== 'Active' ||
+      activeAreaFilter !== 'All' ||
+      activeRoleFilter !== 'Responsible' ||
+      (isAdmin && scope === 'all')
+    );
+
     return (
       <div className={containerStyle(isDarkMode)}>
-        <div style={{
-          backgroundColor: 'transparent',
-          borderRadius: '12px',
-          padding: '60px 40px',
-          textAlign: 'center',
-          boxShadow: 'none',
-        }}>
-          <Icon
-            iconName="Search"
-            styles={{
-              root: {
-                fontSize: '48px',
-                color: isDarkMode ? colours.dark.subText : colours.light.subText,
-                marginBottom: '20px',
-              },
-            }}
-          />
-          <Text
-            variant="xLarge"
-            styles={{
-              root: {
-                color: isDarkMode ? colours.dark.text : colours.light.text,
-                fontFamily: 'Raleway, sans-serif',
-                fontWeight: '600',
-                marginBottom: '8px',
-              },
-            }}
-          >
-            No matters found
-          </Text>
-          <Text
-            variant="medium"
-            styles={{
-              root: {
-                color: isDarkMode ? colours.dark.subText : colours.light.subText,
-                fontFamily: 'Raleway, sans-serif',
-              },
-            }}
-          >
-            Try adjusting your search criteria or filters
-          </Text>
-        </div>
+        <EmptyState
+          title={hasFilters ? 'No matching matters' : 'No matters found'}
+          description={
+            hasFilters
+              ? 'No matters match your current filters. Try adjusting or clearing your filters to see more results.'
+              : 'Try adjusting your search criteria or filters.'
+          }
+          illustration={hasFilters ? 'filter' : 'search'}
+          size="md"
+          action={
+            hasFilters
+              ? {
+                  label: 'Clear All Filters',
+                  onClick: () => {
+                    setSearchTerm('');
+                    setActiveFilter('Active');
+                    setActiveAreaFilter('All');
+                    setActiveRoleFilter('Responsible');
+                    if (isAdmin) {
+                      setScope('mine');
+                    }
+                  },
+                  variant: 'primary'
+                }
+              : undefined
+          }
+        />
       </div>
     );
   }
 
   return (
     <div className={containerStyle(isDarkMode)}>
-      {/* Table view */}
-      {viewMode === 'table' && (
-        <MatterTableView
-          matters={filtered}
-          isDarkMode={isDarkMode}
-          onRowClick={(matter) => setSelected(matter)}
-          loading={isLoading}
-        />
-      )}
-
-      {/* Card view */}
-      {viewMode === 'cards' && (
-        <section className="page-section">
-          <Stack
-            tokens={{ childrenGap: 0 }}
-            styles={{
-              root: {
-                backgroundColor: isDarkMode 
-                  ? colours.dark.sectionBackground 
-                  : colours.light.sectionBackground,
-                padding: '16px',
-                borderRadius: 0,
-                boxShadow: isDarkMode
-                  ? `0 4px 12px ${colours.dark.border}`
-                  : `0 4px 12px ${colours.light.border}`,
-                width: '100%',
-                fontFamily: 'Raleway, sans-serif',
-              },
-            }}
-          >
-            {/* Table-style matter list */}
-            <div
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '0px',
-                padding: 0,
-                margin: 0,
-                backgroundColor: 'transparent',
-                width: '100%',
-              }}
-            >
-              {filtered.map((matter, idx) => (
-              <div
-                key={matter.matterId || idx}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  padding: '16px 20px',
-                  borderBottom: idx === filtered.length - 1 ? 'none' : `1px solid ${isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'}`,
-                  backgroundColor: 'transparent',
-                  transition: 'background-color 0.2s ease',
-                  cursor: 'pointer',
-                  gap: '20px',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.02)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = 'transparent';
-                }}
-                onClick={() => setSelected(matter)}
-              >
-                {/* Client & Matter Info */}
-                <div style={{ flex: '1 1 280px', minWidth: 0 }}>
-                  <div>
-                    <span 
-                      style={{ 
-                        fontSize: '14px',
-                        fontWeight: '600',
-                        color: isDarkMode ? colours.dark.text : colours.light.text,
-                        display: 'block',
-                        marginBottom: '4px',
-                        fontFamily: 'Raleway, sans-serif',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}
-                      title={matter.clientName || 'Unknown Client'}
-                    >
-                      {matter.clientName || 'Unknown Client'}
-                    </span>
-                  </div>
-                  <div style={{ 
-                    fontSize: '12px',
-                    fontWeight: '500',
-                    color: isDarkMode ? colours.dark.subText : colours.light.subText,
-                    marginBottom: '4px',
-                    fontFamily: 'Raleway, sans-serif',
-                  }}>
-                    {matter.displayNumber || matter.matterId}
-                  </div>
-                  <div>
-                    <span 
-                      style={{ 
-                        fontSize: '13px',
-                        color: isDarkMode ? colours.dark.subText : colours.light.subText,
-                        display: 'block',
-                        fontFamily: 'Raleway, sans-serif',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}
-                      title={matter.description || 'No description'}
-                    >
-                      {matter.description || 'No description'}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Practice Area & Status */}
-                <div style={{ flex: '1 1 180px', minWidth: 0 }}>
-                  <div style={{ 
-                    fontSize: '13px',
-                    fontWeight: '500',
-                    color: isDarkMode ? colours.dark.text : colours.light.text,
-                    marginBottom: '2px',
-                    fontFamily: 'Raleway, sans-serif',
-                  }}>
-                    {matter.practiceArea || 'No Area'}
-                  </div>
-                  <div style={{ 
-                    fontSize: '12px',
-                    color: matter.status?.toLowerCase() === 'active' 
-                      ? (isDarkMode ? '#86efac' : '#22c55e')
-                      : (isDarkMode ? colours.dark.subText : colours.light.subText),
-                    fontWeight: '500',
-                    marginTop: '2px',
-                    textTransform: 'lowercase',
-                    fontFamily: 'Raleway, sans-serif',
-                  }}>
-                    {matter.status?.toLowerCase() || 'unknown'}
-                  </div>
-                </div>
-
-                {/* Responsible Solicitor */}
-                <div style={{ flex: '1 1 140px', minWidth: 0 }}>
-                  <div style={{ 
-                    fontSize: '13px',
-                    fontWeight: '500',
-                    color: isDarkMode ? colours.dark.text : colours.light.text,
-                    fontFamily: 'Raleway, sans-serif',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}>
-                    {matter.responsibleSolicitor || 'Unassigned'}
-                  </div>
-                </div>
-
-                {/* Date & ID */}
-                <div style={{ flex: '0 0 120px', textAlign: 'right' }}>
-                  <div style={{ 
-                    fontSize: '12px',
-                    color: isDarkMode ? colours.dark.subText : colours.light.subText,
-                    marginBottom: '4px',
-                    fontFamily: 'Raleway, sans-serif',
-                  }}>
-                    {matter.openDate ? new Date(matter.openDate).toLocaleDateString('en-GB', {
-                      day: '2-digit',
-                      month: 'short', 
-                      year: 'numeric'
-                    }) : 'No date'}
-                  </div>
-                  <span style={{ 
-                    fontSize: '11px',
-                    color: isDarkMode ? 'rgba(148,163,184,0.6)' : 'rgba(100,116,139,0.6)',
-                    fontFamily: 'Raleway, sans-serif',
-                  }}>
-                    ID: {matter.matterId || 'Unknown'}
-                  </span>
-                </div>
-
-                {/* View Button */}
-                <div style={{ 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  gap: '6px', 
-                  flexShrink: 0, 
-                  marginRight: '16px' 
-                }}>
-                  <button
-                    style={{
-                      padding: '6px 12px',
-                      backgroundColor: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.1)',
-                      border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)'}`,
-                      borderRadius: '6px',
-                      fontSize: '12px',
-                      fontWeight: '500',
-                      color: isDarkMode ? '#87ceeb' : '#0369a1',
-                      cursor: 'pointer',
-                      fontFamily: 'Raleway, sans-serif',
-                      transition: 'all 0.2s ease',
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.15)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.1)';
-                    }}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSelected(matter);
-                    }}
-                  >
-                    View
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </Stack>
-      </section>
-      )}
+      <MatterTableView
+        matters={filtered}
+        isDarkMode={isDarkMode}
+        onRowClick={(matter) => setSelected(matter)}
+        loading={isLoading}
+      />
     </div>
   );
 

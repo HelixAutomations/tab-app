@@ -611,34 +611,6 @@ async function fetchVNetMatters(fullName?: string): Promise<any[]> {
       return cached;
     }
 
-    const isLocalDev = typeof window !== 'undefined' &&
-      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-
-    // Local dev: /api/matters-unified can be cold-start slow because it performs full-table
-    // reads across two databases under tighter SQL request timeouts. Use the proven two-call
-    // path to keep startup snappy and avoid 504/abort loops.
-    if (isLocalDev) {
-      try {
-        // `/api/getAllMatters` is deprecated (410), so use per-user legacy matters instead.
-        const [legacyUserMatters, vnetUserMatters] = await Promise.all([
-          fetchMatters(fullName),
-          fetchVNetMatters(fullName),
-        ]);
-
-        const normalizedMatters = mergeMattersFromSources(
-          legacyUserMatters,
-          [],
-          vnetUserMatters,
-          fullName,
-        );
-
-        setMemoryCachedData(cacheKey, normalizedMatters);
-        return normalizedMatters;
-      } catch {
-        return [];
-      }
-    }
-
     try {
       const query = fullName ? `?fullName=${encodeURIComponent(fullName)}` : '';
       const url = `/api/matters-unified${query}`;

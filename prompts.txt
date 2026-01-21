@@ -4,3 +4,50 @@ also add an option to call prospect from the pitch builder, there is a option to
 
 add better way to see technical details report data. 
 
+===
+
+pitch builder whiteboard
+
+===
+
+when using this the checkoutlink functionality, here is some helpful findable content to help you;
+Checkout link created (no pitch email).
+https://instruct.helix-law.com/pitch/61742
+Copy checkout link
+Use this link to collect payment outside of Helix Hub.
+the text Use this link to collect payment outside of Helix Hub.
+
+ is wrong because this is just like a pitch/collecting instructions and not just payment. in fact, payment links will be separate via stripe. there might already by 'payment link request' functionality or similar, in the inline workbench.
+ this inlink workbench is the one in the clients/old instructions tab. but we've moved all that into the prospect phase and in the timeline under specific pitch, since its all related/connected to that pitch.
+ your task is to test the payment request link functionality works and add it as a functionality in the overview journey timeline, so to be clear, overview tab when clicking into an enquiry, timeline space in there;
+ same as doc request and the checkout link. dont forget to update the checkout link timeline entry/item to reflect that change/tweak.
+
+ when popping out the app in a new teams app window, the home page metrics keep loading in. the problem was resolved normally, but the new window functionality still triggers it. try to find the cause and fix it.
+
+ ==
+
+ pitch builder AMOUNT
+
+ ===
+
+ scenario content not showing till double confirm.
+editor block empty till i reselect.
+
+ ===
+
+ daily app restarts
+
+ ===
+
+ win v enabled for everyone.
+
+ ===
+ 
+ payment on account of costs not estimate or quoer in pitch builder.
+
+===
+
+jonathan annual leave construction only
+
+===
+

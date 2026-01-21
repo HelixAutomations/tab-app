@@ -367,32 +367,86 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
     setMounted(true);
   }, [enableAnimationThisMount]);
 
-  // Count-up animation for primary numbers
-  const useCountUp = (target: number, durationMs: number = 700): number => {
-    const [value, setValue] = React.useState(0);
+  const formatNumber = (value: number, decimals: number) =>
+    value.toLocaleString(undefined, {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    });
+
+  const AnimatedNumber: React.FC<{
+    value: number;
+    decimals?: number;
+    durationMs?: number;
+    animate?: boolean;
+    suffix?: string;
+    onDone?: () => void;
+  }> = ({ value, decimals = 0, durationMs = 700, animate = true, suffix = '', onDone }) => {
+    const [display, setDisplay] = React.useState(() => (animate ? 0 : value));
+    const hasAnimatedRef = React.useRef(false);
+    const doneRef = React.useRef(false);
+
     React.useEffect(() => {
-      if (!Number.isFinite(target)) { setValue(0); return; }
+      if (!Number.isFinite(value)) {
+        setDisplay(0);
+        return;
+      }
+      if (!animate || hasAnimatedRef.current) {
+        setDisplay(value);
+        return;
+      }
       const start = performance.now();
       let raf = 0;
       const tick = (now: number) => {
         const t = Math.min(1, (now - start) / durationMs);
         const eased = 1 - Math.pow(1 - t, 3);
-        setValue(target * eased);
-        if (t < 1) raf = requestAnimationFrame(tick);
+        setDisplay(value * eased);
+        if (t < 1) {
+          raf = requestAnimationFrame(tick);
+        } else {
+          hasAnimatedRef.current = true;
+          setDisplay(value);
+          if (!doneRef.current) {
+            doneRef.current = true;
+            onDone?.();
+          }
+        }
       };
-      setValue(0);
       raf = requestAnimationFrame(tick);
       return () => cancelAnimationFrame(raf);
-    }, [target, durationMs]);
-    return value;
+    }, [animate, durationMs, onDone, value]);
+
+    return <>{`${formatNumber(display, decimals)}${suffix}`}</>;
   };
 
-  const AnimatedValueWithEnabled: React.FC<{ value: number; formatter: (n: number) => string; enabled: boolean; style?: React.CSSProperties }>
-    = ({ value, formatter, enabled, style }) => {
-      const animated = useCountUp(enabled ? value : 0);
-      const toRender = enabled ? animated : value;
-      return <span style={style}>{formatter(toRender)}</span>;
-    };
+  const AnimatedMetricValue: React.FC<{
+    storageKey: string;
+    value: number;
+    decimals: number;
+    suffix?: string;
+    enabled: boolean;
+  }> = ({ storageKey, value, decimals, suffix, enabled }) => {
+    const [shouldAnimate, setShouldAnimate] = React.useState<boolean>(() => {
+      try { return sessionStorage.getItem(storageKey) !== 'true'; } catch { return false; }
+    });
+    const doneRef = React.useRef(false);
+
+    const handleDone = React.useCallback(() => {
+      if (doneRef.current) return;
+      doneRef.current = true;
+      try { sessionStorage.setItem(storageKey, 'true'); } catch {}
+      setShouldAnimate(false);
+    }, [storageKey]);
+
+    return (
+      <AnimatedNumber
+        value={value}
+        decimals={decimals}
+        animate={enabled && shouldAnimate}
+        suffix={suffix}
+        onDone={handleDone}
+      />
+    );
+  };
 
   const staggerStyle = (index: number): React.CSSProperties => ({
     opacity: mounted ? 1 : 0,
@@ -765,9 +819,11 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
                     marginBottom: '8px',
                     textShadow: isDarkMode ? '0 2px 8px rgba(0,0,0,0.3)' : 'none',
                   }}>
-                    <AnimatedValueWithEnabled
+                    <AnimatedMetricValue
+                      storageKey={`emv2_metric_${metric.title}`}
                       value={displayValue}
-                      formatter={(n) => metric.isPercentage ? `${n.toFixed(1)}%` : Math.round(n).toLocaleString()}
+                      decimals={metric.isPercentage ? 1 : 0}
+                      suffix={metric.isPercentage ? '%' : ''}
                       enabled={enableAnimationThisMount && !showPreviousPeriod}
                     />
                   </div>
@@ -955,9 +1011,11 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
                       fontVariantNumeric: 'tabular-nums',
                       marginBottom: '8px',
                     }}>
-                      <AnimatedValueWithEnabled
+                      <AnimatedMetricValue
+                        storageKey={`emv2_metric_${metric.title}`}
                         value={displayValue}
-                        formatter={(n) => metric.isPercentage ? `${n.toFixed(1)}%` : Math.round(n).toLocaleString()}
+                        decimals={metric.isPercentage ? 1 : 0}
+                        suffix={metric.isPercentage ? '%' : ''}
                         enabled={enableAnimationThisMount && !showPreviousPeriod}
                       />
                     </div>

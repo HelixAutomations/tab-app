@@ -11,6 +11,64 @@ const log = loggers.enquiries;
 // Emits lightweight "enquiries.changed" events on mutations so clients can refresh.
 attachEnquiriesStream(router);
 
+// Lightweight pulse endpoint to detect new enquiries without heavy payloads.
+// GET /api/enquiries-unified/pulse
+router.get('/pulse', async (req, res) => {
+  const mainConnectionString = process.env.SQL_CONNECTION_STRING; // helix-core-data
+  const instructionsConnectionString = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING; // instructions DB
+
+  const warnings = [];
+  let mainLatest = null;
+  let instructionsLatest = null;
+
+  try {
+    if (mainConnectionString) {
+      const result = await withRequest(mainConnectionString, async (request) => {
+        return await request.query(`
+          SELECT TOP 1 Date_Created as latest
+          FROM enquiries
+          ORDER BY Date_Created DESC
+        `);
+      });
+      mainLatest = result?.recordset?.[0]?.latest || null;
+    }
+  } catch (err) {
+    warnings.push({ source: 'main', message: err?.message || String(err) });
+  }
+
+  try {
+    if (instructionsConnectionString) {
+      const result = await withRequest(instructionsConnectionString, async (request) => {
+        return await request.query(`
+          SELECT TOP 1 datetime as latest
+          FROM dbo.enquiries
+          ORDER BY datetime DESC
+        `);
+      });
+      instructionsLatest = result?.recordset?.[0]?.latest || null;
+    }
+  } catch (err) {
+    warnings.push({ source: 'instructions', message: err?.message || String(err) });
+  }
+
+  const latestCandidates = [mainLatest, instructionsLatest]
+    .map((value) => (value ? new Date(value).getTime() : NaN))
+    .filter((value) => Number.isFinite(value));
+
+  const latestTimestamp = latestCandidates.length
+    ? new Date(Math.max(...latestCandidates)).toISOString()
+    : null;
+
+  res.json({
+    latestTimestamp,
+    sources: {
+      main: mainLatest ? new Date(mainLatest).toISOString() : null,
+      instructions: instructionsLatest ? new Date(instructionsLatest).toISOString() : null,
+    },
+    warnings,
+  });
+});
+
 // Route: GET /api/enquiries-unified
 // Direct database connections to fetch enquiries from BOTH database sources
 router.get('/', async (req, res) => {
@@ -128,6 +186,7 @@ async function performUnifiedEnquiriesQuery(queryParams) {
         }
         if (includeTeamInbox) {
           pocConditions.push("LOWER(LTRIM(RTRIM(Point_of_Contact))) IN ('team@helix-law.com', 'team', 'team inbox')");
+          pocConditions.push("Point_of_Contact IS NULL OR LTRIM(RTRIM(Point_of_Contact)) = ''");
         }
         if (pocConditions.length > 0) filters.push(`(${pocConditions.join(' OR ')})`);
       }
@@ -205,6 +264,7 @@ async function performUnifiedEnquiriesQuery(queryParams) {
         }
         if (includeTeamInbox) {
           pocConditions.push("LOWER(LTRIM(RTRIM(poc))) IN ('team@helix-law.com', 'team', 'team inbox')");
+          pocConditions.push("poc IS NULL OR LTRIM(RTRIM(poc)) = ''");
         }
         if (pocConditions.length > 0) filters.push(`(${pocConditions.join(' OR ')})`);
       }
