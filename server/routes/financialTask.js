@@ -8,6 +8,14 @@ const KV_URI = "https://helix-keys.vault.azure.net/";
 const ONEDRIVE_DRIVE_ID = "b!Yvwb2hcQd0Sccr_JiZEOOEqq1HfNiPFCs8wM4QfDlvVbiAZXWhpCS47xKdZKl8Vd";
 const ASANA_PROJECT_ID = "1203336124217593";
 
+function createHttpError(status, code, message, details) {
+  const err = new Error(message);
+  err.status = status;
+  err.code = code;
+  if (details) err.details = details;
+  return err;
+}
+
 // Form type to OneDrive folder mapping
 const FORM_FOLDER_MAPPING = {
   "Payment Requests": "01SHVNVKRYLIPQGFSEVVDIOKCA6LR3LVFU",
@@ -56,16 +64,74 @@ async function getAsanaCredentials(initials) {
 }
 
 // Refresh Asana access token
-async function getAsanaAccessToken(credentials) {
+async function getAsanaAccessToken(credentials, requestId) {
   const { clientId, secret, refreshToken } = credentials;
-  const tokenUrl = `https://app.asana.com/-/oauth_token?grant_type=refresh_token&client_id=${encodeURIComponent(clientId)}&client_secret=${encodeURIComponent(secret)}&refresh_token=${encodeURIComponent(refreshToken)}`;
-  
-  const response = await fetch(tokenUrl, { method: "POST" });
-  if (!response.ok) {
-    throw new Error("Failed to refresh Asana token");
+  const tokenUrl = 'https://app.asana.com/-/oauth_token';
+
+  const body = new URLSearchParams();
+  body.append('grant_type', 'refresh_token');
+  body.append('client_id', String(clientId));
+  body.append('client_secret', String(secret));
+  body.append('refresh_token', String(refreshToken));
+
+  const shouldRetry = (status) => status === 429 || (status >= 500 && status <= 599);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  let response;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    response = await fetch(tokenUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+    });
+
+    if (response.ok || !shouldRetry(response.status) || attempt === 3) break;
+
+    const backoffMs = attempt === 1 ? 350 : 900;
+    console.warn('[financial-task] Asana token refresh transient failure; retrying', {
+      status: response.status,
+      attempt,
+      backoffMs,
+      requestId,
+    });
+    await sleep(backoffMs);
   }
-  
+
+  if (!response.ok) {
+    const errText = await response.text().catch(() => '');
+
+    // Asana typically returns JSON like { error: "invalid_grant", error_description: "..." }
+    let safeDetails = '';
+    if (errText) {
+      try {
+        const parsed = JSON.parse(errText);
+        const e = typeof parsed?.error === 'string' ? parsed.error : '';
+        const d = typeof parsed?.error_description === 'string' ? parsed.error_description : '';
+        safeDetails = [e, d].filter(Boolean).join(' - ');
+      } catch {
+        safeDetails = errText.slice(0, 300);
+      }
+    }
+
+    console.error('[financial-task] Asana token refresh failed', {
+      status: response.status,
+      details: safeDetails,
+      requestId,
+    });
+
+    throw createHttpError(
+      502,
+      'ASANA_TOKEN_REFRESH_FAILED',
+      'Failed to refresh Asana authorisation for your account.',
+      safeDetails || `Upstream status ${response.status}`
+    );
+  }
+
   const data = await response.json();
+  if (!data?.access_token) {
+    throw createHttpError(502, 'ASANA_TOKEN_REFRESH_FAILED', 'Asana token refresh returned no access token.', 'Missing access_token');
+  }
+
   return data.access_token;
 }
 
@@ -174,6 +240,7 @@ router.post('/', async (req, res) => {
 
   const startedAt = Date.now();
   const arrLogId = req.get('x-arr-log-id');
+  const requestId = arrLogId || `local-${startedAt.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   const contentLength = req.get('content-length');
   const dataKeys = data && typeof data === 'object' ? Object.keys(data) : [];
 
@@ -184,24 +251,32 @@ router.post('/', async (req, res) => {
     keys: dataKeys,
     keyCount: dataKeys.length,
     contentLength,
-    arrLogId,
+    requestId,
   });
   
   if (!formType || !data || !initials) {
-    console.warn('[financial-task] Bad request (missing fields)', { formType, hasData: !!data, initials, arrLogId });
-    return res.status(400).json({ error: "Missing formType, data, or initials in request body." });
+    console.warn('[financial-task] Bad request (missing fields)', { formType, hasData: !!data, initials, requestId });
+    return res.status(400).json({
+      error: 'Missing formType, data, or initials in request body.',
+      code: 'BAD_REQUEST',
+      requestId,
+    });
   }
   
   try {
     // Get Asana credentials
     const asanaCredentials = await getAsanaCredentials(initials);
     if (!asanaCredentials) {
-      console.warn('[financial-task] No Asana credentials for initials', { initials, arrLogId });
-      return res.status(400).json({ error: "ASANA credentials not found for the provided initials." });
+      console.warn('[financial-task] No Asana credentials for initials', { initials, requestId });
+      return res.status(400).json({
+        error: 'Asana credentials not found for your initials.',
+        code: 'ASANA_CREDENTIALS_NOT_FOUND',
+        requestId,
+      });
     }
     
     // Get Asana access token
-    const asanaAccessToken = await getAsanaAccessToken(asanaCredentials);
+    const asanaAccessToken = await getAsanaAccessToken(asanaCredentials, requestId);
     
     // Build description
     const sanitisedData = sanitizeDataForTask(data);
@@ -229,7 +304,7 @@ router.post('/', async (req, res) => {
       formType,
       fileFieldName: fileFieldName || null,
       hasFilePayload: !!(fileFieldName && data && data[fileFieldName]),
-      arrLogId,
+      requestId,
     });
     
     if (targetFolderId && fileFieldName && data[fileFieldName]) {
@@ -250,7 +325,7 @@ router.post('/', async (req, res) => {
             console.log('[financial-task] OneDrive upload ok', {
               itemId: uploadResult.id,
               name: uploadResult.name,
-              arrLogId,
+              requestId,
             });
           }
         } catch (uploadError) {
@@ -297,14 +372,25 @@ router.post('/', async (req, res) => {
     });
     
     if (!asanaResponse.ok) {
-      const errText = await asanaResponse.text();
-      console.error('[financial-task] Asana error:', errText);
-      throw new Error("Asana task creation failed");
+      const errText = await asanaResponse.text().catch(() => '');
+      console.error('[financial-task] Asana error:', {
+        status: asanaResponse.status,
+        body: errText ? errText.slice(0, 800) : '',
+        requestId,
+      });
+
+      // Preserve upstream status where useful (often 4xx for auth), but avoid leaking sensitive content.
+      return res.status(asanaResponse.status).json({
+        error: 'Asana task creation failed.',
+        details: errText ? errText.slice(0, 400) : undefined,
+        code: 'ASANA_TASK_CREATE_FAILED',
+        requestId,
+      });
     }
     
     const asanaResult = await asanaResponse.json();
     console.log(`[financial-task] Created Asana task: ${asanaResult.data?.gid}`, {
-      arrLogId,
+      requestId,
       ms: Date.now() - startedAt,
     });
     
@@ -317,10 +403,20 @@ router.post('/', async (req, res) => {
     console.error('[financial-task] Error:', {
       message: error?.message,
       name: error?.name,
-      arrLogId,
+      requestId,
       ms: Date.now() - startedAt,
     });
-    res.status(500).json({ error: error.message || "Unknown error occurred." });
+
+    const status = typeof error?.status === 'number' ? error.status : 500;
+    const code = typeof error?.code === 'string' ? error.code : 'INTERNAL_ERROR';
+    const details = typeof error?.details === 'string' ? error.details : undefined;
+
+    res.status(status).json({
+      error: error?.message || 'Unknown error occurred.',
+      code,
+      details,
+      requestId,
+    });
   }
 });
 

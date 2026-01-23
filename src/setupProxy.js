@@ -229,20 +229,6 @@ module.exports = function(app) {
     })
   );
 
-  // Serve changelog.md for session log feature (localhost only)
-  app.get('/logs/changelog.md', (req, res) => {
-    const path = require('path');
-    const fs = require('fs');
-    const filePath = path.join(__dirname, '..', 'logs', 'changelog.md');
-    fs.readFile(filePath, 'utf8', (err, data) => {
-      if (err) {
-        res.status(404).send('Changelog not found');
-        return;
-      }
-      res.type('text/plain').send(data);
-    });
-  });
-
   // Catch-all for any other /api routes - try Express server first, then Azure Functions
   app.use(
     '/api',

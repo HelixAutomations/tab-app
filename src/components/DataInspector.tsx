@@ -26,7 +26,8 @@ import { getProxyBaseUrl } from '../utils/getProxyBaseUrl';
 
 interface DataInspectorProps {
   data: unknown;
-  onClose: () => void;
+  onClose?: () => void;
+  mode?: 'modal' | 'embedded';
 }
 
 type InspectorSection = 'user' | 'calls' | 'cache' | 'environment';
@@ -35,7 +36,7 @@ type CallFilter = 'all' | 'success' | 'error';
 const PASSCODE_VALUE = '2011';
 const PASSCODE_STORAGE_KEY = 'helix-hub-inspector-passcode';
 
-const DataInspector: React.FC<DataInspectorProps> = ({ data, onClose }) => {
+const DataInspector: React.FC<DataInspectorProps> = ({ data, onClose, mode = 'modal' }) => {
   const { isDarkMode } = useTheme();
   const palette = isDarkMode ? colours.dark : colours.light;
   const [selectedSection, setSelectedSection] = useState<InspectorSection>('user');
@@ -64,13 +65,14 @@ const DataInspector: React.FC<DataInspectorProps> = ({ data, onClose }) => {
   }, []);
 
   useEffect(() => {
+    loadCache();
+    if (mode !== 'modal') return;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    loadCache();
     return () => {
       document.body.style.overflow = previousOverflow;
     };
-  }, [loadCache]);
+  }, [loadCache, mode]);
 
   const verifyPasscode = useCallback(() => {
     if (passcodeInput.trim() === PASSCODE_VALUE) {
@@ -895,37 +897,36 @@ const DataInspector: React.FC<DataInspectorProps> = ({ data, onClose }) => {
     }
   };
 
-  return (
-    <Modal
-      isOpen
-      onDismiss={onClose}
-      isBlocking
-      styles={modalStyles}
-    >
+  const layout = (
+    <>
       <div className={headerClass}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <Icon iconName="ComplianceAudit" style={{ fontSize: 20, color: colours.blue }} />
           <div>
-            <Text variant="xLarge" style={{ fontWeight: 600, color: palette.text }}>Application Inspector</Text>
+            <Text variant={mode === 'modal' ? 'xLarge' : 'large'} style={{ fontWeight: 600, color: palette.text }}>
+              Application Inspector
+            </Text>
             <Text style={{ color: palette.subText, fontSize: 12 }}>Environment context, cache state, and network diagnostics</Text>
           </div>
         </div>
-        <IconButton
-          iconProps={{ iconName: 'ChromeClose' }}
-          ariaLabel="Close application inspector"
-          onClick={onClose}
-          styles={{
-            root: {
-              borderRadius: 6,
-              width: 32,
-              height: 32,
-              color: isDarkMode ? '#a0aec0' : '#4a5568',
-            },
-            rootHovered: {
-              background: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
-            },
-          }}
-        />
+        {mode === 'modal' && onClose && (
+          <IconButton
+            iconProps={{ iconName: 'ChromeClose' }}
+            ariaLabel="Close application inspector"
+            onClick={onClose}
+            styles={{
+              root: {
+                borderRadius: 6,
+                width: 32,
+                height: 32,
+                color: isDarkMode ? '#a0aec0' : '#4a5568',
+              },
+              rootHovered: {
+                background: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+              },
+            }}
+          />
+        )}
       </div>
 
       <div className={bodyClass}>
@@ -973,6 +974,30 @@ const DataInspector: React.FC<DataInspectorProps> = ({ data, onClose }) => {
           )}
         </div>
       </div>
+    </>
+  );
+
+  if (mode === 'embedded') {
+    return (
+      <div style={{
+        border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.2)' : 'rgba(15,23,42,0.08)'}`,
+        borderRadius: 14,
+        overflow: 'hidden',
+        background: palette.sectionBackground,
+      }}>
+        {layout}
+      </div>
+    );
+  }
+
+  return (
+    <Modal
+      isOpen
+      onDismiss={onClose}
+      isBlocking
+      styles={modalStyles}
+    >
+      {layout}
     </Modal>
   );
 };

@@ -1823,19 +1823,49 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     }, 300);
   }, []);
 
-  const copyToClipboard = useCallback((value?: string | number) => {
-    if (!value) {
-      return;
+  const safeCopyToClipboard = useCallback(async (value?: string | number) => {
+    if (!value) return false;
+    const text = String(value);
+
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (err) {
+      console.error('Failed to copy text:', err);
     }
-    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-      navigator.clipboard
-        .writeText(String(value))
-        .catch((err) => console.error('Failed to copy text:', err));
+
+    try {
+      if (typeof document === 'undefined') return false;
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.setAttribute('readonly', '');
+      textarea.style.position = 'absolute';
+      textarea.style.left = '-9999px';
+      document.body.appendChild(textarea);
+      textarea.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(textarea);
+      return ok;
+    } catch (err) {
+      console.error('Failed to copy text with fallback:', err);
+      return false;
     }
   }, []);
 
+  const handleCopyName = useCallback(async (value: string, key: string) => {
+    if (!value) return;
+    const ok = await safeCopyToClipboard(value);
+    if (ok) {
+      setCopiedNameKey(key);
+      setTimeout(() => setCopiedNameKey(null), 1500);
+    }
+  }, [safeCopyToClipboard]);
+
   // Track claim operations in progress (keyed by enquiry ID)
   const [claimingEnquiries, setClaimingEnquiries] = useState<Set<string>>(new Set());
+  const [copiedNameKey, setCopiedNameKey] = useState<string | null>(null);
 
   const renderClaimPromptChip = useCallback(
     (options?: { 
@@ -3356,6 +3386,10 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     const defaultTab = (promotion || enquiry.pitchEnquiryId || enrichmentPitch) ? 'Timeline' : 'Pitch';
     openEnquiryWorkbench(enquiry, defaultTab);
   }, [enrichmentMap, getPromotionStatusSimple, openEnquiryWorkbench]);
+
+  const handleSelectEnquiryToPitch = useCallback((enquiry: Enquiry) => {
+    openEnquiryWorkbench(enquiry, 'Pitch');
+  }, [openEnquiryWorkbench]);
 
   const handleBackToList = useCallback(() => {
     setSelectedEnquiry(null);
@@ -7232,6 +7266,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                             const childShowClaimer = childHasClaimer && activeState !== 'Triaged';
                             const childRowHoverKey = buildEnquiryIdentityKey(childEnquiry);
                             const childShowDetails = hoveredRowKey === childRowHoverKey || hoveredDayKey === thisDayKey;
+                            const childNameCopyKey = `name-${childRowHoverKey}`;
+                            const isChildNameCopied = copiedNameKey === childNameCopyKey;
                             
                             // No day separators for child enquiries - parent group already has timeline marker
                             
@@ -7441,9 +7477,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                       type="button"
                                       onClick={(e) => {
                                         e.stopPropagation();
-                                        copyToClipboard(childContactName);
+                                        void handleCopyName(childContactName, childNameCopyKey);
                                       }}
-                                      title="Copy name"
+                                      title={isChildNameCopied ? 'Copied' : 'Copy name'}
                                       aria-label="Copy name"
                                       style={{
                                         display: 'inline-flex',
@@ -7452,26 +7488,48 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                         width: 18,
                                         height: 18,
                                         borderRadius: 5,
-                                        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(100, 116, 139, 0.12)'}`,
-                                        background: 'transparent',
-                                        color: isDarkMode ? 'rgba(203, 213, 225, 0.5)' : 'rgba(71, 85, 105, 0.55)',
+                                        border: isChildNameCopied
+                                          ? `1px solid ${isDarkMode ? 'rgba(16, 185, 129, 0.5)' : 'rgba(16, 185, 129, 0.38)'}`
+                                          : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(100, 116, 139, 0.12)'}`,
+                                        background: isChildNameCopied
+                                          ? (isDarkMode ? 'rgba(16, 185, 129, 0.16)' : 'rgba(16, 185, 129, 0.12)')
+                                          : 'transparent',
+                                        color: isChildNameCopied
+                                          ? '#10B981'
+                                          : (isDarkMode ? 'rgba(203, 213, 225, 0.5)' : 'rgba(71, 85, 105, 0.55)'),
                                         cursor: 'pointer',
                                         padding: 0,
-                                        opacity: 0.5,
-                                        transition: 'opacity 0.15s ease, border-color 0.15s ease, color 0.15s ease',
+                                        opacity: isChildNameCopied ? 1 : 0.5,
+                                        boxShadow: isChildNameCopied
+                                          ? (isDarkMode ? '0 0 0 1px rgba(16, 185, 129, 0.15)' : '0 0 0 1px rgba(16, 185, 129, 0.12)')
+                                          : 'none',
+                                        transform: isChildNameCopied ? 'scale(1.06)' : 'scale(1)',
+                                        transition: 'opacity 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 160ms ease, box-shadow 160ms ease, background 160ms ease',
                                       }}
                                       onMouseEnter={(e) => {
+                                        if (isChildNameCopied) return;
                                         e.currentTarget.style.opacity = '0.9';
                                         e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(100, 116, 139, 0.3)';
                                         e.currentTarget.style.color = isDarkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.85)';
                                       }}
                                       onMouseLeave={(e) => {
+                                        if (isChildNameCopied) return;
                                         e.currentTarget.style.opacity = '0.5';
                                         e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(100, 116, 139, 0.12)';
                                         e.currentTarget.style.color = isDarkMode ? 'rgba(203, 213, 225, 0.5)' : 'rgba(71, 85, 105, 0.55)';
                                       }}
                                     >
-                                      <Icon iconName="Copy" styles={{ root: { fontSize: 10 } }} />
+                                      <Icon
+                                        iconName={isChildNameCopied ? 'CompletedSolid' : 'Copy'}
+                                        styles={{
+                                          root: {
+                                            fontSize: 10,
+                                            transform: isChildNameCopied ? 'scale(1.05)' : 'scale(1)',
+                                            transition: 'transform 160ms ease, color 160ms ease',
+                                            color: isChildNameCopied ? '#10B981' : undefined,
+                                          },
+                                        }}
+                                      />
                                     </button>
                                   </div>
                                   
@@ -8546,6 +8604,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                         const hasNotes = item.Initial_first_call_notes && item.Initial_first_call_notes.trim().length > 0;
                         const noteKey = buildEnquiryIdentityKey(item);
                         const isNotesExpanded = expandedNotesInTable.has(noteKey);
+                        const nameCopyKey = `name-${noteKey}`;
+                        const isNameCopied = copiedNameKey === nameCopyKey;
                         const inlineWorkbenchKey = getEnquiryWorkbenchKey(item);
                         const inlineWorkbenchItem = inlineWorkbenchKey ? inlineWorkbenchByEnquiryId.get(inlineWorkbenchKey) : undefined;
                         const hasInlineWorkbench = Boolean(inlineWorkbenchItem);
@@ -8752,7 +8812,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               if (tooltip) tooltip.style.opacity = '0';
                               setHoveredRowKey((prev) => (prev === rowHoverKey ? null : prev));
                             }}
-                            onClick={() => !isUnclaimed && handleSelectEnquiry(item)}
+                            onClick={() => !isUnclaimed && handleSelectEnquiryToPitch(item)}
                           >
                             {/* Timeline cell */}
                             <div style={{
@@ -8923,9 +8983,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                   type="button"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    copyToClipboard(contactName);
+                                    void handleCopyName(contactName, nameCopyKey);
                                   }}
-                                  title="Copy name"
+                                  title={isNameCopied ? 'Copied' : 'Copy name'}
                                   aria-label="Copy name"
                                   style={{
                                     display: 'inline-flex',
@@ -8934,26 +8994,48 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                     width: 18,
                                     height: 18,
                                     borderRadius: 5,
-                                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(100, 116, 139, 0.12)'}`,
-                                    background: 'transparent',
-                                    color: isDarkMode ? 'rgba(203, 213, 225, 0.5)' : 'rgba(71, 85, 105, 0.55)',
+                                    border: isNameCopied
+                                      ? `1px solid ${isDarkMode ? 'rgba(16, 185, 129, 0.5)' : 'rgba(16, 185, 129, 0.38)'}`
+                                      : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(100, 116, 139, 0.12)'}`,
+                                    background: isNameCopied
+                                      ? (isDarkMode ? 'rgba(16, 185, 129, 0.16)' : 'rgba(16, 185, 129, 0.12)')
+                                      : 'transparent',
+                                    color: isNameCopied
+                                      ? '#10B981'
+                                      : (isDarkMode ? 'rgba(203, 213, 225, 0.5)' : 'rgba(71, 85, 105, 0.55)'),
                                     cursor: 'pointer',
                                     padding: 0,
-                                    opacity: 0.5,
-                                    transition: 'opacity 0.15s ease, border-color 0.15s ease, color 0.15s ease',
+                                    opacity: isNameCopied ? 1 : 0.5,
+                                    boxShadow: isNameCopied
+                                      ? (isDarkMode ? '0 0 0 1px rgba(16, 185, 129, 0.15)' : '0 0 0 1px rgba(16, 185, 129, 0.12)')
+                                      : 'none',
+                                    transform: isNameCopied ? 'scale(1.06)' : 'scale(1)',
+                                    transition: 'opacity 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 160ms ease, box-shadow 160ms ease, background 160ms ease',
                                   }}
                                   onMouseEnter={(e) => {
+                                    if (isNameCopied) return;
                                     e.currentTarget.style.opacity = '0.9';
                                     e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(100, 116, 139, 0.3)';
                                     e.currentTarget.style.color = isDarkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.85)';
                                   }}
                                   onMouseLeave={(e) => {
+                                    if (isNameCopied) return;
                                     e.currentTarget.style.opacity = '0.5';
                                     e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(100, 116, 139, 0.12)';
                                     e.currentTarget.style.color = isDarkMode ? 'rgba(203, 213, 225, 0.5)' : 'rgba(71, 85, 105, 0.55)';
                                   }}
                                 >
-                                  <Icon iconName="Copy" styles={{ root: { fontSize: 10 } }} />
+                                  <Icon
+                                    iconName={isNameCopied ? 'CompletedSolid' : 'Copy'}
+                                    styles={{
+                                      root: {
+                                        fontSize: 10,
+                                        transform: isNameCopied ? 'scale(1.05)' : 'scale(1)',
+                                        transition: 'transform 160ms ease, color 160ms ease',
+                                        color: isNameCopied ? '#10B981' : undefined,
+                                      },
+                                    }}
+                                  />
                                 </button>
                               </div>
                               

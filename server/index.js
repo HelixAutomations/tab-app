@@ -112,6 +112,7 @@ const logsStreamRouter = require('./routes/logs-stream');
 const telemetryRouter = require('./routes/telemetry');
 const bookSpaceRouter = require('./routes/bookSpace');
 const financialTaskRouter = require('./routes/financialTask');
+const releaseNotesRouter = require('./routes/release-notes');
 const { userContextMiddleware } = require('./middleware/userContext');
 
 const app = express();
@@ -263,6 +264,7 @@ app.use('/api/teams-activity-tracking', teamsActivityTrackingRouter);
 app.use('/api/pitch-tracking', pitchTrackingRouter);
 app.use('/api/enquiry-enrichment', enquiryEnrichmentRouter);
 app.use('/api/logs', logsStreamRouter);
+app.use('/api/release-notes', releaseNotesRouter);
 
 // Rate change notification tracking (for Jan 2026 hourly rate increase)
 app.use('/api/rate-changes', rateChangesRouter);

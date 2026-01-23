@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Stack,
   IDropdownOption,
@@ -1463,6 +1463,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
   const [isSuccessVisible, setIsSuccessVisible] = useState<boolean>(false);
   const [isErrorVisible, setIsErrorVisible] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
+  const [pitchHistoryContextHint, setPitchHistoryContextHint] = useState<string | null>(null);
 
   // **New State: Confirmation State for Draft Email Button**
   const [isDraftConfirmed, setIsDraftConfirmed] = useState<boolean>(false);
@@ -1502,6 +1503,24 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
       setTimeout(() => setToast(null), duration);
     }
   };
+
+  const syncToastDeduperRef = useRef<{ key: string; at: number } | null>(null);
+
+  const showSyncToast = useCallback(
+    (key: string, message: string, details?: string) => {
+      const now = Date.now();
+      const last = syncToastDeduperRef.current;
+      if (last && last.key === key && now - last.at < 1500) return;
+
+      syncToastDeduperRef.current = { key, at: now };
+      showToast(message, 'info', {
+        details,
+        icon: 'Sync',
+        duration: 2200
+      });
+    },
+    [showToast]
+  );
 
   // Tab state to switch between email details and deals
   const [activeTab, setActiveTab] = useState<string>('details');
@@ -4391,6 +4410,35 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
   const filteredAttachments = getFilteredAttachments();
 
   useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      if (enquiry?.ID == null) {
+        if (!cancelled) setPitchHistoryContextHint(null);
+        return;
+      }
+      try {
+        const res = await fetch(`/api/pitches/${encodeURIComponent(String(enquiry?.ID ?? ''))}`);
+        if (!res.ok) throw new Error(`Failed to load pitch history (${res.status})`);
+        const data = await res.json();
+        const pitches = Array.isArray(data?.pitches) ? data.pitches : [];
+        const open = pitches.filter((p: any) => !String(p?.InstructionStage ?? '').trim());
+        const count = open.length;
+        if (!cancelled) {
+          setPitchHistoryContextHint(
+            count > 0 ? `${count} previous pitch${count === 1 ? '' : 'es'} not yet converted` : null
+          );
+        }
+      } catch {
+        if (!cancelled) setPitchHistoryContextHint(null);
+      }
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [enquiry?.ID]);
+
+  useEffect(() => {
     return () => {
       if (suppressSaveRef.current) {
         suppressSaveRef.current = false;
@@ -4642,6 +4690,8 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
           isDarkMode={isDarkMode}
           body={body}
           setBody={setBodyForComponents}
+          pitchHistoryContextHint={pitchHistoryContextHint}
+          onSyncToast={showSyncToast}
           templateBlocks={blocks.filter(b => !EXTRACTED_BLOCKS.includes(b.title))}
           selectedTemplateOptions={selectedTemplateOptions}
           insertedBlocks={insertedBlocks}

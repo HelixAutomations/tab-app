@@ -19,6 +19,7 @@ export interface Toast {
   message: string;
   title?: string;
   duration?: number;
+  persist?: boolean;
   action?: {
     label: string;
     onClick: () => void;
@@ -26,7 +27,7 @@ export interface Toast {
 }
 
 interface ToastContextType {
-  showToast: (toast: Omit<Toast, 'id'>) => string;
+  showToast: (toast: Omit<Toast, 'id'> & { id?: string }) => string;
   hideToast: (id: string) => void;
   updateToast: (id: string, updates: Partial<Omit<Toast, 'id'>>) => void;
 }
@@ -58,18 +59,24 @@ export const ToastProvider: React.FC<ToastProviderProps> = ({
   const toastIdCounter = useRef(0);
   const timersRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
 
-  const showToast = useCallback((toast: Omit<Toast, 'id'>): string => {
-    const id = `toast-${++toastIdCounter.current}-${Date.now()}`;
+  const showToast = useCallback((toast: Omit<Toast, 'id'> & { id?: string }): string => {
+    const id = toast.id ?? `toast-${++toastIdCounter.current}-${Date.now()}`;
     const newToast: Toast = { ...toast, id };
     
     setToasts(prev => {
+      const existingIndex = prev.findIndex(t => t.id === id);
+      if (existingIndex >= 0) {
+        const next = prev.slice();
+        next[existingIndex] = { ...next[existingIndex], ...newToast };
+        return next;
+      }
       const updated = [newToast, ...prev];
       // Remove excess toasts
       return updated.slice(0, maxToasts);
     });
 
-    // Auto-dismiss non-loading toasts
-    if (toast.type !== 'loading') {
+    // Auto-dismiss non-loading toasts unless persisting
+    if (toast.type !== 'loading' && !toast.persist) {
       const duration = toast.duration ?? (toast.type === 'error' ? 5000 : 3000);
       const timer = setTimeout(() => {
         hideToast(id);
@@ -92,16 +99,33 @@ export const ToastProvider: React.FC<ToastProviderProps> = ({
   }, []);
 
   const updateToast = useCallback((id: string, updates: Partial<Omit<Toast, 'id'>>) => {
-    setToasts(prev => prev.map(t => 
-      t.id === id ? { ...t, ...updates } : t
-    ));
+    let nextPersist: boolean | undefined;
+    let nextType: ToastType | undefined;
 
-    // If updating from loading to another type, set auto-dismiss
-    if (updates.type && updates.type !== 'loading') {
+    setToasts(prev => prev.map(t => {
+      if (t.id !== id) return t;
+      nextPersist = updates.persist ?? t.persist;
+      nextType = (updates.type ?? t.type) as ToastType;
+      return { ...t, ...updates };
+    }));
+
+    const resolvedPersist = nextPersist ?? false;
+    const resolvedType = nextType;
+
+    if (resolvedPersist) {
+      const timer = timersRef.current.get(id);
+      if (timer) {
+        clearTimeout(timer);
+        timersRef.current.delete(id);
+      }
+      return;
+    }
+
+    if (resolvedType && resolvedType !== 'loading') {
       const timer = timersRef.current.get(id);
       if (timer) clearTimeout(timer);
       
-      const duration = updates.duration ?? (updates.type === 'error' ? 5000 : 3000);
+      const duration = updates.duration ?? (resolvedType === 'error' ? 5000 : 3000);
       const newTimer = setTimeout(() => {
         hideToast(id);
       }, duration);
@@ -158,6 +182,11 @@ interface ToastItemProps {
 
 const ToastItem: React.FC<ToastItemProps> = ({ toast, onDismiss, isDarkMode }) => {
   const [isExiting, setIsExiting] = useState(false);
+  const hasMountedRef = useRef(false);
+
+  React.useEffect(() => {
+    hasMountedRef.current = true;
+  }, []);
 
   const handleDismiss = () => {
     setIsExiting(true);
@@ -226,9 +255,11 @@ const ToastItem: React.FC<ToastItemProps> = ({ toast, onDismiss, isDarkMode }) =
     boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)',
     width: 'clamp(340px, 90vw, 500px)',
     pointerEvents: 'auto',
-    animation: isExiting 
+    animation: isExiting
       ? `toastExit ${ANIMATION_DURATION.fast}ms ${EASING.easeIn} forwards`
-      : `toastEnter ${ANIMATION_DURATION.normal}ms ${EASING.spring}`,
+      : hasMountedRef.current
+        ? 'none'
+        : `toastEnter ${ANIMATION_DURATION.normal}ms ${EASING.spring}`,
     '@keyframes toastEnter': {
       from: { opacity: 0, transform: 'translateX(100%) scaleY(0.95)' },
       to: { opacity: 1, transform: 'translateX(0) scaleY(1)' },
@@ -243,12 +274,21 @@ const ToastItem: React.FC<ToastItemProps> = ({ toast, onDismiss, isDarkMode }) =
   const headerClass = mergeStyles({
     display: 'flex',
     alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 12,
     padding: '12px 16px',
     borderBottom: `1px solid ${scheme.border}`,
     borderLeftWidth: 3,
     borderLeftStyle: 'solid',
     borderLeftColor: scheme.accent,
+  });
+
+  const headerLeftClass = mergeStyles({
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    minWidth: 0,
+    flex: 1,
   });
 
   // Icon container
@@ -268,11 +308,13 @@ const ToastItem: React.FC<ToastItemProps> = ({ toast, onDismiss, isDarkMode }) =
 
   // Title section
   const titleClass = mergeStyles({
-    fontSize: 13,
-    fontWeight: 700,
-    color: '#e5e7eb',
+    fontSize: 12,
+    fontWeight: 600,
+    color: 'rgba(226, 232, 240, 0.82)',
     lineHeight: 1.2,
-    flex: 1,
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
   });
 
   // Content area
@@ -329,8 +371,10 @@ const ToastItem: React.FC<ToastItemProps> = ({ toast, onDismiss, isDarkMode }) =
   return (
     <div className={toastClass}>
       <div className={headerClass}>
-        <div className={iconClass}>{scheme.icon}</div>
-        {toast.title && <div className={titleClass}>{toast.title}</div>}
+        <div className={headerLeftClass}>
+          <div className={iconClass}>{scheme.icon}</div>
+          <div className={titleClass}>{toast.title ?? 'Notification'}</div>
+        </div>
         {toast.type !== 'loading' && (
           <button className={dismissClass} onClick={handleDismiss} title="Dismiss" aria-label="Dismiss notification">
             <FaTimes size={12} />

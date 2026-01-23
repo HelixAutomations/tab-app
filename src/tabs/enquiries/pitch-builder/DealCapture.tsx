@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { TextField } from '@fluentui/react';
 import { colours } from '../../../app/styles/colours';
 
@@ -35,6 +35,7 @@ export const DealCapture: React.FC<DealCaptureProps> = ({
 }) => {
   // Use brand highlight in light mode, accent in dark mode (except for signature/email links)
   const accent = isDarkMode ? colours.accent : colours.highlight;
+  const [isAmountFocused, setIsAmountFocused] = useState(false);
 
   const handleScope = useCallback((ev: React.FormEvent<HTMLInputElement | HTMLTextAreaElement>, v?: string) => {
     onScopeChange(v || '');
@@ -53,6 +54,13 @@ export const DealCapture: React.FC<DealCaptureProps> = ({
     const fmt = (x: number) => `£${x.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     return { base: fmt(n), vat: fmt(vat), total: fmt(total) };
   }, [amount, includeVat]);
+
+  const formattedAmount = useMemo(() => {
+    if (!amount) return '';
+    const n = parseFloat(amount.replace(/,/g, ''));
+    if (!Number.isFinite(n)) return amount;
+    return n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }, [amount]);
 
   const adjust = (delta: number) => {
     const n = parseFloat(amount) || 0;
@@ -224,8 +232,10 @@ export const DealCapture: React.FC<DealCaptureProps> = ({
             £
           </span>
           <TextField
-            value={amount}
+            value={isAmountFocused ? amount : formattedAmount}
             onChange={handleAmount}
+            onFocus={() => setIsAmountFocused(true)}
+            onBlur={() => setIsAmountFocused(false)}
             placeholder="2500"
             styles={{
               root:{ flex:1 },
@@ -327,18 +337,27 @@ export const DealCapture: React.FC<DealCaptureProps> = ({
               <label style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: 4,
+                gap: 6,
                 cursor: 'pointer',
-                fontSize: 11,
-                userSelect: 'none'
+                fontSize: 12,
+                fontWeight: 700,
+                color: isDarkMode ? '#7DD3FC' : '#3690CE',
+                userSelect: 'none',
+                padding: '3px 8px',
+                borderRadius: 6,
+                border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.45)' : 'rgba(54, 144, 206, 0.35)'}`,
+                background: isDarkMode ? 'rgba(125, 211, 252, 0.12)' : 'rgba(54, 144, 206, 0.12)',
+                boxShadow: isDarkMode
+                  ? '0 0 0 1px rgba(125, 211, 252, 0.18)'
+                  : '0 0 0 1px rgba(54, 144, 206, 0.14)'
               }}>
                 <input
                   type="checkbox"
                   checked={!includeVat}
                   onChange={(e) => onIncludeVatChange(!e.target.checked)}
                   style={{
-                    width: 11,
-                    height: 11,
+                    width: 13,
+                    height: 13,
                     cursor: 'pointer'
                   }}
                 />

@@ -113,7 +113,8 @@
         "generate:attendance": "node scripts/generateLocalAttendance.js",
         "generate:risk": "node scripts/generateLocalRiskAssessments.js",
         "generate:tiller": "node scripts/generateLocalTillerResponses.js",
-        "generate:snippets": "node scripts/generateLocalSnippetEdits.js"
+        "generate:snippets": "node scripts/generateLocalSnippetEdits.js",
+        "export:top-files": "node scripts/exportTopValueFiles.mjs"
     },
     "eslintConfig": {
         "extends": [

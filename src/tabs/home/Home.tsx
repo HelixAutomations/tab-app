@@ -108,7 +108,6 @@ import EnhancedAttendance from './EnhancedAttendanceNew';
 import PersonalAttendanceConfirm from './PersonalAttendanceConfirm';
 import RateChangeModal from './RateChangeModal';
 import { useRateChangeData } from './useRateChangeData';
-import ChangelogModal from '../../components/ChangelogModal';
 
 import TransactionCard from '../transactions/TransactionCard';
 import TransactionApprovalPopup from '../transactions/TransactionApprovalPopup';
@@ -1095,8 +1094,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
   // Rate change notification modal state
   const [showRateChangeModal, setShowRateChangeModal] = useState<boolean>(false);
 
-  // Changelog modal state (localhost only)
-  const [showChangelogModal, setShowChangelogModal] = useState<boolean>(false);
 
   // Listen for rate change modal open event (from UserBubble in prod)
   useEffect(() => {
@@ -1105,8 +1102,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
     return () => window.removeEventListener('openRateChangeModal', handleOpenRateChange);
   }, []);
 
-  // Session changes from changelog (localhost only) - state here, effect after isLocalhost is declared
-  const [sessionChanges, setSessionChanges] = useState<string[]>([]);
 
   // Toast notification state for attendance saves and other actions
   const [toastVisible, setToastVisible] = useState<boolean>(false);
@@ -3084,26 +3079,6 @@ const handleAttendanceUpdated = (updatedRecords: AttendanceRecord[]) => {
   // Use checkIsLocalDev - respects "View as Production" toggle
   const isLocalhost = checkIsLocalDev(featureToggles);
 
-  // Session changes effect - fetch changelog and parse today's entries
-  useEffect(() => {
-    if (!isLocalhost) return;
-    fetch('/logs/changelog.md')
-      .then(res => res.ok ? res.text() : '')
-      .then(text => {
-        if (!text) return;
-        const today = new Date().toISOString().split('T')[0]; // e.g., "2026-01-10"
-        const lines = text.split('\n');
-        const todaysChanges: string[] = [];
-        for (const line of lines) {
-          const match = line.match(/^[-\s]*(\d{4}-\d{2}-\d{2})\s*\/\s*([^/]+)/);
-          if (match && match[1] === today) {
-            todaysChanges.push(match[2].trim());
-          }
-        }
-        setSessionChanges(todaysChanges);
-      })
-      .catch(() => {});
-  }, [isLocalhost]);
 
   const normalizeDate = (dateStr: string | null | undefined): string => {
     if (!dateStr) return '';
@@ -4518,9 +4493,6 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         userIdentifier={currentUserEmail}
         onToggleTheme={toggleTheme}
         loading={!quickActionsReady}
-        showSessionLog={isLocalhost && featureToggles.showSessionLog}
-        sessionChanges={sessionChanges}
-        onShowChangelog={() => setShowChangelogModal(true)}
       />
     );
     setContent(content);
@@ -4533,8 +4505,6 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     toggleTheme,
     quickActionsReady,
     isLocalhost,
-    featureToggles.showSessionLog,
-    sessionChanges,
   ]);
 
   // Returns a narrow weekday (e.g. "M" for Monday, "T" for Tuesday)
@@ -4856,15 +4826,6 @@ const conversionRate = displayEnquiriesMonthToDate
         teamData={teamData}
         isDarkMode={isDarkMode}
       />
-
-      {/* Changelog Modal (localhost only) */}
-      {isLocalhost && (
-        <ChangelogModal
-          isOpen={showChangelogModal}
-          onClose={() => setShowChangelogModal(false)}
-          isDarkMode={isDarkMode}
-        />
-      )}
 
       {/* Toast notifications for attendance and other actions */}
       <OperationStatusToast

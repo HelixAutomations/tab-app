@@ -40,9 +40,6 @@ interface QuickActionsBarProps {
   userIdentifier?: string;
   onToggleTheme?: () => void;
   loading?: boolean; // Show skeleton loading state
-  showSessionLog?: boolean; // Show session changes chip (dev only)
-  sessionChanges?: string[]; // List of session changes to display
-  onShowChangelog?: () => void; // Callback to open changelog modal
 }
 
 // Skeleton chip for loading state - matches home page skeleton style
@@ -98,9 +95,6 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
   userIdentifier,
   onToggleTheme,
   loading = false,
-  showSessionLog = false,
-  sessionChanges = [],
-  onShowChangelog,
 }) => {
   const [selected, setSelected] = React.useState<string | null>(null);
   const [isLoading, setIsLoading] = React.useState(false);
@@ -387,36 +381,6 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
             borderLeft: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.06)'}`,
           }}
         >
-          {/* Session Changes chip - dev only */}
-          {showSessionLog && sessionChanges.length > 0 && (
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 5,
-                padding: '4px 8px',
-                background: isDarkMode ? 'rgba(96, 165, 250, 0.12)' : 'rgba(54, 144, 206, 0.08)',
-                border: `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.25)' : 'rgba(54, 144, 206, 0.18)'}`,
-                borderRadius: 3,
-                fontSize: 10,
-                color: isDarkMode ? 'rgba(96, 165, 250, 0.9)' : colours.highlight,
-                fontWeight: 500,
-                cursor: 'pointer',
-              }}
-              title={`Session changes:\n${sessionChanges.map(c => `• ${c}`).join('\n')}\n\nClick to view changelog`}
-              onClick={() => {
-                if (onShowChangelog) {
-                  onShowChangelog();
-                }
-              }}
-            >
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <path d="M12 8v4l3 3"/>
-                <circle cx="12" cy="12" r="10"/>
-              </svg>
-              {sessionChanges.length} {sessionChanges.length === 1 ? 'change' : 'changes'}
-            </div>
-          )}
           <svg
             width="14"
             height="14"

@@ -28,6 +28,7 @@ import "./functions/getPOID";
 import "./functions/getRecovered";
 // getRoadmap migrated to local data only (phased out)
 // import "./functions/getRoadmap";
+import "./functions/getReleaseNotes";
 import "./functions/getTeamData";
 // getTransactions migrated to Express server route /api/transactions
 // import "./functions/getTransactions";

@@ -5,8 +5,7 @@ import {
   Text,
   IconButton,
   mergeStyles,
-  Icon,
-  Separator
+  Icon
 } from '@fluentui/react';
 import { useTheme } from '../app/functionality/ThemeContext';
 import { colours } from '../app/styles/colours';
@@ -29,137 +28,108 @@ const DataFlowWorkbench: React.FC<DataFlowWorkbenchProps> = ({ isOpen, onClose, 
     backdropFilter: 'blur(8px)',
   });
 
+  const text = isDarkMode ? colours.dark.text : colours.light.text;
+  const subText = isDarkMode ? colours.dark.subText : colours.light.subText;
+
+  const content = (
+    <Stack tokens={{ childrenGap: 20 }}>
+      <div className={sectionStyle}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+          <Icon iconName="Info" style={{ fontSize: 16, color: '#3690CE' }} />
+          <Text variant="medium" style={{ fontWeight: 700, color: text }}>
+            Data flow: what actually happens
+          </Text>
+        </div>
+        <Text style={{ color: subText, lineHeight: 1.5, fontSize: 13 }}>
+          The UI calls <strong>/api/*</strong>. Depending on the route and environment, requests are handled by Azure Functions and/or Express routes.
+          Data lives in two Azure SQL databases (Core Data vs Instructions), and some features call external services (Clio, Microsoft Graph, Asana).
+        </Text>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 20 }}>
+        <div className={sectionStyle} style={{ borderLeft: '4px solid #3690CE' }}>
+          <div style={{ marginBottom: 10 }}>
+            <Text style={{ fontWeight: 800, color: '#3690CE', fontSize: 13 }}>CLIENT → API</Text>
+            <Text style={{ fontSize: 12, color: subText }}>
+              Browser fetch calls
+            </Text>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {[
+              'React tab UI calls /api/*',
+              'Auth + environment decide the backend (Functions/Express)',
+              'Ops Log shows what actually fired',
+            ].map((t) => (
+              <div key={t} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#3690CE' }} />
+                <Text style={{ fontSize: 13, color: text }}>{t}</Text>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className={sectionStyle} style={{ borderLeft: '4px solid #15803d' }}>
+          <div style={{ marginBottom: 10 }}>
+            <Text style={{ fontWeight: 800, color: '#15803d', fontSize: 13 }}>DATA</Text>
+            <Text style={{ fontSize: 12, color: subText }}>
+              Two SQL sources + secrets
+            </Text>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {[
+              'Core Data DB: enquiries, matters (SQL_CONNECTION_STRING)',
+              'Instructions DB: Deals, Instructions (INSTRUCTIONS_SQL_CONNECTION_STRING)',
+              'Secrets via Key Vault / env vars (no hardcoding)',
+            ].map((t) => (
+              <div key={t} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#15803d' }} />
+                <Text style={{ fontSize: 13, color: text }}>{t}</Text>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className={sectionStyle} style={{ borderLeft: '4px solid #f97316' }}>
+          <div style={{ marginBottom: 10 }}>
+            <Text style={{ fontWeight: 800, color: '#f97316', fontSize: 13 }}>INTEGRATIONS</Text>
+            <Text style={{ fontSize: 12, color: subText }}>
+              External services
+            </Text>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {[
+              'Clio API for matters/contacts context',
+              'Microsoft Graph for email delivery',
+              'Asana for task automation (where enabled)',
+            ].map((t) => (
+              <div key={t} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#f97316' }} />
+                <Text style={{ fontSize: 13, color: text }}>{t}</Text>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className={sectionStyle}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+          <Icon iconName="Lightbulb" style={{ fontSize: 16, color: '#3690CE' }} />
+          <Text variant="medium" style={{ fontWeight: 700, color: text }}>
+            How to debug quickly
+          </Text>
+        </div>
+        <Text style={{ color: subText, lineHeight: 1.5, fontSize: 13 }}>
+          Use <strong>Operations</strong> for real request traces, <strong>Inspector</strong> for client cache and environment flags, and <strong>File Map</strong> to find the owner of a route.
+        </Text>
+      </div>
+    </Stack>
+  );
+
   // If embedded, render content directly without modal
   if (embedded) {
     return (
       <div style={{ padding: 0 }}>
-        <Stack tokens={{ childrenGap: 20 }}>
-          
-          {/* Overview */}
-          <div className={sectionStyle}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-              <Icon iconName="Info" style={{ fontSize: 16, color: '#3690CE' }} />
-              <Text variant="medium" style={{ fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                System Architecture Overview
-              </Text>
-            </div>
-            <Text style={{ color: isDarkMode ? colours.dark.subText : colours.light.subText, lineHeight: 1.5 }}>
-              The application uses two distinct data access patterns optimized for different use cases.
-            </Text>
-          </div>
-
-          {/* Comparison */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-            
-            {/* Instructions Tab */}
-            <div className={sectionStyle} style={{ borderLeft: '4px solid #3690CE' }}>
-              <div style={{ marginBottom: 12 }}>
-                <Text style={{ fontWeight: 600, color: '#3690CE', fontSize: 14 }}>INSTRUCTIONS TAB</Text>
-                <Text style={{ fontSize: 12, color: isDarkMode ? colours.dark.subText : colours.light.subText }}>
-                  Complex Processing Pipeline
-                </Text>
-              </div>
-              
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#3690CE' }} />
-                  <Text style={{ fontSize: 13, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                    Instructions Database Query
-                  </Text>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#3690CE' }} />
-                  <Text style={{ fontSize: 13, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                    Client Name Lookup (Enquiries DB)
-                  </Text>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#3690CE' }} />
-                  <Text style={{ fontSize: 13, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                    Server-side Processing
-                  </Text>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#3690CE' }} />
-                  <Text style={{ fontSize: 13, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                    Client-side Caching
-                  </Text>
-                </div>
-              </div>
-            </div>
-
-            {/* Enquiries Tab */}
-            <div className={sectionStyle} style={{ borderLeft: '4px solid #15803d' }}>
-              <div style={{ marginBottom: 12 }}>
-                <Text style={{ fontWeight: 600, color: '#15803d', fontSize: 14 }}>ENQUIRIES TAB</Text>
-                <Text style={{ fontSize: 12, color: isDarkMode ? colours.dark.subText : colours.light.subText }}>
-                  Direct Connection
-                </Text>
-              </div>
-              
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#15803d' }} />
-                  <Text style={{ fontSize: 13, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                    Direct Azure Function Call
-                  </Text>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#15803d' }} />
-                  <Text style={{ fontSize: 13, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                    Complete Dataset Retrieved
-                  </Text>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#15803d' }} />
-                  <Text style={{ fontSize: 13, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                    Immediate Rendering
-                  </Text>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#15803d' }} />
-                  <Text style={{ fontSize: 13, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                    Proven Legacy Architecture
-                  </Text>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <Separator styles={{ root: { margin: '16px 0' } }} />
-
-          {/* Technical Details */}
-          <div className={sectionStyle}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-              <Icon iconName="Settings" style={{ fontSize: 16, color: '#3690CE' }} />
-              <Text variant="medium" style={{ fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                Technical Implementation
-              </Text>
-            </div>
-            
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
-              <div>
-                <Text style={{ fontWeight: 600, marginBottom: 8, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                  Instructions Processing
-                </Text>
-                <Text style={{ fontSize: 13, lineHeight: 1.4, color: isDarkMode ? colours.dark.subText : colours.light.subText }}>
-                  Multi-database lookups required because instruction records contain ProspectId references 
-                  that need resolution to client names via cross-database queries.
-                </Text>
-              </div>
-              <div>
-                <Text style={{ fontWeight: 600, marginBottom: 8, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                  Enquiries Direct Access
-                </Text>
-                <Text style={{ fontSize: 13, lineHeight: 1.4, color: isDarkMode ? colours.dark.subText : colours.light.subText }}>
-                  Complete enquiry dataset available in single source. No cross-referencing needed, 
-                  enabling direct Azure Function access with managed identity authentication.
-                </Text>
-              </div>
-            </div>
-          </div>
-
-        </Stack>
+        {content}
       </div>
     );
   }
@@ -225,133 +195,7 @@ const DataFlowWorkbench: React.FC<DataFlowWorkbenchProps> = ({ isOpen, onClose, 
       </div>
 
       <div className={contentStyle}>
-        <Stack tokens={{ childrenGap: 20 }}>
-          
-          {/* Overview */}
-          <div className={sectionStyle}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-              <Icon iconName="Info" style={{ fontSize: 16, color: '#3690CE' }} />
-              <Text variant="medium" style={{ fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                System Architecture Overview
-              </Text>
-            </div>
-            <Text style={{ color: isDarkMode ? colours.dark.subText : colours.light.subText, lineHeight: 1.5 }}>
-              The application uses two distinct data access patterns optimized for different use cases.
-            </Text>
-          </div>
-
-          {/* Comparison */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-            
-            {/* Instructions Tab */}
-            <div className={sectionStyle} style={{ borderLeft: '4px solid #3690CE' }}>
-              <div style={{ marginBottom: 12 }}>
-                <Text style={{ fontWeight: 600, color: '#3690CE', fontSize: 14 }}>INSTRUCTIONS TAB</Text>
-                <Text style={{ fontSize: 12, color: isDarkMode ? colours.dark.subText : colours.light.subText }}>
-                  Complex Processing Pipeline
-                </Text>
-              </div>
-              
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#3690CE' }} />
-                  <Text style={{ fontSize: 13, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                    Instructions Database Query
-                  </Text>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#3690CE' }} />
-                  <Text style={{ fontSize: 13, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                    Client Name Lookup (Enquiries DB)
-                  </Text>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#3690CE' }} />
-                  <Text style={{ fontSize: 13, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                    Server-side Processing
-                  </Text>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#3690CE' }} />
-                  <Text style={{ fontSize: 13, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                    Client-side Caching
-                  </Text>
-                </div>
-              </div>
-            </div>
-
-            {/* Enquiries Tab */}
-            <div className={sectionStyle} style={{ borderLeft: '4px solid #15803d' }}>
-              <div style={{ marginBottom: 12 }}>
-                <Text style={{ fontWeight: 600, color: '#15803d', fontSize: 14 }}>ENQUIRIES TAB</Text>
-                <Text style={{ fontSize: 12, color: isDarkMode ? colours.dark.subText : colours.light.subText }}>
-                  Direct Connection
-                </Text>
-              </div>
-              
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#15803d' }} />
-                  <Text style={{ fontSize: 13, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                    Direct Azure Function Call
-                  </Text>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#15803d' }} />
-                  <Text style={{ fontSize: 13, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                    Complete Dataset Retrieved
-                  </Text>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#15803d' }} />
-                  <Text style={{ fontSize: 13, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                    Immediate Rendering
-                  </Text>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#15803d' }} />
-                  <Text style={{ fontSize: 13, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                    Proven Legacy Architecture
-                  </Text>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <Separator styles={{ root: { margin: '16px 0' } }} />
-
-          {/* Technical Details */}
-          <div className={sectionStyle}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-              <Icon iconName="Settings" style={{ fontSize: 16, color: '#3690CE' }} />
-              <Text variant="medium" style={{ fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                Technical Implementation
-              </Text>
-            </div>
-            
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
-              <div>
-                <Text style={{ fontWeight: 600, marginBottom: 8, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                  Instructions Processing
-                </Text>
-                <Text style={{ fontSize: 13, lineHeight: 1.4, color: isDarkMode ? colours.dark.subText : colours.light.subText }}>
-                  Multi-database lookups required because instruction records contain ProspectId references 
-                  that need resolution to client names via cross-database queries.
-                </Text>
-              </div>
-              <div>
-                <Text style={{ fontWeight: 600, marginBottom: 8, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                  Enquiries Direct Access
-                </Text>
-                <Text style={{ fontSize: 13, lineHeight: 1.4, color: isDarkMode ? colours.dark.subText : colours.light.subText }}>
-                  Complete enquiry dataset available in single source. No cross-referencing needed, 
-                  enabling direct Azure Function access with managed identity authentication.
-                </Text>
-              </div>
-            </div>
-          </div>
-
-        </Stack>
+        {content}
       </div>
     </Modal>
   );

@@ -2,6 +2,7 @@ import React, { useRef, useState } from 'react';
 import { Icon } from '@fluentui/react';
 import { Enquiry, UserData } from '../../../app/functionality/types';
 import { useTheme } from '../../../app/functionality/ThemeContext';
+import '../../../app/styles/animations.css';
 
 /**
  * Safe clipboard copy with fallback for Teams context.
@@ -36,6 +37,7 @@ async function safeCopyToClipboard(text: string): Promise<boolean> {
 export interface ProspectHeaderProps {
   enquiry: Enquiry;
   userData?: UserData[] | null;
+  isLoading?: boolean;
   passcode?: string;
   amount?: string | number;
   initialScopeDescription?: string;
@@ -71,6 +73,7 @@ function normalizeCurrencyToNumber(value: string | number | undefined): number {
 export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
   enquiry,
   userData,
+  isLoading = false,
   passcode,
   amount,
   initialScopeDescription,
@@ -93,9 +96,15 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
   const [internalLinkActivationMode, setInternalLinkActivationMode] = useState<'pitch' | 'manual'>('pitch');
   const [notesExpanded, setNotesExpanded] = useState(false);
   const [notesCopied, setNotesCopied] = useState(false);
+  const [whiteboardEnabled, setWhiteboardEnabled] = useState(false);
+  const [whiteboardText, setWhiteboardText] = useState('');
+  const [whiteboardSplit, setWhiteboardSplit] = useState(0.62);
+  const [hasAnimated, setHasAnimated] = useState(false);
 
   const scopeDescriptionRef = useRef<HTMLInputElement>(null);
   const amountRef = useRef<HTMLInputElement>(null);
+  const whiteboardContainerRef = useRef<HTMLDivElement>(null);
+  const isWhiteboardResizingRef = useRef(false);
 
   const getScopeValue = () => scopeDescriptionRef.current?.value ?? '';
   const getAmountValue = () => amountRef.current?.value ?? '';
@@ -123,6 +132,10 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
     if (document.activeElement === input) return;
     if (input.value !== next) input.value = next;
   }, [amount]);
+
+  React.useEffect(() => {
+    setHasAnimated(true);
+  }, []);
 
   // Theme
   const textPrimary = isDarkMode ? '#F1F5F9' : '#1E293B';
@@ -177,24 +190,101 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
   };
 
   // Section wrapper
-  const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
+  const Section: React.FC<{
+    title: React.ReactNode;
+    children: React.ReactNode;
+    animationDelay?: number;
+    headerRight?: React.ReactNode;
+  }> = ({
+    title,
+    children,
+    animationDelay = 0,
+    headerRight,
+  }) => (
+    <div style={{
+      background: surfaceBg,
+      border: `1px solid ${innerBorder}`,
+      borderRadius: '4px',
+      padding: '12px 14px',
+      animation: hasAnimated ? 'none' : `contentReveal 240ms ease-out ${animationDelay}ms both`,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: '10px' }}>
+        <div style={{
+          fontSize: '10px',
+          fontWeight: 700,
+          textTransform: 'uppercase',
+          letterSpacing: '0.6px',
+          color: textSecondary,
+        }}>
+          {title}
+        </div>
+        {headerRight}
+      </div>
+      {children}
+    </div>
+  );
+
+  const SkeletonBlock: React.FC<{ width: number | string; height: number | string; radius?: number; delay?: number }> = ({
+    width,
+    height,
+    radius = 4,
+    delay = 0,
+  }) => (
+    <div
+      className="skeleton-shimmer skeleton-cascade"
+      style={{
+        width,
+        height,
+        borderRadius: radius,
+        ['--cascade-delay' as any]: `${delay}ms`,
+      }}
+    />
+  );
+
+  const SkeletonRow: React.FC<{ delay?: number }> = ({ delay = 0 }) => (
+    <div
+      style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: '6px 0',
+        borderBottom: `1px solid ${innerBorder}`,
+        gap: 12,
+      }}
+    >
+      <SkeletonBlock width="35%" height={10} radius={3} delay={delay} />
+      <SkeletonBlock width="45%" height={12} radius={3} delay={delay + 40} />
+    </div>
+  );
+
+  const SkeletonSection: React.FC<{ delayBase?: number; showTags?: boolean; showContact?: boolean }> = ({
+    delayBase = 0,
+    showTags = false,
+    showContact = false,
+  }) => (
     <div style={{
       background: surfaceBg,
       border: `1px solid ${innerBorder}`,
       borderRadius: '4px',
       padding: '12px 14px',
     }}>
-      <div style={{
-        fontSize: '10px',
-        fontWeight: 700,
-        textTransform: 'uppercase',
-        letterSpacing: '0.6px',
-        color: textSecondary,
-        marginBottom: '10px',
-      }}>
-        {title}
+      <div style={{ marginBottom: 10 }}>
+        <SkeletonBlock width={90} height={10} radius={3} delay={delayBase} />
       </div>
-      {children}
+      <SkeletonRow delay={delayBase + 40} />
+      <SkeletonRow delay={delayBase + 120} />
+      {showTags && (
+        <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+          <SkeletonBlock width={80} height={20} radius={3} delay={delayBase + 180} />
+          <SkeletonBlock width={120} height={20} radius={3} delay={delayBase + 240} />
+        </div>
+      )}
+      {showContact && (
+        <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <SkeletonBlock width={160} height={10} radius={3} delay={delayBase + 220} />
+          <SkeletonBlock width={220} height={12} radius={3} delay={delayBase + 280} />
+        </div>
+      )}
     </div>
   );
 
@@ -261,6 +351,31 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
       setNotesCopied(true);
       setTimeout(() => setNotesCopied(false), 1500);
     }
+  };
+
+  const handleWhiteboardResizeStart = (event: React.MouseEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    isWhiteboardResizingRef.current = true;
+
+    const handleMove = (moveEvent: MouseEvent) => {
+      if (!isWhiteboardResizingRef.current) return;
+      const container = whiteboardContainerRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const raw = (moveEvent.clientX - rect.left) / rect.width;
+      const clamped = Math.min(0.78, Math.max(0.32, raw));
+      setWhiteboardSplit(clamped);
+    };
+
+    const handleUp = () => {
+      isWhiteboardResizingRef.current = false;
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+    };
+
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleUp);
   };
 
   const handleCreateDealAndEnableLink = async () => {
@@ -560,6 +675,16 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
       border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.18)' : 'rgba(54, 144, 206, 0.14)'}`,
       cursor: 'pointer',
       flex: '0 0 auto',
+      transition: 'transform 160ms ease, box-shadow 160ms ease, background 160ms ease, border-color 160ms ease',
+    };
+
+    const copiedStyle: React.CSSProperties = {
+      background: isDarkMode ? 'rgba(16, 185, 129, 0.16)' : 'rgba(16, 185, 129, 0.12)',
+      border: `1px solid ${isDarkMode ? 'rgba(16, 185, 129, 0.5)' : 'rgba(16, 185, 129, 0.38)'}`,
+      boxShadow: isDarkMode
+        ? '0 0 0 1px rgba(16, 185, 129, 0.15)'
+        : '0 0 0 1px rgba(16, 185, 129, 0.12)',
+      transform: 'scale(1.06)',
     };
 
     const itemText: React.CSSProperties = {
@@ -575,6 +700,11 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
       textOverflow: 'ellipsis',
       whiteSpace: 'nowrap',
     };
+
+    const isEmailCopied = copiedField === 'email';
+    const isPhoneCopied = copiedField === 'phone';
+    const getButtonStyle = (isCopied: boolean): React.CSSProperties =>
+      (isCopied ? { ...buttonBase, ...copiedStyle } : buttonBase);
 
     return (
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
@@ -592,14 +722,24 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{clientEmail}</span>
             </div>
             <div
-              style={buttonBase}
+              style={getButtonStyle(isEmailCopied)}
               onClick={(e) => {
                 e.stopPropagation();
                 void handleCopy(clientEmail, 'email');
               }}
-              title="Copy email"
+              title={isEmailCopied ? 'Copied' : 'Copy email'}
             >
-              <Icon iconName="Copy" styles={{ root: { fontSize: 11, color: textSecondary } }} />
+              <Icon
+                iconName={isEmailCopied ? 'CompletedSolid' : 'Copy'}
+                styles={{
+                  root: {
+                    fontSize: 11,
+                    color: isEmailCopied ? '#10B981' : textSecondary,
+                    transform: isEmailCopied ? 'scale(1.05)' : 'scale(1)',
+                    transition: 'transform 160ms ease, color 160ms ease',
+                  },
+                }}
+              />
             </div>
           </div>
         )}
@@ -623,14 +763,24 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
               <span>{clientPhone}</span>
             </div>
             <div
-              style={buttonBase}
+              style={getButtonStyle(isPhoneCopied)}
               onClick={(e) => {
                 e.stopPropagation();
                 void handleCopy(clientPhone, 'phone');
               }}
-              title="Copy phone"
+              title={isPhoneCopied ? 'Copied' : 'Copy phone'}
             >
-              <Icon iconName="Copy" styles={{ root: { fontSize: 11, color: textSecondary } }} />
+              <Icon
+                iconName={isPhoneCopied ? 'CompletedSolid' : 'Copy'}
+                styles={{
+                  root: {
+                    fontSize: 11,
+                    color: isPhoneCopied ? '#10B981' : textSecondary,
+                    transform: isPhoneCopied ? 'scale(1.05)' : 'scale(1)',
+                    transition: 'transform 160ms ease, color 160ms ease',
+                  },
+                }}
+              />
             </div>
           </div>
         )}
@@ -668,157 +818,295 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
   };
 
   return (
-    <div style={{
-      background: cardBg,
-      border: `1px solid ${borderColor}`,
-      borderRadius: '4px',
-      padding: '16px 20px',
-      boxShadow: isDarkMode 
-        ? '0 2px 8px rgba(0,0,0,0.15)' 
-        : '0 2px 8px rgba(0,0,0,0.04)',
-    }}>
-      {/* Header */}
+    <div
+      style={{
+        background: cardBg,
+        border: 'none',
+        borderTop: `1px solid ${borderColor}`,
+        borderBottom: `1px solid ${borderColor}`,
+        borderRadius: 0,
+        boxShadow: isDarkMode
+          ? 'inset 0 1px 0 rgba(125, 211, 252, 0.08), inset 0 -1px 0 rgba(125, 211, 252, 0.08)'
+          : 'inset 0 1px 0 rgba(148, 163, 184, 0.12), inset 0 -1px 0 rgba(148, 163, 184, 0.12)',
+        width: '100%',
+      }}
+    >
       <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        marginBottom: '16px',
+        padding: '16px 24px 16px',
+        animation: hasAnimated ? 'none' : 'contentReveal 220ms ease-out both'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <div style={{
-            width: '3px',
-            height: '16px',
-            background: accent,
-            borderRadius: '2px',
-          }} />
-          <span style={{
-            fontSize: '13px',
-            fontWeight: 700,
-            color: textPrimary,
-            letterSpacing: '0.3px',
-          }}>
-            Prospect & Enquiry
-          </span>
-        </div>
-        {showFeeEarnerToggle && (
-          <button
-            onClick={() => setShowPrefill(v => !v)}
-            style={{
-              fontSize: '11px',
-              fontWeight: 600,
-              padding: '5px 12px',
-              borderRadius: '3px',
-              border: `1px solid ${borderColor}`,
-              background: showPrefill 
-                ? (isDarkMode ? 'rgba(125, 211, 252, 0.1)' : 'rgba(54, 144, 206, 0.08)')
-                : 'transparent',
-              color: showPrefill ? accent : textSecondary,
-              cursor: 'pointer',
-              transition: 'all 0.15s',
-            }}
-          >
-            {showPrefill ? '← Back to Details' : 'View Prefill Data'}
-          </button>
-        )}
-      </div>
-
-      {/* Content */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(2, 1fr)',
-        gap: '14px',
-      }}>
-        {/* Left - Prospect */}
-        <Section title="Prospect">
-          <DataRow label="Name" value={clientName} copyable fieldKey="name" />
-          <DataRow label="ID" value={enquiryId} copyable fieldKey="id" />
-          {PasscodeLinkRow()}
-          <div style={{ borderBottom: 'none', paddingBottom: 0 }} />
-        </Section>
-
-        {/* Right - Enquiry or Fee Earner */}
-        {showPrefill && showFeeEarnerToggle ? (
-          <Section title="Fee Earner (Prefill)">
-            <DataRow label="Name" value={fullName} fieldKey="fe-name" />
-            <DataRow label="Initials" value={initials} fieldKey="fe-initials" />
-            <DataRow label="Role" value={role} fieldKey="fe-role" />
-            <DataRow label="Rate" value={rate} fieldKey="fe-rate" />
-            <div style={{ borderBottom: 'none', paddingBottom: 0 }} />
-          </Section>
-        ) : (
-          <Section title="Enquiry Details">
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
-              <Tag>{areaOfWork}</Tag>
-              <Tag>{valueDisplay}</Tag>
+        {isLoading ? (
+          <>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginBottom: '16px',
+              animation: hasAnimated ? 'none' : 'contentReveal 220ms ease-out 40ms both',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <SkeletonBlock width={3} height={16} radius={2} delay={20} />
+                <SkeletonBlock width={140} height={12} radius={3} delay={60} />
+              </div>
+              {showFeeEarnerToggle && (
+                <SkeletonBlock width={120} height={26} radius={3} delay={120} />
+              )}
             </div>
-            {(clientEmail || clientPhone) && (
-              <>
-                <div style={{
-                  fontSize: '10px',
-                  fontWeight: 600,
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.5px',
-                  color: textSecondary,
-                  marginBottom: '8px',
-                  marginTop: '4px',
-                }}>
-                  Contact
-                </div>
-                <ContactInline />
-              </>
-            )}
-          </Section>
-        )}
-      </div>
 
-      {notesDisplay && (
-        <div style={{ marginTop: 14 }}>
-          <Section title="Notes">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
-              <span style={{ fontSize: 11, color: textSecondary, fontWeight: 600 }}>
-                Initial enquiry notes
-              </span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                {shouldTruncateNotes && (
-                  <button
-                    type="button"
-                    onClick={() => setNotesExpanded((v) => !v)}
-                    style={{
-                      background: 'transparent',
-                      border: 'none',
-                      padding: 0,
-                      cursor: 'pointer',
-                      fontSize: 10,
-                      fontWeight: 600,
-                      color: textSecondary,
-                    }}
-                  >
-                    {notesExpanded ? 'Hide' : 'Show'}
-                  </button>
-                )}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(2, 1fr)',
+              gap: '14px',
+              animation: hasAnimated ? 'none' : 'contentReveal 220ms ease-out 90ms both',
+            }}>
+              <SkeletonSection delayBase={80} />
+              <SkeletonSection delayBase={160} showTags showContact />
+            </div>
+
+            <div style={{ marginTop: 14 }}>
+              <SkeletonSection delayBase={220} />
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Header */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginBottom: '16px',
+              animation: hasAnimated ? 'none' : 'contentReveal 220ms ease-out 40ms both',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{
+                  width: '3px',
+                  height: '16px',
+                  background: accent,
+                  borderRadius: '2px',
+                }} />
+                <span style={{
+                  fontSize: '13px',
+                  fontWeight: 700,
+                  color: textPrimary,
+                  letterSpacing: '0.3px',
+                }}>
+                  Prospect & Enquiry
+                </span>
+              </div>
+              {showFeeEarnerToggle && (
                 <button
-                  type="button"
-                  onClick={handleCopyNotes}
+                  onClick={() => setShowPrefill(v => !v)}
                   style={{
-                    background: 'transparent',
-                    border: 'none',
-                    padding: 0,
-                    cursor: 'pointer',
-                    fontSize: 10,
+                    fontSize: '11px',
                     fontWeight: 600,
-                    color: notesCopied ? '#10B981' : textSecondary,
+                    padding: '5px 12px',
+                    borderRadius: '3px',
+                    border: `1px solid ${borderColor}`,
+                    background: showPrefill 
+                      ? (isDarkMode ? 'rgba(125, 211, 252, 0.1)' : 'rgba(54, 144, 206, 0.08)')
+                      : 'transparent',
+                    color: showPrefill ? accent : textSecondary,
+                    cursor: 'pointer',
+                    transition: 'all 0.15s',
                   }}
                 >
-                  {notesCopied ? '✓ Copied' : 'Copy'}
+                  {showPrefill ? '← Back to Details' : 'View Prefill Data'}
                 </button>
+              )}
+            </div>
+
+            {/* Content */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(2, 1fr)',
+              gap: '14px',
+              animation: hasAnimated ? 'none' : 'contentReveal 220ms ease-out 90ms both',
+            }}>
+              {/* Left - Prospect */}
+              <Section title="Prospect" animationDelay={120}>
+                <DataRow label="Name" value={clientName} copyable fieldKey="name" />
+                <DataRow label="ID" value={enquiryId} copyable fieldKey="id" />
+                {PasscodeLinkRow()}
+                <div style={{ borderBottom: 'none', paddingBottom: 0 }} />
+              </Section>
+
+              {/* Right - Enquiry or Fee Earner */}
+              {showPrefill && showFeeEarnerToggle ? (
+                <Section title="Fee Earner (Prefill)" animationDelay={160}>
+                  <DataRow label="Name" value={fullName} fieldKey="fe-name" />
+                  <DataRow label="Initials" value={initials} fieldKey="fe-initials" />
+                  <DataRow label="Role" value={role} fieldKey="fe-role" />
+                  <DataRow label="Rate" value={rate} fieldKey="fe-rate" />
+                  <div style={{ borderBottom: 'none', paddingBottom: 0 }} />
+                </Section>
+              ) : (
+                <Section title="Enquiry Details" animationDelay={160}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
+                    <Tag>{areaOfWork}</Tag>
+                    <Tag>{valueDisplay}</Tag>
+                  </div>
+                  {(clientEmail || clientPhone) && (
+                    <>
+                      <div style={{
+                        fontSize: '10px',
+                        fontWeight: 600,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px',
+                        color: textSecondary,
+                        marginBottom: '8px',
+                        marginTop: '4px',
+                      }}>
+                        Contact
+                      </div>
+                      <ContactInline />
+                    </>
+                  )}
+                </Section>
+              )}
+            </div>
+
+            {notesDisplay && (
+              <div style={{
+                marginTop: 14,
+                animation: hasAnimated ? 'none' : 'contentReveal 220ms ease-out 200ms both'
+              }}>
+                <Section
+                  title="Notes"
+                  animationDelay={200}
+                  headerRight={
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <button
+                        type="button"
+                        onClick={() => setWhiteboardEnabled((v) => !v)}
+                        style={{
+                          background: whiteboardEnabled
+                            ? (isDarkMode ? 'rgba(125, 211, 252, 0.12)' : 'rgba(54, 144, 206, 0.10)')
+                            : 'transparent',
+                          border: `1px solid ${whiteboardEnabled ? borderColor : innerBorder}`,
+                          padding: '2px 8px',
+                          borderRadius: 4,
+                          cursor: 'pointer',
+                          fontSize: 10,
+                          fontWeight: 600,
+                          color: whiteboardEnabled ? accent : textSecondary,
+                          transition: 'border-color 160ms ease, color 160ms ease, background 160ms ease',
+                        }}
+                        title="Toggle temporary whiteboard"
+                      >
+                        {whiteboardEnabled ? 'Hide whiteboard' : 'Whiteboard'}
+                      </button>
+                      {shouldTruncateNotes && (
+                        <button
+                          type="button"
+                          onClick={() => setNotesExpanded((v) => !v)}
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            padding: 0,
+                            cursor: 'pointer',
+                            fontSize: 10,
+                            fontWeight: 600,
+                            color: textSecondary,
+                          }}
+                        >
+                          {notesExpanded ? 'Hide' : 'Show'}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={handleCopyNotes}
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          padding: 0,
+                          cursor: 'pointer',
+                          fontSize: 10,
+                          fontWeight: 600,
+                          color: notesCopied ? '#10B981' : textSecondary,
+                        }}
+                      >
+                        {notesCopied ? '✓ Copied' : 'Copy'}
+                      </button>
+                    </div>
+                  }
+                >
+                  {whiteboardEnabled ? (
+                    <div
+                      ref={whiteboardContainerRef}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'stretch',
+                        gap: 10,
+                        minHeight: 140,
+                      }}
+                    >
+                      <div
+                        style={{
+                          flex: `0 0 ${Math.round(whiteboardSplit * 100)}%`,
+                          minWidth: 220,
+                          fontSize: 12,
+                          color: textPrimary,
+                          lineHeight: 1.5,
+                          whiteSpace: 'pre-wrap',
+                        }}
+                      >
+                        {notesExpanded ? notesDisplay : notesPreview}
+                      </div>
+
+                      <div
+                        onMouseDown={handleWhiteboardResizeStart}
+                        role="separator"
+                        aria-label="Resize notes and whiteboard"
+                        style={{
+                          width: 6,
+                          cursor: 'col-resize',
+                          borderRadius: 6,
+                          background: isDarkMode ? 'rgba(148, 163, 184, 0.22)' : 'rgba(148, 163, 184, 0.18)',
+                          boxShadow: isDarkMode
+                            ? 'inset 0 0 0 1px rgba(148, 163, 184, 0.25)'
+                            : 'inset 0 0 0 1px rgba(148, 163, 184, 0.2)',
+                          transition: 'background 160ms ease',
+                        }}
+                      />
+
+                      <div style={{ flex: 1, minWidth: 200, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        <div style={{ fontSize: 10, color: textSecondary, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase' }}>
+                          Whiteboard (temporary)
+                        </div>
+                        <div style={{ fontSize: 10, color: textSecondary, lineHeight: 1.4 }}>
+                          Session-only notes for calls. Not saved anywhere and cleared when the app reloads.
+                        </div>
+                        <textarea
+                          value={whiteboardText}
+                          onChange={(event) => setWhiteboardText(event.target.value)}
+                          placeholder="Jot down temporary call notes here…"
+                          style={{
+                            flex: 1,
+                            minHeight: 90,
+                            resize: 'none',
+                            padding: '8px 10px',
+                            borderRadius: 6,
+                            border: `1px solid ${innerBorder}`,
+                            background: isDarkMode ? 'rgba(15, 23, 42, 0.6)' : '#FFFFFF',
+                            color: textPrimary,
+                            fontSize: 12,
+                            lineHeight: 1.4,
+                            outline: 'none',
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 12, color: textPrimary, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
+                      {notesExpanded ? notesDisplay : notesPreview}
+                    </div>
+                  )}
+                </Section>
               </div>
-            </div>
-            <div style={{ fontSize: 12, color: textPrimary, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
-              {notesExpanded ? notesDisplay : notesPreview}
-            </div>
-          </Section>
-        </div>
-      )}
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 };

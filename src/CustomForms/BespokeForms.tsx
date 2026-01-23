@@ -1006,7 +1006,7 @@ const BespokeForm: React.FC<BespokeFormProps> = ({
             <Stack horizontal tokens={{ childrenGap: 10 }}>
               <PrimaryButton
                 type="submit"
-                text={isSubmitting ? 'Submitted' : 'Submit'}
+                text={isSubmitting ? 'Submitting…' : 'Submit'}
                 iconProps={conflict ? { iconName: 'Lock' } : undefined}
                 styles={
                   conflict ? getFormDefaultButtonStyles(isDarkMode) : getFormPrimaryButtonStyles(isDarkMode)

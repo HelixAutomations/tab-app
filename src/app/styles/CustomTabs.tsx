@@ -18,6 +18,8 @@ import { Tab } from '../functionality/types';
 import { UserData } from '../../app/functionality/types';
 import UserBubble from '../../components/UserBubble';
 import AnimatedPulsingDot from '../../components/AnimatedPulsingDot';
+import ReleaseNotesModal from '../../components/ReleaseNotesModal';
+import { isAdminUser } from '../../app/admin';
 
 interface CustomTabsProps {
   selectedKey: string;
@@ -101,6 +103,8 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
   onToggleDemoMode,
 }) => {
   const { isDarkMode } = useTheme();
+  const [showReleaseNotesModal, setShowReleaseNotesModal] = React.useState(false);
+  const canSeeReleaseNotes = Boolean(isLocalDev) || isAdminUser(user || null);
   const pivotWrapRef = React.useRef<HTMLDivElement | null>(null);
   const [iconOnly, setIconOnly] = React.useState<boolean>(false);
   const lastFullWidthRef = React.useRef<number>(0);
@@ -327,6 +331,15 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
           onShowTestEnquiry={onShowTestEnquiry}
           demoModeEnabled={demoModeEnabled}
           onToggleDemoMode={onToggleDemoMode}
+          onOpenReleaseNotesModal={canSeeReleaseNotes ? () => setShowReleaseNotesModal(true) : undefined}
+        />
+      )}
+
+      {canSeeReleaseNotes && (
+        <ReleaseNotesModal
+          isOpen={showReleaseNotesModal}
+          onClose={() => setShowReleaseNotesModal(false)}
+          isDarkMode={isDarkMode}
         />
       )}
     </div>

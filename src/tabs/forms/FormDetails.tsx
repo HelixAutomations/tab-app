@@ -75,6 +75,7 @@ const FormDetails: React.FC<FormDetailsProps> = ({
 
   const [isSubmitted, setIsSubmitted] = useState<boolean>(false);
   const [submissionSuccess, setSubmissionSuccess] = useState<string | null>(null);
+  const [submissionError, setSubmissionError] = useState<string | null>(null);
   const [formKey, setFormKey] = useState<number>(() => Date.now());
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
@@ -160,26 +161,53 @@ const FormDetails: React.FC<FormDetailsProps> = ({
       if (isSubmitting) return; // Prevent multiple submissions
 
       setIsSubmitting(true); // Disable the button
+      setSubmissionError(null);
+      setSubmissionSuccess(null);
+
+      const initials = (userData?.[0]?.Initials || '').trim();
+      if (!initials) {
+        setIsSubmitting(false);
+        setSubmissionError('Unable to submit: your initials are missing from your profile. Please contact support.');
+        return;
+      }
 
       const payload = {
         formType: link.title,
         data: values,
-        initials: userData?.[0]?.Initials || 'N/A',
+        initials,
       };
-      
-      const endpointUrl = '/api/financial-task';
+
+      const proxyBase = getProxyBaseUrl();
+      const endpointUrl = proxyBase
+        ? `${proxyBase.replace(/\/$/, '')}${proxyBase.endsWith('/api') ? '' : '/api'}/financial-task`
+        : '/api/financial-task';
 
       try {
         const response = await fetch(endpointUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
           body: JSON.stringify(payload),
         });
 
         if (!response.ok) {
-          const errText = await response.text();
-          console.error('[FormDetails] Error posting financial task:', errText);
-          setSubmissionSuccess(null);
+          const errText = await response.text().catch(() => '');
+          let message = `Submission failed (HTTP ${response.status}).`;
+          if (errText) {
+            try {
+              const parsed = JSON.parse(errText);
+              const apiError = typeof parsed?.error === 'string' ? parsed.error : '';
+              const apiDetails = typeof parsed?.details === 'string' ? parsed.details : '';
+              const apiReqId = typeof parsed?.requestId === 'string' ? parsed.requestId : '';
+              const parts = [apiError || apiDetails].filter(Boolean);
+              if (parts.length) message = parts.join(' - ');
+              if (apiReqId) message += ` (req ${apiReqId})`;
+            } catch {
+              message = errText.slice(0, 400);
+            }
+          }
+          console.error('[FormDetails] Error posting financial task:', { status: response.status, message });
+          setSubmissionError(message);
         } else {
           const result = await response.json();
           setIsSubmitted(true);
@@ -208,7 +236,7 @@ const FormDetails: React.FC<FormDetailsProps> = ({
         }
       } catch (error: any) {
         console.error('Error in financial form submission:', error);
-        setSubmissionSuccess(null);
+        setSubmissionError(error?.message || 'Submission failed due to a network or server error.');
       } finally {
         setIsSubmitting(false); // Re-enable the button after response
       }
@@ -239,6 +267,23 @@ const FormDetails: React.FC<FormDetailsProps> = ({
             }}
           >
             {submissionSuccess}
+          </MessageBar>
+        )}
+
+        {submissionError && (
+          <MessageBar
+            messageBarType={MessageBarType.error}
+            isMultiline={true}
+            onDismiss={() => setSubmissionError(null)}
+            dismissButtonAriaLabel="Close"
+            styles={{
+              root: {
+                marginBottom: '10px',
+                borderRadius: '4px',
+              },
+            }}
+          >
+            {submissionError}
           </MessageBar>
         )}
 

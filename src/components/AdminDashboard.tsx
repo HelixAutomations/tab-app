@@ -14,22 +14,57 @@ import { useTheme } from '../app/functionality/ThemeContext';
 import { colours } from '../app/styles/colours';
 import ThemedSpinner from './ThemedSpinner';
 import { FixedSizeList, VariableSizeList } from 'react-window';
+import DataInspector from './DataInspector';
 const DataFlowWorkbench = React.lazy(() => import('./DataFlowWorkbench'));
 const DataFlowDiagram = React.lazy(() => import('./DataFlowDiagram'));
 
 interface AdminDashboardProps {
   isOpen: boolean;
   onClose: () => void;
+  inspectorData?: unknown;
 }
 
 /**
  * AdminDashboard provides a centralized interface for system administration tasks.
  * Includes data flow analysis, file mapping, and application diagnostics.
  */
-const AdminDashboard: React.FC<AdminDashboardProps> = ({ isOpen, onClose }) => {
+const AdminDashboard: React.FC<AdminDashboardProps> = ({ isOpen, onClose, inspectorData }) => {
   const { isDarkMode } = useTheme();
   const palette = isDarkMode ? colours.dark : colours.light;
   const [selectedSection, setSelectedSection] = useState<string>('overview');
+  type EndpointCheckGroup = 'core' | 'diagnostics' | 'observed';
+  type EndpointCheckDefinition = {
+    key: string;
+    label: string;
+    url: string;
+    group: EndpointCheckGroup;
+    description?: string;
+  };
+  type EndpointCheckResult = {
+    key: string;
+    label: string;
+    url: string;
+    status?: number;
+    reachable?: boolean;
+    ms?: number;
+    error?: string;
+    lastCheckedAt?: string;
+  };
+  const baseEndpointDefinitions = useMemo<EndpointCheckDefinition[]>(
+    () => [
+      { key: 'release-notes', label: 'Changelog', url: '/api/release-notes', group: 'core', description: 'Loads logs/changelog.md' },
+      { key: 'ops', label: 'Ops Log (probe)', url: '/api/ops?limit=1', group: 'diagnostics', description: 'Lightweight ops read' },
+      { key: 'file-map', label: 'File Map (probe)', url: '/api/file-map?roots=src&depth=1', group: 'diagnostics', description: 'Lightweight file map' },
+    ],
+    []
+  );
+  const [endpointResults, setEndpointResults] = useState<Record<string, EndpointCheckResult>>({});
+  const [checkingEndpoints, setCheckingEndpoints] = useState(false);
+  const [includeObservedRoutes, setIncludeObservedRoutes] = useState(true);
+  const [autoPingEnabled, setAutoPingEnabled] = useState(true);
+  const [autoPingIntervalMs, setAutoPingIntervalMs] = useState(30000);
+  const [lastHealthCheckAt, setLastHealthCheckAt] = useState<string | null>(null);
+  const [pingTick, setPingTick] = useState(false);
   const [fileMap, setFileMap] = useState<{
     totalFiles: number; totalDirs: number; usedFiles: number; usedDirs: number; generatedAt: string; groups: Array<{
       key: string; title: string; root: string; files: number; dirs: number; usedFiles: number; usedDirs: number; sample: Array<{ path: string; used: boolean }>; topBySize: Array<{ path: string; size: number; used: boolean }>; allFiles: Array<{ path: string; used: boolean; size?: number }>; entries: any[]
@@ -316,6 +351,140 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ isOpen, onClose }) => {
     }
   }, []);
 
+  const observedEndpointDefinitions = useMemo<EndpointCheckDefinition[]>(() => {
+    if (!includeObservedRoutes) return [];
+    if (!ops || !Array.isArray(ops) || ops.length === 0) return [];
+    const baseUrls = new Set(baseEndpointDefinitions.map((d) => d.url));
+    const seen = new Map<string, EndpointCheckDefinition>();
+
+    for (const evt of ops) {
+      const method = String(evt.method || 'GET').toUpperCase();
+      if (method !== 'GET') continue;
+      if (!evt.url) continue;
+
+      let url = String(evt.url);
+      try {
+        const parsed = new URL(url, window.location.origin);
+        url = `${parsed.pathname}${parsed.search}`;
+      } catch {
+        // ignore parse errors and keep raw
+      }
+
+      if (!url.startsWith('/api/')) continue;
+      if (baseUrls.has(url)) continue;
+
+      // Avoid accidentally pinging endpoints that look like they expect ids or are otherwise risky.
+      if (url.includes('{') || url.includes('}')) continue;
+      if (url.includes(':')) continue;
+
+      const key = `observed:${url}`;
+      if (!seen.has(key)) {
+        seen.set(key, {
+          key,
+          label: url,
+          url,
+          group: 'observed',
+          description: 'Observed via Ops log (GET)',
+        });
+      }
+    }
+
+    return Array.from(seen.values()).slice(0, 40);
+  }, [includeObservedRoutes, ops, baseEndpointDefinitions]);
+
+  const endpointDefinitions = useMemo<EndpointCheckDefinition[]>(
+    () => [...baseEndpointDefinitions, ...observedEndpointDefinitions],
+    [baseEndpointDefinitions, observedEndpointDefinitions]
+  );
+
+  const getHealthTone = useCallback(
+    (r: EndpointCheckResult | undefined): { colour: string; label: string } => {
+      if (!r || r.reachable === undefined) return { colour: palette.subText, label: 'unknown' };
+      if (!r.reachable) return { colour: '#ef4444', label: 'down' };
+      const status = r.status ?? 0;
+      if (status >= 500) return { colour: '#ef4444', label: 'error' };
+      if (status >= 400) return { colour: isDarkMode ? '#fbbf24' : '#b45309', label: 'auth/missing' };
+      return { colour: isDarkMode ? '#4ade80' : '#15803d', label: 'ok' };
+    },
+    [isDarkMode, palette.subText]
+  );
+
+  const overallHealth = useMemo(() => {
+    const relevant = endpointDefinitions
+      .map((d) => endpointResults[d.key])
+      .filter(Boolean) as EndpointCheckResult[];
+    if (!relevant.length) return { colour: palette.subText, label: 'unknown' };
+    if (relevant.some((r) => r.reachable === false || (r.status && r.status >= 500))) return { colour: '#ef4444', label: 'degraded' };
+    if (relevant.some((r) => (r.status && r.status >= 400))) return { colour: isDarkMode ? '#fbbf24' : '#b45309', label: 'mixed' };
+    return { colour: isDarkMode ? '#4ade80' : '#15803d', label: 'ok' };
+  }, [endpointDefinitions, endpointResults, isDarkMode, palette.subText]);
+
+  const checkEndpoints = useCallback(async (checks?: EndpointCheckDefinition[]) => {
+    try {
+      setCheckingEndpoints(true);
+      const list = (checks && checks.length ? checks : endpointDefinitions);
+      const nowIso = new Date().toISOString();
+      setLastHealthCheckAt(nowIso);
+      setPingTick((t) => !t);
+
+      const results = await Promise.all(
+        list.map(async (check) => {
+          const start = performance.now();
+          try {
+            const res = await fetch(check.url, { cache: 'no-store' });
+            const ms = Math.round(performance.now() - start);
+            return {
+              key: check.key,
+              label: check.label,
+              url: check.url,
+              status: res.status,
+              reachable: true,
+              ms,
+              lastCheckedAt: nowIso,
+            } as EndpointCheckResult;
+          } catch (err) {
+            const ms = Math.round(performance.now() - start);
+            return {
+              key: check.key,
+              label: check.label,
+              url: check.url,
+              reachable: false,
+              ms,
+              error: err instanceof Error ? err.message : 'Request failed',
+              lastCheckedAt: nowIso,
+            } as EndpointCheckResult;
+          }
+        })
+      );
+      setEndpointResults((prev) => {
+        const next = { ...prev };
+        results.forEach((r) => {
+          next[r.key] = r;
+        });
+        return next;
+      });
+    } finally {
+      setCheckingEndpoints(false);
+    }
+  }, [endpointDefinitions]);
+
+  useEffect(() => {
+    if (!includeObservedRoutes) return;
+    if (selectedSection !== 'health' && selectedSection !== 'overview') return;
+    if (ops || opsLoading) return;
+    void loadOps();
+  }, [includeObservedRoutes, selectedSection, ops, opsLoading, loadOps]);
+
+  useEffect(() => {
+    if (selectedSection !== 'health') return;
+    if (!autoPingEnabled) return;
+    void checkEndpoints(baseEndpointDefinitions);
+    const timer = setInterval(() => {
+      void checkEndpoints(baseEndpointDefinitions);
+    }, autoPingIntervalMs);
+    return () => clearInterval(timer);
+  }, [selectedSection, autoPingEnabled, autoPingIntervalMs, checkEndpoints, baseEndpointDefinitions]);
+
   useEffect(() => {
     if (selectedSection === 'ops' && !ops && !opsLoading) {
       void loadOps();
@@ -397,40 +566,46 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ isOpen, onClose }) => {
       onClick: () => setSelectedSection('overview')
     },
     {
-      name: 'Data Flow Analysis',
-      key: 'dataflow',
+      name: 'Inspector',
+      key: 'inspector',
       url: '',
-      icon: 'Flow',
-      onClick: () => setSelectedSection('dataflow')
+      icon: 'ComplianceAudit',
+      onClick: () => setSelectedSection('inspector')
     },
     {
-      name: 'File Mapping',
+      name: 'Operations',
+      key: 'ops',
+      url: '',
+      icon: 'History',
+      onClick: () => setSelectedSection('ops')
+    },
+    {
+      name: 'File Map',
       key: 'files',
       url: '',
       icon: 'FabricFolder',
       onClick: () => setSelectedSection('files')
     },
     {
-      name: 'Application Health',
+      name: 'Data Flow',
+      key: 'dataflow',
+      url: '',
+      icon: 'Flow',
+      onClick: () => setSelectedSection('dataflow')
+    },
+    {
+      name: 'Health Checks',
       key: 'health',
       url: '',
       icon: 'Health',
       onClick: () => setSelectedSection('health')
     },
     {
-      name: 'System Diagnostics',
+      name: 'Diagnostics',
       key: 'diagnostics',
       url: '',
       icon: 'Settings',
       onClick: () => setSelectedSection('diagnostics')
-    }
-    ,
-    {
-      name: 'Operations Log',
-      key: 'ops',
-      url: '',
-      icon: 'History',
-      onClick: () => setSelectedSection('ops')
     }
   ];
 
@@ -442,47 +617,59 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ isOpen, onClose }) => {
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
               <Icon iconName="ViewDashboard" style={{ fontSize: 20, color: colours.blue }} />
               <Text variant="xLarge" style={{ fontWeight: 600, color: colours.blue }}>
-                System Overview
+                Dev Dashboard
               </Text>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 20 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 20 }}>
               <div className={sectionCardStyle}>
-                <h3 style={{ margin: '0 0 12px 0', color: palette.text, fontSize: 16, fontWeight: 600 }}>
-                  Application Status
+                <h3 style={{ margin: '0 0 10px 0', color: palette.text, fontSize: 16, fontWeight: 600 }}>
+                  Environment
                 </h3>
-                <ul style={{ listStyle: 'none', padding: 0, margin: 0, color: palette.subText, display: 'grid', gap: 10 }}>
-                  {[
-                    { label: 'Frontend', status: 'Active' },
-                    { label: 'API Functions', status: 'Active' },
-                    { label: 'Database', status: 'Connected' },
-                  ].map(({ label, status }) => (
-                    <li key={label} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <span
-                        style={{
-                          width: 10,
-                          height: 10,
-                          borderRadius: '50%',
-                          background: '#22c55e',
-                          boxShadow: '0 0 0 4px rgba(34,197,94,0.12)',
-                        }}
-                        aria-hidden="true"
-                      />
-                      <span style={{ fontSize: 13, color: palette.text }}>
-                        <strong>{label}:</strong> {status}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
+                <div style={{ display: 'grid', gap: 8, color: palette.subText, fontSize: 12 }}>
+                  <div><strong style={{ color: palette.text }}>URL:</strong> {window.location.origin}</div>
+                  <div><strong style={{ color: palette.text }}>Mode:</strong> {process.env.NODE_ENV}</div>
+                  <div><strong style={{ color: palette.text }}>Local data:</strong> {String(process.env.REACT_APP_USE_LOCAL_DATA ?? 'unset')}</div>
+                </div>
               </div>
 
               <div className={sectionCardStyle}>
                 <h3 style={{ margin: '0 0 12px 0', color: palette.text, fontSize: 16, fontWeight: 600 }}>
-                  Quick Actions
+                  Quick tools
                 </h3>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   <button
-                    onClick={() => setSelectedSection('dataflow')}
+                    onClick={() => setSelectedSection('inspector')}
+                    style={{
+                      padding: '10px 14px',
+                      background: 'rgba(54,144,206,0.12)',
+                      color: colours.blue,
+                      border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.35)' : 'rgba(54,144,206,0.3)'}`,
+                      borderRadius: 8,
+                      cursor: 'pointer',
+                      fontSize: 13,
+                      fontWeight: 600,
+                    }}
+                  >
+                    Open Inspector
+                  </button>
+                  <button
+                    onClick={() => setSelectedSection('ops')}
+                    style={{
+                      padding: '10px 14px',
+                      background: isDarkMode ? 'rgba(148,163,184,0.12)' : 'rgba(15,23,42,0.05)',
+                      color: palette.text,
+                      border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.22)' : 'rgba(15,23,42,0.1)'}`,
+                      borderRadius: 8,
+                      cursor: 'pointer',
+                      fontSize: 13,
+                      fontWeight: 600,
+                    }}
+                  >
+                    View Operations
+                  </button>
+                  <button
+                    onClick={() => setSelectedSection('health')}
                     style={{
                       padding: '10px 14px',
                       background: colours.blue,
@@ -492,63 +679,105 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ isOpen, onClose }) => {
                       cursor: 'pointer',
                       fontSize: 13,
                       fontWeight: 600,
-                      transition: 'transform 0.2s ease, box-shadow 0.2s ease',
-                      boxShadow: '0 8px 20px rgba(54,144,206,0.25)',
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.transform = 'translateY(-1px)';
-                      e.currentTarget.style.boxShadow = '0 12px 24px rgba(54,144,206,0.3)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.transform = 'translateY(0)';
-                      e.currentTarget.style.boxShadow = '0 8px 20px rgba(54,144,206,0.25)';
-                    }}
-                    onFocus={(e) => {
-                      e.currentTarget.style.transform = 'translateY(-1px)';
-                      e.currentTarget.style.boxShadow = '0 12px 24px rgba(54,144,206,0.3)';
-                    }}
-                    onBlur={(e) => {
-                      e.currentTarget.style.transform = 'translateY(0)';
-                      e.currentTarget.style.boxShadow = '0 8px 20px rgba(54,144,206,0.25)';
                     }}
                   >
-                    Analyse Data Flow
+                    Run health checks
+                  </button>
+                </div>
+              </div>
+
+              <div className={sectionCardStyle}>
+                <h3 style={{ margin: '0 0 10px 0', color: palette.text, fontSize: 16, fontWeight: 600 }}>
+                  Endpoint status
+                </h3>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      width: 10,
+                      height: 10,
+                      borderRadius: 999,
+                      background: overallHealth.colour,
+                      opacity: pingTick ? 1 : 0.55,
+                      transition: 'opacity 180ms ease',
+                    }}
+                  />
+                  <div style={{ fontSize: 12, color: palette.subText }}>
+                    Overall: <span style={{ color: palette.text, fontWeight: 600 }}>{overallHealth.label}</span>
+                    {lastHealthCheckAt ? (
+                      <span style={{ marginLeft: 8, fontFamily: 'ui-monospace, SFMono-Regular, monospace' }}>
+                        last: {new Date(lastHealthCheckAt).toLocaleTimeString()}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gap: 10 }}>
+                  {baseEndpointDefinitions.map((def) => {
+                    const r = endpointResults[def.key];
+                    const tone = getHealthTone(r);
+                    return (
+                      <div key={def.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: 999, background: tone.colour }} />
+                          <div style={{ display: 'grid', gap: 2 }}>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: palette.text }}>{def.label}</div>
+                            <div style={{ fontSize: 11, color: palette.subText, fontFamily: 'ui-monospace, SFMono-Regular, monospace' }}>{def.url}</div>
+                          </div>
+                        </div>
+                        <div style={{ fontSize: 12, color: palette.subText }}>
+                          {r?.ms ? `${r.ms}ms` : '—'} {r?.status ? `• ${r.status}` : ''}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
+                  <button
+                    onClick={() => void checkEndpoints(baseEndpointDefinitions)}
+                    style={{
+                      padding: '8px 12px',
+                      borderRadius: 6,
+                      border: 'none',
+                      background: colours.blue,
+                      color: '#fff',
+                      fontSize: 12,
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      opacity: checkingEndpoints ? 0.8 : 1,
+                    }}
+                  >
+                    {checkingEndpoints ? 'Checking…' : 'Check now'}
                   </button>
                   <button
-                    onClick={() => setSelectedSection('files')}
+                    onClick={() => setSelectedSection('health')}
                     style={{
-                      padding: '10px 14px',
-                      background: isDarkMode ? 'rgba(34,197,94,0.18)' : 'rgba(34,197,94,0.12)',
-                      color: isDarkMode ? '#bbf7d0' : '#166534',
-                      border: `1px solid ${isDarkMode ? 'rgba(34,197,94,0.45)' : 'rgba(34,197,94,0.35)'}`,
-                      borderRadius: 8,
+                      padding: '8px 12px',
+                      borderRadius: 6,
+                      border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.3)' : 'rgba(15,23,42,0.12)'}`,
+                      background: 'transparent',
+                      color: palette.text,
+                      fontSize: 12,
                       cursor: 'pointer',
-                      fontSize: 13,
-                      fontWeight: 600,
-                      transition: 'transform 0.2s ease, box-shadow 0.2s ease',
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.transform = 'translateY(-1px)';
-                      e.currentTarget.style.boxShadow = '0 12px 24px rgba(34,197,94,0.25)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.transform = 'translateY(0)';
-                      e.currentTarget.style.boxShadow = 'none';
-                    }}
-                    onFocus={(e) => {
-                      e.currentTarget.style.transform = 'translateY(-1px)';
-                      e.currentTarget.style.boxShadow = '0 12px 24px rgba(34,197,94,0.25)';
-                    }}
-                    onBlur={(e) => {
-                      e.currentTarget.style.transform = 'translateY(0)';
-                      e.currentTarget.style.boxShadow = 'none';
                     }}
                   >
-                    Map Application Files
+                    Details
                   </button>
                 </div>
               </div>
             </div>
+          </div>
+        );
+
+      case 'inspector':
+        return (
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+              <Icon iconName="ComplianceAudit" style={{ fontSize: 20, color: colours.blue }} />
+              <Text variant="xLarge" style={{ fontWeight: 600, color: colours.blue }}>
+                Application Inspector
+              </Text>
+            </div>
+            <DataInspector data={inspectorData ?? null} mode="embedded" />
           </div>
         );
 
@@ -703,8 +932,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ isOpen, onClose }) => {
 
               {fileRows.length > 0 && (
                 <div
-                  role="tree"
-                  aria-label="Application file tree"
                   style={{
                     border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.2)' : 'rgba(15,23,42,0.12)'}`,
                     borderRadius: 6,
@@ -724,9 +951,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ isOpen, onClose }) => {
                       return (
                         <div
                           key={row.key}
-                          role="treeitem"
-                          aria-level={row.depth + 1}
-                          aria-expanded={isDir ? expanded : undefined}
                           className={focusRingClass}
                           tabIndex={0}
                           onKeyDown={(event) => {
@@ -803,14 +1027,158 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ isOpen, onClose }) => {
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
               <Icon iconName="Health" style={{ fontSize: 20, color: colours.blue }} />
               <Text variant="xLarge" style={{ fontWeight: 600, color: colours.blue }}>
-                Application Health
+                Health Checks
               </Text>
             </div>
 
             <div className={sectionCardStyle}>
-              <Text style={{ color: palette.subText }}>
-                Health monitoring dashboards will appear here. Hook into Application Insights or custom telemetry to surface live metrics.
-              </Text>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
+                <div>
+                  <Text variant="large" style={{ fontWeight: 600, color: palette.text }}>API reachability</Text>
+                  <Text style={{ color: palette.subText, fontSize: 12 }}>
+                    Quick checks against internal endpoints. Any HTTP response counts as “reachable”; 4xx often means auth/missing rather than “down”.
+                  </Text>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: palette.subText, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={includeObservedRoutes}
+                      onChange={(e) => setIncludeObservedRoutes(e.target.checked)}
+                      style={{ cursor: 'pointer' }}
+                    />
+                    include observed routes
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: palette.subText, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={autoPingEnabled}
+                      onChange={(e) => setAutoPingEnabled(e.target.checked)}
+                      style={{ cursor: 'pointer' }}
+                    />
+                    auto ping
+                  </label>
+                  <button
+                    onClick={() => void checkEndpoints()}
+                    style={{
+                      padding: '8px 12px',
+                      borderRadius: 6,
+                      border: 'none',
+                      background: colours.blue,
+                      color: '#fff',
+                      fontSize: 12,
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      opacity: checkingEndpoints ? 0.8 : 1,
+                    }}
+                  >
+                    {checkingEndpoints ? 'Checking…' : 'Run checks'}
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+                <span
+                  aria-hidden="true"
+                  style={{
+                    width: 10,
+                    height: 10,
+                    borderRadius: 999,
+                    background: overallHealth.colour,
+                    opacity: pingTick ? 1 : 0.55,
+                    transition: 'opacity 180ms ease',
+                  }}
+                />
+                <div style={{ fontSize: 12, color: palette.subText }}>
+                  Overall: <span style={{ color: palette.text, fontWeight: 700 }}>{overallHealth.label}</span>
+                  {autoPingEnabled ? (
+                    <span style={{ marginLeft: 8 }}>• auto every {Math.round(autoPingIntervalMs / 1000)}s</span>
+                  ) : null}
+                  {lastHealthCheckAt ? (
+                    <span style={{ marginLeft: 8, fontFamily: 'ui-monospace, SFMono-Regular, monospace' }}>
+                      last: {new Date(lastHealthCheckAt).toLocaleTimeString()}
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+
+              {autoPingEnabled ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+                  <Text style={{ fontSize: 12, color: palette.subText }}>interval:</Text>
+                  {[15000, 30000, 60000].map((ms) => (
+                    <button
+                      key={ms}
+                      onClick={() => setAutoPingIntervalMs(ms)}
+                      style={{
+                        padding: '6px 10px',
+                        borderRadius: 999,
+                        border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.22)' : 'rgba(15,23,42,0.12)'}`,
+                        background: ms === autoPingIntervalMs ? (isDarkMode ? 'rgba(54,144,206,0.18)' : 'rgba(54,144,206,0.12)') : 'transparent',
+                        color: ms === autoPingIntervalMs ? colours.blue : palette.text,
+                        fontSize: 12,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {Math.round(ms / 1000)}s
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+
+              <div style={{ display: 'grid', gap: 10 }}>
+                {endpointDefinitions
+                  .reduce((acc, d) => {
+                    const existing = acc.find((g) => g.group === d.group);
+                    if (existing) existing.items.push(d);
+                    else acc.push({ group: d.group, items: [d] });
+                    return acc;
+                  }, [] as Array<{ group: EndpointCheckGroup; items: EndpointCheckDefinition[] }>)
+                  .map((group) => (
+                    <div key={group.group} style={{ display: 'grid', gap: 10 }}>
+                      <div style={{ fontSize: 12, fontWeight: 800, color: palette.subText, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                        {group.group === 'core' ? 'Core' : group.group === 'diagnostics' ? 'Diagnostics' : 'Observed (from Ops GETs)'}
+                      </div>
+                      {group.items.map((def) => {
+                        const r = endpointResults[def.key];
+                        const tone = getHealthTone(r);
+                        const lastCheckedAt = r?.lastCheckedAt;
+                        return (
+                          <div key={def.key} style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 12,
+                      padding: '10px 12px',
+                      borderRadius: 8,
+                      border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.18)' : 'rgba(15,23,42,0.08)'}`,
+                      background: isDarkMode ? 'rgba(15,23,42,0.55)' : 'rgba(255,255,255,0.7)',
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <span aria-hidden="true" style={{ width: 10, height: 10, borderRadius: 999, background: tone.colour }} />
+                        <div style={{ display: 'grid', gap: 2 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: palette.text }}>{def.label}</div>
+                            {def.description ? (
+                              <div style={{ fontSize: 11, color: palette.subText }}>{def.description}</div>
+                            ) : null}
+                          </div>
+                          <div style={{ fontSize: 11, color: palette.subText, fontFamily: 'ui-monospace, SFMono-Regular, monospace' }}>{def.url}</div>
+                          {r?.error && <div style={{ fontSize: 11, color: '#ef4444' }}>{r.error}</div>}
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 12, color: palette.subText, textAlign: 'right' }}>
+                        <div>{r?.status ?? (r?.reachable === false ? 'ERR' : '—')}</div>
+                        <div style={{ fontFamily: 'ui-monospace, SFMono-Regular, monospace' }}>{r?.ms ? `${r.ms}ms` : '—'}</div>
+                        <div style={{ fontSize: 10, color: palette.subText, marginTop: 2 }}>
+                          {typeof lastCheckedAt === 'string' ? new Date(lastCheckedAt).toLocaleTimeString() : '—'}
+                        </div>
+                      </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
+              </div>
             </div>
           </div>
         );
@@ -821,14 +1189,78 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ isOpen, onClose }) => {
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
               <Icon iconName="Settings" style={{ fontSize: 20, color: colours.blue }} />
               <Text variant="xLarge" style={{ fontWeight: 600, color: colours.blue }}>
-                System Diagnostics
+                Diagnostics
               </Text>
             </div>
 
             <div className={sectionCardStyle}>
               <Text style={{ color: palette.subText }}>
-                System diagnostics and automation tooling will be added soon. Expect quick links to runbooks, alert definitions, and environment toggles.
+                This space is for safe, read-only diagnostics: environment flags, client-side storage, and quick links into Inspector / Ops / File Map.
               </Text>
+              <div style={{ marginTop: 14, display: 'grid', gap: 10 }}>
+                <div style={{
+                  padding: '12px 14px',
+                  borderRadius: 8,
+                  border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.18)' : 'rgba(15,23,42,0.08)'}`,
+                  background: isDarkMode ? 'rgba(15,23,42,0.55)' : 'rgba(255,255,255,0.7)',
+                  fontSize: 12,
+                  color: palette.text,
+                }}>
+                  <div style={{ fontWeight: 700, marginBottom: 6 }}>Client flags</div>
+                  <div style={{ display: 'grid', gap: 4, color: palette.subText }}>
+                    <div><strong style={{ color: palette.text }}>NODE_ENV:</strong> {process.env.NODE_ENV}</div>
+                    <div><strong style={{ color: palette.text }}>REACT_APP_USE_LOCAL_DATA:</strong> {String(process.env.REACT_APP_USE_LOCAL_DATA ?? 'unset')}</div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                  <button
+                    onClick={() => setSelectedSection('inspector')}
+                    style={{
+                      padding: '10px 12px',
+                      borderRadius: 8,
+                      border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.35)' : 'rgba(54,144,206,0.3)'}`,
+                      background: 'rgba(54,144,206,0.12)',
+                      color: colours.blue,
+                      fontSize: 12,
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Open Inspector
+                  </button>
+                  <button
+                    onClick={() => setSelectedSection('ops')}
+                    style={{
+                      padding: '10px 12px',
+                      borderRadius: 8,
+                      border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.3)' : 'rgba(15,23,42,0.12)'}`,
+                      background: 'transparent',
+                      color: palette.text,
+                      fontSize: 12,
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    View Ops
+                  </button>
+                  <button
+                    onClick={() => setSelectedSection('files')}
+                    style={{
+                      padding: '10px 12px',
+                      borderRadius: 8,
+                      border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.3)' : 'rgba(15,23,42,0.12)'}`,
+                      background: 'transparent',
+                      color: palette.text,
+                      fontSize: 12,
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    File Map
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         );
@@ -978,9 +1410,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ isOpen, onClose }) => {
 
               {filteredOps.length > 0 && (
                 <div
-                  role="grid"
-                  aria-label="Operations log entries"
-                  aria-rowcount={filteredOps.length}
                   style={{
                     border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.2)' : 'rgba(15,23,42,0.12)'}`,
                     borderRadius: 6,
@@ -988,7 +1417,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ isOpen, onClose }) => {
                   }}
                 >
                   <div
-                    role="row"
                     style={{
                       display: 'grid',
                       gridTemplateColumns: '140px 100px 140px 80px 80px 80px 1fr 60px',
@@ -1001,14 +1429,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ isOpen, onClose }) => {
                       borderBottom: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.15)' : 'rgba(15,23,42,0.08)'}`,
                     }}
                   >
-                    <span role="columnheader">Time</span>
-                    <span role="columnheader">Type</span>
-                    <span role="columnheader">Action</span>
-                    <span role="columnheader">Status</span>
-                    <span role="columnheader">HTTP</span>
-                    <span role="columnheader">Duration</span>
-                    <span role="columnheader">Details</span>
-                    <span role="columnheader" style={{ textAlign: 'right' }}>Info</span>
+                    <span>Time</span>
+                    <span>Type</span>
+                    <span>Action</span>
+                    <span>Status</span>
+                    <span>HTTP</span>
+                    <span>Duration</span>
+                    <span>Details</span>
+                    <span style={{ textAlign: 'right' }}>Info</span>
                   </div>
                   <VariableSizeList
                     ref={opsListRef}
@@ -1025,7 +1453,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ isOpen, onClose }) => {
                       return (
                         <div
                           key={event.id}
-                          role="row"
                           tabIndex={0}
                           aria-expanded={expanded}
                           className={focusRingClass}
@@ -1062,13 +1489,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ isOpen, onClose }) => {
                               alignItems: 'center',
                               gap: 8,
                             }}
-                            role="presentation"
                           >
-                            <span role="gridcell">{new Date(event.ts).toLocaleTimeString()}</span>
-                            <span role="gridcell">{event.type}</span>
-                            <span role="gridcell">{event.action || '—'}</span>
+                            <span>{new Date(event.ts).toLocaleTimeString()}</span>
+                            <span>{event.type}</span>
+                            <span>{event.action || '—'}</span>
                             <span
-                              role="gridcell"
                               style={{
                                 color: statusError ? '#ef4444' : statusSuccess ? (isDarkMode ? '#4ade80' : '#15803d') : palette.subText,
                                 fontWeight: 600,
@@ -1076,13 +1501,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ isOpen, onClose }) => {
                             >
                               {event.status || '—'}
                             </span>
-                            <span role="gridcell">{event.httpStatus ?? '—'}</span>
-                            <span role="gridcell">{event.durationMs ? `${event.durationMs}ms` : '—'}</span>
-                            <span role="gridcell" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            <span>{event.httpStatus ?? '—'}</span>
+                            <span>{event.durationMs ? `${event.durationMs}ms` : '—'}</span>
+                            <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                               {event.enquiryId ? `enquiry ${event.enquiryId} • ` : ''}
                               {event.url || event.error || '—'}
                             </span>
-                            <div role="gridcell" style={{ textAlign: 'right' }}>
+                            <div style={{ textAlign: 'right' }}>
                               <button
                                 onClick={() => {
                                   setExpandedOpsRows((prev) => ({
@@ -1175,12 +1600,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ isOpen, onClose }) => {
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <Icon iconName="Admin" style={{ fontSize: 20, color: '#3690CE' }} />
             <Text variant="xLarge" style={{ fontWeight: 600, color: '#3690CE' }}>
-              Admin Dashboard
+              Dev Dashboard
             </Text>
           </div>
           <IconButton
             iconProps={{ iconName: 'ChromeClose' }}
-            ariaLabel="Close admin dashboard"
+            ariaLabel="Close dev dashboard"
             onClick={onClose}
             styles={{
               root: {
@@ -1197,7 +1622,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ isOpen, onClose }) => {
         </div>
 
         <div className={contentStyle}>
-          <div className={sidebarStyle} role="navigation" aria-label="Admin dashboard sections">
+          <div className={sidebarStyle}>
             <Nav
               groups={[
                 {
@@ -1205,7 +1630,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ isOpen, onClose }) => {
                 }
               ]}
               selectedKey={selectedSection}
-              ariaLabel="Admin dashboard sections"
+              ariaLabel="Dev dashboard sections"
               styles={{
                 root: {
                   background: 'transparent',

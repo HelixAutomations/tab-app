@@ -1,10 +1,10 @@
 import React, { useState, useRef, useEffect, useId, useCallback } from 'react';
 import { Icon } from '@fluentui/react/lib/Icon';
-import DataInspector from './DataInspector';
 import AdminDashboard from './AdminDashboard';
 import DemoPromptsModal from './DemoPromptsModal';
 import LoadingDebugModal from './debug/LoadingDebugModal';
 import { ErrorTracker } from './ErrorTracker';
+import asanaIcon from '../assets/asana.svg';
 import { UserData } from '../app/functionality/types';
 import '../app/styles/UserBubble.css';
 import '../app/styles/personas.css';
@@ -29,6 +29,7 @@ interface UserBubbleProps {
     onShowTestEnquiry?: () => void;
     demoModeEnabled?: boolean;
     onToggleDemoMode?: (enabled: boolean) => void;
+    onOpenReleaseNotesModal?: () => void;
 }
 
 const AVAILABLE_AREAS = ['Commercial', 'Construction', 'Property', 'Employment', 'Misc/Other'];
@@ -48,10 +49,10 @@ const UserBubble: React.FC<UserBubbleProps> = ({
     onShowTestEnquiry,
     demoModeEnabled = false,
     onToggleDemoMode,
+    onOpenReleaseNotesModal,
 }) => {
     const [open, setOpen] = useState(false);
-    const [showDataInspector, setShowDataInspector] = useState(false);
-    const [showAdminDashboard, setShowAdminDashboard] = useState(false);
+    const [showDevDashboard, setShowDevDashboard] = useState(false);
     const [showRefreshModal, setShowRefreshModal] = useState(false);
     const [showDemoPrompts, setShowDemoPrompts] = useState(false);
     const [showLoadingDebug, setShowLoadingDebug] = useState(false);
@@ -106,15 +107,46 @@ const UserBubble: React.FC<UserBubbleProps> = ({
     const accent = accentPrimary;
 
     const initials = user.Initials || `${user.First?.charAt(0) || ''}${user.Last?.charAt(0) || ''}`.toUpperCase();
+    const isAdmin = isAdminUser(user);
+    const isAdminEligible = isAdmin || isLocalDev;
 
-    const verifyAdminPasscode = useCallback((): boolean => {
-        const expected = (process.env.REACT_APP_ADMIN_PASSCODE || '2011').toString();
-        const input = window.prompt('Enter admin passcode');
-        if (input === null) return false;
-        const ok = input.trim() === expected;
-        if (!ok) window.alert('Incorrect passcode');
-        return ok;
-    }, []);
+    const adminBadge = (
+        <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '5px',
+            padding: '3px 8px',
+            background: isDarkMode ? 'rgba(255, 183, 77, 0.2)' : 'rgba(255, 152, 0, 0.15)',
+            borderRadius: 3,
+            fontSize: '9px',
+            fontWeight: 700,
+            textTransform: 'uppercase' as const,
+            letterSpacing: '0.5px',
+            color: isDarkMode ? '#FFB74D' : '#E65100'
+        }}>
+            <Icon iconName="Shield" style={{ fontSize: '10px' }} />
+            Admin
+        </div>
+    );
+
+    const localBadge = (
+        <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '5px',
+            padding: '3px 8px',
+            background: isDarkMode ? 'rgba(96, 165, 250, 0.18)' : 'rgba(54, 144, 206, 0.14)',
+            borderRadius: 3,
+            fontSize: '9px',
+            fontWeight: 700,
+            textTransform: 'uppercase' as const,
+            letterSpacing: '0.5px',
+            color: isDarkMode ? '#93c5fd' : '#1d4ed8'
+        }}>
+            <Icon iconName="LaptopSecure" style={{ fontSize: '10px' }} />
+            Local
+        </div>
+    );
 
     const closePopover = useCallback((restoreFocus = true) => {
         setOpen(false);
@@ -215,6 +247,12 @@ const UserBubble: React.FC<UserBubbleProps> = ({
     const canSwitchUser = isAdminUser(user);
     const userInitials = (user.Initials || '').toUpperCase();
     const canAccessDevTools = isLocalDev || userInitials === 'LZ' || userInitials === 'CB';
+
+    const hasAdminControls =
+        !!(onUserChange && availableUsers) ||
+        !!onToggleDemoMode ||
+        !!onOpenReleaseNotesModal ||
+        !!canAccessDevTools;
 
     // Helper to mask sensitive values
     const maskSecret = (val: string) => val.length > 4 ? val.slice(0, 2) + '****' + val.slice(-2) : '****';
@@ -460,52 +498,9 @@ const UserBubble: React.FC<UserBubbleProps> = ({
 
                         {/* Content */}
                         <div style={{ maxHeight: 'calc(85vh - 80px)', overflowY: 'auto', padding: '20px' }}>
-                            {/* User Switcher - always shown but disabled for non-admins */}
-                            {onUserChange && availableUsers && (
-                                <div style={{ marginBottom: 20, opacity: canSwitchUser ? 1 : 0.5 }}>
-                                    <div style={{ ...sectionTitle, color: textMuted }}>
-                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
-                                            <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-                                        </svg>
-                                        Switch User
-                                        {!canSwitchUser && (
-                                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ marginLeft: 'auto' }}>
-                                                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-                                                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-                                            </svg>
-                                        )}
-                                    </div>
-                                    <select
-                                        disabled={!canSwitchUser}
-                                        onChange={(e) => {
-                                            const sel = availableUsers.find(u => u.Initials === e.target.value);
-                                            if (sel) onUserChange(sel);
-                                        }}
-                                        style={{
-                                            width: '100%', 
-                                            padding: '10px 12px', 
-                                            background: bgCard, 
-                                            color: canSwitchUser ? textPrimary : textMuted,
-                                            border: `1px solid ${borderLight}`, 
-                                            borderRadius: '2px',
-                                            fontSize: 11, 
-                                            cursor: canSwitchUser ? 'pointer' : 'not-allowed'
-                                        }}
-                                    >
-                                        <option value="">{canSwitchUser ? 'Select user...' : 'Admin only'}</option>
-                                        {canSwitchUser && availableUsers
-                                            .filter(u => !u.status || u.status.toLowerCase() === 'active')
-                                            .map(u => (
-                                                <option key={u.Initials} value={u.Initials}>{u.FullName || `${u.First || ''} ${u.Last || ''}`}</option>
-                                            ))}
-                                    </select>
-                                </div>
-                            )}
-
-                            {/* Demo Mode toggle - admin only */}
-                            {onToggleDemoMode && isAdminUser(user) && (
-                                <div style={{ 
+                            {/* Admin controls (grouped) */}
+                            {hasAdminControls && (
+                                <div style={{
                                     marginBottom: 20,
                                     padding: '12px 14px',
                                     background: isDarkMode ? 'rgba(255, 183, 77, 0.06)' : 'rgba(255, 152, 0, 0.06)',
@@ -513,63 +508,73 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                     borderRadius: 4
                                 }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
-                                        <div style={{
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: '5px',
-                                            padding: '3px 8px',
-                                            background: isDarkMode ? 'rgba(255, 183, 77, 0.2)' : 'rgba(255, 152, 0, 0.15)',
-                                            borderRadius: 3,
-                                            fontSize: '9px',
-                                            fontWeight: 700,
-                                            textTransform: 'uppercase' as const,
-                                            letterSpacing: '0.5px',
-                                            color: isDarkMode ? '#FFB74D' : '#E65100'
-                                        }}>
-                                            <Icon iconName="Shield" style={{ fontSize: '10px' }} />
-                                            Admin
-                                        </div>
-                                        <span style={{ fontSize: '11px', color: textMuted }}>Demo mode controls</span>
+                                        {adminBadge}
+                                        <span style={{ fontSize: '11px', color: textMuted }}>
+                                            Admin-only controls{isLocalDev && !isAdmin ? ' (local dev override enabled)' : ''}
+                                        </span>
+                                        {!isAdminEligible && (
+                                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={textMuted} strokeWidth="2.5" style={{ marginLeft: 'auto' }}>
+                                                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                                                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                                            </svg>
+                                        )}
                                     </div>
-                                    <div
-                                        style={{
-                                            ...toggleRow,
-                                            background: bgCard,
-                                            borderColor: borderLight
-                                        }}
-                                        onMouseEnter={(e) => {
-                                            e.currentTarget.style.borderColor = borderMedium;
-                                            e.currentTarget.style.background = bgHover;
-                                        }}
-                                        onMouseLeave={(e) => {
-                                            e.currentTarget.style.borderColor = borderLight;
-                                            e.currentTarget.style.background = bgCard;
-                                        }}
-                                        onClick={() => onToggleDemoMode(!demoModeEnabled)}
-                                    >
-                                        <div>
-                                            <div style={{ fontSize: 12, fontWeight: 500, color: textPrimary }}>Demo mode</div>
-                                            <div style={{ fontSize: 10, color: textMuted, marginTop: 2 }}>Skip live refresh & seed demo enquiry</div>
+
+                                    {!isAdminEligible && (
+                                        <div style={{ fontSize: 11, color: textMuted, marginBottom: 10 }}>
+                                            Not available for your account.
                                         </div>
-                                        <div style={toggleSwitch(!!demoModeEnabled)}>
-                                            <div style={toggleKnob(!!demoModeEnabled)} />
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-                            
-                            {/* Features Section - PROMINENT */}
-                            {onFeatureToggle && (
-                                <div style={{ marginBottom: 20 }}>
-                                    <div style={sectionTitle}>
-                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                                            <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
-                                        </svg>
-                                        Features
-                                    </div>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
-                                        {/* Rate Change Tracker: Only available on localhost, opens modal directly */}
-                                        {isLocalDev && (
+                                    )}
+
+                                    <div style={{
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        gap: 8,
+                                        opacity: isAdminEligible ? 1 : 0.55,
+                                        pointerEvents: isAdminEligible ? 'auto' : 'none'
+                                    }}>
+                                        {/* Switch user */}
+                                        {onUserChange && availableUsers && (
+                                            <div style={{ opacity: canSwitchUser ? 1 : 0.75 }}>
+                                                <div style={{ ...sectionTitle, color: textMuted, marginBottom: 6 }}>
+                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+                                                        <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                                                    </svg>
+                                                    Switch User
+                                                    {!canSwitchUser && (
+                                                        <span style={{ marginLeft: 'auto', fontSize: 10, color: textMuted }}>Admin only</span>
+                                                    )}
+                                                </div>
+                                                <select
+                                                    disabled={!canSwitchUser}
+                                                    onChange={(e) => {
+                                                        const sel = availableUsers.find(u => u.Initials === e.target.value);
+                                                        if (sel) onUserChange(sel);
+                                                    }}
+                                                    style={{
+                                                        width: '100%',
+                                                        padding: '10px 12px',
+                                                        background: bgCard,
+                                                        color: canSwitchUser ? textPrimary : textMuted,
+                                                        border: `1px solid ${borderLight}`,
+                                                        borderRadius: '2px',
+                                                        fontSize: 11,
+                                                        cursor: canSwitchUser ? 'pointer' : 'not-allowed'
+                                                    }}
+                                                >
+                                                    <option value="">{canSwitchUser ? 'Select user...' : 'Admin only'}</option>
+                                                    {canSwitchUser && availableUsers
+                                                        .filter(u => !u.status || u.status.toLowerCase() === 'active')
+                                                        .map(u => (
+                                                            <option key={u.Initials} value={u.Initials}>{u.FullName || `${u.First || ''} ${u.Last || ''}`}</option>
+                                                        ))}
+                                                </select>
+                                            </div>
+                                        )}
+
+                                        {/* Changelog */}
+                                        {onOpenReleaseNotesModal && (
                                             <div
                                                 style={toggleRow}
                                                 onMouseEnter={(e) => {
@@ -580,66 +585,159 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                                     e.currentTarget.style.borderColor = borderLight;
                                                     e.currentTarget.style.background = bgCard;
                                                 }}
-                                                onClick={() => { 
-                                                    window.dispatchEvent(new CustomEvent('openRateChangeModal')); 
-                                                    closePopover(); 
+                                                onClick={() => {
+                                                    onOpenReleaseNotesModal();
+                                                    closePopover();
                                                 }}
                                             >
                                                 <div>
-                                                    <div style={{ fontSize: 12, fontWeight: 500, color: textPrimary }}>Rate Change Tracker</div>
-                                                    <div style={{ fontSize: 10, color: textMuted, marginTop: 2 }}>Jan 2026 rate notifications</div>
+                                                    <div style={{ fontSize: 12, fontWeight: 500, color: textPrimary }}>Changelog</div>
+                                                    <div style={{ fontSize: 10, color: textMuted, marginTop: 2 }}>Changes + product ideas (admin)</div>
                                                 </div>
                                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={textMuted} strokeWidth="2">
                                                     <path d="M9 18l6-6-6-6"/>
                                                 </svg>
                                             </div>
                                         )}
-                                        {/* Annual leave test/demo cards are controlled by the Demo Mode toggle */}
-                                        {isLocalDev && (
-                                            <>
-                                                <div
-                                                    style={toggleRow}
-                                                    onMouseEnter={(e) => {
-                                                        e.currentTarget.style.borderColor = borderMedium;
-                                                        e.currentTarget.style.background = bgHover;
-                                                    }}
-                                                    onMouseLeave={(e) => {
-                                                        e.currentTarget.style.borderColor = borderLight;
-                                                        e.currentTarget.style.background = bgCard;
-                                                    }}
-                                                    onClick={() => setShowLoadingDebug(true)}
-                                                >
-                                                    <div>
-                                                        <div style={{ fontSize: 12, fontWeight: 500, color: textPrimary }}>Loading Debug</div>
-                                                        <div style={{ fontSize: 10, color: textMuted, marginTop: 2 }}>Test loading screens</div>
-                                                    </div>
-                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={textMuted} strokeWidth="2">
-                                                        <path d="M9 18l6-6-6-6"/>
-                                                    </svg>
+
+                                        {/* Demo mode */}
+                                        {onToggleDemoMode && (
+                                            <div
+                                                style={toggleRow}
+                                                onMouseEnter={(e) => {
+                                                    e.currentTarget.style.borderColor = borderMedium;
+                                                    e.currentTarget.style.background = bgHover;
+                                                }}
+                                                onMouseLeave={(e) => {
+                                                    e.currentTarget.style.borderColor = borderLight;
+                                                    e.currentTarget.style.background = bgCard;
+                                                }}
+                                                onClick={() => onToggleDemoMode(!demoModeEnabled)}
+                                            >
+                                                <div>
+                                                    <div style={{ fontSize: 12, fontWeight: 500, color: textPrimary }}>Demo mode</div>
+                                                    <div style={{ fontSize: 10, color: textMuted, marginTop: 2 }}>Skip live refresh & seed demo enquiry</div>
                                                 </div>
-                                                <div
-                                                    style={toggleRow}
-                                                    onMouseEnter={(e) => {
-                                                        e.currentTarget.style.borderColor = borderMedium;
-                                                        e.currentTarget.style.background = bgHover;
-                                                    }}
-                                                    onMouseLeave={(e) => {
-                                                        e.currentTarget.style.borderColor = borderLight;
-                                                        e.currentTarget.style.background = bgCard;
-                                                    }}
-                                                    onClick={() => setShowErrorTracker(true)}
-                                                >
-                                                    <div>
-                                                        <div style={{ fontSize: 12, fontWeight: 500, color: textPrimary }}>Error Tracker</div>
-                                                        <div style={{ fontSize: 10, color: textMuted, marginTop: 2 }}>View runtime errors</div>
-                                                    </div>
-                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={textMuted} strokeWidth="2">
-                                                        <path d="M9 18l6-6-6-6"/>
-                                                    </svg>
+                                                <div style={toggleSwitch(!!demoModeEnabled)}>
+                                                    <div style={toggleKnob(!!demoModeEnabled)} />
                                                 </div>
-                                            </>
+                                            </div>
                                         )}
-                                        {isLocalDev && (
+
+                                        {/* Dev dashboard (internal tools) */}
+                                        {canAccessDevTools && (isAdminUser(user) || isPowerUser(user)) && (
+                                            <button
+                                                onClick={() => { setShowDevDashboard(true); closePopover(false); }}
+                                                style={{
+                                                    ...actionBtn,
+                                                    background: accentPrimary,
+                                                    color: '#fff',
+                                                    border: `1px solid ${accentPrimary}`
+                                                }}
+                                                onMouseEnter={(e) => {
+                                                    e.currentTarget.style.background = '#2a7ab8';
+                                                    e.currentTarget.style.borderColor = '#2a7ab8';
+                                                }}
+                                                onMouseLeave={(e) => {
+                                                    e.currentTarget.style.background = accentPrimary;
+                                                    e.currentTarget.style.borderColor = accentPrimary;
+                                                }}
+                                            >
+                                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                                    <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+                                                    <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
+                                                </svg>
+                                                Dev Dashboard
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Local-only controls (grouped) */}
+                            {isLocalDev && (
+                                <div style={{
+                                    marginBottom: 20,
+                                    padding: '12px 14px',
+                                    background: isDarkMode ? 'rgba(96, 165, 250, 0.07)' : 'rgba(54, 144, 206, 0.06)',
+                                    border: `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.22)' : 'rgba(54, 144, 206, 0.22)'}`,
+                                    borderRadius: 4
+                                }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
+                                        {localBadge}
+                                        <span style={{ fontSize: '11px', color: textMuted }}>Localhost-only tools</span>
+                                    </div>
+
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                        {/* Rate Change Tracker */}
+                                        <div
+                                            style={toggleRow}
+                                            onMouseEnter={(e) => {
+                                                e.currentTarget.style.borderColor = borderMedium;
+                                                e.currentTarget.style.background = bgHover;
+                                            }}
+                                            onMouseLeave={(e) => {
+                                                e.currentTarget.style.borderColor = borderLight;
+                                                e.currentTarget.style.background = bgCard;
+                                            }}
+                                            onClick={() => {
+                                                window.dispatchEvent(new CustomEvent('openRateChangeModal'));
+                                                closePopover();
+                                            }}
+                                        >
+                                            <div>
+                                                <div style={{ fontSize: 12, fontWeight: 500, color: textPrimary }}>Rate Change Tracker</div>
+                                                <div style={{ fontSize: 10, color: textMuted, marginTop: 2 }}>Jan 2026 rate notifications</div>
+                                            </div>
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={textMuted} strokeWidth="2">
+                                                <path d="M9 18l6-6-6-6"/>
+                                            </svg>
+                                        </div>
+
+                                        {/* Debug modals */}
+                                        <div
+                                            style={toggleRow}
+                                            onMouseEnter={(e) => {
+                                                e.currentTarget.style.borderColor = borderMedium;
+                                                e.currentTarget.style.background = bgHover;
+                                            }}
+                                            onMouseLeave={(e) => {
+                                                e.currentTarget.style.borderColor = borderLight;
+                                                e.currentTarget.style.background = bgCard;
+                                            }}
+                                            onClick={() => setShowLoadingDebug(true)}
+                                        >
+                                            <div>
+                                                <div style={{ fontSize: 12, fontWeight: 500, color: textPrimary }}>Loading Debug</div>
+                                                <div style={{ fontSize: 10, color: textMuted, marginTop: 2 }}>Test loading screens</div>
+                                            </div>
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={textMuted} strokeWidth="2">
+                                                <path d="M9 18l6-6-6-6"/>
+                                            </svg>
+                                        </div>
+                                        <div
+                                            style={toggleRow}
+                                            onMouseEnter={(e) => {
+                                                e.currentTarget.style.borderColor = borderMedium;
+                                                e.currentTarget.style.background = bgHover;
+                                            }}
+                                            onMouseLeave={(e) => {
+                                                e.currentTarget.style.borderColor = borderLight;
+                                                e.currentTarget.style.background = bgCard;
+                                            }}
+                                            onClick={() => setShowErrorTracker(true)}
+                                        >
+                                            <div>
+                                                <div style={{ fontSize: 12, fontWeight: 500, color: textPrimary }}>Error Tracker</div>
+                                                <div style={{ fontSize: 10, color: textMuted, marginTop: 2 }}>View runtime errors</div>
+                                            </div>
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={textMuted} strokeWidth="2">
+                                                <path d="M9 18l6-6-6-6"/>
+                                            </svg>
+                                        </div>
+
+                                        {/* View as production */}
+                                        {onFeatureToggle && (
                                             <div
                                                 style={toggleRow}
                                                 onMouseEnter={(e) => {
@@ -666,9 +764,33 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                                 </div>
                                             </div>
                                         )}
+
+                                        {/* Demo prompts */}
+                                        <div
+                                            style={toggleRow}
+                                            onMouseEnter={(e) => {
+                                                e.currentTarget.style.borderColor = borderMedium;
+                                                e.currentTarget.style.background = bgHover;
+                                            }}
+                                            onMouseLeave={(e) => {
+                                                e.currentTarget.style.borderColor = borderLight;
+                                                e.currentTarget.style.background = bgCard;
+                                            }}
+                                            onClick={() => { setShowDemoPrompts(true); closePopover(); }}
+                                        >
+                                            <div>
+                                                <div style={{ fontSize: 12, fontWeight: 500, color: textPrimary }}>Todo List</div>
+                                                <div style={{ fontSize: 10, color: textMuted, marginTop: 2 }}>Local demo prompts</div>
+                                            </div>
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={textMuted} strokeWidth="2">
+                                                <path d="M9 18l6-6-6-6"/>
+                                            </svg>
+                                        </div>
                                     </div>
                                 </div>
                             )}
+                            
+                            
 
                             {/* Appearance */}
                             <div style={{ marginBottom: 20 }}>
@@ -710,29 +832,6 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                         <div style={toggleKnob(isDarkMode)} />
                                     </div>
                                 </div>
-                                {/* Session Log Toggle - localhost only */}
-                                {isLocalDev && (
-                                    <div
-                                        style={toggleRow}
-                                        onMouseEnter={(e) => {
-                                            e.currentTarget.style.borderColor = borderMedium;
-                                            e.currentTarget.style.background = bgHover;
-                                        }}
-                                        onMouseLeave={(e) => {
-                                            e.currentTarget.style.borderColor = borderLight;
-                                            e.currentTarget.style.background = bgCard;
-                                        }}
-                                        onClick={() => onFeatureToggle && onFeatureToggle('showSessionLog', !featureToggles.showSessionLog)}
-                                    >
-                                        <div>
-                                            <div style={{ fontSize: 12, fontWeight: 500, color: textPrimary }}>Session Log</div>
-                                            <div style={{ fontSize: 10, color: textMuted, marginTop: 2 }}>Show changes chip in quick actions</div>
-                                        </div>
-                                        <div style={toggleSwitch(!!featureToggles.showSessionLog)}>
-                                            <div style={toggleKnob(!!featureToggles.showSessionLog)} />
-                                        </div>
-                                    </div>
-                                )}
                             </div>
 
                             {/* Areas Filter */}
@@ -937,9 +1036,16 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                         listStyle: 'none',
                                         transition: 'all 0.15s ease'
                                     }}>
-                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                                            <path d="M9 19c-5 0-8-3-8-8s3-8 8-8m0 16v-8"/>
-                                        </svg>
+                                        <img
+                                            src={asanaIcon}
+                                            alt=""
+                                            style={{
+                                                width: 12,
+                                                height: 12,
+                                                opacity: 0.9,
+                                                filter: isDarkMode ? 'brightness(0) invert(1)' : 'none',
+                                            }}
+                                        />
                                         <span style={{ flex: 1 }}>Asana Integration</span>
                                         <span style={{ fontSize: 10, opacity: 0.6 }}>{asanaDetails.length}</span>
                                     </summary>
@@ -1002,29 +1108,6 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                         Refresh Data…
                                     </button>
 
-                                    {/* Demo Prompts - local dev only */}
-                                    {isLocalDev && (
-                                        <button 
-                                            onClick={() => { setShowDemoPrompts(true); closePopover(); }} 
-                                            style={actionBtn}
-                                            onMouseEnter={(e) => {
-                                                e.currentTarget.style.borderColor = borderMedium;
-                                                e.currentTarget.style.background = bgHover;
-                                                e.currentTarget.style.color = textPrimary;
-                                            }}
-                                            onMouseLeave={(e) => {
-                                                e.currentTarget.style.borderColor = borderLight;
-                                                e.currentTarget.style.background = bgCard;
-                                                e.currentTarget.style.color = textSecondary;
-                                            }}
-                                        >
-                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                <path d="M9 11l3 3L22 4"/><path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                                            </svg>
-                                            Todo List
-                                        </button>
-                                    )}
-
                                     {originalAdminUser && onReturnToAdmin && (
                                         <button 
                                             onClick={() => { onReturnToAdmin(); closePopover(); }} 
@@ -1050,54 +1133,6 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                         </button>
                                     )}
 
-                                    {/* Dev tools - only for local dev OR LZ/CB */}
-                                    {canAccessDevTools && isAdminUser(user) && (
-                                        <button 
-                                            onClick={() => { if (verifyAdminPasscode()) { setShowAdminDashboard(true); closePopover(false); } }} 
-                                            style={{ 
-                                                ...actionBtn, 
-                                                background: accentPrimary, 
-                                                color: '#fff', 
-                                                border: `1px solid ${accentPrimary}`
-                                            }}
-                                            onMouseEnter={(e) => {
-                                                e.currentTarget.style.background = '#2a7ab8';
-                                                e.currentTarget.style.borderColor = '#2a7ab8';
-                                            }}
-                                            onMouseLeave={(e) => {
-                                                e.currentTarget.style.background = accentPrimary;
-                                                e.currentTarget.style.borderColor = accentPrimary;
-                                            }}
-                                        >
-                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                                                <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
-                                                <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
-                                            </svg>
-                                            Admin Dashboard
-                                        </button>
-                                    )}
-
-                                    {canAccessDevTools && isPowerUser(user) && (
-                                        <button 
-                                            onClick={() => setShowDataInspector(true)} 
-                                            style={actionBtn}
-                                            onMouseEnter={(e) => {
-                                                e.currentTarget.style.borderColor = borderMedium;
-                                                e.currentTarget.style.background = bgHover;
-                                                e.currentTarget.style.color = textPrimary;
-                                            }}
-                                            onMouseLeave={(e) => {
-                                                e.currentTarget.style.borderColor = borderLight;
-                                                e.currentTarget.style.background = bgCard;
-                                                e.currentTarget.style.color = textSecondary;
-                                            }}
-                                        >
-                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                <polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>
-                                            </svg>
-                                            Application Inspector
-                                        </button>
-                                    )}
                                 </div>
                             </div>
                         </div>
@@ -1105,8 +1140,7 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                 </>
             )}
 
-            {showDataInspector && <DataInspector data={user} onClose={() => setShowDataInspector(false)} />}
-            {showAdminDashboard && <AdminDashboard isOpen={showAdminDashboard} onClose={() => setShowAdminDashboard(false)} />}
+            {showDevDashboard && <AdminDashboard isOpen={showDevDashboard} onClose={() => setShowDevDashboard(false)} inspectorData={user} />}
             {isLocalDev && showDemoPrompts && <DemoPromptsModal isOpen={showDemoPrompts} onClose={() => setShowDemoPrompts(false)} />}
             {isLocalDev && showLoadingDebug && <LoadingDebugModal isOpen={showLoadingDebug} onClose={() => setShowLoadingDebug(false)} />}
             {isLocalDev && showErrorTracker && <ErrorTracker onClose={() => setShowErrorTracker(false)} />}
