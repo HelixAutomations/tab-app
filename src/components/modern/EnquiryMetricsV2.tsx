@@ -11,11 +11,18 @@ interface EnquiryMetric {
   prevPercentage?: number;
   isPercentage?: boolean;
   showTrend?: boolean;
+  context?: {
+    enquiriesMonthToDate?: number;
+    mattersOpenedMonthToDate?: number;
+    prevEnquiriesMonthToDate?: number;
+  };
 }
 
 interface EnquiryMetricsV2Props {
   metrics: EnquiryMetric[];
   isDarkMode: boolean;
+  userEmail?: string;
+  userInitials?: string;
   /** Optional header actions rendered on the right side of the header (e.g., a toggle) */
   headerActions?: React.ReactNode;
   /** Optional title override; defaults to 'Enquiry & Conversion Metrics' */
@@ -60,17 +67,21 @@ const metricRefreshKeyframes = `
 `;
 
 // Skeleton shimmer component for loading states
-const SkeletonBox: React.FC<{ width: string; height: string; isDarkMode: boolean; style?: React.CSSProperties }> = 
-  ({ width, height, isDarkMode, style }) => (
+const SkeletonBox: React.FC<{ width: string; height: string; isDarkMode: boolean; style?: React.CSSProperties; animate?: boolean }> = 
+  ({ width, height, isDarkMode, style, animate = true }) => (
   <div style={{
     width,
     height,
     borderRadius: '4px',
     background: isDarkMode 
-      ? 'linear-gradient(90deg, rgba(54, 144, 206, 0.08) 0%, rgba(54, 144, 206, 0.15) 50%, rgba(54, 144, 206, 0.08) 100%)'
-      : 'linear-gradient(90deg, rgba(148, 163, 184, 0.15) 0%, rgba(148, 163, 184, 0.25) 50%, rgba(148, 163, 184, 0.15) 100%)',
-    backgroundSize: '200% 100%',
-    animation: 'shimmer 1.5s ease-in-out infinite',
+      ? (animate
+        ? 'linear-gradient(90deg, rgba(54, 144, 206, 0.08) 0%, rgba(54, 144, 206, 0.15) 50%, rgba(54, 144, 206, 0.08) 100%)'
+        : 'rgba(54, 144, 206, 0.12)')
+      : (animate
+        ? 'linear-gradient(90deg, rgba(148, 163, 184, 0.15) 0%, rgba(148, 163, 184, 0.25) 50%, rgba(148, 163, 184, 0.15) 100%)'
+        : 'rgba(148, 163, 184, 0.2)'),
+    backgroundSize: animate ? '200% 100%' : undefined,
+    animation: animate ? 'shimmer 1.5s ease-in-out infinite' : 'none',
     ...style,
   }} />
 );
@@ -97,16 +108,17 @@ const SkeletonMetricCard: React.FC<{ isDarkMode: boolean; index: number; showPro
   >
     {/* Header row: icon + trend */}
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-      <SkeletonBox width="36px" height="36px" isDarkMode={isDarkMode} style={{ borderRadius: '2px' }} />
+      <SkeletonBox width="36px" height="36px" isDarkMode={isDarkMode} style={{ borderRadius: '2px' }} animate={false} />
       <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-        <SkeletonBox width="12px" height="12px" isDarkMode={isDarkMode} />
-        <SkeletonBox width="32px" height="12px" isDarkMode={isDarkMode} />
+        <SkeletonBox width="12px" height="12px" isDarkMode={isDarkMode} animate={false} />
+        <SkeletonBox width="32px" height="12px" isDarkMode={isDarkMode} animate={false} />
       </div>
     </div>
     {/* Title */}
-    <SkeletonBox width="70%" height="14px" isDarkMode={isDarkMode} style={{ marginBottom: '10px' }} />
+    <SkeletonBox width="70%" height="14px" isDarkMode={isDarkMode} style={{ marginBottom: '10px' }} animate={false} />
     {/* Value */}
-    <SkeletonBox width="50%" height="28px" isDarkMode={isDarkMode} style={{ marginBottom: showProgress ? '14px' : '0' }} />
+    <SkeletonBox width="50%" height="28px" isDarkMode={isDarkMode} style={{ marginBottom: '8px' }} />
+    <SkeletonBox width="30%" height="12px" isDarkMode={isDarkMode} style={{ marginBottom: showProgress ? '14px' : '0' }} animate={false} />
     {/* Progress bar if needed */}
     {showProgress && (
       <div style={{ marginTop: '14px' }}>
@@ -152,10 +164,19 @@ const Toast: React.FC<{ message: string; type: 'info' | 'success' | 'error'; vis
   );
 };
 
-const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode, headerActions, title, refreshAnimationKey, isLoading, breakdown, showPreviousPeriod = false, viewAsProd = false }) => {
+const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode, userEmail, userInitials, headerActions, title, refreshAnimationKey, isLoading, breakdown, showPreviousPeriod = false, viewAsProd = false }) => {
+  const isSessionStorageAvailable = React.useMemo(() => {
+    try {
+      const key = '__emv2_storage_test__';
+      sessionStorage.setItem(key, '1');
+      sessionStorage.removeItem(key);
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
   // Show details feature only in local dev when NOT viewing as production
-  const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-  const showDetailsFeature = isLocalhost && !viewAsProd;
+  const showDetailsFeature = !viewAsProd;
 
   // Inject keyframes
   React.useEffect(() => {
@@ -202,6 +223,19 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
 
   const [metricDetails, setMetricDetails] = React.useState<MetricDetails | null>(null);
   const [isMetricDetailsOpen, setIsMetricDetailsOpen] = React.useState(false);
+  const [selectedMetric, setSelectedMetric] = React.useState<EnquiryMetric | null>(null);
+  const [detailsLoading, setDetailsLoading] = React.useState(false);
+  const [detailsError, setDetailsError] = React.useState<string | null>(null);
+  const [detailsPayload, setDetailsPayload] = React.useState<{
+    periodKey: 'today' | 'weekToDate' | 'monthToDate' | null;
+    currentRange?: string;
+    previousRange?: string;
+    current?: Array<Record<string, unknown>>;
+    previous?: Array<Record<string, unknown>>;
+    filters?: Record<string, unknown>;
+    limit?: number;
+  } | null>(null);
+  const detailsRequestRef = React.useRef(0);
 
   type AowTopItem = { key: string; count: number };
 
@@ -235,70 +269,212 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
     return items;
   }, [breakdown]);
 
+  const formatTrendValue = (current: number, previous: number, isPercentage: boolean): string => {
+    const diff = current - previous;
+    const sign = diff > 0 ? '+' : '';
+    if (isPercentage) {
+      return `${sign}${diff.toFixed(1)}%`;
+    }
+    return `${sign}${diff}`;
+  };
+
+  const formatDateShort = React.useCallback((value: Date) =>
+    value.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }), []);
+
+  const getComparisonRange = React.useCallback((periodKey: 'today' | 'weekToDate' | 'monthToDate' | null, isPrevious: boolean): string | null => {
+    if (!periodKey) return null;
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const endOfToday = new Date(today);
+    endOfToday.setHours(23, 59, 59, 999);
+
+    if (periodKey === 'today') {
+      const start = isPrevious ? new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000) : today;
+      const end = isPrevious ? new Date(start.getFullYear(), start.getMonth(), start.getDate(), 23, 59, 59, 999) : endOfToday;
+      return `${formatDateShort(start)} – ${formatDateShort(end)}`;
+    }
+
+    const dayOfWeek = today.getDay();
+    const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+    const startOfWeek = new Date(today);
+    startOfWeek.setDate(today.getDate() - daysToMonday);
+    startOfWeek.setHours(0, 0, 0, 0);
+
+    if (periodKey === 'weekToDate') {
+      const start = isPrevious ? new Date(startOfWeek.getTime() - 7 * 24 * 60 * 60 * 1000) : startOfWeek;
+      const end = isPrevious ? new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000) : endOfToday;
+      end.setHours(23, 59, 59, 999);
+      return `${formatDateShort(start)} – ${formatDateShort(end)}`;
+    }
+
+    const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    if (periodKey === 'monthToDate') {
+      if (!isPrevious) {
+        return `${formatDateShort(startOfMonth)} – ${formatDateShort(endOfToday)}`;
+      }
+      const prevMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+      const prevMonthDays = new Date(prevMonthStart.getFullYear(), prevMonthStart.getMonth() + 1, 0).getDate();
+      const prevMonthEnd = new Date(prevMonthStart);
+      prevMonthEnd.setDate(Math.min(today.getDate(), prevMonthDays));
+      prevMonthEnd.setHours(23, 59, 59, 999);
+      return `${formatDateShort(prevMonthStart)} – ${formatDateShort(prevMonthEnd)}`;
+    }
+
+    return null;
+  }, [formatDateShort]);
+
+  const renderRecordList = React.useCallback((records: Array<Record<string, unknown>> | undefined, emptyLabel: string) => {
+    if (!records || records.length === 0) {
+      return (
+        <div style={{ fontSize: 12, color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.75)' }}>
+          {emptyLabel}
+        </div>
+      );
+    }
+
+    return (
+      <div style={{ display: 'grid', gap: 6 }}>
+        {records.map((row, index) => {
+          const date = typeof row.date === 'string' ? row.date : '';
+          const poc = typeof row.poc === 'string' ? row.poc : '';
+          const aow = typeof row.aow === 'string' ? row.aow : '';
+          const source = typeof row.source === 'string' ? row.source : '';
+          const label = [date, poc || '—', aow || '—'].filter(Boolean).join(' · ');
+          return (
+            <div key={`${source}-${index}`} style={{ display: 'flex', gap: 8, fontSize: 12 }}>
+              <span style={{
+                padding: '2px 6px',
+                borderRadius: 999,
+                fontSize: 10,
+                fontWeight: 700,
+                textTransform: 'uppercase',
+                letterSpacing: 0.5,
+                color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)',
+                background: isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.12)',
+                border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.25)'}`,
+                minWidth: 64,
+                textAlign: 'center',
+              }}>
+                {source || 'unknown'}
+              </span>
+              <span style={{ color: isDarkMode ? colours.dark.text : colours.light.text, lineHeight: 1.3 }}>
+                {label}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }, [isDarkMode]);
+
   const openMetricDetails = React.useCallback((metric: EnquiryMetric) => {
-    // Only show details modal when feature is enabled
     if (!showDetailsFeature) return;
 
     const periodKey = getPeriodKey(metric.title);
-    const aowTop = getAowTop(periodKey);
 
+    setSelectedMetric(metric);
+    setDetailsPayload(null);
+    setDetailsError(null);
+    setDetailsLoading(Boolean(periodKey));
+    setMetricDetails({
+      title: getDisplayTitle(metric.title),
+      subtitle: undefined,
+      rows: [],
+    });
+    setIsMetricDetailsOpen(true);
+
+    if (!periodKey) return;
+    const requestId = Date.now();
+    detailsRequestRef.current = requestId;
+    const email = (userEmail || '').trim().toLowerCase();
+    const initials = (userInitials || '').trim();
+    const query = new URLSearchParams({
+      period: periodKey,
+      limit: '50',
+    });
+    if (email) query.set('email', email);
+    if (initials) query.set('initials', initials);
+
+    fetch(`/api/home-enquiries/details?${query.toString()}`, { headers: { Accept: 'application/json' } })
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`Details fetch failed (${res.status})`);
+        return res.json();
+      })
+      .then((payload) => {
+        if (detailsRequestRef.current !== requestId) return;
+        setDetailsPayload({
+          periodKey,
+          currentRange: payload?.currentRange,
+          previousRange: payload?.previousRange,
+          current: Array.isArray(payload?.current?.records) ? payload.current.records : [],
+          previous: Array.isArray(payload?.previous?.records) ? payload.previous.records : [],
+          filters: payload?.filters || undefined,
+          limit: payload?.limit,
+        });
+        setDetailsLoading(false);
+      })
+      .catch((err) => {
+        if (detailsRequestRef.current !== requestId) return;
+        setDetailsError(err?.message || 'Failed to load records.');
+        setDetailsLoading(false);
+      });
+  }, [showDetailsFeature, getDisplayTitle, getPeriodKey, userEmail, userInitials]);
+
+  React.useEffect(() => {
+    if (!selectedMetric || !isMetricDetailsOpen) return;
+
+    const metric = selectedMetric;
     const rows: MetricDetails['rows'] = [
       {
-        label: 'Period',
-        value: showPreviousPeriod ? getDisplayTitle(metric.title) : metric.title,
-      },
-      {
-        label: 'Value Type',
-        value: metric.isPercentage ? 'Percentage' : 'Count',
-      },
-      {
-        label: 'Comparator',
-        value: showPreviousPeriod ? 'Not shown in Previous view.' : getTrendHelpText(metric.title),
-      },
-      {
-        label: 'Caching',
-        value: 'Cached briefly to keep Home fast (stale fallback on transient errors).',
+        label: 'Records',
+        value: (
+          <div style={{ display: 'grid', gap: 14, textAlign: 'left' }}>
+            {detailsLoading && (
+              <div style={{ fontSize: 12, color: isDarkMode ? 'rgba(148, 163, 184, 0.8)' : 'rgba(100, 116, 139, 0.8)' }}>
+                Loading records…
+              </div>
+            )}
+            {detailsError && (
+              <div style={{ fontSize: 12, color: isDarkMode ? '#FCA5A5' : '#DC2626' }}>
+                {detailsError}
+              </div>
+            )}
+            {!detailsLoading && !detailsError && detailsPayload && (
+              <div style={{ display: 'grid', gap: 16 }}>
+                <div style={{ display: 'grid', gap: 8 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text }}>
+                    Current window ({detailsPayload.currentRange || '—'})
+                  </div>
+                  <div style={{ maxHeight: 260, overflowY: 'auto', paddingRight: 6 }}>
+                    {renderRecordList(detailsPayload.current, 'No records returned for this window.')}
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gap: 8 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text }}>
+                    Previous window ({detailsPayload.previousRange || '—'})
+                  </div>
+                  <div style={{ maxHeight: 260, overflowY: 'auto', paddingRight: 6 }}>
+                    {renderRecordList(detailsPayload.previous, 'No records returned for this window.')}
+                  </div>
+                </div>
+                {detailsPayload.filters && (
+                  <div style={{ fontSize: 11, color: isDarkMode ? 'rgba(148, 163, 184, 0.75)' : 'rgba(100, 116, 139, 0.8)' }}>
+                    Filters: {JSON.stringify(detailsPayload.filters)}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        ),
       },
     ];
 
-    if (aowTop.length > 0) {
-      rows.splice(3, 0, {
-        label: 'Top Areas of Work',
-        value: (
-          <div style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6, justifyContent: 'flex-end' }}>
-            {aowTop.map((x) => (
-              <span
-                key={x.key}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '3px 8px',
-                  borderRadius: 999,
-                  border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(148, 163, 184, 0.22)'}`,
-                  background: isDarkMode ? 'rgba(2, 6, 23, 0.25)' : 'rgba(255, 255, 255, 0.7)',
-                  fontSize: 12,
-                  fontWeight: 600,
-                  color: isDarkMode ? colours.dark.text : colours.light.text,
-                  lineHeight: 1.2,
-                }}
-              >
-                <span style={{ opacity: 0.9 }}>{x.key}</span>
-                <span style={{ opacity: 0.7, fontWeight: 700 }}>{x.count}</span>
-              </span>
-            ))}
-          </div>
-        ),
-      });
-    }
-
     setMetricDetails({
       title: getDisplayTitle(metric.title),
-      subtitle: 'What this metric includes and how its comparison is defined.',
+      subtitle: undefined,
       rows,
     });
-    setIsMetricDetailsOpen(true);
-  }, [showDetailsFeature, getAowTop, getDisplayTitle, getPeriodKey, getTrendHelpText, isDarkMode, showPreviousPeriod]);
+  }, [selectedMetric, isMetricDetailsOpen, detailsLoading, detailsError, detailsPayload, getPeriodKey, getDisplayTitle, isDarkMode, renderRecordList]);
 
   const detailsChipStyle: React.CSSProperties = React.useMemo(() => ({
     fontSize: 10,
@@ -353,14 +529,17 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
   
   // One-time animation per browser session
   const [enableAnimationThisMount] = React.useState<boolean>(() => {
-    try { return sessionStorage.getItem('emv2_animated') !== 'true'; } catch { return true; }
+    if (!isSessionStorageAvailable) return false;
+    try { return sessionStorage.getItem('emv2_animated') !== 'true'; } catch { return false; }
   });
   React.useEffect(() => {
     if (enableAnimationThisMount) {
       setMounted(false);
       const t = setTimeout(() => {
         setMounted(true);
-        try { sessionStorage.setItem('emv2_animated', 'true'); } catch {}
+        if (isSessionStorageAvailable) {
+          try { sessionStorage.setItem('emv2_animated', 'true'); } catch {}
+        }
       }, 0);
       return () => clearTimeout(t);
     }
@@ -426,6 +605,7 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
     enabled: boolean;
   }> = ({ storageKey, value, decimals, suffix, enabled }) => {
     const [shouldAnimate, setShouldAnimate] = React.useState<boolean>(() => {
+      if (!isSessionStorageAvailable) return false;
       try { return sessionStorage.getItem(storageKey) !== 'true'; } catch { return false; }
     });
     const doneRef = React.useRef(false);
@@ -433,7 +613,9 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
     const handleDone = React.useCallback(() => {
       if (doneRef.current) return;
       doneRef.current = true;
-      try { sessionStorage.setItem(storageKey, 'true'); } catch {}
+      if (isSessionStorageAvailable) {
+        try { sessionStorage.setItem(storageKey, 'true'); } catch {}
+      }
       setShouldAnimate(false);
     }, [storageKey]);
 
@@ -491,15 +673,6 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
       return `${(metric.percentage || 0).toFixed(1)}%`;
     }
     return (metric.count || 0).toLocaleString();
-  };
-
-  const formatTrendValue = (current: number, previous: number, isPercentage: boolean): string => {
-    const diff = current - previous;
-    const sign = diff > 0 ? '+' : '';
-    if (isPercentage) {
-      return `${sign}${diff.toFixed(1)}%`;
-    }
-    return `${sign}${diff}`;
   };
 
   return (
@@ -729,7 +902,7 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
                       <Icon size={16} />
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      {!showPreviousPeriod && trend !== 'neutral' && (
+                      {!showPreviousPeriod && trend !== 'neutral' && metric.showTrend !== false && (
                         <div style={{
                           display: 'flex',
                           alignItems: 'center',
@@ -936,7 +1109,7 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
                         </span>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        {!showPreviousPeriod && trend !== 'neutral' && (
+                        {!showPreviousPeriod && trend !== 'neutral' && metric.showTrend !== false && (
                           <div style={{
                             display: 'flex',
                             alignItems: 'center',

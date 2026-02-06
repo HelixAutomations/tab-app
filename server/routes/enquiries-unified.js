@@ -132,9 +132,15 @@ async function performUnifiedEnquiriesQuery(queryParams) {
   log.debug('Query params:', queryParams);
 
   const fetchAll = String(queryParams.fetchAll || 'false').toLowerCase() === 'true';
+  const prospectIdRaw = (queryParams.prospectId || '').toString().trim();
+  const prospectIdInt = Number.parseInt(prospectIdRaw, 10);
+  const hasProspectId = Number.isFinite(prospectIdInt);
   // When fetchAll=true, allow much higher limits for "All" mode
   const maxLimit = fetchAll ? 50000 : 2500;
-  const limit = Math.min(parseInt(queryParams.limit, 10) || 1000, maxLimit);
+  let limit = Math.min(parseInt(queryParams.limit, 10) || 1000, maxLimit);
+  if (hasProspectId) {
+    limit = Math.min(limit, 50);
+  }
   log.debug(`Limit settings: fetchAll=${fetchAll}, maxLimit=${maxLimit}, finalLimit=${limit}`);
   
   const email = (queryParams.email || '').trim().toLowerCase();
@@ -162,19 +168,24 @@ async function performUnifiedEnquiriesQuery(queryParams) {
     const result = await withRequest(mainConnectionString, async (request) => {
       const filters = [];
 
-      if (dateFrom) {
+      if (dateFrom && !hasProspectId) {
         request.input('dateFrom', sql.DateTime2, new Date(dateFrom));
         filters.push('Date_Created >= @dateFrom');
       }
-      if (dateTo) {
+      if (dateTo && !hasProspectId) {
         const endDate = new Date(dateTo);
         endDate.setHours(23, 59, 59, 999);
         request.input('dateTo', sql.DateTime2, endDate);
         filters.push('Date_Created <= @dateTo');
       }
 
+      if (hasProspectId) {
+        request.input('prospectId', sql.Int, prospectIdInt);
+        filters.push('ID = @prospectId');
+      }
+
       // User filtering (unless fetchAll is true)
-      if (!fetchAll && (email || initials)) {
+      if (!hasProspectId && !fetchAll && (email || initials)) {
         const pocConditions = [];
         if (email) {
           request.input('userEmail', sql.VarChar(255), email);
@@ -221,7 +232,8 @@ async function performUnifiedEnquiriesQuery(queryParams) {
           NULL as convertDate,
           Value,
           Rating,
-          'main' as source,
+          Ultimate_Source,
+          'main' as _dbSource,
           'not-checked' as migrationStatus
         FROM enquiries
         ${mainWhereClause}
@@ -242,15 +254,19 @@ async function performUnifiedEnquiriesQuery(queryParams) {
   try {
     const result = await withRequest(instructionsConnectionString, async (request) => {
       const filters = [];
-      if (dateFrom) {
+      if (dateFrom && !hasProspectId) {
         request.input('dateFrom', sql.DateTime2, new Date(dateFrom));
         filters.push('datetime >= @dateFrom');
       }
-      if (dateTo) {
+      if (dateTo && !hasProspectId) {
         const endDate = new Date(dateTo);
         endDate.setHours(23, 59, 59, 999);
         request.input('dateTo', sql.DateTime2, endDate);
         filters.push('datetime <= @dateTo');
+      }
+      if (hasProspectId) {
+        request.input('prospectIdStr', sql.NVarChar(100), prospectIdRaw);
+        filters.push('acid = @prospectIdStr');
       }
       if (!fetchAll && (email || initials)) {
         const pocConditions = [];
@@ -295,7 +311,7 @@ async function performUnifiedEnquiriesQuery(queryParams) {
           NULL as convertDate,
           value as Value,
           rating as Rating,
-          'instructions' as source,
+          'instructions' as _dbSource,
           'not-checked' as migrationStatus
         FROM dbo.enquiries
         ${instWhereClause}

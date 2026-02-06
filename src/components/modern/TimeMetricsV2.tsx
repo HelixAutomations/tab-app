@@ -86,6 +86,12 @@ interface EnquiryMetric {
   percentage?: number;
   prevPercentage?: number;
   isPercentage?: boolean;
+  showTrend?: boolean;
+  context?: {
+    enquiriesMonthToDate?: number;
+    mattersOpenedMonthToDate?: number;
+    prevEnquiriesMonthToDate?: number;
+  };
 }
 
 interface TimeMetricsV2Props {
@@ -93,6 +99,8 @@ interface TimeMetricsV2Props {
   enquiryMetrics?: EnquiryMetric[];
   enquiryMetricsBreakdown?: unknown;
   isDarkMode: boolean;
+  userEmail?: string;
+  userInitials?: string;
   onRefresh?: () => void;
   isRefreshing?: boolean;
   isLoading?: boolean; // New: show skeleton state for time metrics
@@ -102,17 +110,21 @@ interface TimeMetricsV2Props {
 }
 
 // Skeleton shimmer component for loading states
-const SkeletonBox: React.FC<{ width: string; height: string; isDarkMode: boolean; style?: React.CSSProperties }> = 
-  ({ width, height, isDarkMode, style }) => (
+const SkeletonBox: React.FC<{ width: string; height: string; isDarkMode: boolean; style?: React.CSSProperties; animate?: boolean }> = 
+  ({ width, height, isDarkMode, style, animate = true }) => (
   <div style={{
     width,
     height,
     borderRadius: '4px',
     background: isDarkMode 
-      ? 'linear-gradient(90deg, rgba(54, 144, 206, 0.08) 0%, rgba(54, 144, 206, 0.15) 50%, rgba(54, 144, 206, 0.08) 100%)'
-      : 'linear-gradient(90deg, rgba(148, 163, 184, 0.15) 0%, rgba(148, 163, 184, 0.25) 50%, rgba(148, 163, 184, 0.15) 100%)',
-    backgroundSize: '200% 100%',
-    animation: 'shimmer 1.5s ease-in-out infinite',
+      ? (animate
+        ? 'linear-gradient(90deg, rgba(54, 144, 206, 0.08) 0%, rgba(54, 144, 206, 0.15) 50%, rgba(54, 144, 206, 0.08) 100%)'
+        : 'rgba(54, 144, 206, 0.12)')
+      : (animate
+        ? 'linear-gradient(90deg, rgba(148, 163, 184, 0.15) 0%, rgba(148, 163, 184, 0.25) 50%, rgba(148, 163, 184, 0.15) 100%)'
+        : 'rgba(148, 163, 184, 0.2)'),
+    backgroundSize: animate ? '200% 100%' : undefined,
+    animation: animate ? 'shimmer 1.5s ease-in-out infinite' : 'none',
     ...style,
   }} />
 );
@@ -138,23 +150,24 @@ const SkeletonMetricCard: React.FC<{ isDarkMode: boolean; index: number; showDia
     }}
   >
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-      <SkeletonBox width="32px" height="32px" isDarkMode={isDarkMode} style={{ borderRadius: '2px' }} />
+      <SkeletonBox width="32px" height="32px" isDarkMode={isDarkMode} style={{ borderRadius: '2px' }} animate={false} />
       <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-        <SkeletonBox width="30px" height="12px" isDarkMode={isDarkMode} />
-        <SkeletonBox width="24px" height="12px" isDarkMode={isDarkMode} />
+        <SkeletonBox width="30px" height="12px" isDarkMode={isDarkMode} animate={false} />
+        <SkeletonBox width="24px" height="12px" isDarkMode={isDarkMode} animate={false} />
       </div>
     </div>
     {/* Title */}
-    <SkeletonBox width="60%" height="14px" isDarkMode={isDarkMode} style={{ marginBottom: '10px' }} />
+    <SkeletonBox width="60%" height="14px" isDarkMode={isDarkMode} style={{ marginBottom: '10px' }} animate={false} />
     {/* Value */}
-    <SkeletonBox width="45%" height="28px" isDarkMode={isDarkMode} style={{ marginBottom: showDial ? '16px' : '0' }} />
+    <SkeletonBox width="45%" height="28px" isDarkMode={isDarkMode} style={{ marginBottom: '8px' }} />
+    <SkeletonBox width="32%" height="12px" isDarkMode={isDarkMode} style={{ marginBottom: showDial ? '16px' : '0' }} animate={false} />
     {/* Progress bar if showDial */}
     {showDial && (
       <div style={{ marginTop: '8px' }}>
         <SkeletonBox width="100%" height="6px" isDarkMode={isDarkMode} style={{ borderRadius: '3px' }} />
         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px' }}>
-          <SkeletonBox width="20px" height="10px" isDarkMode={isDarkMode} />
-          <SkeletonBox width="30px" height="10px" isDarkMode={isDarkMode} />
+          <SkeletonBox width="20px" height="10px" isDarkMode={isDarkMode} animate={false} />
+          <SkeletonBox width="30px" height="10px" isDarkMode={isDarkMode} animate={false} />
         </div>
       </div>
     )}
@@ -266,7 +279,17 @@ const MetricDeltaInfo = React.memo(function MetricDeltaInfo({ text, isDarkMode }
   );
 });
 
-const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, enquiryMetricsBreakdown, isDarkMode, onRefresh, isRefreshing, isLoading, isLoadingEnquiryMetrics, viewAsProd = false }) => {
+const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, enquiryMetricsBreakdown, isDarkMode, userEmail, userInitials, onRefresh, isRefreshing, isLoading, isLoadingEnquiryMetrics, viewAsProd = false }) => {
+  const isSessionStorageAvailable = React.useMemo(() => {
+    try {
+      const key = '__tmv2_storage_test__';
+      sessionStorage.setItem(key, '1');
+      sessionStorage.removeItem(key);
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
   const [showEnquiryMetrics, setShowEnquiryMetrics] = React.useState(false);
   const [showPreviousPeriod, setShowPreviousPeriod] = React.useState<boolean>(false);
   const [metricDetails, setMetricDetails] = React.useState<MetricDetails | null>(null);
@@ -666,7 +689,8 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
   const currentMetrics = showEnquiryMetrics ? (enquiryMetrics || []) : metrics;
   // Run entrance/count-up animations only once per session/tab refresh
   const [enableAnimationThisMount] = React.useState<boolean>(() => {
-    try { return sessionStorage.getItem('tmv2_animated') !== 'true'; } catch { return true; }
+    if (!isSessionStorageAvailable) return false;
+    try { return sessionStorage.getItem('tmv2_animated') !== 'true'; } catch { return false; }
   });
   
   // Track when the stagger animation is fully complete
@@ -677,7 +701,9 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
       setMounted(false);
       const t = setTimeout(() => {
         setMounted(true);
-        try { sessionStorage.setItem('tmv2_animated', 'true'); } catch {}
+        if (isSessionStorageAvailable) {
+          try { sessionStorage.setItem('tmv2_animated', 'true'); } catch {}
+        }
       }, 0);
       return () => clearTimeout(t);
     }
@@ -819,6 +845,8 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
         <EnquiryMetricsV2 
           metrics={enquiryMetrics} 
           isDarkMode={isDarkMode} 
+          userEmail={userEmail}
+          userInitials={userInitials}
           headerActions={headerActions}
           title={'Conversion Metrics'}
           refreshAnimationKey={refreshAnimationKey}
@@ -1087,7 +1115,7 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
 
           return (
             <div
-              key={`${metric.title}-${refreshAnimationKey}`}
+              key={metric.title}
               style={{
                 background: isDarkMode 
                   ? 'linear-gradient(90deg, rgba(14, 22, 38, 0.98) 0%, rgba(24, 34, 52, 0.95) 100%)'
@@ -1333,7 +1361,7 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
 
               return (
                 <div
-                  key={`${metric.title}-${refreshAnimationKey}`}
+                  key={metric.title}
                   style={{
                     background: isDarkMode 
                       ? 'rgba(15, 23, 42, 0.6)'

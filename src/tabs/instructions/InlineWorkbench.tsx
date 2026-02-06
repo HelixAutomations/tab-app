@@ -10,6 +10,7 @@ import {
   FaBuilding,
   FaCheck,
   FaCheckCircle,
+  FaChevronDown,
   FaChevronRight,
   FaClock,
   FaCopy,
@@ -28,7 +29,9 @@ import {
   FaShieldAlt,
   FaTimes,
   FaUser,
+  FaEdit,
 } from 'react-icons/fa';
+import RiskAssessmentPage from './RiskAssessmentPage';
 
 type StageStatus = 'pending' | 'processing' | 'review' | 'complete' | 'neutral';
 type WorkbenchTab = 'details' | 'identity' | 'payment' | 'risk' | 'matter' | 'documents';
@@ -52,10 +55,12 @@ type InlineWorkbenchProps = {
   item: any;
   isDarkMode: boolean;
   initialTab?: WorkbenchTab;
+  initialContextStage?: ContextStageKey | null;
   stageStatuses?: Partial<Record<WorkbenchTab | 'id', StageStatus>>;
   teamData?: TeamData[] | null;
   enableContextStageChips?: boolean;
   contextStageKeys?: ContextStageKey[];
+  enableTabStages?: boolean; // Show ID/Pay/Risk/Matter/Docs tabs (default true)
   onDocumentPreview?: (doc: any) => void;
   onOpenRiskAssessment?: (instruction: any) => void;
   onOpenMatter?: (instruction: any) => void;
@@ -63,16 +68,20 @@ type InlineWorkbenchProps = {
   onOpenIdReview?: (instructionRef: string) => void;
   onConfirmBankPayment?: (paymentId: string, confirmedDate: string) => void | Promise<void>;
   onClose?: () => void;
+  currentUser?: { FullName?: string; Email?: string } | null;
+  onRiskAssessmentSave?: (risk: any) => void;
 };
 
 const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   item,
   isDarkMode,
   initialTab = 'details',
+  initialContextStage = null,
   stageStatuses,
   teamData,
   enableContextStageChips = false,
   contextStageKeys,
+  enableTabStages = true,
   onDocumentPreview,
   onOpenRiskAssessment,
   onOpenMatter,
@@ -80,9 +89,12 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   onOpenIdReview,
   onConfirmBankPayment,
   onClose,
+  currentUser,
+  onRiskAssessmentSave,
 }) => {
   const [activeTab, setActiveTab] = useState<WorkbenchTab>(initialTab);
-  const [activeContextStage, setActiveContextStage] = useState<ContextStageKey | null>(null);
+  const [showLocalRiskModal, setShowLocalRiskModal] = useState(false);
+  const [activeContextStage, setActiveContextStage] = useState<ContextStageKey | null>(initialContextStage);
   const [expandedPayment, setExpandedPayment] = useState<string | null>(null);
   const [teamsCardLink, setTeamsCardLink] = useState<string | null>(null);
   const [isTeamsLinkLoading, setIsTeamsLinkLoading] = useState(false);
@@ -91,18 +103,25 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   const [verificationDetailsError, setVerificationDetailsError] = useState<string | null>(null);
   const [isEidDetailsExpanded, setIsEidDetailsExpanded] = useState(true);
   const [isEnquiryNotesExpanded, setIsEnquiryNotesExpanded] = useState(false);
+  const [isPitchContentExpanded, setIsPitchContentExpanded] = useState(false);
   const [isRawRecordExpanded, setIsRawRecordExpanded] = useState(false);
+  const [isVerificationDataExpanded, setIsVerificationDataExpanded] = useState(false);
   const [isVerificationActionLoading, setIsVerificationActionLoading] = useState(false);
   const [isTriggerEidLoading, setIsTriggerEidLoading] = useState(false);
   const [showEidActionModal, setShowEidActionModal] = useState(false);
   const [showApproveModal, setShowApproveModal] = useState(false);
   const [showRequestDocsModal, setShowRequestDocsModal] = useState(false);
   const [showTriggerEidConfirmModal, setShowTriggerEidConfirmModal] = useState(false);
+  const [copiedPaymentRefId, setCopiedPaymentRefId] = useState<string | null>(null);
   const { showToast } = useToast();
   const [emailOverrideTo, setEmailOverrideTo] = useState<string>('');
   const [emailOverrideCc, setEmailOverrideCc] = useState<string>('');
   const [useManualToRecipient, setUseManualToRecipient] = useState<boolean>(false);
   const [useManualCcRecipients, setUseManualCcRecipients] = useState<boolean>(false);
+  
+  // Pitch content fetch state (for when deal exists but pitch email content wasn't included)
+  const [fetchedPitchContent, setFetchedPitchContent] = useState<any>(null);
+  const [isFetchingPitchContent, setIsFetchingPitchContent] = useState(false);
   
   // Payment Link Request state
   const [showPaymentLinkModal, setShowPaymentLinkModal] = useState(false);
@@ -141,14 +160,19 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   useEffect(() => {
     if (initialTab) {
       setActiveTab(initialTab);
-      setActiveContextStage(null);
     }
-  }, [initialTab]);
+    if (initialContextStage !== undefined) {
+      setActiveContextStage(initialContextStage);
+    }
+  }, [initialTab, initialContextStage]);
 
   useEffect(() => {
     // Reset context panel when switching to a different instruction/enquiry payload.
-    setActiveContextStage(null);
-  }, [item]);
+    // But respect initialContextStage if provided
+    if (!initialContextStage) {
+      setActiveContextStage(null);
+    }
+  }, [item, initialContextStage]);
 
   useEffect(() => {
     // Avoid leaving the raw record expanded when switching instructions.
@@ -165,6 +189,32 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   const documents = item?.documents || inst?.documents || [];
   const payments = inst?.payments || [];
   const clients = item?.clients || [];
+  const matters = item?.matters || (inst as any)?.matters || [];
+  
+  // Find matching matter for this instruction
+  const matter = useMemo(() => {
+    if (!matters?.length) return null;
+    const instructionRef = inst?.InstructionRef || deal?.InstructionRef;
+    const matterId = inst?.MatterId;
+    
+    // Try to find matching matter by InstructionRef or MatterId
+    const found = matters.find((m: any) => {
+      if (matterId && (m?.MatterID === matterId || String(m?.MatterID) === String(matterId))) return true;
+      if (instructionRef && m?.InstructionRef === instructionRef) return true;
+      return false;
+    });
+    
+    // If no match found but we have matters, return the first one
+    return found || (matters.length === 1 ? matters[0] : null);
+  }, [matters, inst?.InstructionRef, inst?.MatterId, deal?.InstructionRef]);
+  
+  // Enrichment data passed from parent (Teams activity data from enrichmentMap)
+  const enrichmentTeamsData = item?.enrichmentTeamsData as {
+    teamsLink?: string;
+    MessageTimestamp?: string;
+    CreatedAt?: string;
+    CreatedAtMs?: number;
+  } | null | undefined;
   
   // Activity tracking (Teams card origin & AC contact)
   // Check multiple possible field locations for direct Teams tracking ID
@@ -189,6 +239,59 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     deal?.prospectId;
   
   const acContactId = resolveActiveCampaignContactId(item);
+
+  // Track which prospectId we've already attempted to fetch pitch content for
+  const pitchFetchAttemptedRef = React.useRef<string | null>(null);
+
+  // Reset the fetch attempt tracker when prospectId changes
+  useEffect(() => {
+    pitchFetchAttemptedRef.current = null;
+    setFetchedPitchContent(null);
+  }, [prospectId]);
+
+  // Fetch pitch content when pitch context is activated and we don't have pitch data yet
+  useEffect(() => {
+    const prospectIdStr = prospectId ? String(prospectId) : null;
+    
+    const shouldFetch = 
+      activeContextStage === 'pitch' && 
+      prospectIdStr && 
+      !pitch && 
+      !fetchedPitchContent && 
+      !isFetchingPitchContent &&
+      pitchFetchAttemptedRef.current !== prospectIdStr; // Prevent refetching
+
+    if (!shouldFetch) return;
+
+    const fetchPitchContent = async () => {
+      pitchFetchAttemptedRef.current = prospectIdStr; // Mark as attempted before fetch
+      setIsFetchingPitchContent(true);
+      try {
+        const res = await fetch(`/api/pitches/${encodeURIComponent(prospectIdStr)}?_ts=${Date.now()}`, {
+          cache: 'no-store',
+          headers: { 'Cache-Control': 'no-cache' },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const pitches = data.pitches || [];
+          if (pitches.length > 0) {
+            // Use the most recent pitch
+            setFetchedPitchContent(pitches[0]);
+          }
+          // If no pitches found, fetchedPitchContent stays null but pitchFetchAttemptedRef prevents refetch
+        }
+      } catch (e) {
+        console.warn('[InlineWorkbench] Failed to fetch pitch content:', e);
+      } finally {
+        setIsFetchingPitchContent(false);
+      }
+    };
+
+    void fetchPitchContent();
+  }, [activeContextStage, prospectId, pitch, fetchedPitchContent, isFetchingPitchContent]);
+
+  // Merge fetched pitch content with existing pitch data
+  const effectivePitch = pitch || fetchedPitchContent;
 
   const teamsIdentifier = useMemo(() => {
     const asNumber = (v: any): number | null => {
@@ -238,16 +341,15 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   // Helper to get value from multiple possible field names
   // Context stages (enquiry/pitch) should prefer the data available at that phase.
   const getValue = (fields: string[], fallback = '—') => {
-    const contextStage: ContextStageKey = enableContextStageChips
-      ? (activeContextStage ?? 'instructed')
-      : 'instructed';
+    // Respect activeContextStage even if chips are hidden
+    const contextStage: ContextStageKey = activeContextStage ?? 'enquiry';
 
     const sources: any[] =
       contextStage === 'enquiry'
-        ? [enquiry, inst, clients?.[0], deal, pitch, item]
+        ? [enquiry]
         : contextStage === 'pitch'
-          ? [deal, pitch, enquiry, inst, clients?.[0], item]
-          : [inst, clients?.[0], deal, enquiry, pitch, item];
+          ? [deal, pitch, enquiry] // Include enquiry as fallback for name fields
+          : [inst, clients?.[0]];
 
     for (const field of fields) {
       for (const source of sources) {
@@ -275,7 +377,18 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   const typeOfWork = getValue(['Type_of_Work', 'TypeOfWork', 'typeOfWork', 'tow', 'Type']);
   const methodOfContact = getValue(['Method_of_Contact', 'MethodOfContact', 'methodOfContact', 'moc', 'Method']);
   const callTaker = getValue(['Call_Taker', 'CallTaker', 'callTaker', 'rep', 'pocname']);
-  const enquiryValueRaw = getValue(['Value', 'value']);
+  const enquiryValueRaw = getValue([
+    'Value',
+    'value',
+    'Approx_Value',
+    'ApproxValue',
+    'EstimatedValue',
+    'Estimated_Value',
+    'Dispute_Value',
+    'DisputeValue',
+    'Claim_Value',
+    'claimValue',
+  ]);
   const ultimateSource = getValue(['Ultimate_Source', 'UltimateSource', 'ultimateSource', 'Source', 'source']);
   const campaign = getValue(['Campaign', 'campaign']);
   const adGroup = getValue(['Ad_Group', 'AdGroup', 'adGroup', 'ad_group']);
@@ -285,20 +398,52 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   const gclid = getValue(['GCLID', 'gclid']);
   const enquiryRating = getValue(['Rating', 'rating']);
   const enquiryNotesRaw = getValue(
-    ['Initial_first_call_notes', 'InitialFirstCallNotes', 'notes', 'Notes'],
+    [
+      'Initial_first_call_notes',
+      'Initial_First_Call_Notes',
+      'InitialFirstCallNotes',
+      'initial_first_call_notes',
+      'notes',
+      'Notes',
+      'call_notes',
+      'Call_Notes',
+      'callNotes',
+      'call_summary',
+      'Call_Summary',
+      'callSummary',
+      'Summary',
+      'summary',
+      'Transcription',
+      'transcription',
+      'Transcript',
+      'transcript',
+      'notes',
+      'Notes',
+    ],
     ''
   );
+  // DEBUG: Log enquiry and notes for troubleshooting
+  React.useEffect(() => {
+    if (enquiry) {
+      console.log('[InlineWorkbench] enquiry object:', enquiry);
+      console.log('[InlineWorkbench] enquiry.notes:', enquiry?.notes);
+      console.log('[InlineWorkbench] enquiry.Initial_first_call_notes:', enquiry?.Initial_first_call_notes);
+      console.log('[InlineWorkbench] enquiryNotesRaw:', enquiryNotesRaw);
+    }
+  }, [enquiry, enquiryNotesRaw]);
   const enquiryNotes = String(enquiryNotesRaw ?? '').replace(/\r\n/g, '\n');
   const hasEnquiryNotes = enquiryNotes.trim().length > 0;
   
   // Personal details
-  const dobRaw = getValue(['DateOfBirth', 'dateOfBirth', 'DOB']);
+  const title = getValue(['Title', 'title', 'Salutation', 'salutation'], '');
+  const dobRaw = getValue(['DateOfBirth', 'dateOfBirth', 'DOB'], '') || inst?.DOB || inst?.DateOfBirth;
   const formatDate = (raw: any) => {
     if (!raw || raw === '—') return '—';
     const parsed = new Date(raw);
     if (Number.isNaN(parsed.getTime())) return '—';
     return parsed.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
   };
+
 
   const formatMoney = (raw: any): string => {
     const n = typeof raw === 'number' ? raw : Number(raw);
@@ -331,11 +476,12 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   const submissionDateRaw = getValue(['Touchpoint_Date', 'Date_Created', 'DateCreated', 'SubmissionDate', 'submission_date', 'DateSubmitted', 'InstructionDate', 'created_at', 'createdAt']);
   const submissionDate = formatDate(submissionDateRaw);
 
-  // Timeline dates
-  const pitchDateRaw = deal?.PitchedDate || deal?.pitchedDate || deal?.CreatedDate || deal?.createdDate || pitch?.CreatedAt || pitch?.createdAt || null;
+  // Timeline dates - include effectivePitch for fetched pitch content
+  const pitchDateRaw = deal?.PitchedDate || deal?.pitchedDate || deal?.CreatedDate || deal?.createdDate || effectivePitch?.CreatedAt || effectivePitch?.createdAt || pitch?.CreatedAt || pitch?.createdAt || null;
   const pitchDate = formatDate(pitchDateRaw);
   
-  const matterOpenDateRaw = getValue(['MatterOpenDate', 'matter_open_date', 'MatterCreatedDate', 'OpenedDate', 'opened_at']);
+  // Matter open date - prioritize matter object from new space
+  const matterOpenDateRaw = matter?.OpenDate || matter?.['Open Date'] || matter?.open_date || matter?.OpenedDate || matter?.opened_at || getValue(['MatterOpenDate', 'matter_open_date', 'MatterCreatedDate', 'OpenedDate', 'opened_at']);
   const matterOpenDate = formatDate(matterOpenDateRaw);
   
   // Get first successful payment date
@@ -365,7 +511,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     return String(years);
   }, [dobRaw]);
   const gender = getValue(['Gender', 'gender', 'Sex', 'sex']);
-  const nationalityFull = getValue(['Nationality', 'nationality']);
+  const nationalityFull = getValue(['Nationality', 'nationality'], '') || inst?.Nationality || inst?.nationality || '—';
   
   // Convert nationality to alpha code
   const nationalityAlpha = React.useMemo(() => {
@@ -399,8 +545,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   }, [nationalityFull]);
   
   // ID status
-  const passport = getValue(['PassportNumber', 'passportNumber']);
-  const license = getValue(['DriversLicenseNumber', 'driversLicenseNumber', 'DrivingLicenseNumber']);
+  const passport = getValue(['PassportNumber', 'passportNumber'], '') || inst?.PassportNumber || inst?.passportNumber || '—';
+  const license = getValue(['DriversLicenseNumber', 'driversLicenseNumber', 'DrivingLicenseNumber'], '') || inst?.DriversLicenseNumber || inst?.driversLicenseNumber || inst?.DrivingLicenseNumber || '—';
   const passportExpiryRaw = getValue(['PassportExpiry', 'PassportExpiryDate', 'passportExpiry', 'passportExpiryDate']);
   const licenseExpiryRaw = getValue(['DriversLicenseExpiry', 'DrivingLicenseExpiry', 'DrivingLicenceExpiry', 'LicenseExpiry', 'licenseExpiry']);
   const passportExpiry = formatDate(passportExpiryRaw);
@@ -441,13 +587,22 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   };
   
   // Address
-  const houseNum = getValue(['HouseNumber', 'houseNumber'], '');
-  const street = getValue(['Street', 'street'], '');
-  const streetFull = `${houseNum} ${street}`.trim() || '—';
-  const city = getValue(['City', 'city', 'Town']);
-  const county = getValue(['County', 'county']);
-  const postcode = getValue(['Postcode', 'postcode', 'PostCode']);
-  const country = getValue(['Country', 'country']);
+  const getInstValue = (keys: string[]) => {
+    if (!inst) return undefined;
+    for (const k of keys) {
+      if (inst[k] && inst[k] !== '—') return inst[k];
+    }
+    return undefined;
+  };
+
+  const houseNum = getValue(['HouseNumber', 'houseNumber'], '') || getInstValue(['HouseNumber', 'houseNumber']);
+  const street = getValue(['Street', 'street'], '') || getInstValue(['Street', 'street']);
+  const streetFull = `${houseNum || ''} ${street || ''}`.trim() || '—';
+  const city = getValue(['City', 'city', 'Town'], '') || getInstValue(['City', 'city', 'Town']);
+  const county = getValue(['County', 'county'], '') || getInstValue(['County', 'county']);
+  const postcode = getValue(['Postcode', 'postcode', 'PostCode'], '') || getInstValue(['Postcode', 'postcode']);
+  const country = getValue(['Country', 'country'], '') || getInstValue(['Country', 'country']);
+  const address = [streetFull, city, county, postcode].filter(v => v && v !== '—').join(', ') || undefined;
   
   // Entity/Company
   const companyName = getValue(['CompanyName', 'Company', 'company']);
@@ -950,6 +1105,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   const complianceDate = risk?.ComplianceDate 
     ? new Date(risk.ComplianceDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
     : '—';
+  // ComplianceDate is DATE type in DB (no time stored), so just use date format
+  const complianceDateTime = complianceDate !== '—' ? complianceDate : null;
   const firmWideAMLConsidered = risk?.FirmWideAMLPolicyConsidered;
   const firmWideSanctionsConsidered = risk?.FirmWideSanctionsRiskConsidered;
   const clientRiskConsidered = risk?.ClientRiskConsidered || risk?.ClientRiskFactorsConsidered;
@@ -961,14 +1118,21 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   const destinationOfFunds = risk?.DestinationOfFunds || '—';
   const fundsType = risk?.FundsType || '—';
   const valueOfInstruction = risk?.ValueOfInstruction || '—';
+  const limitationPeriod = risk?.Limitation || '—';
   
-  // Matter status
-  const hasMatter = !!(inst?.MatterId || inst?.MatterRef);
-  const matterRef = inst?.MatterRef || inst?.DisplayNumber || inst?.MatterId || '—';
-  const matterStatus = inst?.MatterStatus || inst?.Stage || '—';
+  // Matter status - prioritize matter object from Matters table ("new space")
+  const hasMatter = !!(matter || inst?.MatterId || inst?.MatterRef || inst?.DisplayNumber);
+  const matterRef = matter?.DisplayNumber || matter?.['Display Number'] || matter?.display_number || inst?.MatterRef || inst?.DisplayNumber || inst?.MatterId || '—';
+  const matterStatus = matter?.Status || matter?.status || inst?.MatterStatus || inst?.Stage || '—';
+  const matterDescription = matter?.Description || matter?.description || inst?.MatterDescription || getValue(['Description', 'description', 'MatterDescription']) || '—';
+  const matterClientName = matter?.ClientName || matter?.['Client Name'] || matter?.client_name || inst?.ClientName || getValue(['ClientName', 'Client Name']) || '—';
+  const matterPracticeArea = matter?.PracticeArea || matter?.['Practice Area'] || matter?.practice_area || inst?.PracticeArea || getValue(['PracticeArea', 'practice_area', 'Area']) || areaOfWork;
+  const matterResponsibleSolicitor = matter?.ResponsibleSolicitor || matter?.['Responsible Solicitor'] || matter?.responsible_solicitor || inst?.ResponsibleSolicitor || getValue(['ResponsibleSolicitor']) || '—';
+  const matterOriginatingSolicitor = matter?.OriginatingSolicitor || matter?.['Originating Solicitor'] || matter?.originating_solicitor || inst?.OriginatingSolicitor || getValue(['OriginatingSolicitor']) || '—';
+  const matterValue = matter?.ApproxValue || matter?.['Approx Value'] || matter?.approx_value || inst?.ApproxValue || getValue(['ApproxValue', 'MatterValue']) || '—';
   const instructionStage = String(inst?.Stage ?? inst?.stage ?? deal?.Stage ?? deal?.stage ?? '').trim();
   const isInstructionInitialised = /initiali[sz]ed/i.test(instructionStage);
-  const feeEarner = getValue(['HelixContact', 'FeeEarner', 'feeEarner']);
+  const feeEarner = matter?.ResponsibleSolicitor || matter?.['Responsible Solicitor'] || getValue(['HelixContact', 'FeeEarner', 'feeEarner', 'ResponsibleSolicitor']);
 
   // Look up fee earner email from teamData
   const feeEarnerEmail = useMemo(() => {
@@ -1076,8 +1240,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        gap: 12,
-        padding: '10px 12px',
+        gap: 8,
+        padding: '8px 14px',
         background: colors.bg,
         border: `1px solid ${colors.border}`,
         borderRadius: 0,
@@ -1086,10 +1250,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
           <span style={{ color: colors.text, display: 'flex', alignItems: 'center' }}>
             {icon}
           </span>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: colors.text, textTransform: 'uppercase', letterSpacing: '0.4px' }}>{title}</span>
-            <span style={{ fontSize: 10, color: isDarkMode ? 'rgba(226, 232, 240, 0.8)' : 'rgba(15, 23, 42, 0.78)' }}>{prompt}</span>
-          </div>
+          <span style={{ fontSize: 10, fontWeight: 800, color: colors.text, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{title}</span>
+          <span style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.78)', marginLeft: 4 }}>{prompt}</span>
         </div>
         {action && <div>{action}</div>}
       </div>
@@ -1203,11 +1365,14 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     ];
   }, [prospectId, hasId, eidStatus, hasSuccessfulPayment, hasFailedPayment, documents.length, riskComplete, isHighRisk, hasMatter, stageStatuses, pitchDate, pitchDateRaw, submissionDate, submissionDateRaw, paymentDate, paymentDateRaw, matterOpenDate, matterOpenDateRaw, firstDocUploadDate, firstDocUploadDateRaw, isInstructedComplete, instructedStatus]);
 
-  const contextStageKeyList = useMemo(() => (
-    contextStageKeys && contextStageKeys.length > 0
+  const contextStageKeyList = useMemo(() => {
+    // If context stage chips disabled, don't show any context stages
+    if (!enableContextStageChips) return [] as ContextStageKey[];
+    // Otherwise use provided keys or default to all
+    return contextStageKeys && contextStageKeys.length > 0
       ? contextStageKeys
-      : (['enquiry', 'pitch', 'instructed'] as ContextStageKey[])
-  ), [contextStageKeys?.join('|')]);
+      : (['enquiry', 'pitch', 'instructed'] as ContextStageKey[]);
+  }, [enableContextStageChips, contextStageKeys?.join('|')]);
 
   const pipelineStages = useMemo(() => {
     const allowedContextStages = new Set(contextStageKeyList);
@@ -1215,9 +1380,10 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
       if (['enquiry', 'pitch', 'instructed'].includes(stage.key)) {
         return allowedContextStages.has(stage.key as ContextStageKey);
       }
+      if (!enableTabStages) return false;
       return true;
     });
-  }, [timelineStages, contextStageKeyList]);
+  }, [timelineStages, contextStageKeyList, enableTabStages]);
 
   const openEnquiryFromContext = React.useCallback(() => {
     const enquiryStage = timelineStages.find(s => s.key === 'enquiry') as any;
@@ -1268,6 +1434,23 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
   const activeStage = timelineStages.find(s => ['identity', 'payment', 'risk', 'matter', 'documents'].includes(s.key) && s.navigatesTo === activeTab) || null;
   const activePalette = activeStage ? getStagePalette(activeStage) : null;
+  
+  // Revised Active Design: High contrast, brand-led
+  const activeTabPalette = {
+    bg: isDarkMode ? 'rgba(54, 144, 206, 0.16)' : 'rgba(54, 144, 206, 0.1)',
+    border: 'transparent', // We use the bottom line for focus, border is distracting
+    line: colours.highlight,
+    text: colours.highlight,
+    shadow: isDarkMode 
+      ? `inset 0 -3px 0 ${colours.highlight}, 0 4px 12px rgba(0,0,0,0.3)`
+      : `inset 0 -3px 0 ${colours.highlight}, 0 4px 12px rgba(54, 144, 206, 0.15)`,
+  };
+  
+  const tabBasePalette = {
+    bg: isDarkMode ? 'rgba(148, 163, 184, 0.03)' : 'rgba(148, 163, 184, 0.04)',
+    border: isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)',
+    text: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.55)',
+  };
 
   // Stop all click events from bubbling up to the row (which toggles expansion)
   const handleWorkbenchClick = (e: React.MouseEvent) => {
@@ -1358,11 +1541,13 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   // Payment Journey Step component - matches pipeline chip style
   const JourneyStep = ({ label, isActive, isComplete }: { label: string; isActive: boolean; isComplete: boolean }) => {
     const getColors = () => {
-      if (isComplete) return { 
+      // Complete steps (including when active AND complete) show green
+      if (isComplete || (isActive && label === 'Succeeded')) return { 
         bg: isDarkMode ? 'rgba(34, 197, 94, 0.15)' : 'rgba(34, 197, 94, 0.1)',
         border: '#22c55e',
         text: '#22c55e'
       };
+      // Active but not complete (e.g. requires_action) shows amber
       if (isActive) return {
         bg: isDarkMode ? 'rgba(251, 191, 36, 0.15)' : 'rgba(251, 191, 36, 0.1)',
         border: '#f59e0b',
@@ -1418,10 +1603,10 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     return (
       <div style={{
         marginBottom: 12,
-        padding: '10px 12px',
+        padding: '10px 14px',
         background: isDarkMode ? 'rgba(34, 197, 94, 0.08)' : 'rgba(34, 197, 94, 0.05)',
         border: `1px dashed ${isDarkMode ? 'rgba(34, 197, 94, 0.3)' : 'rgba(34, 197, 94, 0.25)'}`,
-        borderRadius: 4,
+        borderRadius: 6,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 9, color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)', textTransform: 'uppercase', letterSpacing: '0.3px', fontWeight: 700, marginBottom: 8 }}>
           <FaBuilding size={10} /> Confirm Bank Payment
@@ -1492,6 +1677,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     onRequestPaymentLink?: () => void;
   }) => {
     const activePayments = payments.filter((p: any) => !p.archived && !p.deleted);
+    const isLocalEnv = typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname);
 
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -1514,34 +1700,36 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 9, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.65)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
               <FaCreditCard size={11} /> Payment Records
             </div>
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); onRequestPaymentLink?.(); }}
-              title="Generate a Stripe payment link (copy & send to the client)"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 5,
-                padding: '4px 10px',
-                background: colours.highlight,
-                color: '#FFFFFF',
-                border: 'none',
-                borderRadius: 0,
-                fontSize: 9,
-                fontWeight: 600,
-                cursor: 'pointer',
-                transition: 'all 0.15s ease',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = '#2d7ab8';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = colours.highlight;
-              }}
-            >
-              <FaLink size={9} />
-              Create payment link
-            </button>
+            {isLocalEnv && (
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onRequestPaymentLink?.(); }}
+                title="Generate a Stripe payment link (copy & send to the client)"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  padding: '4px 10px',
+                  background: colours.highlight,
+                  color: '#FFFFFF',
+                  border: 'none',
+                  borderRadius: 0,
+                  fontSize: 9,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#2d7ab8';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = colours.highlight;
+                }}
+              >
+                <FaLink size={9} />
+                Create payment link
+              </button>
+            )}
           </div>
 
           {/* No payments state */}
@@ -1559,17 +1747,19 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
             {/* Table Header */}
             <div style={{
               display: 'grid',
-              gridTemplateColumns: '90px 1fr 60px 90px 70px 24px',
+              gridTemplateColumns: '70px 90px 1fr 160px 70px 60px 90px 24px',
               gap: 8,
               padding: '8px 12px',
               background: isDarkMode ? 'rgba(148, 163, 184, 0.03)' : 'rgba(0, 0, 0, 0.015)',
               borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(0, 0, 0, 0.03)'}`,
             }}>
-              <span style={{ fontSize: 8, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.6)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Amount</span>
-              <span style={{ fontSize: 8, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.6)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Description</span>
-              <span style={{ fontSize: 8, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.6)', textTransform: 'uppercase', letterSpacing: '0.5px', textAlign: 'center' }}>Method</span>
-              <span style={{ fontSize: 8, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.6)', textTransform: 'uppercase', letterSpacing: '0.5px', textAlign: 'right' }}>Status</span>
-              <span style={{ fontSize: 8, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.6)', textTransform: 'uppercase', letterSpacing: '0.5px', textAlign: 'right' }}>Date</span>
+              <span style={{ fontSize: 9, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.75)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Date</span>
+              <span style={{ fontSize: 9, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.75)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Amount</span>
+              <span style={{ fontSize: 9, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.75)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Description</span>
+              <span style={{ fontSize: 9, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.75)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Ref</span>
+              <span style={{ fontSize: 9, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.75)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Currency</span>
+              <span style={{ fontSize: 9, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.75)', textTransform: 'uppercase', letterSpacing: '0.5px', textAlign: 'center' }}>Method</span>
+              <span style={{ fontSize: 9, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.75)', textTransform: 'uppercase', letterSpacing: '0.5px', textAlign: 'right' }}>Status</span>
               <span></span>
             </div>
 
@@ -1585,6 +1775,9 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
             const formattedDate = paymentDate 
               ? new Date(paymentDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
               : '—';
+            const formattedTime = paymentDate
+              ? new Date(paymentDate).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+              : '';
             
             const currentJourneyIndex = isSuccess ? 2 : status === 'requires_action' ? 1 : 0;
             
@@ -1611,6 +1804,11 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
             const isCard = combinedMethod.includes('card') || combinedMethod.includes('stripe') || combinedMethod === 'cc' || intentIsCard;
             const isBank = combinedMethod.includes('bank') || combinedMethod.includes('transfer') || combinedMethod.includes('bacs') || combinedMethod.includes('ach') || intentIsBank;
             const methodLabel = isCard ? 'Card' : isBank ? 'Bank' : combinedMethod ? combinedMethod.slice(0, 6) : '';
+            const serviceLabel = deal?.ServiceDescription || deal?.serviceDescription || deal?.service_description || payment.product_description || payment.description || payment.product || 'Payment on Account';
+            const currencyLabel = (payment.currency || 'GBP').toString().toUpperCase();
+            const paymentIdRaw = (payment.payment_id || payment.stripe_payment_id || payment.id || '—').toString();
+            const paymentIdDisplay = paymentIdRaw === '—' ? '—' : paymentIdRaw;
+            const paymentRef = instructionRef || payment.instruction_ref || '—';
 
             return (
               <div key={paymentId}>
@@ -1622,34 +1820,117 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                   }}
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: '90px 1fr 60px 90px 70px 24px',
+                    gridTemplateColumns: '70px 90px 1fr 160px 70px 60px 90px 24px',
                     gap: 8,
                     padding: '10px 12px',
+                    alignItems: 'center',
                     cursor: 'pointer',
                     background: isExpanded 
                       ? (isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.04)')
                       : 'transparent',
                     borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.05)' : 'rgba(0, 0, 0, 0.02)'}`,
                     transition: 'background 0.15s ease',
-                  }}
-                >
-                  <span style={{ 
-                    fontSize: 12, 
-                    fontWeight: 600, 
-                    color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)',
-                    fontFamily: 'monospace',
                   }}>
-                    £{Number(payment.amount || 0).toLocaleString()}
-                  </span>
-                  <span style={{ 
-                    fontSize: 11, 
-                    color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.65)',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}>
-                    {payment.description || payment.product_description || 'Payment'}
-                  </span>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      <span style={{ 
+                        fontSize: 10, 
+                        color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)',
+                      }}>
+                        {formattedDate}
+                      </span>
+                      {formattedTime && (
+                        <span style={{ 
+                          fontSize: 9, 
+                          color: isDarkMode ? 'rgba(148, 163, 184, 0.55)' : 'rgba(100, 116, 139, 0.55)',
+                        }}>
+                          {formattedTime}
+                        </span>
+                      )}
+                    </div>
+                    <span style={{ 
+                      fontSize: 12, 
+                      fontWeight: 600, 
+                      color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)',
+                      fontFamily: 'monospace',
+                    }}>
+                      £{Number(payment.amount || 0).toLocaleString()}
+                    </span>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0, justifyContent: 'center' }}>
+                      <span style={{ 
+                        fontSize: 11, 
+                        color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.65)',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}>
+                        {payment.description || payment.product_description || 'Payment on Account'}
+                      </span>
+                      <span style={{
+                        fontSize: 9,
+                        color: isDarkMode ? 'rgba(148, 163, 184, 0.65)' : 'rgba(100, 116, 139, 0.65)',
+                        fontFamily: 'monospace',
+                        whiteSpace: 'normal',
+                        wordBreak: 'break-all',
+                        overflow: 'visible',
+                        textOverflow: 'clip',
+                      }}>
+                        ID {paymentIdDisplay}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                      <span style={{
+                        fontSize: 11,
+                        color: isDarkMode ? 'rgba(148, 163, 184, 0.65)' : 'rgba(100, 116, 139, 0.65)',
+                        fontFamily: 'monospace',
+                        whiteSpace: 'normal',
+                        wordBreak: 'break-all',
+                        overflow: 'visible',
+                        textOverflow: 'clip',
+                      }}>
+                        {paymentRef}
+                      </span>
+                      {paymentRef !== '—' && (
+                        <button
+                          type="button"
+                          onClick={async (event) => {
+                            event.stopPropagation();
+                            const copied = await safeCopy(paymentRef);
+                            if (copied) {
+                              setCopiedPaymentRefId(paymentId);
+                              showToast({ type: 'success', message: 'Ref copied to clipboard' });
+                              window.setTimeout(() => {
+                                setCopiedPaymentRefId((current) => (current === paymentId ? null : current));
+                              }, 1400);
+                            }
+                          }}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 4,
+                            padding: '0 4px',
+                            background: 'transparent',
+                            border: 'none',
+                            borderRadius: 0,
+                            color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)',
+                            fontSize: 8,
+                            fontWeight: 500,
+                            cursor: 'pointer',
+                          }}
+                          title="Copy ref"
+                          aria-label="Copy ref"
+                        >
+                          {copiedPaymentRefId === paymentId ? <FaCheck size={9} /> : <FaCopy size={9} />}
+                        </button>
+                      )}
+                    </div>
+                    <span style={{
+                      fontSize: 10,
+                      color: isDarkMode ? 'rgba(148, 163, 184, 0.65)' : 'rgba(100, 116, 139, 0.65)',
+                      textTransform: 'uppercase',
+                    }}>
+                      {currencyLabel}
+                    </span>
                   <span style={{ 
                     display: 'flex', 
                     alignItems: 'center', 
@@ -1663,8 +1944,12 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                   </span>
                   <span style={{ textAlign: 'right' }}>
                     <span style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      minHeight: 20,
                       fontSize: 9,
-                      padding: '3px 8px',
+                      padding: '0 8px',
                       borderRadius: 0,
                       background: isSuccess 
                         ? (isDarkMode ? 'rgba(34, 197, 94, 0.15)' : 'rgba(34, 197, 94, 0.1)')
@@ -1680,16 +1965,10 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                     </span>
                   </span>
                   <span style={{ 
-                    fontSize: 10, 
-                    color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)',
-                    textAlign: 'right',
-                  }}>
-                    {formattedDate}
-                  </span>
-                  <span style={{ 
                     display: 'flex', 
                     alignItems: 'center', 
                     justifyContent: 'center',
+                    marginLeft: 6,
                     width: 20,
                     height: 20,
                     borderRadius: 0,
@@ -1697,6 +1976,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                       ? colours.highlight
                       : 'transparent',
                     border: `1px solid ${isExpanded ? colours.highlight : (isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)')}`,
+                    borderLeft: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(0, 0, 0, 0.08)'}`,
                     color: isExpanded 
                       ? '#FFFFFF'
                       : (isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)'),
@@ -1710,98 +1990,65 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                 {/* Expanded Payment Details */}
                 {isExpanded && (
                   <div style={{
-                    padding: '14px 16px',
-                    background: isDarkMode ? 'rgba(15, 23, 42, 0.3)' : 'rgba(248, 250, 252, 0.8)',
+                    padding: '12px 14px',
+                    background: isDarkMode ? 'rgba(15, 23, 42, 0.45)' : 'rgba(255, 255, 255, 0.7)',
                     borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
                   }}>
-                    {/* Payment Details Sub-section */}
-                    <div style={{ marginBottom: 14 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 9, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.65)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>
-                        <FaReceipt size={10} /> Transaction Details
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                      {/* Transaction Details section */}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 9, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.65)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                          <FaReceipt size={10} /> Transaction Details
+                        </div>
+                        {payment.receipt_url && (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); window.open(payment.receipt_url, '_blank'); }}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4,
+                              padding: '3px 8px',
+                              background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)',
+                              color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.8)',
+                              border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.25)'}`,
+                              borderRadius: 0,
+                              fontSize: 9,
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            <FaReceipt size={9} />
+                            Receipt
+                            <FaChevronRight size={9} style={{ opacity: 0.7 }} />
+                          </button>
+                        )}
                       </div>
-
-                      {/* Details grid - styled like Identity tab */}
                       <div style={{
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(2, 1fr)',
-                        gap: 10,
-                      }}>
-                        <div style={{
-                          padding: '8px 10px',
-                          background: isDarkMode ? 'rgba(148, 163, 184, 0.05)' : 'rgba(0, 0, 0, 0.02)',
-                          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
-                          borderRadius: 0,
-                        }}>
-                          <div style={{ fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)', textTransform: 'uppercase', letterSpacing: '0.3px', fontWeight: 700, marginBottom: 4 }}>Product</div>
-                          <div style={{ fontSize: 11, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)', fontWeight: 600 }}>{payment.product_type || payment.product || 'Payment on Account'}</div>
-                        </div>
-                        <div style={{
-                          padding: '8px 10px',
-                          background: isDarkMode ? 'rgba(148, 163, 184, 0.05)' : 'rgba(0, 0, 0, 0.02)',
-                          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
-                          borderRadius: 0,
-                        }}>
-                          <div style={{ fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)', textTransform: 'uppercase', letterSpacing: '0.3px', fontWeight: 700, marginBottom: 4 }}>Source</div>
-                          <div style={{ fontSize: 11, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)', fontWeight: 600 }}>{payment.source || payment.payment_source || 'Premium Checkout'}</div>
-                        </div>
-                        <div style={{
-                          padding: '8px 10px',
-                          background: isDarkMode ? 'rgba(148, 163, 184, 0.05)' : 'rgba(0, 0, 0, 0.02)',
-                          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
-                          borderRadius: 0,
-                        }}>
-                          <div style={{ fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)', textTransform: 'uppercase', letterSpacing: '0.3px', fontWeight: 700, marginBottom: 4 }}>Currency</div>
-                          <div style={{ fontSize: 11, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)', fontWeight: 600 }}>{(payment.currency || 'GBP').toUpperCase()}</div>
-                        </div>
-                        <div style={{
-                          padding: '8px 10px',
-                          background: isDarkMode ? 'rgba(148, 163, 184, 0.05)' : 'rgba(0, 0, 0, 0.02)',
-                          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
-                          borderRadius: 0,
-                        }}>
-                          <div style={{ fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)', textTransform: 'uppercase', letterSpacing: '0.3px', fontWeight: 700, marginBottom: 4 }}>Payment ID</div>
-                          <div style={{ fontSize: 10, color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.6)', fontFamily: 'monospace', fontWeight: 500 }}>
-                            {(payment.payment_id || payment.stripe_payment_id || payment.id || '—').slice(0, 16)}...
-                          </div>
-                        </div>
-                      </div>
-                      
-                      {/* Instruction Ref - full width */}
-                      <div style={{
-                        marginTop: 10,
-                        padding: '8px 10px',
-                        background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.05)',
-                        border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)'}`,
-                        borderRadius: 0,
                         display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
+                        alignItems: 'stretch',
+                        gap: 10,
+                        padding: '10px 14px',
+                        background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : '#f8fafc',
+                        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : '#e2e8f0'}`,
+                        borderRadius: 6,
+                        marginBottom: 10,
                       }}>
-                        <span style={{ fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)', textTransform: 'uppercase', letterSpacing: '0.3px', fontWeight: 700 }}>Instruction Ref</span>
-                        <span style={{ fontSize: 11, color: colours.highlight, fontFamily: 'monospace', fontWeight: 700 }}>{instructionRef || payment.instruction_ref || '—'}</span>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flexShrink: 0 }}>
+                          <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Amount</span>
+                          <span style={{ fontSize: 12, fontWeight: 600, color: colours.highlight }}>
+                            £{Number(payment.amount || 0).toLocaleString()}
+                          </span>
+                        </div>
+                        <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', alignSelf: 'stretch' }} />
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1, minWidth: 0 }}>
+                          <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Service</span>
+                          <span style={{ fontSize: 12, fontWeight: 500, lineHeight: 1.5, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b' }}>
+                            {serviceLabel}
+                          </span>
+                        </div>
                       </div>
-                    </div>
 
-                    {/* Payment Journey Sub-section */}
-                    <div style={{ marginBottom: 14 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 9, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.65)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>
-                        <FaExchangeAlt size={10} /> Payment Journey
-                      </div>
-                      <div style={{ 
-                        display: 'flex', 
-                        gap: 4, 
-                        alignItems: 'center',
-                        padding: '10px 12px',
-                        background: isDarkMode ? 'rgba(148, 163, 184, 0.03)' : 'rgba(0, 0, 0, 0.015)',
-                        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(0, 0, 0, 0.03)'}`,
-                        borderRadius: 0,
-                      }}>
-                        <JourneyStep label="Created" isActive={currentJourneyIndex === 0} isComplete={currentJourneyIndex > 0} />
-                        <FaChevronRight size={8} style={{ color: isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(0, 0, 0, 0.12)', margin: '0 2px' }} />
-                        <JourneyStep label="Requires Action" isActive={currentJourneyIndex === 1} isComplete={currentJourneyIndex > 1} />
-                        <FaChevronRight size={8} style={{ color: isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(0, 0, 0, 0.12)', margin: '0 2px' }} />
-                        <JourneyStep label="Succeeded" isActive={currentJourneyIndex === 2} isComplete={false} />
-                      </div>
                     </div>
 
                     {/* Bank Payment Confirmation - for bank transfers without a confirmed date */}
@@ -1813,31 +2060,6 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                       />
                     )}
 
-                    {/* Actions */}
-                    {payment.receipt_url && (
-                      <div style={{ display: 'flex', gap: 8 }}>
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); window.open(payment.receipt_url, '_blank'); }}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 5,
-                            padding: '6px 12px',
-                            background: colours.highlight,
-                            color: '#FFFFFF',
-                            border: 'none',
-                            borderRadius: 0,
-                            fontSize: 9,
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                          }}
-                        >
-                          <FaReceipt size={9} />
-                          View Receipt
-                        </button>
-                      </div>
-                    )}
                   </div>
                 )}
               </div>
@@ -1857,270 +2079,214 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
       onClick={handleWorkbenchClick}
       onMouseDown={(e) => e.stopPropagation()}
       style={{
-        background: isDarkMode ? 'rgba(15, 23, 42, 0.6)' : 'rgba(248, 250, 252, 0.95)',
-        borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(0, 0, 0, 0.06)'}`,
+        background: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+        border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
         borderBottom: 'none',
+        borderRadius: 4,
+        overflow: 'hidden',
         marginBottom: 0,
         fontFamily: 'Raleway, sans-serif',
         position: 'relative',
         zIndex: 5,
         pointerEvents: 'auto',
+        boxShadow: isDarkMode ? '0 12px 28px rgba(0,0,0,0.35)' : '0 10px 24px rgba(15,23,42,0.08)',
       }}
     >
       {/* Pipeline Tabs - Instructed → ID → Pay → Risk → Matter → Docs */}
+      {pipelineStages.length > 0 && (
       <div 
         data-action-button="true"
         onClick={(e) => e.stopPropagation()}
         onMouseDown={(e) => e.stopPropagation()}
         style={{
-          padding: '8px 16px 0 32px',
-          borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
-          background: isDarkMode ? 'rgba(15, 23, 42, 0.3)' : 'rgba(255, 255, 255, 0.5)',
+          padding: '8px 16px 8px 32px',
+          borderBottom: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+          background: isDarkMode ? 'rgba(11, 18, 32, 0.65)' : 'rgba(255, 255, 255, 0.8)',
           position: 'relative',
           zIndex: 20,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'stretch', gap: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
           {pipelineStages.map((stage, idx) => {
             const prevStage = idx > 0 ? pipelineStages[idx - 1] : null;
-            // Enquiry and Pitch are context stages (faded, not tabs)
+            // Enquiry and Pitch are context stages (data views)
             const isContextStage = ['enquiry', 'pitch', 'instructed'].includes(stage.key);
             const isTabStage = ['identity', 'payment', 'risk', 'matter', 'documents'].includes(stage.key);
-            const isActive = isTabStage && activeTab === stage.navigatesTo;
-            const statusColors = getStagePalette(stage);
-            const prevColors = prevStage ? (() => {
-              if (prevStage.status === 'complete') return { line: '#22c55e' };
-              if (prevStage.status === 'review') return { line: '#ef4444' };
-              if (prevStage.status === 'processing') return { line: '#f59e0b' };
-              return { line: isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)' };
-            })() : null;
             
-            // Context stages (Enquiry, Pitch, Instructed)
-            if (isContextStage) {
-              const externalAction = (stage as any).externalAction as (() => void) | undefined;
-              const isClickable = enableContextStageChips && (typeof externalAction === 'function' || stage.navigatesTo === 'details');
-              const contextLabelColor = stage.isComplete
-                ? (isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.8)')
-                : statusColors.text;
-              const contextIconColor = stage.isComplete ? statusColors.text : statusColors.text;
-              const contextHoverBg = stage.status === 'complete'
-                ? (isDarkMode ? 'rgba(34, 197, 94, 0.22)' : 'rgba(34, 197, 94, 0.16)')
-                : (isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.09)');
+            // Skip tab stages if disabled (they're shown in the parent pipeline)
+            if (isTabStage && !enableTabStages) return null;
+            
+            // Determine active state
+            const isTabActive = isTabStage && activeTab === stage.navigatesTo;
+            const isContextActive = isContextStage && (
+               // Instructed is active if we are on 'details' and NO specific context stage is set
+               (stage.key === 'instructed' && activeTab === 'details' && !activeContextStage) ||
+               // Enquiry/Pitch are active if they match the context stage
+               (activeContextStage === stage.key)
+            );
 
-              return (
-                <React.Fragment key={stage.key}>
-                  {/* Connector line */}
-                  {idx > 0 && (
-                    <div style={{ 
-                      display: 'flex',
-                      alignItems: 'center',
-                      paddingBottom: 1,
-                    }}>
-                      <div style={{
-                        height: 1,
-                        width: 6,
-                        background: prevColors?.line ?? (isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)'),
-                      }} />
-                    </div>
-                  )}
-                  {isClickable ? (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setActiveTab('details');
-                        // "Instructed" already has a rich landing view (Details with avatar),
-                        // so only Enquiry/Pitch open the lightweight context panel.
-                        if (stage.key === 'enquiry' || stage.key === 'pitch') {
-                          setActiveContextStage(stage.key as ContextStageKey);
-                        } else {
-                          setActiveContextStage(null);
-                        }
-                      }}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 5,
-                        padding: '5px 10px',
-                        background: statusColors.bg,
-                        border: `1px solid ${statusColors.border}`,
-                        borderBottom: 'none',
-                        borderRadius: '4px 4px 0 0',
-                        marginBottom: -1,
-                        cursor: 'pointer',
-                        fontFamily: 'inherit',
-                        transition: 'all 0.18s ease',
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = contextHoverBg;
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = statusColors.bg;
-                      }}
-                      title={stage.date || stage.label}
-                    >
-                      <span style={{
-                        color: contextIconColor,
-                        display: 'flex',
-                        alignItems: 'center',
-                      }}>
-                        {stage.icon}
-                      </span>
-                      <span style={{
-                        fontSize: 9,
-                        fontWeight: 700,
-                        color: contextLabelColor,
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.3px',
-                      }}>
-                        {stage.label}
-                      </span>
-                      {stage.isComplete && (
-                        <FaCheck size={7} style={{ color: statusColors.text }} />
-                      )}
-                    </button>
-                  ) : (
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 5,
-                      padding: '5px 10px',
-                      background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : 'rgba(148, 163, 184, 0.03)',
-                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)'}`,
-                      borderBottom: 'none',
-                      borderRadius: '4px 4px 0 0',
-                      opacity: 0.5,
-                      marginBottom: -1,
-                    }}
-                    title={stage.date || stage.label}
-                  >
-                    <span style={{ 
-                      color: stage.isComplete 
-                        ? (isDarkMode ? 'rgba(34, 197, 94, 0.6)' : 'rgba(34, 197, 94, 0.5)')
-                        : (isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(100, 116, 139, 0.35)'),
-                      display: 'flex',
-                      alignItems: 'center',
-                    }}>
-                      {stage.icon}
-                    </span>
-                    <span style={{
-                      fontSize: 9,
-                      fontWeight: 600,
-                      color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.45)',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.3px',
-                    }}>
-                      {stage.label}
-                    </span>
-                    {stage.isComplete && (
-                      <FaCheck size={7} style={{ color: isDarkMode ? 'rgba(34, 197, 94, 0.5)' : 'rgba(34, 197, 94, 0.4)' }} />
-                    )}
-                  </div>
-                  )}
-                </React.Fragment>
-              );
-            }
+            const isActive = isTabActive || isContextActive;
             
-            // Tab stages (ID, Pay, Risk, Matter, Docs) - clickable tabs
+            // Status colors
+            const statusColors = getStagePalette(stage); // Fallback colors for icon/text
+            
+            // Connector Logic - connector lights up when the PREVIOUS stage is complete
+            // This shows the progression/link between stages has been achieved
+            const connectorColor = prevStage?.isComplete 
+              ? '#22c55e'  // Green when previous stage is complete
+              : (isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)'); // Gray otherwise
+
+            // Click Handler
+            const handleClick = (e: React.MouseEvent) => {
+              e.stopPropagation();
+              
+              if (isContextStage) {
+                 setActiveTab('details');
+                 // Toggle logic or set context
+                 if (stage.key === 'enquiry' || stage.key === 'pitch') {
+                   // If already active, maybe toggle off? User usually expects "click to view". 
+                   // Let's keep it simple: Click sets it.
+                   setActiveContextStage(stage.key as ContextStageKey);
+                 } else {
+                   // Instructed -> Clear context stage (shows default details)
+                   setActiveContextStage(null);
+                 }
+              } else {
+                // Tab Stage
+                setActiveContextStage(null);
+                if (isActive) {
+                   // Toggle off to details if already active? 
+                   setActiveTab('details');
+                } else {
+                   setActiveTab(stage.navigatesTo as WorkbenchTab);
+                }
+              }
+            };
+
+            // Is the connector "lit" (previous stage complete)?
+            const isConnectorLit = prevStage?.isComplete;
+
             return (
               <React.Fragment key={stage.key}>
-                {/* Connector line */}
+                {/* Connector line - lights up green when previous stage is complete */}
                 {idx > 0 && (
                   <div style={{ 
                     display: 'flex',
                     alignItems: 'center',
-                    paddingBottom: 1,
                   }}>
                     <div style={{
-                      height: 1,
-                      width: 6,
-                      background: prevColors?.line ?? (isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)'),
+                      height: 1.5,
+                      width: 10,
+                      background: isConnectorLit 
+                        ? 'rgba(34, 197, 94, 0.7)'
+                        : (isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.25)'),
+                      borderRadius: 1,
+                      margin: '0 2px',
                     }} />
                   </div>
                 )}
-                <div 
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setActiveContextStage(null);
-                    // Toggle off to Details when clicking the active tab
-                    if (isActive) {
-                      setActiveTab('details');
-                    } else {
-                      setActiveTab(stage.navigatesTo as WorkbenchTab);
-                    }
-                  }}
+                
+                <button
+                  type="button"
+                  onClick={handleClick}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
-                    gap: 5,
+                    gap: 6,
                     padding: '6px 12px',
+                    // Pill Shape
+                    borderRadius: '16px',
+                    // Active: Helix Blue (Highlight) solid. Inactive: Transparent/Subtle.
                     background: isActive 
-                      ? (activePalette?.bg ?? statusColors.bg)
-                      : statusColors.bg,
-                    border: `1px solid ${isActive ? (activePalette?.border ?? statusColors.border) : statusColors.border}`,
-                    borderBottom: isActive ? 'none' : '1px solid transparent',
-                    borderRadius: '4px 4px 0 0',
+                      ? colours.highlight 
+                      : (isDarkMode ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)'),
+                    
+                    // Borders: None for active (clean), Subtle for inactive
+                    border: isActive 
+                      ? '1px solid transparent' 
+                      : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)'}`,
+                    
                     cursor: 'pointer',
-                    marginBottom: 0,
-                    transition: 'all 0.18s ease',
+                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                    
+                    // Shadows for active state to pop
+                    boxShadow: isActive 
+                      ? '0 2px 4px rgba(0, 0, 0, 0.15), 0 1px 2px rgba(0, 0, 0, 0.1)' 
+                      : 'none',
+                    
+                    // Text styles
+                    color: isActive ? '#FFFFFF' : (isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.8)'),
+                    fontFamily: 'inherit',
                     position: 'relative',
-                    zIndex: isActive ? 3 : 1,
+                    zIndex: isActive ? 10 : 1, // Active sits on top
                   }}
-                  title={`View ${stage.label}`}
+                  title={stage.date ? `${stage.label}: ${stage.date}` : stage.label}
                 >
                   <span style={{ 
-                    color: isActive ? (activePalette?.text ?? statusColors.text) : statusColors.text,
                     display: 'flex',
                     alignItems: 'center',
+                    // Force white icon on active, else status color
+                    color: isActive ? '#FFFFFF' : statusColors.text, 
+                    opacity: isActive ? 1 : 0.9,
                   }}>
                     {stage.icon}
                   </span>
+                  
                   <span style={{
-                    fontSize: 9,
+                    fontSize: 10,
                     fontWeight: isActive ? 700 : 600,
-                    color: isActive ? (activePalette?.text ?? statusColors.text) : (stage.isComplete ? (isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.8)') : statusColors.text),
                     textTransform: 'uppercase',
-                    letterSpacing: '0.3px',
+                    letterSpacing: '0.4px',
+                    whiteSpace: 'nowrap',
+                    color: isActive ? '#FFFFFF' : (isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.8)'),
                   }}>
-                  {stage.label}
-                </span>
-                {/* Status indicator or count */}
-                {(stage as any).count !== undefined && (stage as any).count > 0 ? (
-                  <span style={{
-                    minWidth: 14,
-                    height: 14,
-                    padding: '0 4px',
-                    borderRadius: 3,
-                    fontSize: 8,
-                    fontWeight: 700,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    background: statusColors.text,
-                    color: '#FFFFFF',
-                  }}>
-                    {(stage as any).count}
+                    {stage.label}
                   </span>
-                ) : stage.isComplete ? (
-                  <FaCheck size={8} style={{ color: statusColors.text }} />
-                ) : stage.hasIssue ? (
-                  <FaExclamationTriangle size={8} style={{ color: statusColors.text }} />
-                ) : null}
-              </div>
-            </React.Fragment>
+
+                  {/* Status Badges / Checks */}
+                  {(stage as any).count !== undefined && (stage as any).count > 0 ? (
+                    <span style={{
+                      minWidth: 16,
+                      height: 16,
+                      borderRadius: 8,
+                      fontSize: 9,
+                      fontWeight: 700,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      background: isActive ? 'rgba(255,255,255,0.2)' : (isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(0,0,0,0.06)'),
+                      color: isActive ? '#FFFFFF' : (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.8)'),
+                      marginLeft: 2,
+                    }}>
+                      {(stage as any).count}
+                    </span>
+                  ) : stage.isComplete ? (
+                    <FaCheck size={9} style={{ 
+                      color: isActive ? '#FFFFFF' : '#22c55e', 
+                      marginLeft: 2,
+                      opacity: isActive ? 0.9 : 1
+                    }} />
+                  ) : stage.hasIssue ? (
+                    <FaExclamationTriangle size={9} style={{ 
+                      color: isActive ? '#FFFFFF' : '#ef4444', 
+                      marginLeft: 2 
+                    }} />
+                  ) : null}
+                </button>
+              </React.Fragment>
             );
           })}
         </div>
       </div>
+      )}
 
       {/* Tab content - expand as needed */}
       <div style={{
-        padding: '12px 16px 12px 32px',
-        minHeight: 80,
-        border: `1px solid ${isTabbedContent ? (activePalette?.border || colours.highlight) : (isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.12)')}`,
-        borderTop: isTabbedContent ? `1px solid ${activePalette?.border || colours.highlight}` : (isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.12)'),
-        borderRadius: 0,
+        padding: '18px 20px 20px 32px',
+        minHeight: 96,
+        border: `1px solid ${isTabbedContent ? activeTabPalette.border : (isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.12)')}`,
+        borderTop: isTabbedContent ? `1px solid ${activeTabPalette.border}` : (isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.12)'),
+        borderRadius: 4,
         marginTop: -1,
         marginBottom: 0,
         boxShadow: 'none',
@@ -2129,12 +2295,10 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
       }}>
         {/* Details Tab - Client/Entity information landing page */}
         {activeTab === 'details' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {(() => {
-              // For Details, treat null context as "instructed" (default landing).
-              const contextStage: ContextStageKey = enableContextStageChips
-                ? (activeContextStage ?? 'instructed')
-                : 'instructed';
+              // Respect activeContextStage even if chips are hidden
+              const contextStage: ContextStageKey = activeContextStage ?? 'enquiry';
 
               return (
                 <>
@@ -2167,212 +2331,10 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                     borderRadius: 0,
                     padding: '12px 14px',
                   }}>
-                    {(() => {
-                      const chipBaseStyle: React.CSSProperties = {
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 5,
-                        padding: '0 8px',
-                        height: 24,
-                        minHeight: 24,
-                        borderRadius: 0,
-                        boxSizing: 'border-box',
-                        fontSize: 10,
-                        fontWeight: 600,
-                        lineHeight: '24px',
-                        textDecoration: 'none',
-                        position: 'relative',
-                      };
 
-                      const chipActiveStyle: React.CSSProperties = {
-                        background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
-                        border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.25)'}`,
-                        color: colours.highlight,
-                      };
-
-                      const chipInactiveStyle: React.CSSProperties = {
-                        background: isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(148, 163, 184, 0.04)',
-                        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)'}`,
-                        color: isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(100, 116, 139, 0.4)',
-                      };
-
-                      return (
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                        {/* Individual Avatar + Name */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <div style={{
-                            width: 36, height: 36, borderRadius: 0,
-                            background: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)',
-                            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)'}`,
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          }}>
-                            <FaUser size={14} color={colours.highlight} style={{ opacity: 0.8 }} />
-                          </div>
-                          <div>
-                            <div style={{ fontSize: 13, fontWeight: 700, color: isDarkMode ? 'rgba(226, 232, 240, 0.95)' : 'rgba(15, 23, 42, 0.9)', display: 'flex', alignItems: 'baseline', gap: 4 }}>
-                              {fullName}
-                              {/* Age/DOB not available at enquiry stage */}
-                              {contextStage !== 'enquiry' && age !== '—' && <span style={{ fontSize: 10, fontWeight: 500, color: isDarkMode ? 'rgba(148, 163, 184, 0.55)' : 'rgba(100, 116, 139, 0.55)' }}>({age})</span>}
-                            </div>
-                            {isCompany && <div style={{ fontSize: 9, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)', marginTop: 1 }}>Director / Individual</div>}
-
-                            <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                              {email !== '—' && (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, maxWidth: 420 }}>
-                                  <div
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      try {
-                                        window.open(`mailto:${encodeURIComponent(String(email))}`, '_blank');
-                                      } catch {
-                                        window.location.href = `mailto:${encodeURIComponent(String(email))}`;
-                                      }
-                                    }}
-                                    title="Email"
-                                    style={{
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      gap: 6,
-                                      cursor: 'pointer',
-                                      overflow: 'hidden',
-                                      textOverflow: 'ellipsis',
-                                      whiteSpace: 'nowrap',
-                                      color: isDarkMode ? 'rgba(226, 232, 240, 0.82)' : 'rgba(15, 23, 42, 0.76)',
-                                      fontSize: 10,
-                                      fontWeight: 600,
-                                    }}
-                                  >
-                                    <Icon iconName="Mail" styles={{ root: { fontSize: 10, opacity: 0.8 } }} />
-                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{email}</span>
-                                  </div>
-                                  <div
-                                    onClick={(e) => { e.stopPropagation(); void safeCopy(String(email)); }}
-                                    title="Copy email"
-                                    style={{
-                                      width: 18,
-                                      height: 18,
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      justifyContent: 'center',
-                                      borderRadius: 0,
-                                      background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)',
-                                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.14)'}`,
-                                      cursor: 'pointer',
-                                    }}
-                                  >
-                                    <Icon iconName="Copy" styles={{ root: { fontSize: 10, opacity: 0.75 } }} />
-                                  </div>
-                                </div>
-                              )}
-
-                              {email !== '—' && phone !== '—' && (
-                                <span style={{ fontSize: 10, opacity: 0.35, color: isDarkMode ? 'rgba(148, 163, 184, 0.9)' : 'rgba(100, 116, 139, 0.9)' }}>·</span>
-                              )}
-
-                              {phone !== '—' && (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                  <div
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      const tel = String(phone).replace(/\s+/g, '');
-                                      try {
-                                        window.open(`tel:${tel}`, '_self');
-                                      } catch {
-                                        window.location.href = `tel:${tel}`;
-                                      }
-                                    }}
-                                    title="Call"
-                                    style={{
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      gap: 6,
-                                      cursor: 'pointer',
-                                      color: isDarkMode ? 'rgba(226, 232, 240, 0.82)' : 'rgba(15, 23, 42, 0.76)',
-                                      fontSize: 10,
-                                      fontWeight: 600,
-                                    }}
-                                  >
-                                    <Icon iconName="Phone" styles={{ root: { fontSize: 10, opacity: 0.8 } }} />
-                                    <span>{phone}</span>
-                                  </div>
-                                  <div
-                                    onClick={(e) => { e.stopPropagation(); void safeCopy(String(phone)); }}
-                                    title="Copy phone"
-                                    style={{
-                                      width: 18,
-                                      height: 18,
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      justifyContent: 'center',
-                                      borderRadius: 0,
-                                      background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)',
-                                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.14)'}`,
-                                      cursor: 'pointer',
-                                    }}
-                                  >
-                                    <Icon iconName="Copy" styles={{ root: { fontSize: 10, opacity: 0.75 } }} />
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Company if applicable */}
-                        {isCompany && companyName !== '—' && (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <div style={{
-                              width: 36, height: 36, borderRadius: 0,
-                              background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.1)',
-                              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)'}`,
-                              display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            }}>
-                              <FaBuilding size={14} color={isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)'} />
-                            </div>
-                            <div>
-                              <div style={{ fontSize: 12, fontWeight: 600, color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.8)' }}>{companyName}</div>
-                              {companyNo !== '—' && <div style={{ fontSize: 9, fontFamily: 'monospace', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)', marginTop: 1 }}>{companyNo}</div>}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Source chips */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        {acContactId ? (
-                          <a href={`https://helix-law54533.activehosted.com/app/contacts/${acContactId}`} target="_blank" rel="noopener noreferrer" title={`ActiveCampaign #${acContactId}`} onClick={(e) => e.stopPropagation()}
-                            style={{ ...chipBaseStyle, ...chipActiveStyle }}>
-                            <img src={activecampaignIcon} alt="" style={{ width: 12, height: 12, filter: activeCampaignBlueFilter, display: 'block' }} />
-                            <span>AC</span>
-                            <span style={{ position: 'absolute', top: -2, right: -2, width: 7, height: 7, borderRadius: '50%', background: '#22c55e', border: `1.5px solid ${isDarkMode ? 'rgba(15, 23, 42, 0.9)' : '#fff'}` }} />
-                          </a>
-                        ) : (
-                          <div title="Not linked to ActiveCampaign" style={{ ...chipBaseStyle, ...chipInactiveStyle }}>
-                            <img src={activecampaignIcon} alt="" style={{ width: 12, height: 12, opacity: 0.35, filter: 'grayscale(100%)', display: 'block' }} />
-                            <span>AC</span>
-                          </div>
-                        )}
-                        {(teamsCardLink || teamsIdentifier) ? (
-                          <button type="button" title={teamsCardLink ? 'Open Teams card' : 'Resolve Teams link'} onClick={async (e) => { e.stopPropagation(); const link = teamsCardLink || (await resolveTeamsCardLink()); if (link) window.open(link, '_blank'); else window.open('https://teams.microsoft.com/', '_blank'); }}
-                            style={{ ...chipBaseStyle, ...chipActiveStyle, cursor: 'pointer', opacity: isTeamsLinkLoading ? 0.6 : 1, background: chipActiveStyle.background }}>
-                            <Icon iconName="TeamsLogo" styles={{ root: { fontSize: 13, color: colours.highlight, lineHeight: '13px', display: 'block' } }} />
-                            <span>Teams</span>
-                            <span style={{ position: 'absolute', top: -2, right: -2, width: 7, height: 7, borderRadius: '50%', background: '#22c55e', border: `1.5px solid ${isDarkMode ? 'rgba(15, 23, 42, 0.9)' : '#fff'}` }} />
-                          </button>
-                        ) : (
-                          <div title="No Teams card linked" style={{ ...chipBaseStyle, ...chipInactiveStyle }}>
-                            <Icon iconName="TeamsLogo" styles={{ root: { fontSize: 13, color: isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(100, 116, 139, 0.4)', lineHeight: '13px', display: 'block' } }} />
-                            <span>Teams</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                      );
-                    })()}
 
                     {/* Meta tags (match enquiry table/overview look & feel) */}
-                    <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)'}` }}>
+                    <div>
                       {(() => {
                         const tagBase: React.CSSProperties = {
                           display: 'flex',
@@ -2380,11 +2342,11 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                           gap: 6,
                           padding: '4px 8px',
                           borderRadius: 4,
-                          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.16)' : 'rgba(0, 0, 0, 0.08)'}`,
-                          background: isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(2, 6, 23, 0.03)',
-                          color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.82)',
+                          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(15, 23, 42, 0.06)'}`,
+                          background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : 'rgba(15, 23, 42, 0.02)',
+                          color: isDarkMode ? 'rgba(226, 232, 240, 0.78)' : 'rgba(15, 23, 42, 0.72)',
                           fontSize: 10,
-                          fontWeight: 600,
+                          fontWeight: 500,
                           lineHeight: 1,
                           maxWidth: '100%',
                         };
@@ -2409,6 +2371,17 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                           if (a.includes('property')) return 'rgb(115, 171, 96)';
                           if (a.includes('employment')) return 'rgb(214, 176, 70)';
                           return 'rgb(214, 85, 65)';
+                        };
+
+                        const getAreaOfWorkIcon = (raw: any): string => {
+                          const a = String(raw ?? '').toLowerCase().trim();
+                          if (a.includes('triage')) return '🩺';
+                          if (a.includes('construction') || a.includes('building')) return '🏗️';
+                          if (a.includes('property') || a.includes('real estate') || a.includes('conveyancing')) return '🏠';
+                          if (a.includes('commercial') || a.includes('business')) return '🏢';
+                          if (a.includes('employment') || a.includes('hr') || a.includes('workplace')) return '👩🏻‍💼';
+                          if (a.includes('allocation')) return '📂';
+                          return 'ℹ️';
                         };
 
                         const renderTag = (opts: {
@@ -2436,7 +2409,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                 borderLeft: opts.accentLeft ? `3px solid ${opts.accentLeft}` : tagBase.borderLeft,
                               }}
                             >
-                              <Icon iconName={opts.iconName} styles={{ root: { fontSize: 11, opacity: 0.9 } }} />
+                              <Icon iconName={opts.iconName} styles={{ root: { fontSize: 11, opacity: 0.6 } }} />
                               <span style={{ ...tagText, fontFamily: opts.monospace ? 'monospace' : undefined }}>
                                 {valueText}
                               </span>
@@ -2446,48 +2419,1029 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
                         if (contextStage === 'enquiry') {
                           const aowAccent = resolveAowAccent(areaOfWork);
-                          const ratingIcon = enquiryRating === 'Good' ? 'Like' : enquiryRating === 'Poor' ? 'Dislike' : 'Like';
+                          
+                          // Determine rating styling
+                          const ratingColor = enquiryRating === 'Good' ? '#22c55e' : enquiryRating === 'Poor' ? '#ef4444' : (isDarkMode ? 'rgba(148, 163, 184, 0.6)' : '#64748b');
+                          
+                          // Claim timestamp for new space enquiries (from enquiry record or enrichment data)
+                          const claimTimestampRaw = getValue(['claim', 'Claim', 'ClaimTimestamp', 'claim_timestamp', 'AllocatedAt', 'allocated_at', 'ClaimedAt', 'claimed_at']);
+                          
+                          // Teams timestamp from enrichment data (same source as prospects table uses)
+                          const teamsTimestampRaw = enrichmentTeamsData?.MessageTimestamp 
+                            || enrichmentTeamsData?.CreatedAt 
+                            || (enrichmentTeamsData?.CreatedAtMs ? new Date(enrichmentTeamsData.CreatedAtMs).toISOString() : null);
+                          
+                          // Prefer Teams timestamp from enrichment, fall back to claim timestamp
+                          const teamsTime = (() => {
+                            const raw = teamsTimestampRaw || (claimTimestampRaw !== '—' ? claimTimestampRaw : null);
+                            if (!raw) return null;
+                            try {
+                              const d = new Date(raw);
+                              if (Number.isNaN(d.getTime())) return null;
+                              return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+                            } catch { return null; }
+                          })();
+                          
+                          // Teams link from enrichment data or resolved via API
+                          const effectiveTeamsLink = enrichmentTeamsData?.teamsLink || teamsCardLink || null;
+                          
+                          // Teams chip shows if we have enrichment data, teamsCardLink, teamsIdentifier (can fetch), or claim time
+                          const hasTeamsData = Boolean(enrichmentTeamsData || teamsCardLink || teamsIdentifier || teamsTime || isDemoInstruction);
 
                           return (
-                            <>
-                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                                {renderTag({ iconName: 'Tag', label: 'Area of Work', value: areaOfWork, accentLeft: aowAccent })}
-                                {renderTag({ iconName: 'Calendar', label: 'Received', value: submissionDate })}
-                                {renderTag({ iconName: 'Contact', label: 'Point of Contact', value: pointOfContact })}
-                                {renderTag({ iconName: 'ContactCard', label: 'Method', value: methodOfContact })}
-                                {renderTag({ iconName: 'TextDocument', label: 'Type', value: typeOfWork })}
-                                {renderTag({ iconName: 'Money', label: 'Value', value: enquiryValue })}
-                                {renderTag({ iconName: ratingIcon, label: 'Rating', value: enquiryRating })}
-                                {renderTag({ iconName: 'ContactInfo', label: 'Taker', value: callTaker })}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                              
+                              {/* Row 1: Integration Chips + Timestamp */}
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                  {/* ActiveCampaign Chip */}
+                                  {acContactId && (
+                                    <a 
+                                      href={`https://helixlaw.activehosted.com/app/contacts/${acContactId}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      title={`Open ActiveCampaign Contact ${acContactId}`}
+                                      style={{ 
+                                        display: 'flex', alignItems: 'center', gap: 6,
+                                        padding: '5px 10px', borderRadius: 4,
+                                        background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
+                                        border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.15)'}`,
+                                        textDecoration: 'none',
+                                        transition: 'all 0.15s ease'
+                                      }}
+                                    >
+                                      <img src={activecampaignIcon} alt="AC" title="ActiveCampaign" style={{ width: 12, height: 12, filter: activeCampaignBlueFilter }} />
+                                      <span style={{ fontSize: 10, fontWeight: 600, color: colours.highlight, fontFamily: 'monospace' }}>{acContactId}</span>
+                                    </a>
+                                  )}
+                                  
+                                  {/* Teams Chip - blue styling like AC chip */}
+                                  {hasTeamsData && (
+                                    <div
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (effectiveTeamsLink) {
+                                          window.open(effectiveTeamsLink, '_blank');
+                                        } else if (teamsIdentifier && !teamsCardLink) {
+                                          // Trigger fetch if we have identifier but no link yet
+                                          void resolveTeamsCardLink();
+                                        }
+                                      }}
+                                      title={effectiveTeamsLink ? 'Open Teams Card' : 'Teams activity tracked'}
+                                      style={{ 
+                                        display: 'flex', alignItems: 'center', gap: 6,
+                                        padding: '5px 10px', borderRadius: 4,
+                                        background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
+                                        border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.15)'}`,
+                                        textDecoration: 'none',
+                                        cursor: effectiveTeamsLink ? 'pointer' : 'default',
+                                        transition: 'all 0.15s ease'
+                                      }}
+                                    >
+                                      <Icon iconName="TeamsLogo" styles={{ root: { fontSize: 12, color: colours.highlight } }} />
+                                      <span style={{ fontSize: 10, fontWeight: 600, color: colours.highlight }}>
+                                        {teamsTime ? `Claimed ${teamsTime}` : 'Teams'}
+                                      </span>
+                                    </div>
+                                  )}
+                                  
+                                  {/* Rating inline - clickable if unrated */}
+                                  <div 
+                                    onClick={() => {
+                                      if (!enquiryRating || enquiryRating === '—') {
+                                        const enquiryId = enquiry?.ID || enquiry?.id;
+                                        if (enquiryId) {
+                                          window.dispatchEvent(new CustomEvent('helix:rate-enquiry', { detail: { enquiryId: String(enquiryId) } }));
+                                        }
+                                      }
+                                    }}
+                                    title={!enquiryRating || enquiryRating === '—' ? 'Click to rate this enquiry' : `Rated: ${enquiryRating}`}
+                                    style={{ 
+                                      display: 'flex', alignItems: 'center', gap: 5,
+                                      padding: '5px 10px', borderRadius: 4,
+                                      background: isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(0,0,0,0.02)',
+                                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0,0,0,0.04)'}`,
+                                      cursor: (!enquiryRating || enquiryRating === '—') ? 'pointer' : 'default',
+                                      transition: 'all 0.15s ease'
+                                    }}
+                                  >
+                                    <Icon iconName={enquiryRating === 'Good' ? 'Like' : enquiryRating === 'Poor' ? 'Dislike' : 'FavoriteStar'} styles={{ root: { fontSize: 11, color: ratingColor } }} />
+                                    <span style={{ fontSize: 10, fontWeight: 600, color: ratingColor }}>{enquiryRating || 'Rate'}</span>
+                                  </div>
+                                </div>
+                                
+                                {/* Timestamp */}
+                                <div style={{ 
+                                  display: 'flex', alignItems: 'center', gap: 6, 
+                                  fontSize: 11, 
+                                  color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : '#475569',
+                                  background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0,0,0,0.03)',
+                                  padding: '4px 10px',
+                                  borderRadius: 4
+                                }}>
+                                  <FaClock size={10} />
+                                  <span style={{ fontWeight: 600 }}>{submissionDate}</span>
+                                </div>
                               </div>
 
-                              {(isMeaningful(enquirySourceSummary) || isMeaningful(campaign) || isMeaningful(adGroup) || isMeaningful(searchKeyword) || isMeaningful(website) || isMeaningful(gclid)) && (
-                                <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 8, opacity: 0.92 }}>
-                                  {renderTag({ iconName: 'Info', label: 'Source', value: enquirySourceSummary })}
-                                  {renderTag({ iconName: 'Tag', label: 'Campaign', value: campaign })}
-                                  {renderTag({ iconName: 'BulletedList', label: 'Ad group', value: adGroup })}
-                                  {renderTag({ iconName: 'Search', label: 'Keyword', value: searchKeyword })}
-                                  {renderTag({ iconName: 'Globe', label: 'Website', value: website })}
-                                  {renderTag({ iconName: 'NumberSymbol', label: 'GCLID', value: gclid, monospace: true, onClick: () => void safeCopy(String(gclid)) })}
+                              {/* Row 2: Key Info Strip */}
+                              <div style={{ 
+                                display: 'flex', flexWrap: 'wrap', gap: 0, 
+                                padding: '10px 0',
+                                background: isDarkMode ? 'rgba(2, 6, 23, 0.4)' : '#f8fafc',
+                                borderRadius: 6,
+                                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : '#e2e8f0'}`
+                              }}>
+                                {/* Area with icon */}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
+                                  <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Area</span>
+                                  <span style={{ fontSize: 12, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 5, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b' }}>
+                                    <span style={{ fontSize: 14 }}>{getAreaOfWorkIcon(areaOfWork)}</span>
+                                    {areaOfWork || '—'}
+                                  </span>
+                                </div>
+                                
+                                {/* Type */}
+                                {isMeaningful(typeOfWork) && (
+                                  <>
+                                    <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
+                                      <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Type</span>
+                                      <span style={{ fontSize: 12, fontWeight: 500, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b' }}>{typeOfWork}</span>
+                                    </div>
+                                  </>
+                                )}
+                                
+                                {/* Separator */}
+                                <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
+                                
+                                {/* POC */}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
+                                  <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Claimed By</span>
+                                  <span style={{ fontSize: 12, fontWeight: 600, color: pointOfContact ? colours.highlight : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
+                                    {pointOfContact || 'Unclaimed'}
+                                  </span>
+                                </div>
+                                
+                                {/* Separator */}
+                                <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
+                                
+                                {/* Value - always show */}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
+                                  <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Value</span>
+                                  <span style={{ fontSize: 12, fontWeight: isMeaningful(enquiryValue) ? 600 : 400, color: isMeaningful(enquiryValue) ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b') : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
+                                    {isMeaningful(enquiryValue) ? enquiryValue : '—'}
+                                  </span>
+                                </div>
+                                
+                                {/* Separator */}
+                                <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
+                                
+                                {/* Method - always show */}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
+                                  <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Method</span>
+                                  <span style={{ fontSize: 12, fontWeight: 500, color: isMeaningful(methodOfContact) ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b') : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
+                                    {isMeaningful(methodOfContact) ? methodOfContact : '—'}
+                                  </span>
+                                </div>
+                                
+                                {/* Separator */}
+                                <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
+                                
+                                {/* Source - always show */}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
+                                  <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Source</span>
+                                  <span style={{ fontSize: 12, fontWeight: 500, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: isMeaningful(enquirySourceSummary) ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b') : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
+                                    {isMeaningful(enquirySourceSummary) ? enquirySourceSummary : '—'}
+                                  </span>
+                                </div>
+                              </div>
+
+                              {/* Row 3: Notes */}
+                              {hasEnquiryNotes && (
+                                <div style={{
+                                  padding: '12px 14px',
+                                  background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : '#fff',
+                                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : '#e2e8f0'}`,
+                                  borderRadius: 6,
+                                  fontSize: 12,
+                                  lineHeight: 1.65,
+                                  color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#334155',
+                                  whiteSpace: 'pre-wrap',
+                                  maxHeight: 180,
+                                  overflowY: 'auto'
+                                }}>
+                                  {enquiryNotes}
                                 </div>
                               )}
-                            </>
+                            </div>
                           );
                         }
 
+                        // Pitch context - show deal/pitch data in rich enquiry-style layout
+                        if (contextStage === 'pitch') {
+                          const dealId = deal?.DealId || deal?.dealId || effectivePitch?.DealId || effectivePitch?.dealId || '';
+                          const dealPasscode = deal?.Passcode || deal?.passcode || effectivePitch?.Passcode || effectivePitch?.passcode || '';
+                          const dealAmount = deal?.Amount || deal?.amount || deal?.FeeAmount || deal?.feeAmount || effectivePitch?.Amount || effectivePitch?.amount;
+                          const dealScenario = effectivePitch?.scenarioLabel || effectivePitch?.scenario || effectivePitch?.ServiceDescription || deal?.ServiceDescription || deal?.serviceDescription || '';
+                          const pitchInstructionRef = deal?.InstructionRef || deal?.instructionRef || effectivePitch?.InstructionRef || effectivePitch?.instructionRef || '';
+                          const pitchedBy = effectivePitch?.CreatedBy || effectivePitch?.createdBy || deal?.PitchedBy || deal?.pitchedBy || pointOfContact || '';
+                          const pitchStatus = deal?.Status || deal?.status || effectivePitch?.Status || effectivePitch?.status || '';
+                          const pitchExpiryRaw = deal?.PitchValidUntil || deal?.pitchValidUntil || effectivePitch?.PitchValidUntil || effectivePitch?.pitchValidUntil || null;
+                          const pitchExpiry = pitchExpiryRaw ? formatDate(pitchExpiryRaw) : null;
+                          const pitchEmailSubject = effectivePitch?.EmailSubject || effectivePitch?.emailSubject || '';
+                          const pitchEmailBody = effectivePitch?.EmailBody || effectivePitch?.emailBody || '';
+                          // Don't fall back to enquiry notes - pitch content should be pitch-specific
+                          const pitchNotes = effectivePitch?.Notes || effectivePitch?.notes || '';
+                          const hasPitchContent = pitchEmailSubject || pitchEmailBody;
+                          
+                          // Strip HTML tags from pitch email body for preview
+                          const stripHtml = (html: string) => {
+                            return html
+                              .replace(/<div><br><\/div>/gi, '\n')
+                              .replace(/<br\s*\/?>/gi, '\n')
+                              .replace(/<\/div>/gi, '\n')
+                              .replace(/<div>/gi, '')
+                              .replace(/<[^>]+>/g, '')
+                              .replace(/&nbsp;/g, ' ')
+                              .replace(/\n{3,}/g, '\n\n')
+                              .trim();
+                          };
+                          const cleanEmailBody = pitchEmailBody ? stripHtml(pitchEmailBody) : '';
+                          
+                          // Check if we have any pitch data at all
+                          const hasNoPitchData = !deal && !effectivePitch && !isFetchingPitchContent;
+                          
+                          // Combine PitchedDate and PitchedTime for accurate datetime
+                          const pitchedDateTime = (() => {
+                            const dateRaw = deal?.PitchedDate || deal?.pitchedDate || effectivePitch?.CreatedAt || effectivePitch?.createdAt;
+                            const timeRaw = deal?.PitchedTime || deal?.pitchedTime;
+                            if (!dateRaw) return null;
+                            try {
+                              const d = new Date(dateRaw);
+                              if (Number.isNaN(d.getTime())) return null;
+                              // If we have a separate time field, extract HH:MM from it
+                              if (timeRaw) {
+                                const t = new Date(timeRaw);
+                                if (!Number.isNaN(t.getTime())) {
+                                  d.setHours(t.getHours(), t.getMinutes(), 0, 0);
+                                }
+                              }
+                              const date = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+                              const time = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+                              return `${date} ${time}`;
+                            } catch { return null; }
+                          })();
+                          
+                          // Show loading state while fetching pitch content
+                          if (isFetchingPitchContent) {
+                            return (
+                              <div style={{ 
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', 
+                                padding: '24px', 
+                                color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)',
+                                fontSize: 12 
+                              }}>
+                                Loading pitch data...
+                              </div>
+                            );
+                          }
+                          
+                          // Show empty state if no pitch data
+                          if (hasNoPitchData) {
+                            return (
+                              <div style={{
+                                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                                padding: '24px 16px', gap: 8,
+                                background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : 'rgba(0,0,0,0.02)',
+                                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0,0,0,0.04)'}`,
+                                borderRadius: 6
+                              }}>
+                                <FaUser size={16} style={{ color: isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(100, 116, 139, 0.4)' }} />
+                                <div style={{ fontSize: 12, fontWeight: 600, color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)' }}>
+                                  No pitch recorded
+                                </div>
+                                <div style={{ fontSize: 10, color: isDarkMode ? 'rgba(148, 163, 184, 0.45)' : 'rgba(100, 116, 139, 0.45)' }}>
+                                  Use the Pitch Builder to create a pitch for this enquiry
+                                </div>
+                              </div>
+                            );
+                          }
+                          
+                          return (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                              
+                              {/* Row 1: Pitched Badge + Timestamp */}
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                  {/* Pitched Badge - styled like Teams claimed badge */}
+                                  <div
+                                    title="Pitch sent"
+                                    style={{ 
+                                      display: 'flex', alignItems: 'center', gap: 6,
+                                      padding: '5px 10px', borderRadius: 4,
+                                      background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
+                                      border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.15)'}`,
+                                      textDecoration: 'none',
+                                      cursor: 'default',
+                                      transition: 'all 0.15s ease'
+                                    }}
+                                  >
+                                    <Icon iconName="Send" styles={{ root: { fontSize: 11, color: colours.highlight } }} />
+                                    <span style={{ fontSize: 10, fontWeight: 600, color: colours.highlight }}>
+                                      {pitchedDateTime ? `Pitched ${pitchedDateTime}` : 'Pitched'}
+                                    </span>
+                                  </div>
+                                  
+                                  {/* Passcode chip - clickable to copy */}
+                                  {dealPasscode && (
+                                    <div
+                                      onClick={(e) => { e.stopPropagation(); void safeCopy(String(dealPasscode)); }}
+                                      title="Click to copy passcode"
+                                      style={{ 
+                                        display: 'flex', alignItems: 'center', gap: 5,
+                                        padding: '5px 10px', borderRadius: 4,
+                                        background: isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(0,0,0,0.02)',
+                                        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0,0,0,0.04)'}`,
+                                        cursor: 'pointer',
+                                        transition: 'all 0.15s ease'
+                                      }}
+                                    >
+                                      <Icon iconName="NumberSymbol" styles={{ root: { fontSize: 10, color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : '#64748b' } }} />
+                                      <span style={{ fontSize: 10, fontWeight: 600, fontFamily: 'monospace', color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b' }}>{dealPasscode}</span>
+                                    </div>
+                                  )}
+                                </div>
+                                
+                                {/* Timestamp */}
+                                <div style={{ 
+                                  display: 'flex', alignItems: 'center', gap: 6, 
+                                  fontSize: 11, 
+                                  color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : '#475569',
+                                  background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0,0,0,0.03)',
+                                  padding: '4px 10px',
+                                  borderRadius: 4
+                                }}>
+                                  <FaClock size={10} />
+                                  <span style={{ fontWeight: 600 }}>{pitchDate}</span>
+                                </div>
+                              </div>
+
+                              {/* Row 2: Key Info Strip - matches enquiry design */}
+                              <div style={{ 
+                                display: 'flex', flexWrap: 'wrap', gap: 0, 
+                                padding: '10px 0',
+                                background: isDarkMode ? 'rgba(2, 6, 23, 0.4)' : '#f8fafc',
+                                borderRadius: 6,
+                                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : '#e2e8f0'}`
+                              }}>  
+                                {/* Pitched To (prospect name - first item) */}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
+                                  <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Pitched To</span>
+                                  <span style={{ fontSize: 12, fontWeight: 500, lineHeight: '18px', color: fullName !== '—' && fullName !== 'Unknown' ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b') : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
+                                    {fullName !== 'Unknown' ? fullName : '—'}
+                                  </span>
+                                </div>
+                                
+                                {/* Separator */}
+                                <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
+                                
+                                {/* Area with icon */}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
+                                  <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Area</span>
+                                  <span style={{ fontSize: 12, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 5, lineHeight: '18px', color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b' }}>
+                                    <span style={{ fontSize: 14, lineHeight: 1 }}>{getAreaOfWorkIcon(areaOfWork)}</span>
+                                    {areaOfWork || '—'}
+                                  </span>
+                                </div>
+                                
+                                {/* Separator */}
+                                <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
+                                
+                                {/* Pitched By */}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
+                                  <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Pitched By</span>
+                                  <span style={{ fontSize: 12, fontWeight: 500, lineHeight: '18px', color: pitchedBy ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b') : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
+                                    {pitchedBy || '—'}
+                                  </span>
+                                </div>
+                                
+                                {/* Separator */}
+                                <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
+                                
+                                {/* Status */}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
+                                  <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Status</span>
+                                  <span style={{ fontSize: 12, fontWeight: 500, lineHeight: '18px', textTransform: 'capitalize', color: pitchStatus ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b') : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
+                                    {pitchStatus || '—'}
+                                  </span>
+                                </div>
+                                
+                                {/* Separator */}
+                                <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
+                                
+                                {/* Expiry */}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
+                                  <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Valid Until</span>
+                                  <span style={{ fontSize: 12, fontWeight: 500, lineHeight: '18px', color: pitchExpiry ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b') : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
+                                    {pitchExpiry || '—'}
+                                  </span>
+                                </div>
+                                
+                                {/* Separator */}
+                                <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
+                                
+                                {/* Deal ID */}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
+                                  <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Deal</span>
+                                  <span style={{ fontSize: 12, fontWeight: 500, fontFamily: 'monospace', lineHeight: '18px', color: dealId ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b') : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
+                                    {dealId || '—'}
+                                  </span>
+                                </div>
+                                
+                                {/* Separator */}
+                                <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
+                                
+                                {/* Instruction Ref */}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
+                                  <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Ref</span>
+                                  <span 
+                                    onClick={pitchInstructionRef ? (e) => { e.stopPropagation(); void safeCopy(String(pitchInstructionRef)); } : undefined}
+                                    style={{ 
+                                      fontSize: 12, fontWeight: 500, fontFamily: 'monospace', lineHeight: '18px',
+                                      color: pitchInstructionRef ? colours.highlight : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8'),
+                                      cursor: pitchInstructionRef ? 'pointer' : 'default'
+                                    }}
+                                  >
+                                    {pitchInstructionRef || '—'}
+                                  </span>
+                                </div>
+                              </div>
+
+                              {/* Row 3: Amount and Service side by side */}
+                              <div style={{
+                                display: 'flex', alignItems: 'stretch', gap: 10,
+                                padding: '10px 14px',
+                                background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : '#f8fafc',
+                                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : '#e2e8f0'}`,
+                                borderRadius: 6
+                              }}>
+                                {/* Amount - fixed width */}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flexShrink: 0 }}>
+                                  <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Amount</span>
+                                  <span style={{ fontSize: 12, fontWeight: 600, color: dealAmount ? colours.highlight : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
+                                    {dealAmount ? formatMoney(dealAmount) : '—'}
+                                  </span>
+                                </div>
+                                
+                                {/* Separator */}
+                                <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', alignSelf: 'stretch' }} />
+                                
+                                {/* Service - takes remaining space */}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1, minWidth: 0 }}>
+                                  <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Service</span>
+                                  <span style={{ fontSize: 12, fontWeight: 500, lineHeight: 1.5, color: dealScenario ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b') : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
+                                    {dealScenario || '—'}
+                                  </span>
+                                </div>
+                              </div>
+
+                              {/* Row 4: Pitch content preview */}
+                              {hasPitchContent && (() => {
+                                const needsExpansion = cleanEmailBody && cleanEmailBody.length > 300;
+                                const displayBody = isPitchContentExpanded || !needsExpansion
+                                  ? cleanEmailBody
+                                  : `${cleanEmailBody.slice(0, 300)}...`;
+                                return (
+                                  <div style={{
+                                    padding: '12px 14px',
+                                    background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : '#fff',
+                                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : '#e2e8f0'}`,
+                                    borderRadius: 6,
+                                    fontSize: 12,
+                                    lineHeight: 1.65,
+                                    color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#334155',
+                                    whiteSpace: 'pre-wrap',
+                                    ...(!isPitchContentExpanded && { maxHeight: 180, overflowY: 'auto' as const })
+                                  }}>
+                                    {pitchEmailSubject && (
+                                      <div style={{ fontWeight: 600, marginBottom: cleanEmailBody ? 8 : 0, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                        <FaEnvelope size={10} style={{ opacity: 0.6 }} />
+                                        {pitchEmailSubject}
+                                      </div>
+                                    )}
+                                    {cleanEmailBody && (
+                                      <div style={{ opacity: 0.85 }}>
+                                        {displayBody}
+                                      </div>
+                                    )}
+                                    {needsExpansion && (
+                                      <div
+                                        onClick={(e) => { e.stopPropagation(); setIsPitchContentExpanded(prev => !prev); }}
+                                        style={{
+                                          marginTop: 8,
+                                          fontSize: 11,
+                                          fontWeight: 500,
+                                          color: colours.highlight,
+                                          cursor: 'pointer',
+                                          display: 'inline-block'
+                                        }}
+                                      >
+                                        {isPitchContentExpanded ? 'Show less' : 'Show more'}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })()}
+                            </div>
+                          );
+                        }
+
+                        // Instructed context - show instruction data in rich layout like enquiry/pitch (instruction-only)
+                        // Core instruction fields
+                        const instInternalStatus = String(inst?.InternalStatus ?? inst?.internalStatus ?? '').trim();
+                        const instClientId = inst?.ClientId || inst?.clientId || '';
+                        const instRelatedClientId = inst?.RelatedClientId || inst?.relatedClientId || '';
+                        const instConsent = inst?.ConsentGiven === true ? 'Yes' : inst?.ConsentGiven === false ? 'No' : '—';
+                        
+                        let instIdType = String(inst?.IdType ?? inst?.IDType ?? getValue(['IDType', 'id_type', 'IdType'], '')).trim();
+                        if ((!instIdType || instIdType === '—') && ((passport && passport !== '—') || (license && license !== '—'))) {
+                          if (passport && passport !== '—') instIdType = 'Passport';
+                          else if (license && license !== '—') instIdType = 'Driving License';
+                        }
+                        
+                        const instNotesRaw = String(inst?.Notes ?? '').trim();
+                        const instNotes = instNotesRaw.length > 0 ? instNotesRaw : '';
+                        const instLastUpdatedRaw = inst?.LastUpdated || inst?.lastUpdated || null;
+                        const instLastUpdated = instLastUpdatedRaw ? formatDate(instLastUpdatedRaw) : null;
+                        
+                        // Personal details from instruction
+                        const instTitle = String(inst?.Title ?? inst?.title ?? '').trim();
+                        const instFirstName = String(inst?.FirstName ?? inst?.firstName ?? firstName ?? '').trim();
+                        const instLastName = String(inst?.LastName ?? inst?.lastName ?? lastName ?? '').trim();
+                        const instFullName = [instTitle, instFirstName, instLastName].filter(Boolean).join(' ') || fullName;
+                        const instGender = String(inst?.Gender ?? inst?.gender ?? gender ?? '').trim();
+                        const instNationality = String(inst?.Nationality ?? inst?.nationality ?? nationalityFull ?? '').trim();
+                        const instNationalityAlpha = String(inst?.NationalityAlpha2 ?? inst?.nationalityAlpha2 ?? nationalityAlpha ?? '').trim();
+                        const instDobRaw = inst?.DOB || inst?.dob || inst?.DateOfBirth || dobRaw;
+                        const instDob = instDobRaw ? formatDate(instDobRaw) : dob;
+                        const instAge = (() => {
+                          if (!instDobRaw || instDobRaw === '—') return age;
+                          const parsed = new Date(instDobRaw);
+                          if (Number.isNaN(parsed.getTime())) return age;
+                          const diff = Date.now() - parsed.getTime();
+                          const years = Math.floor(diff / (1000 * 60 * 60 * 24 * 365.25));
+                          return String(years);
+                        })();
+                        
+                        // Contact from instruction
+                        const instEmail = String(inst?.Email ?? inst?.email ?? email ?? '').trim();
+                        const instPhone = String(inst?.Phone ?? inst?.phone ?? inst?.Telephone ?? phone ?? '').trim();
+                        
+                        // ID Documents from instruction
+                        const instPassportNumber = String(inst?.PassportNumber ?? inst?.passportNumber ?? passport ?? '').trim();
+                        const instDriversLicense = String(inst?.DriversLicenseNumber ?? inst?.driversLicenseNumber ?? license ?? '').trim();
+                        const hasIdDocuments = (instPassportNumber && instPassportNumber !== '—') || (instDriversLicense && instDriversLicense !== '—');
+                        
+                        // Individual Address from instruction
+                        const instHouseNumber = String(inst?.HouseNumber ?? inst?.houseNumber ?? houseNum ?? '').trim();
+                        const instStreet = String(inst?.Street ?? inst?.street ?? street ?? '').trim();
+                        const instCity = String(inst?.City ?? inst?.city ?? city ?? '').trim();
+                        const instCounty = String(inst?.County ?? inst?.county ?? county ?? '').trim();
+                        const instPostcode = String(inst?.Postcode ?? inst?.postcode ?? postcode ?? '').trim();
+                        const instCountry = String(inst?.Country ?? inst?.country ?? country ?? '').trim();
+                        const instCountryCode = String(inst?.CountryCode ?? inst?.countryCode ?? '').trim();
+                        const instAddressParts = [
+                          instHouseNumber && instStreet ? `${instHouseNumber} ${instStreet}` : instStreet || instHouseNumber,
+                          instCity,
+                          instCounty,
+                          instPostcode,
+                          instCountry
+                        ].filter(v => v && v !== '—');
+                        const instFullAddress = instAddressParts.join(', ') || '—';
+                        const hasIndividualAddress = instAddressParts.length > 0;
+                        
+                        // Company details from instruction
+                        const instCompanyName = String(inst?.CompanyName ?? inst?.companyName ?? companyName ?? '').trim();
+                        const instCompanyNumber = String(inst?.CompanyNumber ?? inst?.companyNumber ?? companyNo ?? '').trim();
+                        const instCompanyHouseNum = String(inst?.CompanyHouseNumber ?? inst?.companyHouseNumber ?? '').trim();
+                        const instCompanyStreet = String(inst?.CompanyStreet ?? inst?.companyStreet ?? '').trim();
+                        const instCompanyCity = String(inst?.CompanyCity ?? inst?.companyCity ?? '').trim();
+                        const instCompanyCounty = String(inst?.CompanyCounty ?? inst?.companyCounty ?? '').trim();
+                        const instCompanyPostcode = String(inst?.CompanyPostcode ?? inst?.companyPostcode ?? '').trim();
+                        const instCompanyCountry = String(inst?.CompanyCountry ?? inst?.companyCountry ?? '').trim();
+                        const instCompanyCountryCode = String(inst?.CompanyCountryCode ?? inst?.companyCountryCode ?? '').trim();
+                        const instCompanyAddressParts = [
+                          instCompanyHouseNum && instCompanyStreet ? `${instCompanyHouseNum} ${instCompanyStreet}` : instCompanyStreet || instCompanyHouseNum,
+                          instCompanyCity,
+                          instCompanyCounty,
+                          instCompanyPostcode,
+                          instCompanyCountry
+                        ].filter(v => v && v !== '—');
+                        const instCompanyFullAddress = instCompanyAddressParts.join(', ') || '—';
+                        const hasCompanyDetails = (instCompanyName && instCompanyName !== '—') || (instCompanyNumber && instCompanyNumber !== '—');
+                        
+                        // Passcode for checkout link
+                        const instPasscode = deal?.Passcode || deal?.passcode || inst?.Passcode || inst?.passcode || '';
+                        const checkoutUrl = instPasscode ? `https://instruct.helix-law.com/pitch/${instPasscode}` : '';
+                        
+                        // Instruction datetime
+                        const instructionDateTime = (() => {
+                          const dateRaw = inst?.SubmissionDate || inst?.InstructionDate || inst?.DateCreated || inst?.CreatedAt || inst?.createdAt || null;
+                          if (!dateRaw) return null;
+                          try {
+                            const d = new Date(dateRaw);
+                            if (Number.isNaN(d.getTime())) return null;
+                            const date = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+                            const timeRaw = inst?.SubmissionTime || inst?.submissionTime || inst?.CreatedTime || inst?.createdTime || null;
+                            if (timeRaw) {
+                              const t = new Date(timeRaw);
+                              if (!Number.isNaN(t.getTime())) {
+                                const time = t.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+                                return `${date} ${time}`;
+                              }
+                            }
+                            return date;
+                          } catch {
+                            return null;
+                          }
+                        })();
+                        
+                        // Determine instruction status label
+                        const instStatusLabel = (() => {
+                          const stage = instructionStage.toLowerCase();
+                          if (hasMatter && matterRef && matterRef !== '—') return 'Matter Created';
+                          if (stage.includes('complet')) return 'Completed';
+                          if (stage.includes('active') || stage.includes('progress')) return 'In Progress';
+                          if (stage.includes('initiali')) return 'Initialised';
+                          if (stage.includes('instruct')) return 'Instructed';
+                          return matterStatus !== '—' ? matterStatus : 'Instructed';
+                        })();
+                        
+                        // Status color based on stage
+                        const instStatusColor = (() => {
+                          if (hasMatter) return '#22c55e'; // Green for matter created
+                          if (instructionStage.toLowerCase().includes('complet')) return '#22c55e';
+                          if (instructionStage.toLowerCase().includes('active') || instructionStage.toLowerCase().includes('progress')) return colours.highlight;
+                          return colours.highlight;
+                        })();
+                        
+                        // Payment data for instructed context
+                        const instPayment = firstSuccessfulPayment;
+                        const instPaymentStatus = instPayment ? 'Paid' : (instInternalStatus === 'paid' ? 'Paid' : 'Unpaid');
+                        const instPaymentDate = paymentDate !== '—' ? paymentDate : null;
+                        const instPaymentMethodRaw = (() => {
+                          if (!instPayment) return '';
+                          const methodRaw = (
+                            instPayment.payment_method || instPayment.payment_type || instPayment.method || 
+                            instPayment.type || instPayment.paymentMethod || instPayment.PaymentMethod || instPayment.PaymentType || ''
+                          ).toString().toLowerCase();
+                          const meta = typeof instPayment.metadata === 'object' ? instPayment.metadata : {};
+                          const metaMethod = (meta?.payment_method || meta?.method || meta?.paymentMethod || '').toString().toLowerCase();
+                          const intentId = (instPayment.payment_intent_id || instPayment.paymentIntentId || '').toString();
+                          const intentIsBank = intentId.startsWith('bank_');
+                          const intentIsCard = intentId.startsWith('pi_');
+                          return methodRaw || metaMethod || (intentIsBank ? 'bank' : intentIsCard ? 'card' : '');
+                        })();
+                        const instPaymentIsCard = instPaymentMethodRaw.includes('card') || instPaymentMethodRaw.includes('stripe') || instPaymentMethodRaw === 'cc' || (instPayment?.payment_intent_id || '').startsWith('pi_');
+                        const instPaymentIsBank = instPaymentMethodRaw.includes('bank') || instPaymentMethodRaw.includes('transfer') || instPaymentMethodRaw.includes('bacs') || instPaymentMethodRaw.includes('ach') || (instPayment?.payment_intent_id || '').startsWith('bank_');
+
                         return (
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                            {renderTag({ iconName: 'CompletedSolid', label: 'Stage', value: matterStatus })}
-                            {renderTag({ iconName: 'NumberSymbol', label: 'Ref', value: instructionRef, monospace: true, onClick: instructionRef ? () => void safeCopy(String(instructionRef)) : undefined })}
-                            {renderTag({ iconName: 'TextDocument', label: 'Matter', value: matterRef, monospace: true })}
-                            {renderTag({ iconName: 'Contact', label: 'Fee earner', value: feeEarner })}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                              
+                            {/* Row 1: Instructed Timestamp + Chips */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                              {/* Instructed Timestamp chip - at the start */}
+                              {instructionDateTime && (
+                                <div
+                                  title="Instruction date"
+                                  style={{ 
+                                    display: 'flex', alignItems: 'center', gap: 6,
+                                    padding: '5px 10px', borderRadius: 4,
+                                    background: isDarkMode ? 'rgba(34, 197, 94, 0.12)' : 'rgba(34, 197, 94, 0.08)',
+                                    border: `1px solid ${isDarkMode ? 'rgba(34, 197, 94, 0.25)' : 'rgba(34, 197, 94, 0.15)'}`,
+                                    cursor: 'default',
+                                    transition: 'all 0.15s ease'
+                                  }}
+                                >
+                                  <FaClock size={10} style={{ color: '#22c55e' }} />
+                                  <span style={{ fontSize: 10, fontWeight: 600, color: '#22c55e' }}>Instructed {instructionDateTime}</span>
+                                </div>
+                              )}
+                                
+                              {/* Instruction Ref chip - clickable to copy */}
+                                {instructionRef && (
+                                  <div
+                                    onClick={(e) => { e.stopPropagation(); void safeCopy(String(instructionRef)); }}
+                                    title="Click to copy instruction reference"
+                                    style={{ 
+                                      display: 'flex', alignItems: 'center', gap: 5,
+                                      padding: '5px 10px', borderRadius: 4,
+                                      background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
+                                      border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.15)'}`,
+                                      cursor: 'pointer',
+                                      transition: 'all 0.15s ease'
+                                    }}
+                                  >
+                                    <Icon iconName="Tag" styles={{ root: { fontSize: 10, color: colours.highlight } }} />
+                                    <span style={{ fontSize: 10, fontWeight: 600, fontFamily: 'monospace', color: colours.highlight }}>{instructionRef}</span>
+                                  </div>
+                                )}
+                                
+                                {/* Instruct Link chip - opens pitch page */}
+                                {checkoutUrl && instPasscode && (
+                                  <a
+                                    href={checkoutUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    onClick={(e) => e.stopPropagation()}
+                                    title={`Open instruct page: instruct.helix-law.com/pitch/${instPasscode}`}
+                                    style={{ 
+                                      display: 'flex', alignItems: 'center', gap: 5,
+                                      padding: '5px 10px', borderRadius: 4,
+                                      background: isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(0,0,0,0.02)',
+                                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0,0,0,0.04)'}`,
+                                      cursor: 'pointer',
+                                      textDecoration: 'none',
+                                      transition: 'all 0.15s ease'
+                                    }}
+                                  >
+                                    <FaLink size={9} style={{ color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : '#64748b' }} />
+                                    <span style={{ fontSize: 10, fontWeight: 500, color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : '#64748b' }}>Instruct Link</span>
+                                    <span style={{ fontSize: 10, fontWeight: 600, fontFamily: 'monospace', color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b' }}>{instPasscode}</span>
+                                  </a>
+                                )}
+                            </div>
+
+                            {/* Row 2: Key Info Strip */}
+                            <div style={{ 
+                              display: 'flex', flexWrap: 'wrap', gap: 0, 
+                              padding: '10px 0',
+                              background: isDarkMode ? 'rgba(2, 6, 23, 0.4)' : '#f8fafc',
+                              borderRadius: 6,
+                              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : '#e2e8f0'}`
+                            }}>
+                              {/* Client Type */}
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
+                                <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Type</span>
+                                <span style={{ fontSize: 12, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 5, color: clientType && clientType !== '—' ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b') : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
+                                  {clientType && clientType !== '—' && (clientType.toLowerCase().includes('company') || clientType.toLowerCase().includes('business') || clientType.toLowerCase().includes('corporate')) 
+                                    ? <FaBuilding size={10} style={{ opacity: 0.7 }} />
+                                    : <FaUser size={10} style={{ opacity: 0.7 }} />}
+                                  {clientType || '—'}
+                                </span>
+                              </div>
+                              
+                              {/* Separator */}
+                              <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
+
+                              {/* Client - shows Company Name for Company clients, Person Name for Individual */}
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
+                                <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Client</span>
+                                <span style={{ fontSize: 12, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 5, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b' }}>
+                                  {clientType && (clientType.toLowerCase().includes('company') || clientType.toLowerCase().includes('business') || clientType.toLowerCase().includes('corporate'))
+                                    ? <><FaBuilding size={10} style={{ opacity: 0.7 }} />{instCompanyName || instFullName || '—'}</>
+                                    : <><FaUser size={10} style={{ opacity: 0.7 }} />{instFullName || '—'}</>
+                                  }
+                                </span>
+                              </div>
+                              
+                              {/* Separator */}
+                              <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
+
+                              {/* Fee Earner / Helix Contact */}
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
+                                <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Helix Contact</span>
+                                <span style={{ fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', color: feeEarner && feeEarner !== '—' ? colours.highlight : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
+                                  {feeEarner || '—'}
+                                </span>
+                              </div>
+                              
+                              {/* Separator */}
+                              <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
+                              
+                              {/* Stage */}
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
+                                <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Stage</span>
+                                <span style={{ fontSize: 12, fontWeight: 500, color: instructionStage ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b') : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
+                                  {instructionStage || matterStatus || '—'}
+                                </span>
+                              </div>
+                              
+                              {/* Separator */}
+                              <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
+
+                              {/* Payment Status */}
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
+                                <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Payment</span>
+                                <span style={{ fontSize: 12, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 5, color: instPaymentStatus === 'Paid' ? '#22c55e' : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
+                                  {instPaymentStatus === 'Paid' && (
+                                    instPaymentIsCard ? <FaCreditCard size={10} style={{ opacity: 0.8 }} /> 
+                                    : instPaymentIsBank ? <FaBuilding size={10} style={{ opacity: 0.8 }} /> 
+                                    : null
+                                  )}
+                                  {instPaymentStatus === 'Paid' && instPaymentDate ? `Paid ${instPaymentDate}` : instPaymentStatus}
+                                </span>
+                              </div>
+                              
+                              {/* Separator */}
+                              <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
+
+                              {/* Consent */}
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
+                                <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Consent</span>
+                                <span style={{ fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4, color: '#22c55e' }}>
+                                  <FaCheck size={9} />
+                                  Given
+                                </span>
+                              </div>
+
+                              {instLastUpdated && (
+                                <>
+                                  {/* Separator */}
+                                  <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
+                                  {/* Last Updated */}
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
+                                    <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Updated</span>
+                                    <span style={{ fontSize: 12, fontWeight: 500, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b' }}>
+                                      {instLastUpdated}
+                                    </span>
+                                  </div>
+                                </>
+                              )}
+                            </div>
+
+                            {/* Row 3: Identity */}
+                            <div style={{
+                              padding: '12px 14px',
+                              background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : '#f8fafc',
+                              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : '#e2e8f0'}`,
+                              borderRadius: 6
+                            }}>
+                              <div style={{ fontWeight: 600, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6, fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>
+                                <FaIdCard size={10} style={{ opacity: 0.6 }} />
+                                Identity
+                              </div>
+                              
+                              {/* Personal info grid */}
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 20px', marginBottom: hasIndividualAddress ? 12 : 0 }}>
+                                {/* DOB */}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 80 }}>
+                                  <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>DOB</span>
+                                  <span style={{ fontSize: 12, fontWeight: 500, color: instDob && instDob !== '—' ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b') : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
+                                    {instDob || '—'}{instAge && instAge !== '—' ? ` (${instAge})` : ''}
+                                  </span>
+                                </div>
+                                
+                                {/* Gender */}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 60 }}>
+                                  <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Gender</span>
+                                  <span style={{ fontSize: 12, fontWeight: 500, color: instGender ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b') : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
+                                    {instGender || '—'}
+                                  </span>
+                                </div>
+                                
+                                {/* Nationality */}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 80 }}>
+                                  <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Nationality</span>
+                                  <span style={{ fontSize: 12, fontWeight: 500, color: instNationality ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b') : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
+                                    {instNationality || '—'}
+                                  </span>
+                                </div>
+                                
+                                {/* ID Type */}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 80 }}>
+                                  <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>ID Type</span>
+                                  <span style={{ fontSize: 12, fontWeight: 500, textTransform: 'capitalize', display: 'flex', alignItems: 'center', gap: 4, color: instIdType ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b') : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
+                                    {instIdType === 'passport' ? <FaPassport size={10} style={{ opacity: 0.6 }} /> : null}
+                                    {instIdType || '—'}
+                                  </span>
+                                </div>
+                                
+                                {/* ID Number (passport or license based on ID Type) */}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 100 }}>
+                                  <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>
+                                    {instIdType?.toLowerCase().includes('license') || instIdType?.toLowerCase().includes('licence') ? 'License No.' : 'Passport No.'}
+                                  </span>
+                                  <span 
+                                    onClick={(instPassportNumber || instDriversLicense) ? (e) => { e.stopPropagation(); void safeCopy(instIdType?.toLowerCase().includes('licen') ? instDriversLicense : instPassportNumber || instDriversLicense); } : undefined}
+                                    style={{ fontSize: 12, fontWeight: 500, fontFamily: 'monospace', color: (instPassportNumber || instDriversLicense) ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b') : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8'), cursor: (instPassportNumber || instDriversLicense) ? 'pointer' : 'default' }}>
+                                    {instIdType?.toLowerCase().includes('licen') ? (instDriversLicense || '—') : (instPassportNumber || '—')}
+                                  </span>
+                                </div>
+                                
+                                {/* Related Client ID */}
+                                {instRelatedClientId && (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 100 }}>
+                                    <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Related Client</span>
+                                    <span 
+                                      onClick={(e) => { e.stopPropagation(); void safeCopy(String(instRelatedClientId)); }}
+                                      style={{ fontSize: 12, fontWeight: 500, fontFamily: 'monospace', color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b', cursor: 'pointer' }}>
+                                      {instRelatedClientId}
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                              
+                              {/* Address (labeled, inside box) */}
+                              {hasIndividualAddress && (
+                                <div style={{ 
+                                  paddingTop: 10, 
+                                  borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : '#e2e8f0'}`
+                                }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>
+                                    <FaHome size={10} style={{ opacity: 0.6 }} />
+                                    Address
+                                  </div>
+                                  <span 
+                                    onClick={(e) => { e.stopPropagation(); void safeCopy(instFullAddress); }}
+                                    style={{ fontSize: 12, fontWeight: 500, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b', cursor: 'pointer', lineHeight: 1.5 }}>
+                                    {instFullAddress}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Row 6: Company Details */}
+                            {hasCompanyDetails && (
+                              <div style={{
+                                padding: '12px 14px',
+                                background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : '#f8fafc',
+                                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : '#e2e8f0'}`,
+                                borderRadius: 6
+                              }}>
+                                <div style={{ fontWeight: 600, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6, fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>
+                                  <FaBuilding size={10} style={{ opacity: 0.6 }} />
+                                  Company
+                                </div>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
+                                  {instCompanyName && (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                      <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Name</span>
+                                      <span style={{ fontSize: 12, fontWeight: 500, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b' }}>{instCompanyName}</span>
+                                    </div>
+                                  )}
+                                  {instCompanyNumber && (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                      <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Company No.</span>
+                                      <span 
+                                        onClick={(e) => { e.stopPropagation(); void safeCopy(instCompanyNumber); }}
+                                        style={{ fontSize: 12, fontWeight: 500, fontFamily: 'monospace', color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b', cursor: 'pointer' }}>{instCompanyNumber}</span>
+                                    </div>
+                                  )}
+                                </div>
+                                
+                                {/* Company Address (labeled, inside box like individual address) */}
+                                {instCompanyAddressParts.length > 0 && (
+                                  <div style={{ 
+                                    paddingTop: 10, 
+                                    marginTop: 10,
+                                    borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : '#e2e8f0'}`
+                                  }}>
+                                    <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8', display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
+                                      <FaBuilding size={9} style={{ opacity: 0.6 }} />
+                                      Address
+                                    </span>
+                                    <div 
+                                      onClick={(e) => { e.stopPropagation(); void safeCopy(instCompanyFullAddress); }}
+                                      style={{ fontSize: 12, fontWeight: 500, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b', cursor: 'pointer', lineHeight: 1.5 }}>
+                                      {instCompanyFullAddress}
+                                      {instCompanyCountryCode && instCompanyCountryCode !== instCompanyCountry && <span style={{ marginLeft: 6, fontSize: 10, color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : '#94a3b8' }}>({instCompanyCountryCode})</span>}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Row 7: Instruction notes (if provided) */}
+                            {instNotes && (
+                              <div style={{
+                                padding: '12px 14px',
+                                background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : '#fff',
+                                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : '#e2e8f0'}`,
+                                borderRadius: 6,
+                                fontSize: 12,
+                                lineHeight: 1.65,
+                                color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#334155',
+                                whiteSpace: 'pre-wrap'
+                              }}>
+                                <div style={{ fontWeight: 600, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : '#64748b' }}>
+                                  <FaFileAlt size={10} style={{ opacity: 0.6 }} />
+                                  Instruction notes
+                                </div>
+                                <div style={{ opacity: 0.95 }}>
+                                  {instNotes}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         );
                       })()}
                     </div>
 
                     {/* Enquiry notes (collapsed by default, like table view) */}
-                    {contextStage === 'enquiry' && hasEnquiryNotes && (
+                    {/* Show notes only for instructed context - enquiry has its own notes, pitch has pitch content */}
+                    {hasEnquiryNotes && (activeContextStage ?? 'enquiry') === 'instructed' && (
                       <div style={{ marginTop: 10 }}>
                         <div
                           onClick={(e) => {
@@ -2579,219 +3533,15 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                       </div>
                     )}
 
-                    {/* Address is not available at enquiry stage */}
-                    {contextStage !== 'enquiry' && (
-                      <>
-                        {/* Address */}
-                        <div style={{ marginTop: 10, paddingTop: 8, borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)'}` }}>
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 8, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.55)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-                              <FaHome size={9} /> Address
-                            </div>
-                            <button type="button" onClick={(e) => { e.stopPropagation(); void safeCopy([streetFull, city, county, postcode, country].filter((v) => v !== '—' && v).join(', ')); }} style={{ background: 'transparent', border: 'none', padding: '2px 4px', cursor: 'pointer', fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.55)', display: 'flex', alignItems: 'center', gap: 3 }} title="Copy full address">
-                              <FaCopy size={8} /> Copy
-                            </button>
-                          </div>
-                          <div style={{ fontSize: 10, fontWeight: 500, color: isDarkMode ? 'rgba(226, 232, 240, 0.8)' : 'rgba(15, 23, 42, 0.75)', lineHeight: 1.4 }}>
-                            {[streetFull, city, county, postcode, country].filter((v: string) => v && v !== '—').join(', ') || '—'}
-                          </div>
-                        </div>
-
-                        {/* Company Address (if company client) */}
-                        {isCompany && companyName !== '—' && (
-                          <div style={{ marginTop: 10, paddingTop: 8, borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)'}` }}>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 8, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.55)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-                                <FaBuilding size={9} /> Company Address
-                              </div>
-                              <button type="button" onClick={(e) => { e.stopPropagation(); void safeCopy([companyStreetFull, companyCity, companyCounty, companyPostcode, companyCountry].filter((v) => v !== '—' && v).join(', ')); }} style={{ background: 'transparent', border: 'none', padding: '2px 4px', cursor: 'pointer', fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.55)', display: 'flex', alignItems: 'center', gap: 3 }} title="Copy company address">
-                                <FaCopy size={8} /> Copy
-                              </button>
-                            </div>
-                            <div style={{ fontSize: 10, fontWeight: 500, color: isDarkMode ? 'rgba(226, 232, 240, 0.8)' : 'rgba(15, 23, 42, 0.75)', lineHeight: 1.4 }}>
-                              {[companyStreetFull, companyCity, companyCounty, companyPostcode, companyCountry].filter((v) => v && v !== '—').join(', ') || '—'}
-                            </div>
-                          </div>
-                        )}
-                      </>
-                    )}
                   </div>
                 </>
               );
             })()}
 
 
-            {/* Pitch Landing (Details layout) */}
-            {enableContextStageChips && activeContextStage === 'pitch' && (
-              <div style={{
-                background: isDarkMode ? 'rgba(15, 23, 42, 0.45)' : 'rgba(255, 255, 255, 0.7)',
-                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
-                borderRadius: 0,
-                overflow: 'hidden',
-              }}>
-                <div style={{
-                  padding: '8px 14px',
-                  background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.03)',
-                  borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 10,
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 9, fontWeight: 800, color: colours.highlight, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                      <FaUser size={11} /> Pitch
-                    </div>
-                    <div style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? 'rgba(226, 232, 240, 0.75)' : 'rgba(15, 23, 42, 0.75)' }}>
-                      {pitchDate && pitchDate !== '—' ? `Pitched ${pitchDate}` : 'No pitch recorded'}
-                    </div>
-                  </div>
+            {/* NOTE: Pitch content is rendered in the header card above when contextStage === 'pitch' */}
 
-                  {prospectId && (
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); openEnquiryFromContext(); }}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 6,
-                        padding: '6px 10px',
-                        borderRadius: 0,
-                        border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.25)'}`,
-                        background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
-                        color: colours.highlight,
-                        fontSize: 10,
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                      }}
-                      title="Open this enquiry in Prospects"
-                    >
-                      <FaLink size={10} />
-                      Open Enquiry
-                    </button>
-                  )}
-                </div>
-
-                <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-                  gap: 12,
-                  padding: '10px 14px',
-                }}>
-                  <div>
-                    <div style={{ fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.45)' : 'rgba(100, 116, 139, 0.45)' }}>Amount</div>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)' }}>
-                      {formatMoney(deal?.Amount ?? deal?.amount ?? deal?.FeeAmount ?? deal?.feeAmount)}
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.45)' : 'rgba(100, 116, 139, 0.45)' }}>Service</div>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)' }}>
-                      {deal?.ServiceDescription || deal?.serviceDescription || areaOfWork || '—'}
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.45)' : 'rgba(100, 116, 139, 0.45)' }}>Passcode</div>
-                    <div style={{
-                      fontSize: 12,
-                      fontWeight: 700,
-                      fontFamily: 'monospace',
-                      color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)',
-                      cursor: (deal?.Passcode || deal?.passcode) ? 'pointer' : 'default',
-                    }}
-                      onClick={(e) => {
-                        const passcode = (deal?.Passcode || deal?.passcode) as any;
-                        if (!passcode) return;
-                        e.stopPropagation();
-                        void safeCopy(String(passcode));
-                      }}
-                      title={(deal?.Passcode || deal?.passcode) ? 'Click to copy' : undefined}
-                    >
-                      {(deal?.Passcode || deal?.passcode || '—') as any}
-                    </div>
-                  </div>
-
-                  <div>
-                    <div style={{ fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.45)' : 'rgba(100, 116, 139, 0.45)' }}>Client</div>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.8)' }}>{fullName}</div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.45)' : 'rgba(100, 116, 139, 0.45)' }}>Contact</div>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.8)' }}>{email !== '—' ? email : phone}</div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.45)' : 'rgba(100, 116, 139, 0.45)' }}>Instruction Ref</div>
-                    <div style={{ fontSize: 11, fontWeight: 700, fontFamily: 'monospace', color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.8)' }}>{instructionRef || '—'}</div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Instruction / Pitch Reference (hidden for enquiry-only view) */}
-            {(() => {
-              const contextStage: ContextStageKey = enableContextStageChips
-                ? (activeContextStage ?? 'instructed')
-                : 'instructed';
-
-              if (contextStage === 'enquiry') return null;
-
-              const dealPasscode = (deal?.Passcode || deal?.passcode) as any;
-              const dealId = (deal?.DealId || deal?.dealId) as any;
-
-              const refLabel = contextStage === 'pitch' ? 'Deal' : 'Ref';
-
-              const refValueRaw =
-                contextStage === 'pitch'
-                  ? String(dealPasscode || dealId || instructionRef || '')
-                  : String(instructionRef || '');
-
-              const refValue = refValueRaw && refValueRaw.trim().length > 0 ? refValueRaw : '—';
-              const canCopy = refValue !== '—';
-
-              return (
-                <div style={{
-                  display: 'flex', alignItems: 'center', gap: 10,
-                  padding: '8px 12px',
-                  background: isDarkMode ? 'rgba(15, 23, 42, 0.3)' : 'rgba(255, 255, 255, 0.5)',
-                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
-                  borderRadius: 0,
-                }}>
-                  <div style={{ fontSize: 8, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.55)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>{refLabel}</div>
-                  <div
-                    style={{
-                      fontSize: 11,
-                      fontWeight: 700,
-                      fontFamily: 'monospace',
-                      color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)',
-                      cursor: canCopy ? 'pointer' : 'default',
-                      opacity: canCopy ? 1 : 0.7,
-                    }}
-                    onClick={(e) => {
-                      if (!canCopy) return;
-                      e.stopPropagation();
-                      void safeCopy(refValue);
-                    }}
-                    title={canCopy ? 'Click to copy' : undefined}
-                  >
-                    {refValue}
-                  </div>
-                  {feeEarner !== '—' && (
-                    <>
-                      <div style={{ width: 1, height: 12, background: isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(0, 0, 0, 0.08)' }} />
-                      <div style={{ fontSize: 8, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.55)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>FE</div>
-                      <div style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? 'rgba(226, 232, 240, 0.8)' : 'rgba(15, 23, 42, 0.75)' }}>{feeEarner}</div>
-                    </>
-                  )}
-                  {contextStage === 'instructed' && matterRef !== '—' && (
-                    <>
-                      <div style={{ width: 1, height: 12, background: isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(0, 0, 0, 0.08)' }} />
-                      <div style={{ fontSize: 8, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.55)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Matter</div>
-                      <div style={{ fontSize: 10, fontWeight: 600, fontFamily: 'monospace', color: colours.highlight, cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); if (onOpenMatter) onOpenMatter(item); }} title="Open matter">{matterRef}</div>
-                    </>
-                  )}
-                </div>
-              );
-            })()}
+            {/* Instruction Reference bar (only for instructed view - pitch shows refs in its own layout) */}
           </div>
         )}
 
@@ -2838,397 +3588,350 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
               ) : undefined,
             )}
 
-            {/* ID Verification Section (full-width combined) */}
+            {/* ID Verification Section */}
             <div style={{
-              background: isDarkMode ? 'rgba(15, 23, 42, 0.45)' : 'rgba(255, 255, 255, 0.7)',
-              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
-              borderRadius: 0,
-              overflow: 'hidden',
+              padding: '12px 14px',
+              background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : '#f8fafc',
+              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : '#e2e8f0'}`,
+              borderRadius: 6
             }}>
-              <div style={{
-                padding: '8px 14px',
-                background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.03)',
-                borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 9, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.65)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  <FaIdCard size={11} /> ID Verification
-                </div>
+              {/* Header */}
+              <div style={{ fontWeight: 600, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6, fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>
+                <FaIdCard size={10} style={{ opacity: 0.6 }} />
+                ID Verification
               </div>
 
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: '1fr',
-                gap: 12,
-                padding: '10px 14px',
-              }}>
-                {/* ID Document - visual display of which was used vs. alternatives */}
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 9, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.65)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>
-                    <FaIdCard size={11} /> Document Provided
-                  </div>
-                  {(() => {
-                    const hasPassport = passport !== '—';
-                    const hasLicense = license !== '—';
-                    const selected: 'passport' | 'license' | null = hasPassport ? 'passport' : hasLicense ? 'license' : null;
-
-                    const OptionButton = ({
-                      label,
-                      icon,
-                      value,
-                      expiry,
-                      expiryRaw,
-                      isSelected,
-                      isDisabled,
-                    }: {
-                      label: string;
-                      icon: React.ReactNode;
-                      value: string;
-                      expiry: string;
-                      expiryRaw: unknown;
-                      isSelected: boolean;
-                      isDisabled: boolean;
-                    }) => {
-                      const expiryRawText = typeof expiryRaw === 'string'
-                        ? expiryRaw
-                        : (expiryRaw == null ? undefined : undefined);
-
-                      const expiryStatus = getExpiryStatusColor(expiryRawText, isDarkMode);
-                      const displayExpiry = expiry !== '—'
-                        ? (expiryStatus.label ? expiryStatus.label : `Expires ${expiry}`)
-                        : '';
-
-                      return (
-                        <button
-                          type="button"
-                          disabled
-                          style={{
-                            flex: 1,
-                            padding: '10px 12px',
-                            minHeight: 54,
-                            borderRadius: 4,
-                            border: `1px solid ${isSelected ? '#22c55e' : isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(0, 0, 0, 0.06)'}`,
-                            background: isSelected
-                              ? (isDarkMode ? 'rgba(34, 197, 94, 0.15)' : 'rgba(34, 197, 94, 0.1)')
-                              : (isDarkMode ? 'rgba(148, 163, 184, 0.05)' : 'rgba(0, 0, 0, 0.02)'),
-                            color: isSelected
-                              ? '#22c55e'
-                              : (isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)'),
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'stretch',
-                            justifyContent: 'center',
-                            gap: 6,
-                            opacity: isDisabled ? 0.45 : 1,
-                            cursor: 'default',
-                            textAlign: 'left',
-                          }}
-                        >
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                              <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 18 }}>
-                                {icon}
-                              </span>
-                              <div style={{
-                                fontSize: 9,
-                                fontWeight: 800,
-                                letterSpacing: '0.4px',
-                                textTransform: 'uppercase',
-                                whiteSpace: 'nowrap',
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                              }}>
-                                {label}
-                              </div>
-                            </div>
-                            <span style={{
-                              width: 7,
-                              height: 7,
-                              borderRadius: '50%',
-                              background: isSelected ? '#22c55e' : (isDarkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(100, 116, 139, 0.35)'),
-                              flexShrink: 0,
-                            }} />
-                          </div>
-
-                          <div style={{
-                            fontSize: 11,
-                            fontFamily: 'monospace',
-                            fontWeight: 700,
-                            color: isSelected
-                              ? '#22c55e'
-                              : (isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.8)'),
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                          }}>
-                            {value !== '—' ? value : '—'}
-                          </div>
-
-                          {displayExpiry && (
-                            <div style={{
-                              fontSize: 9,
-                              fontWeight: 700,
-                              color: expiryStatus.color,
-                              whiteSpace: 'nowrap',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                            }}>
-                              {displayExpiry}
-                            </div>
-                          )}
-                        </button>
-                      );
-                    };
-
-                    return (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        <div style={{ display: 'flex', gap: 8 }}>
-                          <OptionButton
-                            label="Passport"
-                            icon={<FaPassport size={12} />}
-                            value={passport}
-                            expiry={passportExpiry}
-                            expiryRaw={passportExpiryRaw}
-                            isSelected={selected === 'passport'}
-                            isDisabled={!!selected && selected !== 'passport'}
-                          />
-                          <OptionButton
-                            label="Driving licence"
-                            icon={<FaIdCard size={12} />}
-                            value={license}
-                            expiry={licenseExpiry}
-                            expiryRaw={licenseExpiryRaw}
-                            isSelected={selected === 'license'}
-                            isDisabled={!!selected && selected !== 'license'}
-                          />
-                        </div>
-
-                        {!selected && (
-                          <div style={{ fontSize: 10, color: isDarkMode ? 'rgba(148, 163, 184, 0.55)' : 'rgba(100, 116, 139, 0.55)' }}>
-                            No document provided.
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })()}
-                </div>
-
-                {/* EID Results with colour coding - only show when verification has been run */}
-                {eidStatus !== 'pending' ? (
-                <div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 9, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.65)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                    <FaShieldAlt size={11} /> Electronic ID (EID)
-                    {isManuallyApproved && (
-                      <span style={{
-                        marginLeft: 6,
-                        padding: '2px 6px',
-                        borderRadius: 3,
-                        background: isDarkMode ? 'rgba(251, 191, 36, 0.15)' : 'rgba(251, 191, 36, 0.12)',
-                        color: '#f59e0b',
-                        fontSize: 7,
-                        fontWeight: 700,
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.3px',
-                      }}>
-                        Manually Approved
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
-                  {[
-                    {
-                      key: 'overall' as const,
-                      label: 'Overall',
-                      // Show "Approved" for manual approvals to distinguish from automatic "Pass"
-                      value: isManuallyApproved ? 'Approved' : (eidResult && eidResult !== '—' ? eidResult : (verificationDetails?.overallResult || '—')),
-                    },
-                    {
-                      key: 'pep' as const,
-                      label: 'PEP/Sanctions',
-                      value: (pepResult && pepResult !== '—' ? pepResult : (verificationDetails?.pepResult || '—')),
-                    },
-                    {
-                      key: 'address' as const,
-                      label: 'Address',
-                      value: (addressVerification && addressVerification !== '—' ? addressVerification : (verificationDetails?.addressResult || '—')),
-                    },
-                  ].map((item, idx) => {
-                    const value = String(item.value || '—');
-                    // For Overall tile when manually approved, treat "Approved" as pass
-                    const isPass = value.toLowerCase().includes('pass') || value.toLowerCase().includes('clear') || value.toLowerCase().includes('no match') || value.toLowerCase().includes('verified') || value.toLowerCase() === 'approved';
-                    const isWarn = value.toLowerCase().includes('review') || value.toLowerCase().includes('refer');
-                    const isFail = value.toLowerCase().includes('fail') || value.toLowerCase().includes('match');
-                    const resultColor = value === '—'
-                      ? (isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(100, 116, 139, 0.4)')
-                      : isPass
-                        ? colours.green
-                        : (isFail || isWarn)
-                          ? colours.cta
-                          : (isDarkMode ? 'rgba(226, 232, 240, 0.8)' : 'rgba(15, 23, 42, 0.75)');
-
-                    const pillStatus: 'pass' | 'fail' | 'pending' | 'warn' = value === '—'
-                      ? 'pending'
-                      : isPass
-                        ? 'pass'
-                        : isFail
-                          ? 'fail'
-                          : isWarn
-                            ? 'warn'
-                            : 'pending';
-
-                    const tile = eidTileDetails[item.key];
-                    const meaningfulFailures = (tile.failures || []).filter((f) => isMeaningfulFailureReason(f.reason));
-
-                    // Only the Overall tile is clickable when it shows fail/warn
-                    const isOverallNeedsAction = item.key === 'overall' && (isFail || isWarn);
-
-                    return (
-                      <div
-                        key={idx}
-                        onClick={isOverallNeedsAction ? () => setShowEidActionModal(true) : undefined}
-                        style={{
-                          padding: '8px 10px',
-                          background: isOverallNeedsAction 
-                            ? (isDarkMode ? 'rgba(239, 68, 68, 0.045)' : 'rgba(239, 68, 68, 0.025)')
-                            : (isDarkMode ? 'rgba(15, 23, 42, 0.55)' : 'rgba(255, 255, 255, 0.75)'),
-                          border: isOverallNeedsAction
-                            ? `1px solid rgba(239, 68, 68, 0.75)`
-                            : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
-                          borderRadius: 4,
-                          cursor: isOverallNeedsAction ? 'pointer' : 'default',
-                          transition: 'border-color 0.15s, box-shadow 0.15s, background 0.15s',
-                          boxShadow: isOverallNeedsAction ? `0 0 0 1px rgba(239, 68, 68, 0.10)` : 'none',
-                        }}
-                        title={isOverallNeedsAction ? 'Click to review and resolve' : undefined}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
-                          <div style={{ fontSize: 8, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.55)' : 'rgba(100, 116, 139, 0.6)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-                            {item.label}
-                          </div>
-                          <StatusPill
-                            status={pillStatus}
-                            label={value === '—' ? 'Pending' : isPass ? 'Pass' : isFail ? 'Fail' : isWarn ? 'Review' : 'Pending'}
-                          />
-                        </div>
-
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 14, height: 14, color: resultColor }}>
-                            {isPass ? <FaCheckCircle size={12} /> : (isFail || isWarn) ? <FaExclamationTriangle size={12} /> : null}
-                          </span>
-                          <div style={{ fontSize: 10, fontWeight: 650, color: resultColor, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>{value}</div>
-                        </div>
-
-                        {isOverallNeedsAction && (
-                          <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end' }}>
-                            <div style={{
-                              padding: '4px 8px',
-                              borderRadius: 999,
-                              background: isDarkMode ? 'rgba(239, 68, 68, 0.10)' : 'rgba(239, 68, 68, 0.08)',
-                              border: `1px solid ${isDarkMode ? 'rgba(239, 68, 68, 0.28)' : 'rgba(239, 68, 68, 0.22)'}`,
-                              color: '#ef4444',
-                              fontSize: 10,
-                              fontWeight: 750,
-                              letterSpacing: '0.1px',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: 6,
-                            }}>
-                              Review options <span style={{ fontWeight: 900 }}>→</span>
-                            </div>
-                          </div>
-                        )}
-
-                        {isEidDetailsExpanded && verificationDetails && (
-                          <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                            {meaningfulFailures.length > 0 && (
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                                {meaningfulFailures.map((f, fIdx) => (
-                                  <div key={fIdx} style={{ display: 'grid', gridTemplateColumns: '56px 1fr', gap: 6, alignItems: 'baseline' }}>
-                                    <div style={{ fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(100, 116, 139, 0.35)', textAlign: 'left' }}>
-                                      {fIdx === 0 ? 'Fail' : ''}
-                                    </div>
-                                    <div style={{ fontSize: 10, color: isDarkMode ? 'rgba(226, 232, 240, 0.78)' : 'rgba(15, 23, 42, 0.72)' }}>
-                                      {f.reason}{f.code ? ` (${f.code})` : ''}
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* Metadata row - always visible */}
+              {/* Data bar - Check metadata (only when verification has run) */}
+              {eidStatus !== 'pending' && (
                 <div style={{
-                  marginTop: 10,
-                  paddingTop: 8,
-                  borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(0, 0, 0, 0.03)'}`,
                   display: 'flex',
-                  alignItems: 'center',
-                  gap: 16,
                   flexWrap: 'wrap',
+                  gap: 0,
+                  padding: '10px 0',
+                  background: isDarkMode ? 'rgba(2, 6, 23, 0.4)' : '#f8fafc',
+                  borderRadius: 6,
+                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : '#e2e8f0'}`,
+                  marginBottom: 12
                 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(100, 116, 139, 0.4)', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.3px' }}>Checked</span>
-                    <span style={{ fontSize: 10, fontWeight: 600, fontFamily: 'monospace', color: isDarkMode ? 'rgba(226, 232, 240, 0.75)' : 'rgba(15, 23, 42, 0.7)' }}>
+                  {/* Checked Date */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
+                    <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Checked</span>
+                    <span style={{ fontSize: 12, fontWeight: 500, fontFamily: 'monospace', color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b' }}>
                       {formatMaybeDate(verificationDetails?.checkedDate) || verificationDetails?.checkedDate || eidDate || '—'}
                     </span>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(100, 116, 139, 0.4)', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.3px' }}>Provider</span>
+                  
+                  {/* Separator */}
+                  <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
+                  
+                  {/* Document Type */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
+                    <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>
+                      Document
+                    </span>
+                    <span style={{ fontSize: 12, fontWeight: 500, color: (passport !== '—' || license !== '—') ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b') : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
+                      {passport !== '—' ? 'Passport' : license !== '—' ? 'Driving License' : '—'}
+                    </span>
+                  </div>
+                  
+                  {/* Separator */}
+                  <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
+                  
+                  {/* Provider */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
+                    <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Provider</span>
                     <span
-                      style={{
-                        fontSize: 10,
-                        fontWeight: 600,
-                        color: isDarkMode ? 'rgba(226, 232, 240, 0.75)' : 'rgba(15, 23, 42, 0.7)',
-                        cursor: verificationMeta.provider !== '—' ? 'pointer' : 'default',
-                      }}
-                      onClick={(e) => {
-                        if (verificationMeta.provider === '—') return;
-                        e.stopPropagation();
-                        void safeCopy(verificationMeta.provider);
-                      }}
+                      style={{ fontSize: 12, fontWeight: 500, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b', cursor: verificationMeta.provider !== '—' ? 'pointer' : 'default' }}
+                      onClick={(e) => { if (verificationMeta.provider === '—') return; e.stopPropagation(); void safeCopy(verificationMeta.provider); }}
                       title={verificationMeta.provider !== '—' ? 'Click to copy' : undefined}
                     >
                       {verificationMeta.provider || '—'}
                     </span>
                   </div>
+                  
+                  {/* Ref */}
                   {verificationMeta.correlationId !== '—' && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative' }}>
-                      <span style={{ fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(100, 116, 139, 0.4)', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.3px' }}>Ref</span>
-                      <span
-                        style={{
+                    <>
+                      {/* Separator */}
+                      <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
+                      
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
+                        <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Ref</span>
+                        <span
+                          style={{ fontSize: 12, fontWeight: 500, fontFamily: 'monospace', color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b', cursor: 'pointer', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                          onClick={(e) => { e.stopPropagation(); void safeCopy(verificationMeta.correlationId); }}
+                          title={`${verificationMeta.correlationId}\n\nClick to copy`}
+                        >
+                          {verificationMeta.correlationId}
+                        </span>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* Verification Data - Collapsible section with data used in checks */}
+              {eidStatus !== 'pending' && (dob !== '—' || nationalityAlpha !== '—' || firstName || lastName) && (
+                <div style={{ marginBottom: 12 }}>
+                  <div
+                    onClick={() => setIsVerificationDataExpanded(!isVerificationDataExpanded)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '8px 10px',
+                      background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : 'rgba(0, 0, 0, 0.02)',
+                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.06)'}`,
+                      borderRadius: 4,
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <div style={{
+                        fontSize: 9,
+                        fontWeight: 600,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.3px',
+                        color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)',
+                        lineHeight: 1
+                      }}>
+                        Verification Data
+                      </div>
+                      {!isVerificationDataExpanded && (
+                        <div style={{
                           fontSize: 10,
-                          fontWeight: 600,
-                          fontFamily: 'monospace',
-                          color: isDarkMode ? 'rgba(226, 232, 240, 0.75)' : 'rgba(15, 23, 42, 0.7)',
-                          cursor: 'pointer',
-                          maxWidth: 100,
+                          color: isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(15, 23, 42, 0.55)',
                           overflow: 'hidden',
                           textOverflow: 'ellipsis',
                           whiteSpace: 'nowrap',
-                          borderBottom: `1px dashed ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)'}`,
-                        }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void safeCopy(verificationMeta.correlationId);
-                        }}
-                        title={`${verificationMeta.correlationId}\n\nClick to copy`}
-                      >
-                        {verificationMeta.correlationId}
-                      </span>
+                          maxWidth: 280
+                        }}>
+                          {[firstName, lastName].filter(Boolean).join(' ')} • {dob} • {nationalityAlpha}
+                        </div>
+                      )}
+                    </div>
+                    <FaChevronDown
+                      size={10}
+                      style={{
+                        color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)',
+                        transform: isVerificationDataExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                        transition: 'transform 0.15s ease'
+                      }}
+                    />
+                  </div>
+
+                  {isVerificationDataExpanded && (
+                    <div style={{
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      gap: 0,
+                      padding: '10px 0',
+                      background: isDarkMode ? 'rgba(2, 6, 23, 0.4)' : '#f8fafc',
+                      borderRadius: 6,
+                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : '#e2e8f0'}`,
+                      marginTop: 8
+                    }}>
+                      {/* Name */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
+                        <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Name</span>
+                        <span style={{ fontSize: 12, fontWeight: 500, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b' }}>
+                          {[title, firstName, lastName].filter(Boolean).join(' ') || '—'}
+                        </span>
+                      </div>
+
+                      {/* Separator */}
+                      <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
+
+                      {/* Document Number */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
+                        <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>
+                          {passport !== '—' ? 'Passport' : license !== '—' ? 'License' : 'Doc No.'}
+                        </span>
+                        <span 
+                          onClick={(passport !== '—' || license !== '—') ? (e) => { e.stopPropagation(); void safeCopy(passport !== '—' ? passport : license); } : undefined}
+                          title={(passport !== '—' || license !== '—') ? 'Click to copy' : undefined}
+                          style={{ fontSize: 12, fontWeight: 500, fontFamily: 'monospace', color: (passport !== '—' || license !== '—') ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b') : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8'), cursor: (passport !== '—' || license !== '—') ? 'pointer' : 'default' }}>
+                          {(passport !== '—' ? passport : license !== '—' ? license : '—')}
+                        </span>
+                      </div>
+
+                      {/* Separator */}
+                      <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
+
+                      {/* DOB */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
+                        <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>DOB</span>
+                        <span style={{ fontSize: 12, fontWeight: 500, fontFamily: 'monospace', color: dob !== '—' ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b') : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
+                          {dob}{age !== '—' ? ` (${age})` : ''}
+                        </span>
+                      </div>
+
+                      {/* Separator */}
+                      <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
+
+                      {/* Nationality */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
+                        <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Nationality</span>
+                        <span style={{ fontSize: 12, fontWeight: 500, color: nationalityAlpha !== '—' ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b') : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
+                          {nationalityAlpha}
+                        </span>
+                      </div>
+
+                      {/* Separator */}
+                      <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
+
+                      {/* Address (if available) */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px', flex: 1, minWidth: 200 }}>
+                        <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Address</span>
+                        <span style={{ fontSize: 12, fontWeight: 500, color: address ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b') : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8'), whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {address || '—'}
+                        </span>
+                      </div>
                     </div>
                   )}
                 </div>
+              )}
 
-                {/* Expanded details - additional refs + raw record */}
+              {/* Document Provided sub-section - REMOVED (Redundant with Data Bar) */}
+
+                {/* EID Results - only show when verification has been run */}
+                {eidStatus !== 'pending' ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {/* EID Results Strip - unified layout like Key Info Strip */}
+                <div style={{ 
+                  display: 'flex', flexWrap: 'wrap', gap: 0, 
+                  padding: '10px 0',
+                  background: isDarkMode ? 'rgba(2, 6, 23, 0.4)' : '#f8fafc',
+                  borderRadius: 6,
+                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : '#e2e8f0'}`
+                }}>
+                  {/* EID Label with badge */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
+                    <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8', display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <FaShieldAlt size={9} style={{ opacity: 0.6 }} /> EID
+                    </span>
+                    <span style={{ fontSize: 12, fontWeight: 500, color: isManuallyApproved ? '#f59e0b' : (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b') }}>
+                      {isManuallyApproved ? 'Manually Approved' : 'Checked'}
+                    </span>
+                  </div>
+
+                  {/* Separator */}
+                  <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
+
+                  {/* Overall */}
+                  {(() => {
+                    const overallValue = isManuallyApproved ? 'Approved' : (eidResult && eidResult !== '—' ? eidResult : (verificationDetails?.overallResult || '—'));
+                    const isPass = overallValue.toLowerCase().includes('pass') || overallValue.toLowerCase().includes('clear') || overallValue.toLowerCase() === 'approved';
+                    const isWarn = overallValue.toLowerCase().includes('review') || overallValue.toLowerCase().includes('refer');
+                    const isFail = overallValue.toLowerCase().includes('fail');
+                    const resultColor = isPass ? '#22c55e' : (isFail || isWarn) ? colours.cta : (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b');
+                    const isOverallNeedsAction = isFail || isWarn;
+                    return (
+                      <div 
+                        onClick={isOverallNeedsAction ? () => setShowEidActionModal(true) : undefined}
+                        style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px', cursor: isOverallNeedsAction ? 'pointer' : 'default' }}
+                        title={isOverallNeedsAction ? 'Click to review' : undefined}
+                      >
+                        <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Overall</span>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: resultColor, display: 'flex', alignItems: 'center', gap: 5 }}>
+                          {isPass ? <FaCheckCircle size={10} style={{ opacity: 0.8 }} /> : (isFail || isWarn) ? <FaExclamationTriangle size={10} style={{ opacity: 0.8 }} /> : null}
+                          {overallValue}
+                        </span>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Separator */}
+                  <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
+
+                  {/* PEP/Sanctions */}
+                  {(() => {
+                    const pepValue = pepResult && pepResult !== '—' ? pepResult : (verificationDetails?.pepResult || '—');
+                    const isPass = pepValue.toLowerCase().includes('pass') || pepValue.toLowerCase().includes('clear') || pepValue.toLowerCase().includes('no match');
+                    const isWarn = pepValue.toLowerCase().includes('review') || pepValue.toLowerCase().includes('refer');
+                    const isFail = pepValue.toLowerCase().includes('fail') || pepValue.toLowerCase().includes('match');
+                    const resultColor = isPass ? '#22c55e' : (isFail || isWarn) ? colours.cta : (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b');
+                    return (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
+                        <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>PEP/Sanctions</span>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: resultColor, display: 'flex', alignItems: 'center', gap: 5 }}>
+                          {isPass ? <FaCheckCircle size={10} style={{ opacity: 0.8 }} /> : (isFail || isWarn) ? <FaExclamationTriangle size={10} style={{ opacity: 0.8 }} /> : null}
+                          {pepValue}
+                        </span>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Separator */}
+                  <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
+
+                  {/* Address */}
+                  {(() => {
+                    const addrValue = addressVerification && addressVerification !== '—' ? addressVerification : (verificationDetails?.addressResult || '—');
+                    const isPass = addrValue.toLowerCase().includes('pass') || addrValue.toLowerCase().includes('verified');
+                    const isWarn = addrValue.toLowerCase().includes('review') || addrValue.toLowerCase().includes('refer');
+                    const isFail = addrValue.toLowerCase().includes('fail');
+                    const resultColor = isPass ? '#22c55e' : (isFail || isWarn) ? colours.cta : (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b');
+                    return (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
+                        <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Address</span>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: resultColor, display: 'flex', alignItems: 'center', gap: 5 }}>
+                          {isPass ? <FaCheckCircle size={10} style={{ opacity: 0.8 }} /> : (isFail || isWarn) ? <FaExclamationTriangle size={10} style={{ opacity: 0.8 }} /> : null}
+                          {addrValue}
+                        </span>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Separator */}
+                  <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
+
+                  {/* Raw Record Toggle */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
+                    <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Raw Record</span>
+                    <span 
+                      onClick={(e) => { e.stopPropagation(); setIsRawRecordExpanded((v) => !v); }}
+                      style={{ fontSize: 12, fontWeight: 500, color: isRawRecordExpanded ? colours.highlight : (isDarkMode ? 'rgba(148, 163, 184, 0.6)' : '#64748b'), cursor: 'pointer' }}
+                    >
+                      {isRawRecordExpanded ? 'Hide' : 'Show'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Raw Record Expanded (directly below the strip) */}
+                {isRawRecordExpanded && (
+                  <div style={{
+                    padding: '8px 10px',
+                    background: isDarkMode ? 'rgba(15, 23, 42, 0.55)' : 'rgba(255, 255, 255, 0.75)',
+                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
+                    borderRadius: 4,
+                  }}>
+                    <pre style={{
+                      margin: 0,
+                      fontSize: 10,
+                      lineHeight: 1.45,
+                      fontFamily: 'monospace',
+                      color: isDarkMode ? 'rgba(226, 232, 240, 0.82)' : 'rgba(15, 23, 42, 0.72)',
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                      maxHeight: 260,
+                      overflow: 'auto',
+                    }}>
+                      {(() => {
+                        const raw = verificationDetails?.rawResponse || (item as any)?.instruction?.EID_Result;
+                        if (!raw) return 'No raw record available.';
+                        const parsed = parseRawResponse(raw);
+                        if (parsed && typeof parsed === 'object') {
+                          try { return JSON.stringify(parsed, null, 2); } catch { return String(raw ?? ''); }
+                        }
+                        return typeof raw === 'string' ? raw : String(raw ?? '');
+                      })()}
+                    </pre>
+                  </div>
+                )}
+
+                {/* Expanded details - additional refs */}
                 {isEidDetailsExpanded && (
                   <div style={{
                     marginTop: 10,
@@ -3283,72 +3986,6 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                             </div>
                           </div>
                         ))}
-                      </div>
-                    )}
-
-                    {/* Raw record toggle */}
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: 8,
-                      flexWrap: 'wrap',
-                    }}>
-                      <div style={{ fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.45)' : 'rgba(100, 116, 139, 0.45)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-                        Raw Record
-                      </div>
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); setIsRawRecordExpanded((v) => !v); }}
-                        style={{
-                          padding: '5px 10px',
-                          background: isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(0, 0, 0, 0.03)',
-                          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(0, 0, 0, 0.06)'}`,
-                          borderRadius: 3,
-                          fontSize: 10,
-                          fontWeight: 700,
-                          cursor: 'pointer',
-                          color: isDarkMode ? 'rgba(226, 232, 240, 0.8)' : 'rgba(15, 23, 42, 0.72)',
-                        }}
-                        title="Show the raw verification payload stored for this check"
-                      >
-                        {isRawRecordExpanded ? 'Hide' : 'Show'}
-                      </button>
-                    </div>
-
-                    {isRawRecordExpanded && (
-                      <div style={{
-                        marginTop: 6,
-                        padding: '8px 10px',
-                        background: isDarkMode ? 'rgba(15, 23, 42, 0.55)' : 'rgba(255, 255, 255, 0.75)',
-                        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
-                        borderRadius: 4,
-                      }}>
-                        <pre style={{
-                          margin: 0,
-                          fontSize: 10,
-                          lineHeight: 1.45,
-                          fontFamily: 'monospace',
-                          color: isDarkMode ? 'rgba(226, 232, 240, 0.82)' : 'rgba(15, 23, 42, 0.72)',
-                          whiteSpace: 'pre-wrap',
-                          wordBreak: 'break-word',
-                          maxHeight: 260,
-                          overflow: 'auto',
-                        }}>
-                          {(() => {
-                            const parsed = parseRawResponse(verificationDetails.rawResponse);
-                            if (parsed && typeof parsed === 'object') {
-                              try {
-                                return JSON.stringify(parsed, null, 2);
-                              } catch {
-                                return String(verificationDetails.rawResponse ?? '');
-                              }
-                            }
-                            return typeof verificationDetails.rawResponse === 'string'
-                              ? verificationDetails.rawResponse
-                              : String(verificationDetails.rawResponse ?? '');
-                          })()}
-                        </pre>
                       </div>
                     )}
 
@@ -3999,10 +4636,10 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                 </div>
                 ) : (
                   /* EID not yet run - show CTA to start verification */
-                  <div>
+                  <div style={{ paddingTop: 10, borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : '#e2e8f0'}` }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 9, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.65)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                        <FaShieldAlt size={11} /> Electronic ID (EID)
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 9, fontWeight: 600, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.3px' }}>
+                        <FaShieldAlt size={10} style={{ opacity: 0.6 }} /> Electronic ID (EID)
                       </div>
                     </div>
                     <div style={{
@@ -4050,7 +4687,6 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                     </div>
                   </div>
                 )}
-              </div>
             </div>
 
             {/* Trigger EID Confirmation Modal - shown before starting verification */}
@@ -4286,7 +4922,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
               paymentStatus === 'complete' ? 'Payment received' : paymentStatus === 'review' ? 'Payment needs attention' : 'Payment pending',
               paymentStatus,
               paymentStatus === 'complete'
-                ? `Received £${totalPaid.toLocaleString()}. Add receipt or continue.`
+                ? `Received £${totalPaid.toLocaleString()}.`
                 : paymentStatus === 'review'
                   ? 'Retry failed payment or issue a new link.'
                   : 'Send payment link or take payment on account.',
@@ -4443,7 +5079,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
               riskStatus === 'complete' ? 'Risk completed' : riskStatus === 'review' ? 'Risk requires review' : 'Risk pending',
               riskStatus,
               riskStatus === 'complete'
-                ? 'Risk assessment recorded. Check score and confirmations.'
+                ? 'Risk assessed and recorded.'
                 : riskStatus === 'review'
                   ? 'High risk flagged. Review assessment and approvals.'
                   : 'Complete AML risk assessment before proceeding.',
@@ -4457,189 +5093,248 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
               }}>
                 <FaShieldAlt size={24} style={{ marginBottom: 8, opacity: 0.4 }} />
                 <div style={{ fontSize: 11, marginBottom: 12 }}>Risk assessment not completed</div>
-                {onOpenRiskAssessment && (
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); onOpenRiskAssessment(inst); }}
-                    style={{
-                      padding: '8px 16px',
-                      background: colours.highlight,
-                      color: '#FFFFFF',
-                      border: 'none',
-                      borderRadius: 4,
-                      fontSize: 11,
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 6,
-                    }}
-                  >
-                    <FaShieldAlt size={11} />
-                    Complete Assessment
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); setShowLocalRiskModal(true); }}
+                  style={{
+                    padding: '8px 16px',
+                    background: colours.highlight,
+                    color: '#FFFFFF',
+                    border: 'none',
+                    borderRadius: 4,
+                    fontSize: 11,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  <FaShieldAlt size={11} />
+                  Complete Assessment
+                </button>
               </div>
             ) : (
               <>
-                {/* Risk Summary Card */}
+                {/* Risk Content Card - matches enquiry/pitch design */}
                 <div style={{
-                  background: isDarkMode ? 'rgba(15, 23, 42, 0.4)' : 'rgba(255, 255, 255, 0.6)',
-                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
-                  borderRadius: 6,
-                  overflow: 'hidden',
+                  background: isDarkMode ? 'rgba(15, 23, 42, 0.45)' : 'rgba(255, 255, 255, 0.7)',
+                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
+                  borderRadius: 0,
+                  padding: '12px 14px',
                 }}>
-                  {/* Header with Result */}
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '10px 14px',
-                    background: isDarkMode ? 'rgba(148, 163, 184, 0.05)' : 'rgba(0, 0, 0, 0.02)',
-                    borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <StatusPill 
-                        status={isHighRisk ? 'fail' : 'pass'} 
-                        label={riskResult} 
-                      />
-                      {riskScore !== undefined && riskScore !== null && (
-                        <span style={{ 
-                          fontSize: 11, 
-                          color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.65)',
-                        }}>
-                          Score: <strong style={{ fontFamily: 'monospace' }}>{riskScore}</strong>
-                        </span>
-                      )}
-                    </div>
-                    <span style={{ 
-                      fontSize: 10, 
-                      color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)',
-                    }}>
-                      {complianceDate}
-                    </span>
-                  </div>
-
-                  {/* Risk Details Grid */}
-                  <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(3, 1fr)',
-                    gap: 1,
-                    background: isDarkMode ? 'rgba(148, 163, 184, 0.05)' : 'rgba(0, 0, 0, 0.02)',
-                  }}>
-                    {/* Cell 1: Risk Level */}
-                    <div style={{
-                      padding: '10px 12px',
-                      background: isDarkMode ? 'rgba(15, 23, 42, 0.6)' : 'rgba(255, 255, 255, 0.8)',
-                    }}>
-                      <div style={{ fontSize: 8, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Level</div>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)' }}>{riskLevel}</div>
-                    </div>
-                    {/* Cell 2: Assessor */}
-                    <div style={{
-                      padding: '10px 12px',
-                      background: isDarkMode ? 'rgba(15, 23, 42, 0.6)' : 'rgba(255, 255, 255, 0.8)',
-                    }}>
-                      <div style={{ fontSize: 8, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Assessor</div>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)' }}>{riskAssessor}</div>
-                    </div>
-                    {/* Cell 3: Jurisdiction */}
-                    <div style={{
-                      padding: '10px 12px',
-                      background: isDarkMode ? 'rgba(15, 23, 42, 0.6)' : 'rgba(255, 255, 255, 0.8)',
-                    }}>
-                      <div style={{ fontSize: 8, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Jurisdiction</div>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)' }}>{jurisdiction}</div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Client Profile Card */}
-                <div style={{
-                  background: isDarkMode ? 'rgba(15, 23, 42, 0.4)' : 'rgba(255, 255, 255, 0.6)',
-                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
-                  borderRadius: 6,
-                  padding: '10px 14px',
-                }}>
-                  <div style={{ fontSize: 8, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>Client Profile</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '6px 16px' }}>
-                    {[
-                      { label: 'Client Type', value: riskClientType },
-                      { label: 'How Introduced', value: howIntroduced },
-                    ].map((item, idx) => (
-                      <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: 10, color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)', fontWeight: 500 }}>{item.label}</span>
-                        <span style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)' }}>{item.value}</span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                    
+                    {/* Row 1: Status Chips + Timestamp */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                        {/* Assessed DateTime Chip - styled like Pitched chip */}
+                        {complianceDateTime && (
+                          <div
+                            title="Assessment completed"
+                            style={{ 
+                              display: 'flex', alignItems: 'center', gap: 6,
+                              padding: '5px 10px', borderRadius: 4,
+                              background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
+                              border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.15)'}`,
+                            }}
+                          >
+                            <FaShieldAlt size={10} style={{ color: colours.highlight }} />
+                            <span style={{ fontSize: 10, fontWeight: 600, color: colours.highlight }}>Assessed {complianceDateTime}</span>
+                          </div>
+                        )}
+                        
+                        {/* Result Badge */}
+                        <div
+                          title={`Risk: ${riskResult}`}
+                          style={{ 
+                            display: 'flex', alignItems: 'center', gap: 6,
+                            padding: '5px 10px', borderRadius: 4,
+                            background: isHighRisk 
+                              ? (isDarkMode ? 'rgba(214, 85, 65, 0.12)' : 'rgba(214, 85, 65, 0.08)')
+                              : (isDarkMode ? 'rgba(115, 171, 96, 0.12)' : 'rgba(115, 171, 96, 0.08)'),
+                            border: `1px solid ${isHighRisk 
+                              ? (isDarkMode ? 'rgba(214, 85, 65, 0.25)' : 'rgba(214, 85, 65, 0.15)')
+                              : (isDarkMode ? 'rgba(115, 171, 96, 0.25)' : 'rgba(115, 171, 96, 0.15)')}`,
+                          }}
+                        >
+                          <span style={{ fontSize: 10, fontWeight: 600, color: isHighRisk ? colours.cta : colours.green }}>{riskResult}</span>
+                        </div>
+                        
+                        {/* Score Badge */}
+                        {riskScore !== undefined && riskScore !== null && (
+                          <div
+                            title={`Risk Score: ${riskScore}`}
+                            style={{ 
+                              display: 'flex', alignItems: 'center', gap: 5,
+                              padding: '5px 10px', borderRadius: 4,
+                              background: isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(0,0,0,0.02)',
+                              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0,0,0,0.04)'}`,
+                            }}
+                          >
+                            <Icon iconName="NumberSymbol" styles={{ root: { fontSize: 10, color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : '#64748b' } }} />
+                            <span style={{ fontSize: 10, fontWeight: 600, fontFamily: 'monospace', color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b' }}>{riskScore}</span>
+                          </div>
+                        )}
+                        
+                        {/* Assessor Badge */}
+                        <div
+                          title={`Assessed by: ${riskAssessor}`}
+                          style={{ 
+                            display: 'flex', alignItems: 'center', gap: 5,
+                            padding: '5px 10px', borderRadius: 4,
+                            background: isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(0,0,0,0.02)',
+                            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0,0,0,0.04)'}`,
+                          }}
+                        >
+                          <FaUser size={9} style={{ color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : '#64748b' }} />
+                          <span style={{ fontSize: 10, fontWeight: 500, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b' }}>{riskAssessor}</span>
+                        </div>
                       </div>
-                    ))}
-                  </div>
-                </div>
+                    </div>
 
-                {/* Funds Analysis Card */}
-                <div style={{
-                  background: isDarkMode ? 'rgba(15, 23, 42, 0.4)' : 'rgba(255, 255, 255, 0.6)',
-                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
-                  borderRadius: 6,
-                  padding: '10px 14px',
-                }}>
-                  <div style={{ fontSize: 8, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>Funds Analysis</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '6px 16px' }}>
-                    {[
-                      { label: 'Source of Funds', value: sourceOfFunds },
-                      { label: 'Destination', value: destinationOfFunds },
-                      { label: 'Source of Wealth', value: sourceOfWealth },
-                      { label: 'Funds Type', value: fundsType },
-                      { label: 'Value', value: valueOfInstruction },
-                    ].map((item, idx) => (
-                      <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: 10, color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)', fontWeight: 500 }}>{item.label}</span>
-                        <span style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)' }}>{item.value}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+                    {/* Row 2: Compliance Confirmations Data Bar */}
+                    <div style={{ 
+                      display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 0, 
+                      padding: '10px 0',
+                      background: isDarkMode ? 'rgba(2, 6, 23, 0.4)' : '#f8fafc',
+                      borderRadius: 6,
+                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : '#e2e8f0'}`
+                    }}>
+                      {[
+                        { label: 'Client Risk', value: clientRiskConsidered ? 'Considered' : null, docUrl: 'https://drive.google.com/file/d/1_7dX2qSlvuNmOiirQCxQb8NDs6iUSAhT/view?usp=sharing' },
+                        { label: 'Transaction Risk', value: transactionRiskConsidered ? 'Considered' : null, docUrl: 'https://drive.google.com/file/d/1sTRII8MFU3JLpMiUcz-Y6KBQ1pP1nKgT/view?usp=sharing' },
+                        { label: 'Sanctions', value: firmWideSanctionsConsidered ? 'Considered' : null, docUrl: 'https://drive.google.com/file/d/1Wx-dHdfXuN0-A2YmBYb-OO-Bz2wXevl9/view?usp=sharing' },
+                        { label: 'AML Policy', value: firmWideAMLConsidered ? 'Considered' : null, docUrl: 'https://drive.google.com/file/d/1TcBlV0Pf0lYlNkmdOGRfpx--DcTEC7na/view?usp=sharing' },
+                      ].map((item, idx, arr) => (
+                        <React.Fragment key={idx}>
+                          <div style={{ display: 'flex', alignItems: 'stretch', gap: 8, padding: '0 14px' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1 }}>
+                              <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>
+                                {item.label}
+                              </span>
+                              <span style={{ 
+                                fontSize: 12, 
+                                fontWeight: item.value ? 500 : 400, 
+                                color: item.value 
+                                  ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b')
+                                  : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8'),
+                              }}>
+                                {item.value || '—'}
+                              </span>
+                            </div>
+                            <a 
+                              href={item.docUrl} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              title={`View ${item.label} policy`}
+                              style={{ 
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                padding: '0 6px',
+                                color: isDarkMode ? 'rgba(148, 163, 184, 0.4)' : '#94a3b8',
+                                textDecoration: 'none',
+                                borderRadius: 4,
+                                transition: 'all 0.15s ease',
+                              }}
+                              onMouseEnter={(e) => { 
+                                e.currentTarget.style.color = colours.highlight; 
+                                e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.05)';
+                              }}
+                              onMouseLeave={(e) => { 
+                                e.currentTarget.style.color = isDarkMode ? 'rgba(148, 163, 184, 0.4)' : '#94a3b8'; 
+                                e.currentTarget.style.background = 'transparent';
+                              }}
+                            >
+                              <FaChevronRight size={10} />
+                            </a>
+                          </div>
+                          {idx < arr.length - 1 && (
+                            <div style={{ width: 1, height: 28, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
+                          )}
+                        </React.Fragment>
+                      ))}
+                    </div>
 
-                {/* Compliance Confirmations Card */}
-                <div style={{
-                  background: isDarkMode ? 'rgba(15, 23, 42, 0.4)' : 'rgba(255, 255, 255, 0.6)',
-                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
-                  borderRadius: 6,
-                  padding: '10px 14px',
-                }}>
-                  <div style={{ fontSize: 8, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>Compliance Confirmations</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
-                    {[
-                      { label: 'Client Risk Factors', checked: clientRiskConsidered },
-                      { label: 'Transaction Risk Factors', checked: transactionRiskConsidered },
-                      { label: 'Sanctions Assessment', checked: firmWideSanctionsConsidered },
-                      { label: 'AML Policy', checked: firmWideAMLConsidered },
-                    ].map((item, idx) => (
-                      <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{ 
-                          width: 14, 
-                          height: 14, 
-                          borderRadius: 3,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          background: item.checked ? colours.green : (isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(100, 116, 139, 0.1)'),
-                          color: item.checked ? '#fff' : (isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(100, 116, 139, 0.3)'),
-                          fontSize: 9,
-                          flexShrink: 0,
-                        }}>
-                          {item.checked ? '✓' : ''}
-                        </span>
-                        <span style={{ 
-                          fontSize: 10, 
-                          color: item.checked 
-                            ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)')
-                            : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)'),
-                          fontWeight: item.checked ? 500 : 400,
-                        }}>
-                          {item.label}
-                        </span>
+                    {/* Row 3: Assessment Questions & Answers Chip */}
+                    <div style={{
+                      padding: '12px 14px',
+                      background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : '#f8fafc',
+                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : '#e2e8f0'}`,
+                      borderRadius: 6
+                    }}>
+                      {/* Header with Edit button */}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                        <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>
+                          <FaShieldAlt size={10} style={{ opacity: 0.6 }} />
+                          Assessment Answers
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setShowLocalRiskModal(true); }}
+                          style={{
+                            padding: '4px 10px',
+                            background: 'transparent',
+                            color: colours.highlight,
+                            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.25)'}`,
+                            borderRadius: 4,
+                            fontSize: 10,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 5,
+                            transition: 'all 0.15s ease',
+                          }}
+                        >
+                          <FaEdit size={9} />
+                          Edit Assessment
+                        </button>
                       </div>
-                    ))}
+                      
+                      {/* Q&A Grid - alternating rows for visual clarity */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+                        {[
+                          { question: 'Client Type', answer: riskClientType },
+                          { question: 'How was Client Introduced?', answer: howIntroduced },
+                          { question: 'Source of Funds', answer: sourceOfFunds },
+                          { question: 'Destination of Funds', answer: destinationOfFunds },
+                          { question: 'Funds Type', answer: fundsType },
+                          { question: 'Value of Instruction', answer: valueOfInstruction },
+                          { question: 'Limitation Period', answer: limitationPeriod },
+                          { question: 'Transaction Risk Level', answer: riskLevel },
+                        ].map((item, idx) => (
+                          <div 
+                            key={idx} 
+                            style={{ 
+                              display: 'flex', 
+                              justifyContent: 'space-between', 
+                              alignItems: 'center',
+                              padding: '8px 10px',
+                              background: idx % 2 === 0 
+                                ? (isDarkMode ? 'rgba(148, 163, 184, 0.03)' : 'rgba(0,0,0,0.015)')
+                                : 'transparent',
+                              borderRadius: 4,
+                            }}
+                          >
+                            <span style={{ fontSize: 11, fontWeight: 500, color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : '#64748b' }}>
+                              {item.question}
+                            </span>
+                            <span style={{ 
+                              fontSize: 11, 
+                              fontWeight: 600, 
+                              color: item.answer && item.answer !== '—' 
+                                ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b')
+                                : (isDarkMode ? 'rgba(148, 163, 184, 0.4)' : '#94a3b8'),
+                              textAlign: 'right',
+                            }}>
+                              {item.answer || '—'}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 </div>
               </>
@@ -4688,73 +5383,166 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                 )}
               </div>
             ) : (
-              <div style={{
-                background: isDarkMode ? 'rgba(15, 23, 42, 0.4)' : 'rgba(255, 255, 255, 0.6)',
-                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
-                borderRadius: 6,
-                overflow: 'hidden',
-              }}>
-                {/* Header with Status */}
+              <>
+                {/* Matter Content Card - matches pitch tab design */}
                 <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  padding: '10px 14px',
-                  background: isDarkMode ? 'rgba(148, 163, 184, 0.05)' : 'rgba(0, 0, 0, 0.02)',
-                  borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
+                  background: isDarkMode ? 'rgba(15, 23, 42, 0.45)' : 'rgba(255, 255, 255, 0.7)',
+                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
+                  borderRadius: 0,
+                  padding: '12px 14px',
                 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <StatusPill status="pass" label="Opened" />
-                    <span style={{ 
-                      fontSize: 12, 
-                      fontWeight: 600,
-                      fontFamily: 'monospace',
-                      color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)',
-                    }}>
-                      {matterRef}
-                    </span>
-                  </div>
-                  <span style={{ 
-                    fontSize: 10, 
-                    color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)',
-                  }}>
-                    {matterStatus}
-                  </span>
-                </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                    
+                    {/* Row 1: Chips + Date - matches pitch layout */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        {/* Opened DateTime Chip - blue highlight like "Pitched" chip */}
+                        {matterOpenDate && matterOpenDate !== '—' && (
+                          <div
+                            title="Matter opened"
+                            style={{ 
+                              display: 'flex', alignItems: 'center', gap: 6,
+                              padding: '5px 10px', borderRadius: 4,
+                              background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
+                              border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.15)'}`,
+                            }}
+                          >
+                            <FaFolder size={10} style={{ color: colours.highlight }} />
+                            <span style={{ fontSize: 10, fontWeight: 600, color: colours.highlight }}>Opened {matterOpenDate}</span>
+                          </div>
+                        )}
+                        
+                        {/* Display Number Badge - like passcode chip */}
+                        <div
+                          title={`Matter: ${matterRef}`}
+                          style={{ 
+                            display: 'flex', alignItems: 'center', gap: 5,
+                            padding: '5px 10px', borderRadius: 4,
+                            background: isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(0,0,0,0.02)',
+                            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0,0,0,0.04)'}`,
+                          }}
+                        >
+                          <FaFolder size={9} style={{ color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : '#64748b' }} />
+                          <span style={{ fontSize: 10, fontWeight: 600, fontFamily: 'monospace', color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b' }}>{matterRef}</span>
+                        </div>
+                      </div>
+                      
+                      {/* Clio Matter ID badge - right side like timestamp */}
+                      {matter?.MatterID && (
+                        <div style={{ 
+                          display: 'flex', alignItems: 'center', gap: 6, 
+                          fontSize: 11, 
+                          color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : '#475569',
+                          background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0,0,0,0.03)',
+                          padding: '4px 10px',
+                          borderRadius: 4,
+                        }}>
+                          <FaLink size={9} style={{ opacity: 0.6 }} />
+                          <span style={{ fontWeight: 600, fontFamily: 'monospace' }}>{matter.MatterID}</span>
+                        </div>
+                      )}
+                    </div>
 
-                {/* Matter Details Grid */}
-                <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(3, 1fr)',
-                  gap: 1,
-                  background: isDarkMode ? 'rgba(148, 163, 184, 0.05)' : 'rgba(0, 0, 0, 0.02)',
-                }}>
-                  {/* Cell 1: Area of Work */}
-                  <div style={{
-                    padding: '10px 12px',
-                    background: isDarkMode ? 'rgba(15, 23, 42, 0.6)' : 'rgba(255, 255, 255, 0.8)',
-                  }}>
-                    <div style={{ fontSize: 8, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Area of Work</div>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)' }}>{areaOfWork}</div>
-                  </div>
-                  {/* Cell 2: Fee Earner */}
-                  <div style={{
-                    padding: '10px 12px',
-                    background: isDarkMode ? 'rgba(15, 23, 42, 0.6)' : 'rgba(255, 255, 255, 0.8)',
-                  }}>
-                    <div style={{ fontSize: 8, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Fee Earner</div>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)' }}>{feeEarner}</div>
-                  </div>
-                  {/* Cell 3: Client */}
-                  <div style={{
-                    padding: '10px 12px',
-                    background: isDarkMode ? 'rgba(15, 23, 42, 0.6)' : 'rgba(255, 255, 255, 0.8)',
-                  }}>
-                    <div style={{ fontSize: 8, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Client</div>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)' }}>{inst['Client Name'] || inst.client_name || '—'}</div>
+                    {/* Row 2: Data Bar - matches pitch layout */}
+                    <div style={{ 
+                      display: 'flex', flexWrap: 'wrap', gap: 0, 
+                      padding: '10px 0',
+                      background: isDarkMode ? 'rgba(2, 6, 23, 0.4)' : '#f8fafc',
+                      borderRadius: 6,
+                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : '#e2e8f0'}`
+                    }}>
+                      {[
+                        { label: 'Responsible', value: matterResponsibleSolicitor !== '—' ? matterResponsibleSolicitor : feeEarner !== '—' ? feeEarner : null },
+                        { label: 'Practice Area', value: matterPracticeArea !== '—' ? matterPracticeArea : areaOfWork !== '—' ? areaOfWork : null },
+                        { label: 'Status', value: matterStatus !== '—' ? matterStatus : null },
+                        { label: 'Value', value: matterValue !== '—' ? matterValue : null },
+                        { label: 'Supervising', value: matter?.SupervisingPartner || null },
+                        { label: 'Originating', value: matterOriginatingSolicitor !== '—' && matterOriginatingSolicitor !== matterResponsibleSolicitor ? matterOriginatingSolicitor : null },
+                      ].filter(item => item.value).map((item, idx, arr) => (
+                        <React.Fragment key={idx}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
+                            <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>
+                              {item.label}
+                            </span>
+                            <span style={{ 
+                              fontSize: 12, 
+                              fontWeight: 500, 
+                              lineHeight: '18px',
+                              color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b',
+                            }}>
+                              {item.value}
+                            </span>
+                          </div>
+                          {idx < arr.length - 1 && (
+                            <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
+                          )}
+                        </React.Fragment>
+                      ))}
+                      {/* Empty state if no data bar items */}
+                      {![matterResponsibleSolicitor, matterPracticeArea, matterStatus, matterValue, matter?.SupervisingPartner].some(v => v && v !== '—') && (
+                        <div style={{ padding: '0 14px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8', fontSize: 11 }}>
+                          Matter details pending sync
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Row 3: Client + Value section - like Amount/Service */}
+                    {(matterClientName !== '—' || matterValue !== '—') && (
+                      <div style={{ 
+                        display: 'flex', alignItems: 'stretch', gap: 10,
+                        padding: '10px 14px',
+                        background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : '#f8fafc',
+                        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : '#e2e8f0'}`,
+                        borderRadius: 6,
+                      }}>
+                        {matterClientName !== '—' && (
+                          <>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flexShrink: 0 }}>
+                              <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Client</span>
+                              <span style={{ fontSize: 12, fontWeight: 600, color: colours.highlight }}>{matterClientName}</span>
+                            </div>
+                            {matterDescription !== '—' && (
+                              <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', alignSelf: 'stretch' }} />
+                            )}
+                          </>
+                        )}
+                        {matterDescription !== '—' && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1, minWidth: 0 }}>
+                            <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Description</span>
+                            <span style={{ fontSize: 12, fontWeight: 500, lineHeight: 1.5, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b' }}>{matterDescription}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Row 4: Source info if available - like pitch content preview */}
+                    {(matter?.Source || matter?.Referrer) && (
+                      <div style={{
+                        padding: '12px 14px',
+                        background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : '#f8fafc',
+                        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : '#e2e8f0'}`,
+                        borderRadius: 6,
+                        fontSize: 12,
+                        lineHeight: 1.65,
+                        color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b',
+                      }}>
+                        <div style={{ fontWeight: 600, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <FaLink size={10} style={{ opacity: 0.6 }} />
+                          Origin
+                        </div>
+                        <div style={{ opacity: 0.85, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                          {matter.Source && (
+                            <span><strong style={{ color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : '#64748b' }}>Source:</strong> {matter.Source}</span>
+                          )}
+                          {matter.Referrer && (
+                            <span><strong style={{ color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : '#64748b' }}>Referrer:</strong> {matter.Referrer}</span>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
-              </div>
+              </>
             )}
           </div>
         )}
@@ -5216,6 +6004,47 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Risk Assessment Modal */}
+      {showLocalRiskModal && inst && (
+        <div 
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 2000,
+            background: isDarkMode ? 'rgba(0,0,0,0.8)' : 'rgba(0,0,0,0.4)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px'
+          }}
+          onClick={(e) => { if (e.target === e.currentTarget) setShowLocalRiskModal(false); }}
+        >
+          <div style={{
+            background: isDarkMode ? colours.dark.background : '#ffffff',
+            borderRadius: '12px',
+            maxWidth: '900px',
+            width: '100%',
+            maxHeight: '90vh',
+            overflow: 'auto',
+            boxShadow: isDarkMode ? '0 20px 60px rgba(0,0,0,0.8)' : '0 20px 60px rgba(0,0,0,0.3)'
+          }}>
+            <RiskAssessmentPage
+              onBack={() => setShowLocalRiskModal(false)}
+              instructionRef={inst.InstructionRef || inst.instructionRef || ''}
+              riskAssessor={currentUser?.FullName || 'Unknown'}
+              existingRisk={risk}
+              onSave={(savedRisk) => {
+                setShowLocalRiskModal(false);
+                if (onRiskAssessmentSave) onRiskAssessmentSave(savedRisk);
+              }}
+            />
           </div>
         </div>
       )}

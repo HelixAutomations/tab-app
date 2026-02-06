@@ -56,7 +56,8 @@ helix-hub-v1/
 │       ├── instructions.js       # Instructions CRUD
 │       └── matter-operations.js  # Matter management
 │
-├── scripts/                      # Utility scripts
+├── tools/                        # Reusable ops scripts (tracked)
+├── scripts/                      # Local-only scratch (excluded from git)
 │   └── backfill-instruction-matters.js
 │
 ├── database/                     # Database schemas
@@ -256,18 +257,9 @@ ORDER BY i.LastUpdated DESC
 
 ---
 
-### 4. Backfill Script (scripts/backfill-instruction-matters.js)
+### 4. Backfill Operations
 
-**Purpose**: One-time operation to populate ClientId/MatterId for instructions that never completed matter opening workflow.
-
-**When NOT Needed**:
-- Normal workflow should populate these fields via matter-operations.js
-- Only needed for historical data cleanup or workflow failures
-
-**Can Be Removed After**:
-- Verifying all active instructions have proper ClientId/MatterId
-- Documenting process for future use
-- Consider moving logic into admin tool if needed regularly
+Backfill operations are not tracked as one-off scripts. If needed, implement a reusable tool in `tools/` or a scoped admin route.
 
 ---
 
@@ -277,7 +269,6 @@ ORDER BY i.LastUpdated DESC
 
 **Files**:
 - `server/routes/matter-operations.js` - Main Clio operations
-- `scripts/backfill-instruction-matters.js` - Batch Clio operations
 
 **Critical Dependencies**:
 - Azure Key Vault for per-user Clio credentials
@@ -320,7 +311,6 @@ const result = await pool.request()
 
 **Files**:
 - `server/routes/matter-operations.js`
-- `scripts/backfill-instruction-matters.js`
 
 **Pattern**:
 ```javascript
@@ -411,6 +401,5 @@ LEFT JOIN Matters m ON i.InstructionRef = m.InstructionRef
 
 - **Database Schema**: `.github/instructions/DATABASE_SCHEMA_REFERENCE.md`
 - **Clio API**: `.github/instructions/CLIO_API_REFERENCE.md`
-- **Local Development**: `LOCAL_DEVELOPMENT_SETUP.md`
-- **Deployment**: `DEPLOYMENT_CHECKLIST.md`
+- **Platform Operations**: `docs/PLATFORM_OPERATIONS.md`
 - **Copilot Instructions**: `.github/copilot-instructions.md`

@@ -29,6 +29,7 @@ import { getNormalizedEnquirySource } from '../../utils/enquirySource';
 import HomePreview from './HomePreview';
 import EnquiriesReport, { MarketingMetrics } from './EnquiriesReport';
 import LogMonitor from './LogMonitor';
+import DataCentre from './DataCentre';
 import { useStreamingDatasets } from '../../hooks/useStreamingDatasets';
 import { fetchWithRetry, fetchJSON } from '../../utils/fetchUtils';
 import markWhite from '../../assets/markwhite.svg';
@@ -1507,7 +1508,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   const { showToast, hideToast, updateToast } = useToast();
   const loadingToastIdRef = useRef<string | null>(null);
   const [currentTime, setCurrentTime] = useState(() => new Date());
-  const [activeView, setActiveView] = useState<'overview' | 'dashboard' | 'annualLeave' | 'enquiries' | 'metaMetrics' | 'seoReport' | 'ppcReport' | 'matters' | 'logMonitor'>('overview');
+  const [activeView, setActiveView] = useState<'overview' | 'dashboard' | 'annualLeave' | 'enquiries' | 'metaMetrics' | 'seoReport' | 'ppcReport' | 'matters' | 'logMonitor' | 'dataCentre'>('overview');
   const [mattersWipRangeKey, setMattersWipRangeKey] = useState<MattersWipRangeKey>('12m');
   const [pendingMattersRangeKey, setPendingMattersRangeKey] = useState<MattersWipRangeKey>(mattersWipRangeKey);
   const [enquiriesRangeKey, setEnquiriesRangeKey] = useState<ReportRangeKey>('12m');
@@ -2389,6 +2390,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     };
   }, [stopStreaming]);
 
+
+
   // Optimize timer - update every 2 seconds instead of every second to reduce CPU usage
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 2000); // 2s intervals for better performance
@@ -2903,6 +2906,29 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     demoModeEnabled,
   ]);
 
+  // Auto-trigger refresh on first load if no data has been fetched yet
+  useEffect(() => {
+    // Wait for resumeSession to run first (it sets setRefreshStartedAt)
+    const timeoutId = setTimeout(() => {
+      // If hasFetchedOnce is false, we try to fetch.
+      // We also check if enquiries, matters, and teamData are empty.
+      // This covers the case where hasFetchedOnce might be true from a previous session but cache was cleared or minimal.
+      const hasEnquiries = (datasetData.enquiries?.length ?? 0) > 0;
+      const hasMatters = (datasetData.allMatters?.length ?? 0) > 0;
+      const hasWip = (datasetData.wip?.length ?? 0) > 0;
+
+      const isActuallyEmpty = !hasEnquiries && !hasMatters && !hasWip;
+
+      if ((!hasFetchedOnce || isActuallyEmpty) && !isFetchingRef.current && !isStreamingConnectedRef.current && !refreshStartedAtRef.current && !demoModeEnabled) {
+        debugLog('ReportingHome: Auto-triggering initial data refresh (no data/cache detected)');
+        performStreamingRefresh(false);
+      }
+    }, 800);
+
+    return () => clearTimeout(timeoutId);
+  }, [hasFetchedOnce, performStreamingRefresh, demoModeEnabled, datasetData.enquiries, datasetData.allMatters, datasetData.wip]);
+
+
   // Enhanced throttling to prevent excessive refresh triggers
   const refreshDebounceRef = useRef<NodeJS.Timeout | null>(null);
   const lastRefreshRef = useRef<number>(0);
@@ -2916,6 +2942,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       });
       return;
     }
+    setActiveView('dataCentre');
     const now = Date.now();
     const timeSinceLastRefresh = now - lastRefreshRef.current;
     const timeSinceGlobalRefresh = now - globalLastRefresh;
@@ -2965,6 +2992,35 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   }, [performStreamingRefresh, showToast, demoModeEnabled]);
 
   // Scoped refreshers for specific reports with enhanced throttling
+  const refreshCollectedFeesOnly = useCallback(async () => {
+    if (demoModeEnabled) {
+      showToast({
+        message: 'Demo mode: collected time refresh skipped. Live ingestion stays idle.',
+        type: 'info',
+        duration: 4000,
+      });
+      return;
+    }
+    if (isFetching) {
+      showToast({
+        message: 'A refresh is already running. Please wait for it to finish.',
+        type: 'info',
+        duration: 4000,
+      });
+      return;
+    }
+    setActiveView('dataCentre');
+    showToast({
+      message: 'Refreshing collected time data…',
+      type: 'info',
+      duration: 4000,
+    });
+    await performStreamingRefresh(true, {
+      streamTargets: ['recoveredFees'],
+      statusTargets: ['recoveredFees'],
+    });
+  }, [demoModeEnabled, isFetching, performStreamingRefresh, showToast]);
+
   const refreshAnnualLeaveOnly = useCallback(async () => {
     if (demoModeEnabled) {
       showToast({
@@ -5713,6 +5769,23 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     );
   }
 
+  if (activeView === 'dataCentre') {
+    return (
+      <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
+        <DataCentre
+          onBack={handleBackToOverview}
+          onRefreshAll={refreshDatasetsWithStreaming}
+          onRefreshCollected={refreshCollectedFeesOnly}
+          isRefreshing={isActivelyLoading}
+          progressPercent={streamingProgress.percentage}
+          phaseLabel={refreshPhaseLabel}
+          elapsedLabel={formatDurationMs(refreshElapsedMs)}
+          datasets={datasetSummariesSorted}
+        />
+      </div>
+    );
+  }
+
   return (
     <>
       <style>{spinnerStyle}</style>
@@ -5738,6 +5811,34 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
             </div>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <DefaultButton
+                  text="Data Hub"
+                  iconProps={{ iconName: 'Database' }}
+                  onClick={() => navigateToReport('dataCentre')}
+                  styles={{
+                    root: {
+                      borderRadius: 0,
+                      padding: '0 16px',
+                      height: 36,
+                      border: `1px solid ${isDarkMode ? 'rgba(56, 189, 248, 0.4)' : 'rgba(59, 130, 246, 0.3)'}`,
+                      background: isDarkMode ? 'rgba(56, 189, 248, 0.15)' : 'rgba(59, 130, 246, 0.1)',
+                      color: isDarkMode ? '#e0f2fe' : '#1d4ed8',
+                      fontWeight: 600,
+                      fontSize: 13,
+                      fontFamily: 'Raleway, sans-serif',
+                      transition: 'all 0.15s ease',
+                      marginRight: 8,
+                    },
+                    rootHovered: {
+                      background: isDarkMode ? 'rgba(56, 189, 248, 0.25)' : 'rgba(59, 130, 246, 0.2)',
+                      borderColor: isDarkMode ? 'rgba(56, 189, 248, 0.5)' : 'rgba(59, 130, 246, 0.4)',
+                    },
+                    icon: {
+                      color: isDarkMode ? '#38bdf8' : '#2563eb',
+                      fontSize: 14,
+                    },
+                  }}
+                />
                 <DefaultButton
                   text={isActivelyLoading ? 'Refreshing…' : 'Refresh All Datasets'}
                   onClick={refreshDatasetsWithStreaming}

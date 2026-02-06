@@ -140,13 +140,11 @@ router.get('/', async (req, res) => {
     if (ids.length === 0) {
       return res.json([]);
     }
-
-    // Create parameterized query to prevent SQL injection
-    const placeholders = ids.map((_, index) => `@id${index}`).join(', ');
     
+    // TeamsBotActivityTracking.EnquiryId refers to instructions.enquiries.id (new enquiry IDs)
+    // Legacy IDs (from helix-core-data) are stored in instructions.enquiries.acid
+    // So we need to map legacy IDs → new enquiry IDs via acid column
     const rows = await withRequest(connectionString, async (request) => {
-      // Add parameters for each enquiry ID
-      // EnquiryId column is INT, so filter out non-numeric values first
       const sql = require('mssql');
       const numericIds = ids.filter(id => !isNaN(parseInt(id, 10)));
       
@@ -154,11 +152,45 @@ router.get('/', async (req, res) => {
         return []; // No valid IDs to query
       }
       
+      // First, map legacy IDs to new enquiry IDs via acid column
       numericIds.forEach((id, index) => {
-        request.input(`id${index}`, sql.Int, parseInt(id, 10));
+        request.input(`acid${index}`, sql.VarChar(50), id);
+      });
+      const acidPlaceholders = numericIds.map((_, index) => `@acid${index}`).join(', ');
+      
+      const acidMappingResult = await request.query(`
+        SELECT id, acid FROM [instructions].[dbo].[enquiries] 
+        WHERE acid IN (${acidPlaceholders})
+      `);
+      
+      // Build a map: legacyId → newEnquiryId
+      const acidToNewId = {};
+      acidMappingResult.recordset.forEach(row => {
+        if (row.acid && row.id) {
+          acidToNewId[row.acid] = row.id;
+        }
+      });
+      
+      // Collect all IDs to query (both new IDs from mapping AND original IDs in case they match directly)
+      const allIdsToQuery = new Set();
+      numericIds.forEach(id => {
+        allIdsToQuery.add(parseInt(id, 10)); // Original ID (might be new enquiry ID)
+        if (acidToNewId[id]) {
+          allIdsToQuery.add(acidToNewId[id]); // Mapped new enquiry ID
+        }
+      });
+      
+      const allIdsArray = Array.from(allIdsToQuery);
+      
+      if (allIdsArray.length === 0) {
+        return [];
+      }
+      
+      allIdsArray.forEach((id, index) => {
+        request.input(`id${index}`, sql.Int, id);
       });
 
-      const numericPlaceholders = numericIds.map((_, index) => `@id${index}`).join(', ');
+      const numericPlaceholders = allIdsArray.map((_, index) => `@id${index}`).join(', ');
       
       const result = await request.query(`
         SELECT 
@@ -189,7 +221,19 @@ router.get('/', async (req, res) => {
         ORDER BY CreatedAt DESC
       `);
       
-      return Array.isArray(result.recordset) ? result.recordset : [];
+      // Build reverse map: newEnquiryId → legacyId (for result annotation)
+      const newIdToAcid = {};
+      Object.entries(acidToNewId).forEach(([acid, newId]) => {
+        newIdToAcid[newId] = acid;
+      });
+      
+      // Annotate results with legacy ID where applicable
+      const annotatedResults = (result.recordset || []).map(row => ({
+        ...row,
+        LegacyEnquiryId: newIdToAcid[row.EnquiryId] || null
+      }));
+      
+      return annotatedResults;
     }, 2);
 
     // Transform the data to include Teams deep link
@@ -198,8 +242,9 @@ router.get('/', async (req, res) => {
         row.ChannelId, 
         row.ActivityId, 
         row.TeamId, 
-        row.TeamsMessageId, // Use the precise TeamsMessageId
-        row.CreatedAtMs
+        row.TeamsMessageId,
+        row.CreatedAtMs,
+        row.MessageTimestamp
       );
       return {
         ...row,
@@ -219,9 +264,9 @@ router.get('/', async (req, res) => {
 
 /**
  * Generate Teams deep link using the message's creation timestamp (epoch ms).
- * Teams deep links use the epoch milliseconds as the messageId, NOT the Bot Framework ActivityId.
+ * MS Docs: https://learn.microsoft.com/en-us/microsoftteams/platform/concepts/build-and-test/deep-link-teams
  */
-function generateTeamsDeepLink(channelId, activityId, teamId, teamsMessageId, createdAtMs) {
+function generateTeamsDeepLink(channelId, activityId, teamId, teamsMessageId, createdAtMs, messageTimestamp) {
   const tenantId = "7fbc252f-3ce5-460f-9740-4e1cb8bf78b8";
 
   if (!channelId || !teamId) {
@@ -229,18 +274,33 @@ function generateTeamsDeepLink(channelId, activityId, teamId, teamsMessageId, cr
     return null;
   }
 
-  // Use the precise TeamsMessageId that preserves exact millisecond timestamp
-  let messageId;
-  
-  if (teamsMessageId && teamsMessageId > 1640995200000) { // After Jan 1, 2022
-    // Use the exact TeamsMessageId - no adjustment needed as it's already precise
-    messageId = teamsMessageId;
-  } else if (createdAtMs) {
-    // Fallback: CreatedAt is usually ~500ms after the actual Teams message
-    messageId = createdAtMs - 500;
-  } else {
-    // Last resort: use activityId (least reliable for deep links)
-    messageId = activityId;
+  const resolveMessageId = (value) => {
+    if (!value) return null;
+    if (typeof value === 'number' && value > 1640995200000) return value;
+    const raw = String(value).trim();
+    if (!raw) return null;
+    if (raw.startsWith('0:')) {
+      const tail = raw.split(':')[1];
+      if (tail && /^\d{13,}$/.test(tail)) return Number(tail);
+    }
+    const match = raw.match(/\d{13,}/);
+    if (match) return Number(match[0]);
+    return null;
+  };
+
+  // Teams deep links use epoch millisecond timestamps as messageId
+  let messageId = resolveMessageId(teamsMessageId)
+    || resolveMessageId(activityId)
+    || null;
+
+  if (!messageId && messageTimestamp) {
+    const ts = Date.parse(messageTimestamp);
+    if (!Number.isNaN(ts)) messageId = ts;
+  }
+
+  if (!messageId) {
+    messageId = resolveMessageId(createdAtMs)
+      || resolveMessageId(messageTimestamp);
   }
   
   if (!messageId) {
@@ -248,9 +308,8 @@ function generateTeamsDeepLink(channelId, activityId, teamId, teamsMessageId, cr
     return null;
   }
 
-  const encChannel = encodeURIComponent(channelId);
   const encGroup = encodeURIComponent(teamId);
-  const messageIdToken = encodeURIComponent(String(messageId));
+  const messageIdToken = String(messageId);
   
   // Determine channel name from channelId for better UX
   let channelName = "General";
@@ -262,7 +321,7 @@ function generateTeamsDeepLink(channelId, activityId, teamId, teamsMessageId, cr
     channelName = "Property New Enquiries";
   }
 
-  const link = `https://teams.microsoft.com/l/message/${encChannel}/${messageIdToken}?tenantId=${tenantId}&groupId=${encGroup}&parentMessageId=${messageIdToken}&teamName=${encodeURIComponent('Helix Law')}&channelName=${encodeURIComponent(channelName)}&createdTime=${messageId}`;
+  const link = `https://teams.microsoft.com/l/message/${channelId}/${messageIdToken}?tenantId=${tenantId}&groupId=${encGroup}&parentMessageId=${messageIdToken}&teamName=${encodeURIComponent('Helix Law')}&channelName=${encodeURIComponent(channelName)}&createdTime=${messageId}`;
   
   return link;
 }

@@ -18,10 +18,11 @@ interface BespokePanelProps {
   isDarkMode?: boolean;
   variant?: 'side' | 'modal';
   icon?: React.ComponentType<any> | null | undefined;
+  zIndex?: number;
 }
 
 // Simple, clean overlay (avoid 100vw/100vh to prevent scrollbar width shifts)
-const getOverlayStyle = (offsetTop: number, isClosing: boolean, variant: 'side' | 'modal') =>
+const getOverlayStyle = (offsetTop: number, isClosing: boolean, variant: 'side' | 'modal', zIndex: number) =>
   mergeStyles({
     position: 'fixed',
     top: variant === 'side' ? offsetTop : 0,
@@ -35,7 +36,7 @@ const getOverlayStyle = (offsetTop: number, isClosing: boolean, variant: 'side' 
     justifyContent: variant === 'side' ? 'flex-end' : 'center',
     alignItems: variant === 'side' ? 'stretch' : 'center',
     padding: variant === 'modal' ? '20px' : 0,
-    zIndex: 2000,
+    zIndex,
     opacity: isClosing ? 0 : 1,
     transition: 'opacity 0.2s ease',
     margin: 0,
@@ -114,7 +115,8 @@ const BespokePanel: React.FC<BespokePanelProps> = ({
   offsetTop = 0,
   isDarkMode = false,
   variant = 'side',
-  icon: IconComponent
+  icon: IconComponent,
+  zIndex = 2000
 }) => {
   const [isClosing, setIsClosing] = useState<boolean>(false);
   const [isVisible, setIsVisible] = useState<boolean>(false);
@@ -189,7 +191,7 @@ const BespokePanel: React.FC<BespokePanelProps> = ({
 
   const overlayNode = (
     <div
-      className={getOverlayStyle(offsetTop, isClosing, variant)}
+      className={getOverlayStyle(offsetTop, isClosing, variant, zIndex)}
       onClick={handleClose}
       role="dialog"
       aria-modal="true"

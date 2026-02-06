@@ -13,6 +13,30 @@ const RATE_CHANGE_DATE_FIELD_ID = process.env.CLIO_RATE_CHANGE_FIELD_ID || '4634
 // N/A date marker - very old date to indicate not applicable
 const NA_DATE = '1970-01-01';
 
+// Admin gating for sensitive mutation endpoints.
+// NOTE: This is intentionally minimal and self-contained: we only gate the Clio->SQL sync endpoints.
+const DEFAULT_ADMIN_INITIALS = ['LZ', 'RL', 'LB', 'MC', 'AH', 'JH'];
+const ADMIN_INITIALS = new Set(
+    String(process.env.ADMIN_USERS_INITIALS || '')
+        .split(',')
+        .map(s => s.trim().toUpperCase())
+        .filter(Boolean)
+        .concat(DEFAULT_ADMIN_INITIALS)
+);
+
+function requireAdminInitials(req, res, next) {
+    const initialsRaw = req.query?.initials || req.body?.initials || req.headers?.['x-helix-initials'];
+    const initials = String(initialsRaw || '').trim().toUpperCase();
+
+    if (!initials) {
+        return res.status(401).json({ error: 'Missing initials' });
+    }
+    if (!ADMIN_INITIALS.has(initials)) {
+        return res.status(403).json({ error: 'Admin only' });
+    }
+    return next();
+}
+
 /**
  * Helper: Get Clio access token
  */
@@ -278,7 +302,7 @@ router.get('/verify-matter/:displayNumber', async (req, res) => {
  * Sync a matter's responsible/originating attorney from Clio to SQL
  * Updates the local SQL database with current Clio data
  */
-router.post('/sync-matter/:displayNumber', async (req, res) => {
+router.post('/sync-matter/:displayNumber', requireAdminInitials, async (req, res) => {
     const { displayNumber } = req.params;
     const legacyConn = process.env.SQL_CONNECTION_STRING_LEGACY || process.env.SQL_CONNECTION_STRING;
     
@@ -398,7 +422,7 @@ router.post('/sync-matter/:displayNumber', async (req, res) => {
  * Bulk sync multiple matters from Clio to SQL
  * Accepts array of display numbers in request body
  */
-router.post('/sync-matters', async (req, res) => {
+router.post('/sync-matters', requireAdminInitials, async (req, res) => {
     const { displayNumbers } = req.body;
     
     if (!displayNumbers || !Array.isArray(displayNumbers) || displayNumbers.length === 0) {

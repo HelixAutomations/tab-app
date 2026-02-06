@@ -3,6 +3,7 @@ import { UserData } from './functionality/types';
 // Centralized list of admin users by initials
 export const ADMIN_USERS = ['LZ', 'AC', 'CB', 'KW', 'JW', 'LA', 'FA'] as const;
 
+
 // Helper to determine if a user has admin privileges
 export function isAdminUser(user?: UserData | null): boolean {
     if (!user) return false;
@@ -30,3 +31,4 @@ export function isPowerUser(user?: UserData | null): boolean {
     const areas = (user.AOW || '').toLowerCase();
     return areas.includes('operations') || areas.includes('tech');
 }
+

@@ -41,6 +41,7 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
   const isDark = contextDarkMode ?? propDarkMode ?? false;
   const [showSuccess, setShowSuccess] = useState(false);
   const [allowEmptyState, setAllowEmptyState] = useState(false);
+  const [emptyCollapsed, setEmptyCollapsed] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(() => {
     // Persist collapse state in localStorage
     const saved = localStorage.getItem('immediateActionsCollapsed');
@@ -84,6 +85,16 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
       return () => clearTimeout(timer);
     }
   }, [immediateActionsReady, actions.length]);
+
+  // Auto-collapse empty state shortly after it appears
+  useEffect(() => {
+    if (immediateActionsReady && allowEmptyState && actions.length === 0) {
+      setEmptyCollapsed(false);
+      const timer = setTimeout(() => setEmptyCollapsed(true), 900);
+      return () => clearTimeout(timer);
+    }
+    setEmptyCollapsed(false);
+  }, [immediateActionsReady, allowEmptyState, actions.length]);
   
 
 
@@ -95,7 +106,7 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
     return (
       <Section isDark={isDark} seamless={seamless}>
         <Header text={headerText}>To Do</Header>
-        <EmptyState isDark={isDark}>All caught up</EmptyState>
+        <EmptyState isDark={isDark} collapsed={emptyCollapsed}>All caught up</EmptyState>
       </Section>
     );
   }
@@ -270,41 +281,49 @@ const CountBadge: React.FC<{ isDark: boolean; children: React.ReactNode }> = ({ 
   </span>
 );
 
-const EmptyState: React.FC<{ isDark: boolean; children: React.ReactNode }> = ({ isDark, children }) => (
+const EmptyState: React.FC<{ isDark: boolean; collapsed?: boolean; children: React.ReactNode }> = ({ isDark, collapsed = false, children }) => (
   <div style={{
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: '24px 16px',
-    background: isDark ? 'rgba(34, 197, 94, 0.04)' : 'rgba(34, 197, 94, 0.06)',
-    borderRadius: '2px',
-    border: `1px dashed ${isDark ? 'rgba(34, 197, 94, 0.2)' : 'rgba(34, 197, 94, 0.25)'}`,
-  }}>
-    <svg 
-      width="28" 
-      height="28" 
-      viewBox="0 0 24 24" 
-      fill="none" 
-      stroke={isDark ? '#4ade80' : '#22c55e'}
-      strokeWidth="2" 
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      style={{ marginBottom: 10, opacity: 0.7 }}
-    >
-      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-      <polyline points="22 4 12 14.01 9 11.01" />
-    </svg>
+    maxHeight: collapsed ? 0 : 160,
+    opacity: collapsed ? 0 : 1,
+    transform: collapsed ? 'translateY(-4px)' : 'translateY(0)',
+    overflow: 'hidden',
+    transition: 'max-height 0.25s ease, opacity 0.2s ease, transform 0.25s ease',
+  }} aria-hidden={collapsed}>
     <div style={{
-      fontSize: 13,
-      fontWeight: 600,
-      color: isDark ? '#4ade80' : '#16a34a',
-      marginBottom: 2,
-    }}>{children}</div>
-    <div style={{
-      fontSize: 11,
-      color: isDark ? 'rgba(74, 222, 128, 0.6)' : 'rgba(22, 163, 74, 0.7)',
-    }}>Nothing needs your attention</div>
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: '24px 16px',
+      background: isDark ? 'rgba(34, 197, 94, 0.04)' : 'rgba(34, 197, 94, 0.06)',
+      borderRadius: '2px',
+      border: `1px dashed ${isDark ? 'rgba(34, 197, 94, 0.2)' : 'rgba(34, 197, 94, 0.25)'}`,
+    }}>
+      <svg 
+        width="28" 
+        height="28" 
+        viewBox="0 0 24 24" 
+        fill="none" 
+        stroke={isDark ? '#4ade80' : '#22c55e'}
+        strokeWidth="2" 
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        style={{ marginBottom: 10, opacity: 0.7 }}
+      >
+        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+        <polyline points="22 4 12 14.01 9 11.01" />
+      </svg>
+      <div style={{
+        fontSize: 13,
+        fontWeight: 600,
+        color: isDark ? '#4ade80' : '#16a34a',
+        marginBottom: 2,
+      }}>{children}</div>
+      <div style={{
+        fontSize: 11,
+        color: isDark ? 'rgba(74, 222, 128, 0.6)' : 'rgba(22, 163, 74, 0.7)',
+      }}>Nothing needs your attention</div>
+    </div>
   </div>
 );
 

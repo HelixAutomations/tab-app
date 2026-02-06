@@ -6,11 +6,10 @@ const DEFAULT_TRANSIENT_CODES = new Set([
   'ECONNCLOSED',
   'ECONNRESET',
   'ETIMEDOUT',
-  'ETIMEOUT',
-  'ELOGIN'
+  'ETIMEOUT'
 ]);
 
-const buildMessageRegex = /ECONNRESET|ECONNCLOSED|ETIMEOUT|ETIMEDOUT|ELOGIN/i;
+const buildMessageRegex = /ECONNRESET|ECONNCLOSED|ETIMEOUT|ETIMEDOUT/i;
 
 const isTransientSqlError = (error, extraCodes) => {
   const code = error?.code || error?.originalError?.code || error?.cause?.code;

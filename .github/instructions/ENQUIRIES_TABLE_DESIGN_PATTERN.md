@@ -18,7 +18,7 @@ const date = enq.Touchpoint_Date || enq.datetime || enq.Date_Created;
 ```
 
 ### 2. **Database Schema Structure**
-Based on [`docs/enquiries-table-fields.md`](enquiries-table-fields.md):
+Based on [`docs/ENQUIRIES_REFERENCE.md`](../../docs/ENQUIRIES_REFERENCE.md):
 - **Core Fields**: `id`, `datetime`, `stage`, `claim`, `poc`, `first`, `last`, `email`, `phone`
 - **Business Logic**: `value`, `notes`, `aow`, `tow`, `moc`, `pitch`
 - **Extended Data**: Additional JSON payload in `enquiry_extended_data` table
@@ -177,7 +177,7 @@ interface TableResponse {
 - **Main Implementation**: `src/tabs/enquiries/Enquiries.tsx`
 - **Data Types**: `src/app/functionality/types.ts`
 - **API Layer**: `api/src/functions/getEnquiries.ts`
-- **Schema Reference**: `docs/enquiries-table-fields.md`
+- **Schema Reference**: `docs/ENQUIRIES_REFERENCE.md`
 - **Backend Service**: `submodules/enquiry-processing-v2/Services/EnquiryService.cs`
 
 ## Quality Standards

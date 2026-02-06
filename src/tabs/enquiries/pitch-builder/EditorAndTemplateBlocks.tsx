@@ -385,8 +385,9 @@ export function syncAmountIntoBody(prevBody: string, formattedAmount: string): s
   const insertVatNext = prevBody.replace(/\[INSERT\](\s*\+?\s*VAT)/i, `${formattedAmount}$1`);
   if (insertVatNext !== prevBody) return insertVatNext;
 
-  const moneyVatNext = prevBody.replace(/£\s?\d[\d,]*(?:\.\d{1,2})?\s*\+?\s*VAT/i, `${formattedAmount} + VAT`);
-  return moneyVatNext;
+  const estimateVatPattern = /(\b(?:budget|estimate|estimated|approx(?:imately)?|quote)\b[^£]{0,80})£\s?\d[\d,]*(?:\.\d{1,2})?\s*\+?\s*VAT/i;
+  const estimateVatNext = prevBody.replace(estimateVatPattern, (_match, prefix) => `${prefix}${formattedAmount} + VAT`);
+  return estimateVatNext;
 }
 
 interface InlineEditableAreaProps {

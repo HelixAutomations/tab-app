@@ -20,6 +20,7 @@ export interface Toast {
   title?: string;
   duration?: number;
   persist?: boolean;
+  progress?: Array<{ label: string; status: 'pending' | 'active' | 'done' | 'error' }>;
   action?: {
     label: string;
     onClick: () => void;
@@ -311,18 +312,58 @@ const ToastItem: React.FC<ToastItemProps> = ({ toast, onDismiss, isDarkMode }) =
     fontSize: 12,
     fontWeight: 600,
     color: 'rgba(226, 232, 240, 0.82)',
-    lineHeight: 1.2,
+    lineHeight: '16px',
+    paddingTop: 1,
+    paddingBottom: 1,
     whiteSpace: 'nowrap',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
   });
+
+  const loadingDotClass = mergeStyles({
+    width: 6,
+    height: 6,
+    borderRadius: '50%',
+    backgroundColor: scheme.accent,
+    opacity: 0.6,
+    boxShadow: `0 0 6px ${scheme.accent}`,
+    animation: 'status-breathe 1.8s ease-in-out infinite',
+    flexShrink: 0,
+  });
+
+  const progressDotsClass = mergeStyles({
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    marginLeft: 2,
+    flexShrink: 0,
+  });
+
+  const progressDotClass = (status: 'pending' | 'active' | 'done' | 'error') =>
+    mergeStyles({
+      width: 6,
+      height: 6,
+      borderRadius: '50%',
+      backgroundColor:
+        status === 'error'
+          ? '#ef4444'
+          : status === 'done'
+            ? 'rgba(148, 163, 184, 0.7)'
+            : scheme.accent,
+      opacity: status === 'pending' ? 0.25 : status === 'done' ? 0.6 : 0.9,
+      boxShadow: status === 'active' ? `0 0 6px ${scheme.accent}` : 'none',
+      animation: status === 'active' ? 'status-breathe 1.8s ease-in-out infinite' : 'none',
+      flexShrink: 0,
+    });
 
   // Content area
   const contentClass = mergeStyles({
     padding: '12px 16px',
     fontSize: 12,
     fontWeight: 500,
-    lineHeight: 1.5,
+    lineHeight: '16px',
+    paddingTop: 13,
+    paddingBottom: 13,
     color: 'rgba(229, 231, 235, 0.85)',
     wordBreak: 'break-word',
     whiteSpace: 'normal',
@@ -374,6 +415,15 @@ const ToastItem: React.FC<ToastItemProps> = ({ toast, onDismiss, isDarkMode }) =
         <div className={headerLeftClass}>
           <div className={iconClass}>{scheme.icon}</div>
           <div className={titleClass}>{toast.title ?? 'Notification'}</div>
+          {toast.type === 'loading' && toast.progress?.length ? (
+            <span className={progressDotsClass} aria-hidden>
+              {toast.progress.map((step, idx) => (
+                <span key={`${step.label}-${idx}`} className={progressDotClass(step.status)} />
+              ))}
+            </span>
+          ) : (
+            toast.type === 'loading' && <span className={loadingDotClass} />
+          )}
         </div>
         {toast.type !== 'loading' && (
           <button className={dismissClass} onClick={handleDismiss} title="Dismiss" aria-label="Dismiss notification">

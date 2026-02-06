@@ -35,15 +35,55 @@ const pool = await sql.connect(process.env.SQL_CONNECTION_STRING);
 
 ```bash
 # Universal lookup script (FASTEST)
-node scripts/instant-lookup.mjs passcode 37693
-node scripts/instant-lookup.mjs enquiry 12345  
-node scripts/instant-lookup.mjs deal 898
-node scripts/instant-lookup.mjs instruction HLX-00898-37693
+node tools/instant-lookup.mjs passcode 37693
+node tools/instant-lookup.mjs enquiry 12345  
+node tools/instant-lookup.mjs deal 898
+node tools/instant-lookup.mjs instruction HLX-00898-37693
+node tools/instant-lookup.mjs person "Luke Test"
+node tools/instant-lookup.mjs pipeline HLX-00898-37693
+node tools/instant-lookup.mjs --plan person "Luke Test"
+
+# The instant-lookup script auto-resolves Key Vault passwords (no flags) and fails fast if auth hangs.
 
 # Raw one-liners (if script unavailable)
 node -e "import('dotenv').then(d=>d.config());import('mssql').then(sql=>sql.connect(process.env.INSTRUCTIONS_SQL_CONNECTION_STRING).then(p=>p.request().query('SELECT * FROM Instructions WHERE InstructionRef LIKE \"%PASSCODE%\" OR ProspectId=PASSCODE').then(r=>console.log(JSON.stringify(r.recordset,null,2)))))"
 
 node -e "import('dotenv').then(d=>d.config());import('mssql').then(sql=>sql.connect(process.env.SQL_CONNECTION_STRING).then(p=>p.request().query('SELECT * FROM enquiries WHERE ID=ENQUIRY_ID').then(r=>console.log(JSON.stringify(r.recordset,null,2)))))"
+
+**Name lookups (critical):**
+
+- If the user asks for a *pipeline* (legacy space / end-to-end chain), ALWAYS use `pipeline` (e.g., `node tools/instant-lookup.mjs pipeline "Robert Bedwell"` or `node tools/instant-lookup.mjs pipeline HLX-00898-37693`).
+- If the user asks to find a *person/enquiry record* by name (Core Data / enquiries tables), use `person` (e.g., `node tools/instant-lookup.mjs person "Luke Test"`).
+- Do NOT run ad-hoc `node -e` SQL for name searches.
+- Only run the specific lookup requested. Do NOT expand to deals/instructions unless explicitly asked.
+
+**Confirm before running commands (chat-first):**
+
+- In chat, confirm the intended lookup first.
+- Default: after chat confirmation, run the real command directly (no `--plan`).
+- Use `--plan` only when the user explicitly asks for a dry-run preview, or when the operation is unusually risky/expensive.
+
+**Node ESM note (prevents `sql.connect is not a function`)**
+
+When using `node -e` with `import('mssql')`, default export may be nested. Use:
+```js
+const m = await import('mssql');
+const sql = m.default || m;
+const pool = await sql.connect(process.env.SQL_CONNECTION_STRING);
+```
+
+**AVOID `node -e` for complex commands (CRITICAL)**
+
+PowerShell escaping breaks `node -e` commands with backticks, nested quotes, or template literals. Symptoms: `SyntaxError: Invalid or unexpected token`.
+
+**Instead, create a temp script:**
+```bash
+# 1. Create script file (scripts/ is gitignored)
+# 2. Run it: node scripts/temp-task.mjs
+# 3. Delete it: Remove-Item scripts/temp-task.mjs
+```
+
+Use `node -e` only for trivial one-liners. For anything with SQL, Key Vault, or async chains, write a temp file.
 ```
 
 **SCHEMA KNOWLEDGE** (no discovery needed):
@@ -69,16 +109,23 @@ node -e "import('dotenv').then(d=>d.config());import('mssql').then(sql=>sql.conn
 - Be proactive: remove redundant/dead code while in the area (only if safe and in-scope).
 - **Flag user-facing delays and uncertainty**. Use loading states, confirmation prompts, brief status logs. Transparency > silence. Proactive, not reactive.
 - Never push to Git or deploy unless explicitly asked.
-- Submodules: read-only. No fetch, pull, or push. Status checks only.
+- Submodules: read-only. No fetch, pull, or push. Status checks only. Unless the user asks with the passcode 2011.
 - When decisions are made, update instruction files. Don't rely on user repeating themselves.
 - Don't maintain stale docs. If info can be read from source (code, APIs, generated context), prefer that. Remove unused docs rather than updating them.
 
+## Product guardrails (do not break)
+
+- **Luke Test**: `HLX-27367-94842` is the production health indicator. Never delete.
+- **ID pills** must call `onEIDClick()` (no detail expansion).
+- **Risk colours** must use `RiskAssessmentResult` (not `TransactionRiskLevel`).
+- **Deal capture emails** must go to both `lz@helix-law.com` and `cb@helix-law.com`.
+
 ## Session Start
 
-On first interaction, run: `node scripts/sync-context.mjs`  
+On first interaction, run: `node tools/sync-context.mjs`  
 This generates `.github/instructions/REALTIME_CONTEXT.md` with current branch, submodule state, and server status.
 
-Full session init (slower, more thorough): `node scripts/session-start.mjs`
+Full session init (slower, more thorough): `node tools/session-start.mjs`
 
 ## Conventions
 

@@ -353,6 +353,8 @@ const ConflictConfirmationCard: React.FC<ConflictConfirmationCardProps> = ({
                   fontSize: 15,
                   fontWeight: 700,
                   color: isDarkMode ? '#e2e8f0' : '#0f172a',
+                  lineHeight: 1.3,
+                  paddingTop: 1,
                 }}>
                   Confirm No Conflict
                 </div>

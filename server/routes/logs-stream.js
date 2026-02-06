@@ -7,7 +7,7 @@ const router = express.Router();
  * Logs are ALWAYS captured to buffer (even with no clients).
  * This ensures you see recent activity when you connect.
  * 
- * See docs/LOGGING_ARCHITECTURE.md for logging conventions.
+ * See docs/PLATFORM_OPERATIONS.md for logging conventions.
  */
 
 // Store connected clients

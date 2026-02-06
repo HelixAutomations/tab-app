@@ -2468,6 +2468,7 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
           eid,
           eids,
           documents: docs,
+          matters: prospect.matters || [],
           prospectId: deal?.ProspectId || inst?.ProspectId || prospect.prospectId,
           documentCount: docs ? docs.length : 0,
         };
@@ -2522,6 +2523,7 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
           eid: null,
           eids: [],
           documents: deal.documents ?? [],
+          matters: prospect.matters || [],
           prospectId: deal.ProspectId || prospect.prospectId,
           documentCount: deal.documents?.length ?? 0,
         };

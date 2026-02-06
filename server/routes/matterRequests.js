@@ -124,4 +124,65 @@ router.post('/', async (req, res) => {
     }
 });
 
+/**
+ * PATCH /api/matter-requests/:matterId
+ * Updates a MatterRequest placeholder once real IDs are available
+ */
+router.patch('/:matterId', async (req, res) => {
+    const { matterId } = req.params;
+    const body = req.body || {};
+
+    const connectionString = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
+    if (!connectionString) {
+        return res.status(500).json({ error: 'INSTRUCTIONS_SQL_CONNECTION_STRING not configured' });
+    }
+
+    if (!matterId) {
+        return res.status(400).json({ error: 'matterId is required' });
+    }
+
+    const updates = {
+        instructionRef: body.instructionRef ?? null,
+        clientId: body.clientId ?? null,
+        displayNumber: body.displayNumber ?? null,
+        clioMatterId: body.clioMatterId ?? null
+    };
+
+    if (!updates.instructionRef && !updates.clientId && !updates.displayNumber && !updates.clioMatterId) {
+        return res.status(400).json({ error: 'No update fields provided' });
+    }
+
+    let pool;
+    try {
+        pool = await sql.connect(connectionString);
+
+        const result = await pool.request()
+            .input('matterId', sql.NVarChar(255), matterId)
+            .input('instructionRef', sql.NVarChar(255), updates.instructionRef)
+            .input('clientId', sql.NVarChar(255), updates.clientId)
+            .input('displayNumber', sql.NVarChar(255), updates.displayNumber)
+            .input('clioMatterId', sql.NVarChar(255), updates.clioMatterId)
+            .query(`
+                UPDATE Matters
+                SET
+                    InstructionRef = COALESCE(@instructionRef, InstructionRef),
+                    ClientID = COALESCE(@clientId, ClientID),
+                    DisplayNumber = COALESCE(@displayNumber, DisplayNumber),
+                    MatterID = COALESCE(@clioMatterId, MatterID)
+                WHERE MatterID = @matterId
+            `);
+
+        if (!result.rowsAffected || result.rowsAffected[0] === 0) {
+            return res.status(404).json({ error: 'Matter request not found' });
+        }
+
+        return res.json({ ok: true, updated: result.rowsAffected[0] });
+    } catch (err) {
+        console.error('[matter-requests] Patch error:', err);
+        return res.status(500).json({ error: 'Failed to update matter request', detail: err.message });
+    } finally {
+        if (pool) await pool.close();
+    }
+});
+
 module.exports = router;

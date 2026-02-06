@@ -100,4 +100,3 @@ To keep the system from getting cluttered:
 - `server/routes/instructions.js` - Instructions backend logic
 - `server/routes/matter-operations.js` - Clio integration and matter management
 - `src/tabs/instructions/` - Instructions frontend components
-- `scripts/backfill-instruction-matters.js` - Batch matter linkage script

@@ -39,6 +39,13 @@ interface GroupedEnquiryCardProps {
   userAOW?: string[]; // List of user's areas of work (lowercase)
   getPromotionStatus?: (enquiry: Enquiry) => 'pitch' | 'instruction' | null;
   onFilterByPerson?: (initials: string) => void;
+  workbenchHandlers?: {
+    onDocumentPreview?: (doc: any) => void;
+    onOpenRiskAssessment?: (instruction: any) => void;
+    onOpenMatter?: (instruction: any) => void;
+    onTriggerEID?: (instructionRef: string) => void | Promise<void>;
+    onOpenIdReview?: (instructionRef: string) => void;
+  };
   /**
    * Map of enquiry ID to document count for each enquiry in the group
    */
@@ -79,7 +86,7 @@ const getAreaColor = (area: string): string => {
 
 // (Removed unused Fluent UI icon button styles)
 
-const GroupedEnquiryCard: React.FC<GroupedEnquiryCardProps> = ({ groupedEnquiry, onSelect, onRate, onRatingChange, onPitch, teamData, inlineWorkbenchByEnquiryId, isLast, userAOW, getPromotionStatus, onFilterByPerson, documentCounts = {} }) => {
+const GroupedEnquiryCard: React.FC<GroupedEnquiryCardProps> = ({ groupedEnquiry, onSelect, onRate, onRatingChange, onPitch, teamData, inlineWorkbenchByEnquiryId, isLast, userAOW, getPromotionStatus, onFilterByPerson, workbenchHandlers, documentCounts = {} }) => {
   const { isDarkMode } = useTheme();
   const [isExpanded, setIsExpanded] = useState(false);
   const [teamsActivityMap, setTeamsActivityMap] = useState<Map<string, TeamsActivityData>>(new Map());
@@ -520,6 +527,7 @@ const GroupedEnquiryCard: React.FC<GroupedEnquiryCardProps> = ({ groupedEnquiry,
                   teamsActivityData={teamsActivityMap.get(enquiry.ID || '')}
                   documentCount={documentCounts[enquiry.ID] || 0}
                   inlineWorkbenchItem={enquiry.ID ? inlineWorkbenchByEnquiryId?.get(String(enquiry.ID)) : undefined}
+                  workbenchHandlers={workbenchHandlers}
                 />
               </div>
             ))}

@@ -487,7 +487,8 @@ router.get('/', async (req, res) => {
     
     standaloneDeals.forEach(deal => {
       transformedInstructions.push({
-        InstructionRef: `deal-${deal.DealId}`,
+        // Preserve original InstructionRef if present, fallback to deal ID pattern
+        InstructionRef: deal.InstructionRef || `deal-${deal.DealId}`,
         isRealInstruction: false,
         deal: deal,
         documents: [],

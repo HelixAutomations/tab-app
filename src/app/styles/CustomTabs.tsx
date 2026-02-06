@@ -105,6 +105,7 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
   const { isDarkMode } = useTheme();
   const [showReleaseNotesModal, setShowReleaseNotesModal] = React.useState(false);
   const canSeeReleaseNotes = Boolean(isLocalDev) || isAdminUser(user || null);
+
   const pivotWrapRef = React.useRef<HTMLDivElement | null>(null);
   const [iconOnly, setIconOnly] = React.useState<boolean>(false);
   const lastFullWidthRef = React.useRef<number>(0);
@@ -285,6 +286,7 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
               const label = (
                 <span className="tab-label" style={{ marginLeft: 8 }}>{tab.text}</span>
               );
+
               return (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, minHeight: 20 }}>
                   {icon}

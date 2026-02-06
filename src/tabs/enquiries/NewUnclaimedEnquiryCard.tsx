@@ -24,6 +24,13 @@ interface Props {
   documentCount?: number;
   inlineWorkbenchItem?: any;
   teamData?: any[] | null;
+  workbenchHandlers?: {
+    onDocumentPreview?: (doc: any) => void;
+    onOpenRiskAssessment?: (instruction: any) => void;
+    onOpenMatter?: (instruction: any) => void;
+    onTriggerEID?: (instructionRef: string) => void | Promise<void>;
+    onOpenIdReview?: (instructionRef: string) => void;
+  };
 }
 
 /**
@@ -128,7 +135,7 @@ const getAreaColour = (area?: string) => {
   return colours.greyText;
 };
 
-const NewUnclaimedEnquiryCard: React.FC<Props> = ({ enquiry, onSelect, onAreaChange, userEmail, onClaimSuccess, onOptimisticClaim, promotionStatus, documentCount = 0, inlineWorkbenchItem, teamData }) => {
+const NewUnclaimedEnquiryCard: React.FC<Props> = ({ enquiry, onSelect, onAreaChange, userEmail, onClaimSuccess, onOptimisticClaim, promotionStatus, documentCount = 0, inlineWorkbenchItem, teamData, workbenchHandlers }) => {
   const { isDarkMode } = useTheme();
   const [selected, setSelected] = useState(false);
   const [showActions, setShowActions] = useState(false);
@@ -381,6 +388,11 @@ const NewUnclaimedEnquiryCard: React.FC<Props> = ({ enquiry, onSelect, onAreaCha
             item={inlineWorkbenchItem}
             isDarkMode={isDarkMode}
             enableContextStageChips={true}
+            onDocumentPreview={workbenchHandlers?.onDocumentPreview}
+            onTriggerEID={workbenchHandlers?.onTriggerEID}
+            onOpenIdReview={workbenchHandlers?.onOpenIdReview}
+            onOpenMatter={workbenchHandlers?.onOpenMatter}
+            onOpenRiskAssessment={workbenchHandlers?.onOpenRiskAssessment}
             onClose={() => setSelected(false)}
             teamData={teamData}
           />

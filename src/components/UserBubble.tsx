@@ -616,7 +616,7 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                             >
                                                 <div>
                                                     <div style={{ fontSize: 12, fontWeight: 500, color: textPrimary }}>Demo mode</div>
-                                                    <div style={{ fontSize: 10, color: textMuted, marginTop: 2 }}>Skip live refresh & seed demo enquiry</div>
+                                                    <div style={{ fontSize: 10, color: textMuted, marginTop: 2 }}>Skip live refresh & seed demo prospect cases</div>
                                                 </div>
                                                 <div style={toggleSwitch(!!demoModeEnabled)}>
                                                     <div style={toggleKnob(!!demoModeEnabled)} />

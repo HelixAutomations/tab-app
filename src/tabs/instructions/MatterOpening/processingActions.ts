@@ -21,6 +21,8 @@ let clioCompanyId: string | null = null;
 let clientIdCallback: ((id: string | null) => void) | null = null;
 let matterId: string | null = null;
 let matterIdCallback: ((id: string | null) => void) | null = null;
+let matterRequestId: string | null = null;
+let matterDisplayNumber: string | null = null;
 
 export function registerClientIdCallback(cb: ((id: string | null) => void) | null) {
     clientIdCallback = cb;
@@ -303,6 +305,7 @@ export const processingActions: ProcessingAction[] = [
 
             if (!resp.ok) throw new Error('Failed to record matter request');
             const data = await resp.json();
+            matterRequestId = data.matterId || null;
             return data.message || 'Matter request recorded; further IDs will be patched in later steps';
         }
     },
@@ -369,6 +372,7 @@ export const processingActions: ProcessingAction[] = [
             if (!data.ok) throw new Error(data.error || 'Failed to create Clio matter');
             const id = data.matterId || data.matter?.id || null;
             matterId = id ? String(id) : null;
+            matterDisplayNumber = data.matter?.display_number || data.matter?.displayNumber || null;
             if (matterId && matterIdCallback) matterIdCallback(matterId);
             return `Matter created with ID ${matterId}`;
         }
@@ -408,6 +412,23 @@ export const processingActions: ProcessingAction[] = [
             }
             
             const data = await resp.json();
+            if (matterRequestId) {
+                const patchPayload = {
+                    instructionRef,
+                    clientId,
+                    displayNumber: matterDisplayNumber || null,
+                    clioMatterId: matterId || null
+                };
+                const patchResp = await instrumentedFetch('Matter Request Patched', `/api/matter-requests/${encodeURIComponent(matterRequestId)}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(patchPayload)
+                }, patchPayload);
+                if (!patchResp.ok) {
+                    const patchError = await patchResp.text();
+                    console.warn('Failed to patch matter request:', patchError);
+                }
+            }
             return `Instructions table updated with Client ID ${clientId}${matterId ? ` and Matter ID ${matterId}` : ''}`;
         }
     }

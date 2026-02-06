@@ -13,9 +13,16 @@ interface UnclaimedEnquiriesProps {
     getPromotionStatusSimple?: (enquiry: Enquiry) => 'pitch' | 'instruction' | null;
     inlineWorkbenchByEnquiryId?: Map<string, any>;
     teamData?: any[] | null;
+    workbenchHandlers?: {
+        onDocumentPreview?: (doc: any) => void;
+        onOpenRiskAssessment?: (instruction: any) => void;
+        onOpenMatter?: (instruction: any) => void;
+        onTriggerEID?: (instructionRef: string) => void | Promise<void>;
+        onOpenIdReview?: (instructionRef: string) => void;
+    };
 }
 
-const UnclaimedEnquiries: React.FC<UnclaimedEnquiriesProps> = ({ enquiries, onSelect, userEmail, onAreaChange, onClaimSuccess, onOptimisticClaim, getPromotionStatusSimple, inlineWorkbenchByEnquiryId, teamData }) => {
+const UnclaimedEnquiries: React.FC<UnclaimedEnquiriesProps> = ({ enquiries, onSelect, userEmail, onAreaChange, onClaimSuccess, onOptimisticClaim, getPromotionStatusSimple, inlineWorkbenchByEnquiryId, teamData, workbenchHandlers }) => {
 
     if (!enquiries || enquiries.length === 0) {
         return (
@@ -47,6 +54,7 @@ const UnclaimedEnquiries: React.FC<UnclaimedEnquiriesProps> = ({ enquiries, onSe
                     promotionStatus={getPromotionStatusSimple ? getPromotionStatusSimple(enquiry) : null}
                     inlineWorkbenchItem={enquiry.ID ? inlineWorkbenchByEnquiryId?.get(String(enquiry.ID)) : undefined}
                     teamData={teamData}
+                    workbenchHandlers={workbenchHandlers}
                 />
             ))}
         </Stack>

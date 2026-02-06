@@ -928,6 +928,8 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     y: number 
   } | null>(null);
   const [showDatasetInfo, setShowDatasetInfo] = useState(false);
+  const [showWipInfo, setShowWipInfo] = useState(false);
+  const [showWipValueInfo, setShowWipValueInfo] = useState(false);
   const [showCollectedInfo, setShowCollectedInfo] = useState(false);
   const [timeElapsed, setTimeElapsed] = useState(0); // Time since last refresh in seconds
   const effectiveDataWindowDays = useMemo(() => (
@@ -2545,19 +2547,119 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
           </div>
           <span style={{ fontSize: 20, fontWeight: 700 }}>{summaryTotals.matters.toLocaleString('en-GB')}</span>
         </div>
-        <div style={summaryChipStyle(isDarkMode)}>
+        <div
+          style={{
+            ...summaryChipStyle(isDarkMode),
+            position: 'relative',
+          }}
+        >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%' }}>
-            <span style={summaryChipLabelStyle()}>WIP Hours</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={summaryChipLabelStyle()}>WIP Hours</span>
+              <span
+                onMouseEnter={() => setShowWipInfo(true)}
+                onMouseLeave={() => setShowWipInfo(false)}
+                style={{ display: 'inline-flex', alignItems: 'center' }}
+              >
+                <Icon
+                  iconName="Info"
+                  style={{
+                    fontSize: 10,
+                    opacity: 0.35,
+                    cursor: 'help',
+                  }}
+                />
+              </span>
+            </div>
             {renderTrendIndicator(summaryTotals.wipHours, previousMetrics?.wipHours, 'hours', 'wipHours')}
           </div>
           <span style={{ fontSize: 20, fontWeight: 700 }}>{formatHours(summaryTotals.wipHours)}</span>
+
+          {showWipInfo && (
+            <div
+              style={{
+                position: 'absolute',
+                top: '100%',
+                right: 0,
+                marginTop: 8,
+                padding: '10px 12px',
+                background: isDarkMode ? 'rgba(15, 23, 42, 0.98)' : 'rgba(255, 255, 255, 0.98)',
+                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)'}`,
+                borderRadius: 8,
+                boxShadow: isDarkMode ? '0 8px 16px rgba(0, 0, 0, 0.4)' : '0 4px 12px rgba(0, 0, 0, 0.15)',
+                fontSize: 11,
+                lineHeight: 1.5,
+                width: 260,
+                zIndex: 1000,
+                color: isDarkMode ? '#e2e8f0' : '#334155',
+                textAlign: 'left',
+              }}
+            >
+              <div style={{ fontWeight: 800, marginBottom: 6, fontSize: 12 }}>
+                WIP totals (current view)
+              </div>
+              <div style={{ opacity: 0.85 }}>
+                Includes non-chargeable time from Clio and SQL sources.
+              </div>
+            </div>
+          )}
         </div>
-        <div style={summaryChipStyle(isDarkMode)}>
+        <div
+          style={{
+            ...summaryChipStyle(isDarkMode),
+            position: 'relative',
+          }}
+        >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%' }}>
-            <span style={summaryChipLabelStyle()}>WIP (£)</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={summaryChipLabelStyle()}>WIP (£)</span>
+              <span
+                onMouseEnter={() => setShowWipValueInfo(true)}
+                onMouseLeave={() => setShowWipValueInfo(false)}
+                style={{ display: 'inline-flex', alignItems: 'center' }}
+              >
+                <Icon
+                  iconName="Info"
+                  style={{
+                    fontSize: 10,
+                    opacity: 0.35,
+                    cursor: 'help',
+                  }}
+                />
+              </span>
+            </div>
             {renderTrendIndicator(summaryTotals.wipValue, previousMetrics?.wipValue, 'currency', 'wipValue')}
           </div>
           <span style={{ fontSize: 20, fontWeight: 700 }}>{formatCurrency(summaryTotals.wipValue)}</span>
+
+          {showWipValueInfo && (
+            <div
+              style={{
+                position: 'absolute',
+                top: '100%',
+                right: 0,
+                marginTop: 8,
+                padding: '10px 12px',
+                background: isDarkMode ? 'rgba(15, 23, 42, 0.98)' : 'rgba(255, 255, 255, 0.98)',
+                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)'}`,
+                borderRadius: 8,
+                boxShadow: isDarkMode ? '0 8px 16px rgba(0, 0, 0, 0.4)' : '0 4px 12px rgba(0, 0, 0, 0.15)',
+                fontSize: 11,
+                lineHeight: 1.5,
+                width: 260,
+                zIndex: 1000,
+                color: isDarkMode ? '#e2e8f0' : '#334155',
+                textAlign: 'left',
+              }}
+            >
+              <div style={{ fontWeight: 800, marginBottom: 6, fontSize: 12 }}>
+                WIP totals (current view)
+              </div>
+              <div style={{ opacity: 0.85 }}>
+                Includes non-chargeable time from Clio and SQL sources.
+              </div>
+            </div>
+          )}
         </div>
         <div 
           style={{

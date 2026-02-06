@@ -14,6 +14,15 @@ const connectionString = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
 const pool = await sql.connect(connectionString);
 ```
 
+**Node ESM quick scripts**
+
+When using `node -e`/dynamic import, `mssql` can be under `default`. Use:
+```javascript
+const m = await import('mssql');
+const sql = m.default || m;
+const pool = await sql.connect(process.env.INSTRUCTIONS_SQL_CONNECTION_STRING);
+```
+
 ### Helix Core Data Database (Enquiries/Matters)
 ```javascript
 // Connection string from .env (SQL_CONNECTION_STRING)  
@@ -37,6 +46,67 @@ const result = await pool.request().query(queryString);
 
 ## Overview
 This document describes the key database tables, their relationships, and important schema patterns discovered through investigation. Use this as a reference for understanding data flows between the frontend, backend, and Clio API.
+
+---
+
+## Legacy vs New Space Enquiries (CRITICAL)
+
+**Legacy (Core Data DB: `helix-core-data`)**
+- Table: `enquiries`
+- Primary key: `ID`
+- Notes field: `Initial_first_call_notes`
+
+**New Space (Instructions DB: `instructions`)**
+- Table: `dbo.enquiries`
+- Primary key: `id`
+- Notes field: `notes`
+- **Linkage key**: `acid` = **ProspectId** from `Deals`
+
+**Linking matters → enquiries (authoritative order)**
+1. Matter → `InstructionRef`
+2. Instruction → Deal (same `InstructionRef`)
+3. Deal → `ProspectId`
+4. New space enquiry: match `dbo.enquiries.acid = Deals.ProspectId`
+5. Legacy enquiry (fallback): match `enquiries.ID = Deals.ProspectId`
+
+**Key rule**: `Deals.ProspectId` is the authoritative bridge to **new-space enquiries** (`acid`).
+
+---
+
+## Quick lookup templates (ESM-safe)
+
+**One-off lookup hygiene (CRITICAL)**
+- Do **not** commit ad-hoc lookup scripts with client data.
+- Prefer `tools/instant-lookup.mjs` or short-lived `node -e` commands.
+- If a script is unavoidable, delete it immediately after use.
+
+**New space enquiry by ProspectId (acid)**
+```javascript
+const m = await import('mssql');
+const sql = m.default || m;
+const pool = await sql.connect(process.env.INSTRUCTIONS_SQL_CONNECTION_STRING);
+const result = await pool.request()
+  .input('pid', sql.NVarChar(100), String(prospectId))
+  .query('SELECT TOP 5 * FROM dbo.enquiries WHERE acid = @pid ORDER BY datetime DESC');
+```
+
+**Legacy enquiry by ProspectId (ID)**
+```javascript
+const m = await import('mssql');
+const sql = m.default || m;
+const pool = await sql.connect(process.env.SQL_CONNECTION_STRING);
+const result = await pool.request()
+  .input('pid', sql.Int, Number(prospectId))
+  .query('SELECT TOP 5 * FROM enquiries WHERE ID = @pid ORDER BY Date_Created DESC');
+```
+
+**ELOGIN fallback (SQL)**
+If `SQL_CONNECTION_STRING` fails, use:
+```javascript
+const { getSecret } = await import('../server/utils/getSecret.js');
+const sqlPassword = await getSecret('sql-databaseserver-password');
+const conn = `Server=tcp:helix-database-server.database.windows.net,1433;Initial Catalog=helix-core-data;Persist Security Info=False;User ID=helix-database-server;Password=${sqlPassword};Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;`;
+```
 
 ---
 
@@ -270,9 +340,65 @@ WHERE i.InstructionRef = 'HLX-XXXXX-XXXXX';
 
 ---
 
+## Data Operations Log (`dataOpsLog`)
+
+**Database**: Instructions DB (`instructions.database.windows.net/instructions`)  
+**Purpose**: Persistent audit log for all data sync operations (Clio→SQL, AC→SQL, etc.)
+
+### Dynamic Inspection (Preferred)
+
+```sql
+-- Get schema dynamically
+SELECT COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, IS_NULLABLE
+FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'dataOpsLog' ORDER BY ORDINAL_POSITION;
+
+-- Recent operations
+SELECT TOP 20 * FROM dataOpsLog ORDER BY ts DESC;
+
+-- Filter by entity
+SELECT * FROM dataOpsLog WHERE entity = 'collectedTime' AND status = 'completed' ORDER BY ts DESC;
+```
+
+### Schema Summary
+
+| Column | Type | Purpose |
+|--------|------|---------|
+| `id` | bigint PK | Auto-increment |
+| `ts` | datetime2 | UTC timestamp (default: SYSUTCDATETIME) |
+| `jobId` | uniqueidentifier | Correlates start/progress/complete/abort for same job |
+| `operation` | nvarchar(120) | e.g., 'syncCollectedTimeDaily', 'syncMattersBackfill' |
+| `entity` | nvarchar(60) | Target: 'collectedTime', 'wip', 'matters', 'contacts' |
+| `sourceSystem` | nvarchar(30) | Origin: 'clio', 'activecampaign', 'meta', 'google', 'internal' |
+| `direction` | nvarchar(12) | 'inbound' (API→SQL), 'outbound', 'bidirectional' |
+| `status` | nvarchar(20) | 'started', 'progress', 'completed', 'error', 'aborted' |
+| `message` | nvarchar(500) | Human-readable status/error |
+| `startDate` | date | Sync window start |
+| `endDate` | date | Sync window end |
+| `deletedRows` | int | Rows removed |
+| `insertedRows` | int | Rows added |
+| `changedRows` | int | Rows updated (bidirectional sync) |
+| `durationMs` | int | Elapsed time |
+| `triggeredBy` | nvarchar(40) | 'scheduler', 'manual', 'webhook' |
+| `invokedBy` | nvarchar(120) | User email/initials |
+| `meta` | nvarchar(max) | JSON overflow for edge cases |
+
+### Indexes
+
+- `IX_dataOpsLog_ts` (ts DESC) - Recent operations
+- `IX_dataOpsLog_jobId` (jobId) WHERE jobId IS NOT NULL - Job correlation
+- `IX_dataOpsLog_operation_ts` (operation, ts DESC) - Operation history
+- `IX_dataOpsLog_entity_ts` (entity, ts DESC) WHERE entity IS NOT NULL - Entity history
+
+### Implementation Reference
+
+- **Backend**: `server/routes/dataOperations.js` → `logOperation()`
+- **Frontend**: `src/tabs/Reporting/DataCentre.tsx` → fetches `/api/data-operations/log`
+- **Scheduler**: `server/utils/dataOperationsScheduler.js`
+
+---
+
 ## Related Files
 
 - Backend queries: `server/routes/instructions.js`, `server/routes/matter-operations.js`
 - Frontend display: `src/tabs/instructions/Instructions.tsx`, `MatterOperations.tsx`
 - Normalization: `src/utils/matterNormalization.ts`
-- Backfill script: `scripts/backfill-instruction-matters.js`

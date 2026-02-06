@@ -23,7 +23,8 @@ helix-hub-v1/
 ├── api/                           # Azure Functions (v4)
 ├── database/migrations/           # SQL changes with documentation
 ├── docs/                          # Human-readable documentation
-├── scripts/                       # Automation & one-off tasks
+├── tools/                         # Reusable ops scripts (tracked)
+├── scripts/                       # Local-only scratch (excluded from git)
 ├── server/                        # Express backend (main: index.js)
 │   ├── routes/                    # API endpoints
 │   └── utils/                     # Shared utilities
@@ -45,7 +46,7 @@ helix-hub-v1/
 - [ ] Clean up console.log → proper logging
 
 ### Medium Priority (Organization)
-- [ ] Move one-off scripts to `scripts/archive/`
+- [ ] Keep reusable ops in `tools/`; keep scratch work outside git (ignored `scripts/`)
 - [ ] Consolidate similar utilities
 - [ ] Document undocumented env vars
 

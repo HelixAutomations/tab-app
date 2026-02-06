@@ -10,6 +10,7 @@ import { Matter, UserData, Enquiry, TeamData, NormalizedMatter } from "./app/fun
 import { mergeMattersFromSources } from "./utils/matterNormalization";
 import { getCachedData, setCachedData, cleanupOldCache } from "./utils/storageHelpers";
 import { debugLog } from "./utils/debug";
+import { isAdminUser } from "./app/admin";
 
 import "./utils/callLogger";
 import { initializeIcons } from "@fluentui/react";
@@ -311,6 +312,9 @@ async function fetchEnquiries(
         Company: (enq as any).Company || (enq as any).company,
         Value: (enq as any).Value || (enq as any).value,
         Rating: (enq as any).Rating || (enq as any).rating,
+        // Ensure notes are preserved from both legacy and new space
+        Initial_first_call_notes: (enq as any).Initial_first_call_notes || (enq as any).notes || (enq as any).Notes || '',
+        notes: (enq as any).notes || (enq as any).Notes || (enq as any).Initial_first_call_notes || '',
         ...enq
       })) as Enquiry[];
     }
@@ -598,7 +602,7 @@ async function fetchVNetMatters(fullName?: string): Promise<any[]> {
 }
 
 // (removed) legacy v4 fetchAllMatterSources in favor of unified v5
-  async function fetchAllMatterSources(fullName: string): Promise<NormalizedMatter[]> {
+  async function fetchAllMatterSources(fullName: string, queryFullName?: string): Promise<NormalizedMatter[]> {
     // v5 cache key: unified server endpoint
     // Use in-memory cache instead of localStorage (matters data is too large)
     const cacheKey = `normalizedMatters-v5-${fullName}`;
@@ -612,7 +616,8 @@ async function fetchVNetMatters(fullName?: string): Promise<any[]> {
     }
 
     try {
-      const query = fullName ? `?fullName=${encodeURIComponent(fullName)}` : '';
+      const trimmedQueryName = queryFullName?.trim();
+      const query = trimmedQueryName ? `?fullName=${encodeURIComponent(trimmedQueryName)}` : '';
       const url = `/api/matters-unified${query}`;
       const controller = new AbortController();
       const warnId = window.setTimeout(() => {
@@ -814,7 +819,8 @@ const AppWithContext: React.FC = () => {
       toRemove.forEach(k => localStorage.removeItem(k));
 
       const fullName = (userData[0].FullName || `${userData[0].First || ''} ${userData[0].Last || ''}`.trim());
-      const normalized = await fetchAllMatterSources(fullName);
+      const queryName = isAdminUser(userData[0]) ? '' : fullName;
+      const normalized = await fetchAllMatterSources(fullName, queryName);
       setMatters(normalized);
     } catch (err) {
       console.error('❌ Error refreshing matters:', err);
@@ -839,6 +845,7 @@ const AppWithContext: React.FC = () => {
 
   // Allow switching user in production for specific users
   const switchUser = async (newUser: UserData) => {
+    setLoading(true);
     // Store the current admin user if this is the first switch
     if (!originalAdminUser && userData && userData[0]) {
       setOriginalAdminUser(userData[0]);
@@ -871,12 +878,12 @@ const AppWithContext: React.FC = () => {
 
     
     try {
-      // Only fetch matters if they're not already loaded (matters change less frequently)
-      if (!matters || matters.length === 0) {
-        // Fetch matters for new user
-        const mattersRes = await fetchAllMatterSources(fullName);
-        setMatters(mattersRes);
-      }
+      // Always fetch matters for the selected user.
+      // Matters can be user-scoped server-side (queryName), so reusing a previously-loaded
+      // matters list will show the wrong "Mine" results after switching user.
+      const queryName = isAdminUser(normalized) ? '' : fullName;
+      const mattersRes = await fetchAllMatterSources(fullName, queryName);
+      setMatters(mattersRes);
       
       // Fetch enquiries for new user with extended date range and fresh data
       const { dateFrom, dateTo } = getDateRange();
@@ -902,6 +909,8 @@ const AppWithContext: React.FC = () => {
       
     } catch (err) {
       console.error('Error fetching data for switched user:', err);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -976,7 +985,8 @@ const AppWithContext: React.FC = () => {
         // Try to fetch matters separately (don't block enquiries)
         let normalizedMatters: NormalizedMatter[] = [];
         try {
-          normalizedMatters = await fetchAllMatterSources(fullName);
+          const queryName = isAdminUser(initialUserData[0]) ? '' : fullName;
+          normalizedMatters = await fetchAllMatterSources(fullName, queryName);
 
         } catch (mattersError) {
           console.warn('⚠️ Matters API failed, using fallback:', mattersError);
@@ -1060,7 +1070,7 @@ const AppWithContext: React.FC = () => {
               setEnquiries([]);
             });
 
-            fetchAllMatterSources(fullName)
+            fetchAllMatterSources(fullName, isAdminUser(primaryUser) ? '' : fullName)
               .then(setMatters)
               .catch(err => {
                 console.warn('Matters load failed, using empty array:', err);
@@ -1152,7 +1162,8 @@ const AppWithContext: React.FC = () => {
               // Matters
               let normalizedMatters: NormalizedMatter[] = [];
               try {
-                normalizedMatters = await fetchAllMatterSources(fullName);
+                const queryName = isAdminUser(initialUserData[0]) ? '' : fullName;
+                normalizedMatters = await fetchAllMatterSources(fullName, queryName);
               } catch (mattersError) {
                 console.warn('⚠️ Matters API failed, using fallback:', mattersError);
                 const { default: localMatters } = await import('./localData/localMatters.json');

@@ -214,7 +214,23 @@ export function normalizeMatterData(
     matter.matter_id ||
     matter.id ||
     '';
-  const displayNumber = matter.DisplayNumber || matter['Display Number'] || matter.display_number || matter.number || '';
+  const displayNumber =
+    matter.DisplayNumber ||
+    matter['Display Number'] ||
+    matter.DisplayNo ||
+    matter['Display No'] ||
+    matter.Display_No ||
+    matter.display_number ||
+    matter.displayNumber ||
+    matter.display_no ||
+    matter.displayNo ||
+    matter.MatterRef ||
+    matter['Matter Ref'] ||
+    matter['Matter_Ref'] ||
+    matter.matter_ref ||
+    matter.matterRef ||
+    matter.number ||
+    '';
   const clientName = matter.ClientName || matter['Client Name'] || matter.client_name || matter.clientName || '';
   const description = matter.Description || matter.Description || matter.description || matter.matter_name || '';
   const responsibleSolicitor = matter.ResponsibleSolicitor || matter['Responsible Solicitor'] || matter.responsible_solicitor || matter.responsibleSolicitor || '';
@@ -233,7 +249,12 @@ export function normalizeMatterData(
     matterId,
     matterName: description,
     displayNumber,
-    instructionRef: matter.InstructionRef || matter.instruction_ref || matter.instructionRef,
+    instructionRef:
+      matter.InstructionRef ||
+      matter['Instruction Ref'] ||
+      matter.Instruction_Ref ||
+      matter.instruction_ref ||
+      matter.instructionRef,
     
     // Dates
     openDate,
@@ -359,21 +380,21 @@ export function applyAdminFilter(
     
   }
   
-  // If user is not admin, always filter to their matters
+  // If "show everyone" is enabled, show all matters
+  if (showEveryone) {
+    if (DEBUG_ADMIN_FILTER) {
+      
+    }
+    return matters;
+  }
+
+  // If user is not admin, filter to their matters
   if (!hasAdminAccess(userRole, userFullName)) {
     const filtered = matters.filter(matter => matter.role !== 'none');
     if (DEBUG_ADMIN_FILTER) {
       
     }
     return filtered;
-  }
-  
-  // If admin and "show everyone" is enabled, show all matters
-  if (showEveryone) {
-    if (DEBUG_ADMIN_FILTER) {
-      
-    }
-    return matters;
   }
   
   // If admin but "show everyone" is disabled, filter to their matters
@@ -398,7 +419,12 @@ export function getUniquePracticeAreas(matters: NormalizedMatter[]): string[] {
 }
 
 /**
- * Merges matters from multiple sources, deduplicating by matter ID
+ * Merges matters from multiple sources, deduplicating by matter ID.
+ * Precedence (last write wins):
+ * - Start with legacy_all
+ * - Override with legacy_user when present
+ * - Finally override with vnet_direct when present
+ * This ensures matters that exist in V2/New are tagged as `vnet_direct`.
  */
 export function mergeMattersFromSources(
   allMatters: Matter[],
@@ -408,23 +434,30 @@ export function mergeMattersFromSources(
 ): NormalizedMatter[] {
   const normalizedMatters = new Map<string, NormalizedMatter>();
   
-  // Process all matters (lowest priority)
+  // Process all matters first (legacy source - baseline)
   allMatters.forEach(matter => {
     const normalized = normalizeMatterData(matter, userFullName, 'legacy_all');
-    if (normalized.matterId) {
+    if (normalized.matterId && !normalizedMatters.has(normalized.matterId)) {
       normalizedMatters.set(normalized.matterId, normalized);
     }
   });
   
-  // Process user-specific matters (medium priority, can override)
+  // Process user-specific matters (override legacy_all for the same matterId)
   userMatters.forEach(matter => {
     const normalized = normalizeMatterData(matter, userFullName, 'legacy_user');
     if (normalized.matterId) {
-      normalizedMatters.set(normalized.matterId, normalized);
+      // Override legacy_all with legacy_user for same matter
+      if (normalizedMatters.has(normalized.matterId)) {
+        normalizedMatters.set(normalized.matterId, normalized);
+      } else {
+        normalizedMatters.set(normalized.matterId, normalized);
+      }
     }
   });
   
-  // Process VNet matters (highest priority)
+  // Process VNet matters - Always add/overwrite (priority to VNet/New)
+  // This ensures that matters available in the new system are correctly tagged as 'vnet_direct'
+  // allowing the UI to distinguishing them and apply the V2/Clio visual cues.
   vnetMatters.forEach(matter => {
     const normalized = normalizeMatterData(matter, userFullName, 'vnet_direct');
     if (normalized.matterId) {

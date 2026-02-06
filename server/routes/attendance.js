@@ -24,6 +24,13 @@ const isTransientSqlError = (error) => {
 const attendanceQuery = (connectionString, executor, retries = DEFAULT_ATTENDANCE_RETRIES) =>
   withRequest(connectionString, executor, retries);
 
+const AUTO_BOOK_ANNUAL_LEAVE_USERS = new Set(['AC', 'JW']);
+
+const shouldAutoBookAnnualLeave = (initials) => {
+  if (!initials) return false;
+  return AUTO_BOOK_ANNUAL_LEAVE_USERS.has(String(initials).trim().toUpperCase());
+};
+
 const getTodayIso = () => new Date().toISOString().split('T')[0];
 
 async function acquireAnnualLeaveRefreshLock(today) {
@@ -1128,6 +1135,8 @@ router.post('/annual-leave', async (req, res) => {
     const projectDataConnStr = `Server=tcp:helix-database-server.database.windows.net,1433;Initial Catalog=helix-project-data;Persist Security Info=False;User ID=helix-database-server;Password=${password};MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;`;
 
     const insertedIds = [];
+    const shouldAutoBook = shouldAutoBookAnnualLeave(fe);
+    const initialStatus = shouldAutoBook ? 'booked' : 'requested';
     
     // Insert each date range as a separate record
     for (const range of dateRanges) {
@@ -1144,7 +1153,7 @@ router.post('/annual-leave', async (req, res) => {
           .input('start_date', sql.Date, range.start_date)
           .input('end_date', sql.Date, range.end_date)
           .input('reason', sql.NVarChar(sql.MAX), reason || "No reason provided.")
-          .input('status', sql.VarChar(50), "requested")
+          .input('status', sql.VarChar(50), initialStatus)
           .input('days_taken', sql.Float, computedDays)
           .input('leave_type', sql.VarChar(50), leave_type)
           .input('hearing_confirmation', sql.Bit, hearing_confirmation?.toLowerCase() === "yes" ? 1 : 0)
@@ -1153,9 +1162,9 @@ router.post('/annual-leave', async (req, res) => {
           .input('half_day_end', sql.Bit, range.half_day_end ? 1 : 0)
           .query(`
             INSERT INTO [dbo].[annualLeave] 
-              ([fe], [start_date], [end_date], [reason], [status], [days_taken], [leave_type], [hearing_confirmation], [hearing_details], [half_day_start], [half_day_end], [requested_at], [updated_at])
+              ([fe], [start_date], [end_date], [reason], [status], [days_taken], [leave_type], [hearing_confirmation], [hearing_details], [half_day_start], [half_day_end], [requested_at], [approved_at], [booked_at], [updated_at])
             VALUES 
-              (@fe, @start_date, @end_date, @reason, @status, @days_taken, @leave_type, @hearing_confirmation, @hearing_details, @half_day_start, @half_day_end, SYSUTCDATETIME(), SYSUTCDATETIME());
+              (@fe, @start_date, @end_date, @reason, @status, @days_taken, @leave_type, @hearing_confirmation, @hearing_details, @half_day_start, @half_day_end, SYSUTCDATETIME(), CASE WHEN @status = 'booked' THEN SYSUTCDATETIME() ELSE NULL END, CASE WHEN @status = 'booked' THEN SYSUTCDATETIME() ELSE NULL END, SYSUTCDATETIME());
             SELECT SCOPE_IDENTITY() AS InsertedId;
           `)
       );
@@ -1163,9 +1172,33 @@ router.post('/annual-leave', async (req, res) => {
       insertedIds.push(result.recordset[0].InsertedId);
     }
 
+    if (shouldAutoBook) {
+      try {
+        const settled = await Promise.allSettled(
+          insertedIds.map((requestId) => ensureAnnualLeaveCalendarEntries({
+            projectDataConnStr,
+            password,
+            requestId
+          }))
+        );
+
+        const failed = settled.filter((result) => result.status === 'rejected');
+        if (failed.length > 0) {
+          console.error('Auto-book annual leave: calendar side-effects failed for some entries', {
+            fe,
+            failures: failed.map((result) => String(result.reason?.message || result.reason || 'unknown'))
+          });
+        }
+      } catch (calendarError) {
+        console.error('Auto-book annual leave: calendar side-effects failed', calendarError);
+      }
+    }
+
     res.status(201).json({
       success: true,
-      message: "Annual leave entries created successfully.",
+      message: shouldAutoBook
+        ? 'Annual leave entries created and automatically booked.'
+        : 'Annual leave entries created successfully.',
       insertedIds
     });
 
@@ -1240,10 +1273,29 @@ router.post('/updateAnnualLeave', async (req, res) => {
 
     const projectDataConnStr = `Server=tcp:helix-database-server.database.windows.net,1433;Initial Catalog=helix-project-data;Persist Security Info=False;User ID=helix-database-server;Password=${password};MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;`;
 
+    let effectiveStatus = String(newStatus).toLowerCase();
+
+    // For specific users, bypass the approval/booking workflow: approval -> booked.
+    try {
+      const existing = await attendanceQuery(projectDataConnStr, (req, sql) =>
+        req.input('id', sql.Int, parsedId).query(`
+          SELECT fe
+          FROM [dbo].[annualLeave]
+          WHERE request_id = @id
+        `)
+      );
+      const existingInitials = existing.recordset?.[0]?.fe;
+      if (shouldAutoBookAnnualLeave(existingInitials) && effectiveStatus === 'approved') {
+        effectiveStatus = 'booked';
+      }
+    } catch (lookupError) {
+      // If we can't resolve FE, fall back to requested status change.
+    }
+
     // Update the record
     const updateResult = await attendanceQuery(projectDataConnStr, (req, sql) =>
       req.input('id', sql.Int, parsedId)
-        .input('newStatus', sql.VarChar(50), newStatus)
+        .input('newStatus', sql.VarChar(50), effectiveStatus)
         .input('rejectionNotes', sql.NVarChar(sql.MAX), rejection_notes || "")
         .query(`
           UPDATE [dbo].[annualLeave]
@@ -1277,98 +1329,24 @@ router.post('/updateAnnualLeave', async (req, res) => {
       });
     }
 
-    // If newStatus is 'booked', create Clio calendar entry
-    if (newStatus.toLowerCase() === 'booked') {
+    // If newStatus is 'booked', create calendar entries.
+    if (effectiveStatus === 'booked') {
       try {
-        // Fetch the leave record details including half-day flags
-        const leaveResult = await attendanceQuery(projectDataConnStr, (req, sql) =>
-          req.input('id', sql.Int, parseInt(id, 10))
-            .query(`
-              SELECT fe, start_date, end_date, ClioEntryId, OutlookEntryId, half_day_start, half_day_end
-              FROM [dbo].[annualLeave]
-              WHERE request_id = @id
-            `)
-        );
-
-        const leaveRecord = leaveResult.recordset[0];
-        
-        if (leaveRecord) {
-          if (!leaveRecord.ClioEntryId) {
-            // Get Clio secrets and create calendar entry
-            const clioSecrets = await getClioSecrets();
-            if (clioSecrets) {
-              const accessToken = await getClioAccessToken(clioSecrets);
-              if (accessToken) {
-                const clioEntryId = await createClioCalendarEntry(
-                  accessToken,
-                  leaveRecord.fe,
-                  leaveRecord.start_date,
-                  leaveRecord.end_date,
-                  leaveRecord.half_day_start,
-                  leaveRecord.half_day_end
-                );
-
-                // Update the SQL record with the Clio entry ID
-                if (clioEntryId) {
-                  await attendanceQuery(projectDataConnStr, (req, sql) =>
-                    req.input('id', sql.Int, parseInt(id, 10))
-                      .input('clioEntryId', sql.Int, clioEntryId)
-                      .query(`
-                        UPDATE [dbo].[annualLeave]
-                           SET [ClioEntryId] = @clioEntryId
-                         WHERE [request_id] = @id;
-                      `)
-                  );
-                }
-              }
-            }
-          }
-
-          if (!leaveRecord.OutlookEntryId) {
-            const teamMember = await getTeamMemberByInitials(leaveRecord.fe, password);
-            const outlookUserId = teamMember?.entraId || teamMember?.email;
-            if (outlookUserId) {
-              const graphToken = await getGraphAccessToken();
-              if (graphToken) {
-                const payload = buildOutlookEventPayload({
-                  initials: leaveRecord.fe,
-                  startDate: leaveRecord.start_date,
-                  endDate: leaveRecord.end_date,
-                  halfDayStart: leaveRecord.half_day_start,
-                  halfDayEnd: leaveRecord.half_day_end,
-                  requestId: parsedId
-                });
-
-                const outlookEntryId = await createOutlookCalendarEntry(graphToken, outlookUserId, payload);
-                if (outlookEntryId) {
-                  await attendanceQuery(projectDataConnStr, (req, sql) =>
-                    req.input('id', sql.Int, parseInt(id, 10))
-                      .input('outlookEntryId', sql.NVarChar(100), outlookEntryId)
-                      .query(`
-                        UPDATE [dbo].[annualLeave]
-                           SET [OutlookEntryId] = @outlookEntryId
-                         WHERE [request_id] = @id;
-                      `)
-                  );
-                }
-              }
-            }
-          }
-        }
-      } catch (clioError) {
-        console.error('Error creating Clio calendar entry:', clioError);
-        // Continue with the response even if Clio fails
+        await ensureAnnualLeaveCalendarEntries({ projectDataConnStr, password, requestId: parsedId });
+      } catch (calendarError) {
+        console.error('Error creating annual leave calendar entries:', calendarError);
+        // Continue with the response even if calendar creation fails
       }
     }
 
     res.json({
       success: true,
-      message: `Annual leave ID ${id} updated to status '${newStatus}'.`
+      message: `Annual leave ID ${id} updated to status '${effectiveStatus}'.`
     });
 
     // Realtime notify (payload-light: clients refetch)
     try {
-      broadcastAnnualLeaveChanged({ changeType: 'status-updated', id: String(id), newStatus: String(newStatus) });
+      broadcastAnnualLeaveChanged({ changeType: 'status-updated', id: String(id), newStatus: String(effectiveStatus) });
     } catch {
       // Non-blocking
     }
@@ -1420,6 +1398,88 @@ router.get('/annual-leave-all', async (req, res) => {
     });
   }
 });
+
+async function ensureAnnualLeaveCalendarEntries({ projectDataConnStr, password, requestId }) {
+  const parsedId = Number(requestId);
+  if (!Number.isFinite(parsedId)) {
+    throw new Error(`ensureAnnualLeaveCalendarEntries: invalid requestId '${requestId}'`);
+  }
+
+  // Fetch the leave record details including half-day flags
+  const leaveResult = await attendanceQuery(projectDataConnStr, (req, sql) =>
+    req.input('id', sql.Int, parsedId)
+      .query(`
+        SELECT fe, start_date, end_date, ClioEntryId, OutlookEntryId, half_day_start, half_day_end
+        FROM [dbo].[annualLeave]
+        WHERE request_id = @id
+      `)
+  );
+
+  const leaveRecord = leaveResult.recordset?.[0];
+  if (!leaveRecord) {
+    return;
+  }
+
+  if (!leaveRecord.ClioEntryId) {
+    const clioSecrets = await getClioSecrets();
+    if (clioSecrets) {
+      const accessToken = await getClioAccessToken(clioSecrets);
+      if (accessToken) {
+        const clioEntryId = await createClioCalendarEntry(
+          accessToken,
+          leaveRecord.fe,
+          leaveRecord.start_date,
+          leaveRecord.end_date,
+          leaveRecord.half_day_start,
+          leaveRecord.half_day_end
+        );
+
+        if (clioEntryId) {
+          await attendanceQuery(projectDataConnStr, (req, sql) =>
+            req.input('id', sql.Int, parsedId)
+              .input('clioEntryId', sql.Int, clioEntryId)
+              .query(`
+                UPDATE [dbo].[annualLeave]
+                   SET [ClioEntryId] = @clioEntryId
+                 WHERE [request_id] = @id;
+              `)
+          );
+        }
+      }
+    }
+  }
+
+  if (!leaveRecord.OutlookEntryId) {
+    const teamMember = await getTeamMemberByInitials(leaveRecord.fe, password);
+    const outlookUserId = teamMember?.entraId || teamMember?.email;
+    if (outlookUserId) {
+      const graphToken = await getGraphAccessToken();
+      if (graphToken) {
+        const payload = buildOutlookEventPayload({
+          initials: leaveRecord.fe,
+          startDate: leaveRecord.start_date,
+          endDate: leaveRecord.end_date,
+          halfDayStart: leaveRecord.half_day_start,
+          halfDayEnd: leaveRecord.half_day_end,
+          requestId: parsedId
+        });
+
+        const outlookEntryId = await createOutlookCalendarEntry(graphToken, outlookUserId, payload);
+        if (outlookEntryId) {
+          await attendanceQuery(projectDataConnStr, (req, sql) =>
+            req.input('id', sql.Int, parsedId)
+              .input('outlookEntryId', sql.NVarChar(100), outlookEntryId)
+              .query(`
+                UPDATE [dbo].[annualLeave]
+                   SET [OutlookEntryId] = @outlookEntryId
+                 WHERE [request_id] = @id;
+              `)
+          );
+        }
+      }
+    }
+  }
+}
 
 // Helper function to create Clio calendar entry
 // half_day_start: true means start day is PM only (from 1pm)

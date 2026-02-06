@@ -1,9 +1,10 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useCallback } from 'react';
 import { Icon } from '@fluentui/react';
 import { format, parseISO } from 'date-fns';
 import { colours } from '../../app/styles/colours';
 import { NormalizedMatter } from '../../app/functionality/types';
 import InlineExpansionChevron from '../../components/InlineExpansionChevron';
+import clioIcon from '../../assets/clio.svg';
 
 interface MatterTableViewProps {
   matters: NormalizedMatter[];
@@ -24,6 +25,19 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
   const [hoveredDayGroupKey, setHoveredDayGroupKey] = useState<string | null>(null);
   const [sortColumn, setSortColumn] = useState<'matterRef' | 'clientName' | 'description' | 'practiceArea' | 'responsible' | 'openDate'>('openDate');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  // Copy to clipboard handler
+  const handleCopy = useCallback(async (value: string, key: string) => {
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey(null), 1500);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  }, []);
 
   const shouldGroupByDate = sortColumn === 'openDate';
 
@@ -102,11 +116,21 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
   };
 
   const renderSortIndicator = (column: typeof sortColumn) => {
-    if (sortColumn !== column) return null;
+    const isActive = sortColumn === column;
     return (
       <Icon
-        iconName={sortDirection === 'asc' ? 'SortUp' : 'SortDown'}
-        style={{ fontSize: 10, marginLeft: 6, opacity: 0.7 }}
+        iconName={isActive ? (sortDirection === 'asc' ? 'ChevronUpSmall' : 'ChevronDownSmall') : 'ChevronDownSmall'}
+        styles={{
+          root: {
+            fontSize: 8,
+            marginLeft: 4,
+            opacity: isActive ? 1 : 0.35,
+            color: isActive
+              ? (isDarkMode ? colours.accent : colours.highlight)
+              : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)'),
+            transition: 'opacity 0.15s ease',
+          },
+        }}
       />
     );
   };
@@ -123,11 +147,29 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
     });
   };
 
-  const formatDayLabel = (dayKey: string): string => {
+  const sanitizePhoneForTel = (raw: string): string => {
+    const trimmed = (raw || '').trim();
+    if (!trimmed) return '';
+    const hasPlus = trimmed.startsWith('+');
+    const digitsOnly = trimmed.replace(/[^0-9]/g, '');
+    return hasPlus ? `+${digitsOnly}` : digitsOnly;
+  };
+
+  // Format day separator label (compact by default, full on hover; include year only if not current)
+  const formatDaySeparatorLabel = (dayKey: string, isHovered: boolean): string => {
     if (dayKey === 'No Date' || dayKey === 'Invalid Date') return dayKey;
     try {
       const date = parseISO(dayKey);
-      return format(date, 'd MMM yyyy');
+      const now = new Date();
+      const isSameYear = date.getFullYear() === now.getFullYear();
+
+      if (isHovered) {
+        return isSameYear
+          ? format(date, 'EEEE d MMMM')
+          : format(date, 'EEEE d MMMM yyyy');
+      }
+
+      return isSameYear ? format(date, 'dd.MM') : format(date, 'dd.MM.yyyy');
     } catch {
       return dayKey;
     }
@@ -177,20 +219,23 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
   return (
     <div
       style={{
-        backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.6)' : '#ffffff',
-        border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'}`,
-        borderRadius: 2,
+        backgroundColor: isDarkMode ? 'rgba(10, 15, 30, 0.95)' : 'rgba(241, 245, 249, 1)',
         overflow: 'hidden',
         fontFamily: 'Raleway, "Segoe UI", sans-serif',
         display: 'flex',
         flexDirection: 'column',
-        maxHeight: 'calc(100vh - 180px)',
+        flex: 1,
+        height: '100%',
+        minHeight: 0,
       }}
     >
       {/* Table Container */}
       <div style={{
         display: 'flex',
         flexDirection: 'column',
+        flex: 1,
+        minHeight: 0,
+        overflowY: 'auto',
         gap: 0,
         paddingBottom: 0,
         background: 'transparent',
@@ -199,26 +244,49 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
         {/* Header Row */}
         <div style={{
           display: 'grid',
-          gridTemplateColumns: '32px 140px 220px 1fr 140px 140px 120px',
+          gridTemplateColumns: '32px 180px minmax(auto, 220px) minmax(auto, 350px) 140px 140px 120px 92px',
+          gap: '12px',
           alignItems: 'center',
-          height: 44,
           padding: '0 16px',
-          background: isDarkMode ? 'rgba(15, 23, 42, 0.98)' : 'rgba(255, 255, 255, 0.98)',
+          height: 44,
+          boxSizing: 'border-box',
+          background: isDarkMode ? 'rgba(15, 25, 45, 0.98)' : 'rgba(248, 250, 252, 0.98)',
           backdropFilter: 'blur(12px)',
+          borderTop: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
           borderBottom: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)'}`,
           position: 'sticky',
           top: 0,
           zIndex: 10,
-          fontSize: 10,
-          fontWeight: 500,
-          color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)',
+          flexShrink: 0,
+          fontFamily: 'Raleway, "Segoe UI", sans-serif',
+          fontSize: 11,
+          fontWeight: 600,
+          color: isDarkMode ? colours.accent : colours.highlight,
           textTransform: 'uppercase',
           letterSpacing: '0.5px',
           boxShadow: isDarkMode
             ? '0 2px 8px rgba(0, 0, 0, 0.3)'
             : '0 2px 8px rgba(0, 0, 0, 0.08)',
         }}>
-          <div></div>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+            title="Timeline"
+          >
+            <Icon
+              iconName="TimelineProgress"
+              styles={{
+                root: {
+                  fontSize: 12,
+                  color: isDarkMode ? colours.accent : colours.highlight,
+                  opacity: 0.7,
+                },
+              }}
+            />
+          </div>
           <button
             type="button"
             onClick={() => handleSort('matterRef')}
@@ -235,7 +303,7 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
               cursor: 'pointer',
             }}
           >
-            Matter Ref
+            Matter
             {renderSortIndicator('matterRef')}
           </button>
           <button
@@ -292,7 +360,7 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
               cursor: 'pointer',
             }}
           >
-            Area
+            Worktype
             {renderSortIndicator('practiceArea')}
           </button>
           <button
@@ -332,15 +400,24 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
               textAlign: 'right',
             }}
           >
-            Opened
+            Open Date
             {renderSortIndicator('openDate')}
           </button>
+
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'flex-end',
+            textAlign: 'right',
+            opacity: 0.9,
+          }}>
+            Actions
+          </div>
         </div>
 
         {/* Grouped Rows */}
         {groupedByDate.map(([dayKey, dayMatters]) => {
           const isCollapsed = collapsedDays.has(dayKey);
-          const dayLabel = formatDayLabel(dayKey);
           const isGroupHovered = hoveredDayGroupKey === dayKey;
 
           return (
@@ -359,7 +436,7 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
                   }}
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: '32px 1fr auto',
+                    gridTemplateColumns: '32px 1fr 120px',
                     gap: '12px',
                     alignItems: 'center',
                     padding: '12px 16px',
@@ -375,6 +452,7 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
                     alignItems: 'center',
                     justifyContent: 'center',
                   }}>
+                    {/* Vertical line - only below the dot */}
                     <div style={{
                       position: 'absolute',
                       left: '50%',
@@ -388,7 +466,12 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
                           : (isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)'),
                       opacity: hoveredDayKey === dayKey ? 0.9 : 1,
                     }} />
+                    {/* Timeline dot - absolutely positioned to align with line */}
                     <div style={{
+                      position: 'absolute',
+                      left: '50%',
+                      top: '50%',
+                      transform: 'translate(-50%, -50%)',
                       width: 8,
                       height: 8,
                       borderRadius: '50%',
@@ -408,11 +491,11 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
                         hoveredDayKey === dayKey
                           ? (isDarkMode ? colours.accent : colours.highlight)
                           : (isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(71, 85, 105, 0.7)'),
-                      textTransform: 'uppercase',
+                      textTransform: hoveredDayKey === dayKey ? 'none' : 'uppercase',
                       letterSpacing: '0.5px',
                       whiteSpace: 'nowrap',
                     }}>
-                      {dayLabel}
+                      {formatDaySeparatorLabel(dayKey, hoveredDayKey === dayKey)}
                     </span>
                     <span style={{
                       fontSize: '9px',
@@ -429,6 +512,26 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
                         ? 'linear-gradient(90deg, rgba(148,163,184,0.35), rgba(148,163,184,0.12), rgba(148,163,184,0))'
                         : 'linear-gradient(90deg, rgba(148,163,184,0.45), rgba(148,163,184,0.2), rgba(148,163,184,0))',
                     }} />
+                  </div>
+                  {/* Chevron and collapsed indicator - aligned right */}
+                  <div style={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    justifyContent: 'flex-end',
+                    gap: 4,
+                  }}>
+                    {isCollapsed && (
+                      <Icon
+                        iconName="Hide3"
+                        styles={{
+                          root: {
+                            fontSize: 12,
+                            color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)',
+                          },
+                        }}
+                        title={`${dayMatters.length} items hidden`}
+                      />
+                    )}
                     <Icon
                       iconName={isCollapsed ? 'ChevronRight' : 'ChevronDown'}
                       styles={{
@@ -439,12 +542,11 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
                       }}
                     />
                   </div>
-                  <div />
                 </div>
               )}
 
               {/* Matter Rows */}
-              {(!shouldGroupByDate || !isCollapsed) && dayMatters.map((matter) => (
+              {(!shouldGroupByDate || !isCollapsed) && dayMatters.map((matter, idx) => (
                 <div
                   key={matter.matterId}
                   onClick={() => onRowClick?.(matter)}
@@ -458,63 +560,252 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
                   }}
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: '32px 140px 220px 1fr 140px 140px 120px',
+                    gridTemplateColumns: '32px 180px minmax(auto, 220px) minmax(auto, 350px) 140px 140px 120px 92px',
+                    gap: '12px',
                     alignItems: 'center',
-                    padding: '12px 16px',
+                    padding: '10px 16px',
                     background: hoveredRowId === matter.matterId
-                      ? (isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.04)')
+                      ? (isDarkMode ? 'rgba(20, 30, 50, 0.95)' : 'rgba(255, 255, 255, 0.85)')
                       : (isGroupHovered
-                        ? (isDarkMode ? 'rgba(59, 130, 246, 0.05)' : 'rgba(59, 130, 246, 0.04)')
-                        : (isDarkMode ? 'rgba(255, 255, 255, 0.015)' : 'rgba(0, 0, 0, 0.008)')),
+                        ? (isDarkMode ? 'rgba(16, 22, 40, 0.9)' : 'rgba(255, 255, 255, 0.65)')
+                        : (isDarkMode 
+                          ? (idx % 2 === 0 ? 'rgba(14, 20, 38, 0.9)' : 'rgba(12, 18, 35, 0.85)')
+                          : (idx % 2 === 0 ? 'rgba(255, 255, 255, 0.6)' : 'rgba(250, 252, 255, 0.5)'))),
                     borderBottom: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)'}`,
                     cursor: 'pointer',
                     transition: 'background 0.15s ease, border-color 0.15s ease',
                     fontSize: 13,
                   }}
                 >
-                  {/* Icon */}
-                  <div style={{ position: 'relative', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  {/* Timeline cell - vertical line only */}
+                  <div style={{
+                    position: 'relative',
+                    height: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}>
                     <div style={{
                       position: 'absolute',
-                      left: 6,
+                      left: '50%',
                       top: 0,
                       bottom: 0,
                       width: '1px',
+                      transform: 'translateX(-50%)',
                       background: getPracticeAreaLineColor(matter.practiceArea || ''),
                       opacity: hoveredDayKey === dayKey ? 1 : 0.9,
-                      transition: 'opacity 0.15s ease',
+                      transition: 'background 0.15s ease, opacity 0.15s ease',
                     }} />
-                    <Icon
-                      iconName="FabricFolder"
-                      style={{
-                        fontSize: 16,
-                        color: matter.status?.toLowerCase() === 'open'
-                          ? (isDarkMode ? '#86efac' : '#22c55e')
-                          : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)'),
-                      }}
-                    />
                   </div>
 
-                  {/* Matter Ref */}
-                  <div style={{
-                    fontFamily: 'Monaco, Consolas, monospace',
-                    fontSize: 11,
-                    fontWeight: 600,
-                    color: isDarkMode ? colours.highlight : colours.blue,
-                  }}>
-                    {matter.displayNumber || matter.matterId}
-                  </div>
+                  {/* Matter Ref with Clio icon - clickable to open in Clio */}
+                  {(() => {
+                    const matterCopyKey = `matter-${matter.matterId}`;
+                    const isMatterCopied = copiedKey === matterCopyKey;
+                    const isV2 = matter.dataSource === 'vnet_direct';
+                    return (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <a
+                          href={`https://eu.app.clio.com/nc/#/matters/${matter.matterId}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            textDecoration: 'none',
+                            cursor: 'pointer',
+                          }}
+                          title="Open matter in Clio"
+                          onMouseEnter={(e) => {
+                            const span = e.currentTarget.querySelector('span');
+                            if (span) span.style.textDecoration = 'underline';
+                          }}
+                          onMouseLeave={(e) => {
+                            const span = e.currentTarget.querySelector('span');
+                            if (span) span.style.textDecoration = 'none';
+                          }}
+                        >
+                          <div style={{ position: 'relative', display: 'inline-flex' }}>
+                            <img
+                              src={clioIcon}
+                              alt="Clio"
+                              style={{
+                                width: 14,
+                                height: 14,
+                                opacity: matter.status?.toLowerCase() === 'open' ? 1 : 0.5,
+                                filter: isV2
+                                  ? (isDarkMode ? 'invert(1) brightness(1.2) drop-shadow(0 0 3px rgba(135, 243, 243, 0.8))' : 'drop-shadow(0 0 3px rgba(54, 144, 206, 0.6))')
+                                  : (isDarkMode ? 'invert(1) brightness(1.2)' : 'none'),
+                                transition: 'opacity 0.15s ease, filter 0.15s ease',
+                              }}
+                            />
+                            {isV2 && (
+                              <span style={{
+                                position: 'absolute',
+                                top: -4,
+                                right: -8,
+                                fontSize: 7,
+                                fontWeight: 700,
+                                color: isDarkMode ? colours.accent : colours.highlight,
+                                textTransform: 'uppercase',
+                                letterSpacing: 0.3,
+                              }}>
+                                v2
+                              </span>
+                            )}
+                          </div>
+                          <span style={{
+                            fontWeight: 500,
+                            color: colours.highlight,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}>
+                            {matter.displayNumber || matter.matterId}
+                          </span>
+                        </a>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void handleCopy(matter.displayNumber || matter.matterId, matterCopyKey);
+                          }}
+                          title={isMatterCopied ? 'Copied' : 'Copy matter ref'}
+                          aria-label="Copy matter ref"
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            width: 18,
+                            height: 18,
+                            flexShrink: 0,
+                            borderRadius: 5,
+                            border: isMatterCopied
+                              ? `1px solid ${isDarkMode ? 'rgba(16, 185, 129, 0.5)' : 'rgba(16, 185, 129, 0.38)'}`
+                              : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(100, 116, 139, 0.12)'}`,
+                            background: isMatterCopied
+                              ? (isDarkMode ? 'rgba(16, 185, 129, 0.16)' : 'rgba(16, 185, 129, 0.12)')
+                              : 'transparent',
+                            color: isMatterCopied
+                              ? '#10B981'
+                              : (isDarkMode ? 'rgba(203, 213, 225, 0.5)' : 'rgba(71, 85, 105, 0.55)'),
+                            cursor: 'pointer',
+                            padding: 0,
+                            opacity: isMatterCopied ? 1 : 0.5,
+                            transition: 'opacity 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 160ms ease, background 160ms ease',
+                          }}
+                          onMouseEnter={(e) => {
+                            if (isMatterCopied) return;
+                            e.currentTarget.style.opacity = '0.9';
+                            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(100, 116, 139, 0.3)';
+                          }}
+                          onMouseLeave={(e) => {
+                            if (isMatterCopied) return;
+                            e.currentTarget.style.opacity = '0.5';
+                            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(100, 116, 139, 0.12)';
+                          }}
+                        >
+                          <Icon
+                            iconName={isMatterCopied ? 'CompletedSolid' : 'Copy'}
+                            styles={{
+                              root: {
+                                fontSize: 10,
+                                color: isMatterCopied ? '#10B981' : undefined,
+                              },
+                            }}
+                          />
+                        </button>
+                      </div>
+                    );
+                  })()}
 
-                  {/* Client */}
-                  <div style={{
-                    fontWeight: 500,
-                    color: isDarkMode ? colours.dark.text : colours.light.text,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}>
-                    {matter.clientName || 'Unknown Client'}
-                  </div>
+                  {/* Client - clickable to open in Clio with copy button */}
+                  {(() => {
+                    const clientCopyKey = `client-${matter.matterId}`;
+                    const isClientCopied = copiedKey === clientCopyKey;
+                    return (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden' }}>
+                        <a
+                          href={`https://eu.app.clio.com/nc/#/contacts/${matter.clientId}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          style={{
+                            fontWeight: 500,
+                            color: colours.highlight,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            textDecoration: 'none',
+                            cursor: 'pointer',
+                            transition: 'text-decoration 0.15s ease',
+                          }}
+                          title="Open client in Clio"
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.textDecoration = 'underline';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.textDecoration = 'none';
+                          }}
+                        >
+                          {matter.clientName || 'Unknown Client'}
+                        </a>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void handleCopy(matter.clientName || '', clientCopyKey);
+                          }}
+                          title={isClientCopied ? 'Copied' : 'Copy client name'}
+                          aria-label="Copy client name"
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            width: 18,
+                            height: 18,
+                            flexShrink: 0,
+                            borderRadius: 5,
+                            border: isClientCopied
+                              ? `1px solid ${isDarkMode ? 'rgba(16, 185, 129, 0.5)' : 'rgba(16, 185, 129, 0.38)'}`
+                              : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(100, 116, 139, 0.12)'}`,
+                            background: isClientCopied
+                              ? (isDarkMode ? 'rgba(16, 185, 129, 0.16)' : 'rgba(16, 185, 129, 0.12)')
+                              : 'transparent',
+                            color: isClientCopied
+                              ? '#10B981'
+                              : (isDarkMode ? 'rgba(203, 213, 225, 0.5)' : 'rgba(71, 85, 105, 0.55)'),
+                            cursor: 'pointer',
+                            padding: 0,
+                            opacity: isClientCopied ? 1 : 0.5,
+                            transition: 'opacity 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 160ms ease, background 160ms ease',
+                          }}
+                          onMouseEnter={(e) => {
+                            if (isClientCopied) return;
+                            e.currentTarget.style.opacity = '0.9';
+                            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(100, 116, 139, 0.3)';
+                          }}
+                          onMouseLeave={(e) => {
+                            if (isClientCopied) return;
+                            e.currentTarget.style.opacity = '0.5';
+                            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(100, 116, 139, 0.12)';
+                          }}
+                        >
+                          <Icon
+                            iconName={isClientCopied ? 'CompletedSolid' : 'Copy'}
+                            styles={{
+                              root: {
+                                fontSize: 10,
+                                color: isClientCopied ? '#10B981' : undefined,
+                              },
+                            }}
+                          />
+                        </button>
+                      </div>
+                    );
+                  })()}
 
                   {/* Description */}
                   <div style={{
@@ -557,6 +848,97 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
                   }}>
                     {matter.openDate ? format(parseISO(matter.openDate), 'd MMM yyyy') : 'No date'}
                   </div>
+
+                  {/* Actions: Call + Email */}
+                  {(() => {
+                    const phoneRaw = (matter.clientPhone || '').toString().trim();
+                    const emailRaw = (matter.clientEmail || '').toString().trim();
+                    const tel = sanitizePhoneForTel(phoneRaw);
+                    const hasPhone = Boolean(tel);
+                    const hasEmail = Boolean(emailRaw);
+
+                    return (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px' }}>
+                        <button
+                          type="button"
+                          disabled={!hasPhone}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (!tel) return;
+                            window.open(`tel:${tel}`, '_self');
+                          }}
+                          style={{
+                            width: 22,
+                            height: 22,
+                            borderRadius: 0,
+                            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)'}`,
+                            background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)',
+                            color: isDarkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.8)',
+                            opacity: hasPhone ? 1 : 0.3,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: hasPhone ? 'pointer' : 'default',
+                            transition: 'background 0.15s ease, border-color 0.15s ease, color 0.15s ease, opacity 0.15s ease',
+                            padding: 0,
+                          }}
+                          onMouseEnter={(e) => {
+                            if (!hasPhone) return;
+                            e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)';
+                            e.currentTarget.style.borderColor = colours.blue;
+                            e.currentTarget.style.color = colours.blue;
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)';
+                            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)';
+                            e.currentTarget.style.color = isDarkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.8)';
+                          }}
+                          title={hasPhone ? `Call ${phoneRaw}` : 'No phone number'}
+                        >
+                          <Icon iconName="Phone" styles={{ root: { fontSize: 11 } }} />
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={!hasEmail}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (!emailRaw) return;
+                            window.open(`mailto:${emailRaw}`, '_blank');
+                          }}
+                          style={{
+                            width: 22,
+                            height: 22,
+                            borderRadius: 0,
+                            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)'}`,
+                            background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)',
+                            color: isDarkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.8)',
+                            opacity: hasEmail ? 1 : 0.3,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: hasEmail ? 'pointer' : 'default',
+                            transition: 'background 0.15s ease, border-color 0.15s ease, color 0.15s ease, opacity 0.15s ease',
+                            padding: 0,
+                          }}
+                          onMouseEnter={(e) => {
+                            if (!hasEmail) return;
+                            e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)';
+                            e.currentTarget.style.borderColor = colours.blue;
+                            e.currentTarget.style.color = colours.blue;
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)';
+                            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)';
+                            e.currentTarget.style.color = isDarkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.8)';
+                          }}
+                          title={hasEmail ? `Email ${emailRaw}` : 'No email address'}
+                        >
+                          <Icon iconName="Mail" styles={{ root: { fontSize: 11 } }} />
+                        </button>
+                      </div>
+                    );
+                  })()}
                 </div>
               ))}
             </div>

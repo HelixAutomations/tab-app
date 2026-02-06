@@ -902,6 +902,12 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
     // Sync a single matter from Clio to SQL
     const syncMatterFromClio = useCallback(async (displayNumber: string, skipRefresh = false) => {
         if (syncingMatters.has(displayNumber)) return;
+
+        const adminInitials = (signatureInitials || '').toUpperCase().trim();
+        if (!adminInitials) {
+            showToast('Missing initials: cannot sync from Clio', 'error');
+            return;
+        }
         
         setSyncingMatters(prev => new Set(prev).add(displayNumber));
         setClioVerificationCache(prev => ({
@@ -910,7 +916,7 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
         }));
         
         try {
-            const response = await fetch(`/api/rate-changes/sync-matter/${encodeURIComponent(displayNumber)}`, {
+            const response = await fetch(`/api/rate-changes/sync-matter/${encodeURIComponent(displayNumber)}?initials=${encodeURIComponent(adminInitials)}`, {
                 method: 'POST',
             });
             
@@ -960,7 +966,7 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                 return next;
             });
         }
-    }, [syncingMatters, showToast, onRefresh]);
+    }, [syncingMatters, signatureInitials, showToast, onRefresh]);
 
     // Bulk sync all mismatched matters
     const syncAllMismatches = useCallback(async () => {
@@ -1126,7 +1132,12 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
         updates: Array<{ matter_id: string; display_number: string; date_value: string }>,
         onUpdate: MatterUpdateCallback
     ) => {
-        const response = await fetch('/api/ccl-date/stream', {
+        const adminInitials = (signatureInitials || '').toUpperCase().trim();
+        if (!adminInitials) {
+            throw new Error('Missing initials');
+        }
+
+        const response = await fetch(`/api/ccl-date/stream?initials=${encodeURIComponent(adminInitials)}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1171,7 +1182,7 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                 }
             }
         }
-    }, []);
+    }, [signatureInitials]);
 
     const executeAction = useCallback(async () => {
         if (!confirmClient || !confirmAction) return;
@@ -2554,7 +2565,7 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                                                                 >
                                                                     {client.open_matters[0].display_number}
                                                                 </a>
-                                                                {renderVerificationIndicator(client.open_matters[0].display_number, client.open_matters[0], client.status === 'pending')}
+                                                                {renderVerificationIndicator(client.open_matters[0].display_number, client.open_matters[0], isAdmin && client.status === 'pending')}
                                                             </div>
                                                         )
                                                         : (
@@ -2574,7 +2585,7 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                                                                         >
                                                                             {m.display_number}
                                                                         </a>
-                                                                        {renderVerificationIndicator(m.display_number, m, client.status === 'pending')}
+                                                                        {renderVerificationIndicator(m.display_number, m, isAdmin && client.status === 'pending')}
                                                                         {m.open_date && (
                                                                             <span style={{ fontSize: 9, color: textMuted }}>
                                                                                 ({new Date(m.open_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' })})
@@ -2748,24 +2759,26 @@ ${currentUserName || '[Your Name]'}`, [year, newRate, currentRate, currentUserNa
                                                         </div>
                                                     ) : filter === 'migrate' ? (
                                                         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                                                            <button
-                                                                className="rc-btn"
-                                                                onClick={(e) => handleSetCclDate(client, e)}
-                                                                disabled={isProcessing}
-                                                                style={{
-                                                                    padding: '6px 14px', 
-                                                                    border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)'}`,
-                                                                    borderRadius: 0, background: 'transparent', 
-                                                                    color: textMuted,
-                                                                    fontSize: 11, fontWeight: 600, 
-                                                                    cursor: 'pointer',
-                                                                    letterSpacing: '0.03em', textTransform: 'uppercase',
-                                                                    display: 'flex', alignItems: 'center', gap: 6,
-                                                                }}
-                                                            >
-                                                                <Icon iconName="Calendar" style={{ fontSize: 10 }} />
-                                                                CCL Date
-                                                            </button>
+                                                            {isAdmin && (
+                                                                <button
+                                                                    className="rc-btn"
+                                                                    onClick={(e) => handleSetCclDate(client, e)}
+                                                                    disabled={isProcessing}
+                                                                    style={{
+                                                                        padding: '6px 14px', 
+                                                                        border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)'}`,
+                                                                        borderRadius: 0, background: 'transparent', 
+                                                                        color: textMuted,
+                                                                        fontSize: 11, fontWeight: 600, 
+                                                                        cursor: 'pointer',
+                                                                        letterSpacing: '0.03em', textTransform: 'uppercase',
+                                                                        display: 'flex', alignItems: 'center', gap: 6,
+                                                                    }}
+                                                                >
+                                                                    <Icon iconName="Calendar" style={{ fontSize: 10 }} />
+                                                                    CCL Date
+                                                                </button>
+                                                            )}
                                                             <button
                                                                 className="rc-btn rc-btn-primary"
                                                                 onClick={() => handleStartMigrate(client)}

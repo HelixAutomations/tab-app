@@ -268,6 +268,8 @@ const App: React.FC<AppProps> = ({
       return { rateChangeTracker: false };
     }
   });
+
+  const [teamWideEnquiries, setTeamWideEnquiries] = useState<Enquiry[] | null>(null);
   
   const handleFeatureToggle = useCallback((feature: string, enabled: boolean) => {
     setFeatureToggles(prev => {
@@ -276,6 +278,136 @@ const App: React.FC<AppProps> = ({
       return next;
     });
   }, []);
+
+  const workbenchByInstructionRef = useMemo(() => {
+    const map = new Map<string, any>();
+
+    (allInstructionData || []).forEach((prospect: any) => {
+      const instructions = prospect.instructions ?? [];
+      const deals = prospect.deals ?? [];
+
+      instructions.forEach((inst: any) => {
+        const instructionRef = inst?.InstructionRef;
+        if (!instructionRef) return;
+
+        const dealsForInst = deals.filter((d: any) => d?.InstructionRef === instructionRef);
+        const deal = dealsForInst[0];
+
+        const riskSource = [
+          ...(prospect.riskAssessments ?? prospect.compliance ?? []),
+          ...(inst.riskAssessments ?? inst.compliance ?? []),
+        ];
+        dealsForInst.forEach((d: any) => {
+          if (d?.instruction) {
+            riskSource.push(...(d.instruction.riskAssessments ?? []));
+            riskSource.push(...(d.instruction.compliance ?? []));
+          }
+        });
+
+        const eidSource = [
+          ...(prospect.electronicIDChecks ?? []),
+          ...(prospect.idVerifications ?? []),
+          ...(inst.electronicIDChecks ?? []),
+          ...(inst.idVerifications ?? []),
+        ];
+        dealsForInst.forEach((d: any) => {
+          if (d?.instruction) {
+            eidSource.push(...(d.instruction.electronicIDChecks ?? []));
+            eidSource.push(...(d.instruction.idVerifications ?? []));
+          }
+        });
+
+        const risk = riskSource.find((r: any) => r?.MatterId === instructionRef);
+        const eids = eidSource.filter(
+          (e: any) => (e?.MatterId ?? e?.InstructionRef) === instructionRef,
+        );
+        const eid = eids[0];
+
+        const rawDocs = [
+          ...(prospect.documents ?? []),
+          ...(inst.documents ?? []),
+          ...dealsForInst.flatMap((d: any) => [
+            ...(d.documents ?? []),
+            ...(d.instruction?.documents ?? []),
+          ]),
+        ];
+        const docsMap: Record<string, any> = {};
+        rawDocs.forEach((doc: any) => {
+          const key =
+            doc?.DocumentId !== undefined
+              ? String(doc.DocumentId)
+              : `${doc?.FileName ?? ''}-${doc?.UploadedAt ?? ''}`;
+          if (!docsMap[key]) {
+            docsMap[key] = doc;
+          }
+        });
+        const documents = Object.values(docsMap);
+
+        const clientsForInst: any[] = [];
+        const prospectClients = [
+          ...(prospect.jointClients ?? prospect.joinedClients ?? []),
+          ...dealsForInst.flatMap((d: any) => d.jointClients ?? []),
+        ];
+        prospectClients.forEach((jc: any) => {
+          if (!jc?.DealId) return;
+          if (dealsForInst.some((d: any) => d.DealId === jc.DealId)) {
+            const match = dealsForInst.find((d: any) => d.DealId === jc.DealId);
+            clientsForInst.push({
+              ClientEmail: jc.ClientEmail,
+              HasSubmitted: jc.HasSubmitted,
+              Lead: false,
+              deals: [
+                {
+                  DealId: jc.DealId,
+                  InstructionRef: instructionRef,
+                  ServiceDescription: match?.ServiceDescription,
+                  Status: match?.Status,
+                },
+              ],
+            });
+          }
+        });
+        dealsForInst.forEach((d: any) => {
+          if (d?.LeadClientEmail) {
+            clientsForInst.push({
+              ClientEmail: d.LeadClientEmail,
+              Lead: true,
+              deals: [
+                {
+                  DealId: d.DealId,
+                  InstructionRef: d.InstructionRef,
+                  ServiceDescription: d.ServiceDescription,
+                  Status: d.Status,
+                },
+              ],
+            });
+          }
+        });
+
+        const payments =
+          inst?.payments ??
+          deal?.payments ??
+          deal?.instruction?.payments ??
+          [];
+
+        map.set(String(instructionRef), {
+          instruction: inst,
+          deal,
+          deals: dealsForInst,
+          clients: clientsForInst,
+          risk,
+          eid,
+          eids,
+          documents,
+          payments,
+          prospectId: deal?.ProspectId || inst?.ProspectId || prospect.prospectId,
+          documentCount: documents.length,
+        });
+      });
+    });
+
+    return map;
+  }, [allInstructionData]);
 
   // Check for active matter opening every 2 seconds
   useEffect(() => {
@@ -491,13 +623,13 @@ const App: React.FC<AppProps> = ({
   const userInitials = userData?.[0]?.Initials?.toUpperCase() || '';
 
   // Fetch instruction data lazily when Instructions tab is opened.
-  // Enquiries also needs access to this dataset for InlineWorkbench expansion.
+  // Enquiries and Matters also need access to this dataset for InlineWorkbench expansion.
   useEffect(() => {
     const currentUser = userData?.[0] || null;
     const hasAccess = hasInstructionsAccess(currentUser);
 
-    // Only fetch instructions when Instructions tab is active, or when Enquiries needs workbench data.
-    if (activeTab !== 'instructions' && activeTab !== 'enquiries') {
+    // Only fetch instructions when Instructions/Enquiries/Matters are active.
+    if (activeTab !== 'instructions' && activeTab !== 'enquiries' && activeTab !== 'matters') {
       return;
     }
 
@@ -719,9 +851,9 @@ const App: React.FC<AppProps> = ({
   // Instructions tab is available to admins plus BR, LA, SP
   // Only show the Reports tab to admins.
   const tabs: Tab[] = useMemo(() => {
-    const isLocalhost = window.location.hostname === 'localhost';
     const currentUser = userData?.[0] || null;
     const isAdmin = isAdminUser(currentUser);
+    const viewAsProd = Boolean(featureToggles?.viewAsProd);
     
     const showInstructionsTab = hasInstructionsAccess(currentUser);
     const showReportsTab = isAdmin;
@@ -729,13 +861,12 @@ const App: React.FC<AppProps> = ({
     return [
       { key: 'enquiries', text: 'Prospects' },
       ...(showInstructionsTab ? [{ key: 'instructions', text: 'Clients' }] : []),
-      // Disable Matters in production (enabled only on localhost)
-      { key: 'matters', text: 'Matters', disabled: !isLocalhost },
+      { key: 'matters', text: 'Matters' },
       { key: 'forms', text: 'Forms', disabled: true }, // Disabled tab that triggers modal
       { key: 'resources', text: 'Resources', disabled: true }, // Disabled tab that triggers modal
       ...(showReportsTab ? [{ key: 'reporting', text: 'Reports' }] : []),
     ];
-  }, [userData]);
+  }, [userData, featureToggles?.viewAsProd, isLocalDev]);
 
   // Ensure the active tab is still valid when tabs change (e.g., when switching users)
   // If current tab is no longer available, redirect to home instead of breaking navigation
@@ -798,6 +929,7 @@ const App: React.FC<AppProps> = ({
             featureToggles={featureToggles}
             demoModeEnabled={demoModeEnabled}
             isActive={activeTab === 'enquiries'}
+            onTeamWideEnquiriesLoaded={setTeamWideEnquiries}
           />
         );
       case 'instructions':
@@ -826,6 +958,9 @@ const App: React.FC<AppProps> = ({
             isLoading={isLoading}
             error={error}
             userData={userData}
+            teamData={teamData}
+            enquiries={(teamWideEnquiries && teamWideEnquiries.length > 0) ? teamWideEnquiries : enquiries}
+            workbenchByInstructionRef={workbenchByInstructionRef}
           />
         );
       case 'reporting':
@@ -848,6 +983,7 @@ const App: React.FC<AppProps> = ({
             originalAdminUser={originalAdminUser}
             featureToggles={featureToggles}
             demoModeEnabled={demoModeEnabled}
+            isSwitchingUser={isLoading}
           />
         );
     }
@@ -870,7 +1006,10 @@ const App: React.FC<AppProps> = ({
         <div
           style={{
             backgroundColor: isDarkMode ? '#020617' : colours.light.background,
-            minHeight: '100vh',
+            height: '100vh',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
             transition: 'background-color 0.15s ease',
           }}
         >
@@ -960,6 +1099,10 @@ const App: React.FC<AppProps> = ({
           <ResourcesModal
             isOpen={isResourcesModalOpen}
             onDismiss={closeResourcesModal}
+            userData={userData}
+            demoModeEnabled={demoModeEnabled}
+            isLocalDev={isLocalDev}
+            viewAsProd={Boolean(featureToggles?.viewAsProd)}
           />
           <MaintenanceNotice
             state={serviceHealth}
@@ -967,9 +1110,11 @@ const App: React.FC<AppProps> = ({
             onDismiss={dismissMaintenance}
           />
           
-          <Suspense fallback={<ThemedSuspenseFallback /> }>
-            {renderContent()}
-          </Suspense>
+          <div className="app-scroll-region">
+            <Suspense fallback={<ThemedSuspenseFallback /> }>
+              {renderContent()}
+            </Suspense>
+          </div>
         </div>
         </ToastProvider>
       </ThemeProvider>

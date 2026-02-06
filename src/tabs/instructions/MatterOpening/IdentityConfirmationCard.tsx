@@ -560,6 +560,8 @@ const IdentityConfirmationCard: React.FC<IdentityConfirmationCardProps> = ({
                   fontSize: 14,
                   fontWeight: 700,
                   color: isDarkMode ? '#E5E7EB' : '#0F172A',
+                  lineHeight: 1.3,
+                  paddingTop: 1,
                 }}>
                   Confirm Identity
                 </div>

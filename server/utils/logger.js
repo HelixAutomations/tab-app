@@ -1,7 +1,7 @@
 /**
  * Environment-aware logging utility
  * 
- * See docs/LOGGING_ARCHITECTURE.md for conventions.
+ * See docs/PLATFORM_OPERATIONS.md for conventions.
  * 
  * Levels:
  * - debug: Dev only, verbose troubleshooting

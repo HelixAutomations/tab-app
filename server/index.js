@@ -30,6 +30,55 @@ try { compression = require('compression'); } catch { /* optional */ }
 const { init: initOpLog, append: opAppend, sessionId: opSessionId } = require('./utils/opLog');
 const { getRedisClient } = require('./utils/redisClient');
 const { getPool } = require('./utils/db');
+const { getSecret } = require('./utils/getSecret');
+const { startDataOperationsScheduler } = require('./utils/dataOperationsScheduler');
+
+const isRedacted = (value) => typeof value === 'string' && value.includes('<REDACTED>');
+
+async function buildConnectionString({ server, database, user, secretName }) {
+    const password = await getSecret(secretName);
+    if (!password || isRedacted(password)) {
+        throw new Error(`Missing or redacted SQL password secret: ${secretName}`);
+    }
+    return `Server=tcp:${server},1433;Initial Catalog=${database};Persist Security Info=False;User ID=${user};Password=${password};MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;`;
+}
+
+async function hydrateSqlConnectionStringsFromKeyVault() {
+    const coreConn = process.env.SQL_CONNECTION_STRING;
+    const vnetConn = process.env.SQL_CONNECTION_STRING_VNET;
+    if ((!coreConn || isRedacted(coreConn)) && vnetConn && !isRedacted(vnetConn)) {
+        process.env.SQL_CONNECTION_STRING = vnetConn;
+        console.log('[Secrets] SQL_CONNECTION_STRING set from SQL_CONNECTION_STRING_VNET');
+    }
+    if (!coreConn || isRedacted(coreConn)) {
+        const server = process.env.SQL_SERVER_FQDN || 'helix-database-server.database.windows.net';
+        const database = process.env.SQL_DATABASE_NAME || 'helix-core-data';
+        const user = process.env.SQL_USER_NAME || 'helix-database-server';
+        const secretName = process.env.SQL_PASSWORD_SECRET_NAME || process.env.SQL_SERVER_PASSWORD_KEY || 'sql-databaseserver-password';
+
+        try {
+            process.env.SQL_CONNECTION_STRING = await buildConnectionString({ server, database, user, secretName });
+            console.log('[Secrets] SQL_CONNECTION_STRING resolved via Key Vault');
+        } catch (error) {
+            console.warn('[Secrets] Failed to resolve SQL_CONNECTION_STRING via Key Vault:', error?.message || error);
+        }
+    }
+
+    const instructionsConn = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
+    if (!instructionsConn || isRedacted(instructionsConn)) {
+        const server = process.env.INSTRUCTIONS_SQL_SERVER || 'instructions.database.windows.net';
+        const database = process.env.INSTRUCTIONS_SQL_DATABASE || 'instructions';
+        const user = process.env.INSTRUCTIONS_SQL_USER || 'instructionsadmin';
+        const secretName = process.env.INSTRUCTIONS_SQL_PASSWORD_SECRET_NAME || 'instructions-sql-password';
+
+        try {
+            process.env.INSTRUCTIONS_SQL_CONNECTION_STRING = await buildConnectionString({ server, database, user, secretName });
+            console.log('[Secrets] INSTRUCTIONS_SQL_CONNECTION_STRING resolved via Key Vault');
+        } catch (error) {
+            console.warn('[Secrets] Failed to resolve INSTRUCTIONS_SQL_CONNECTION_STRING via Key Vault:', error?.message || error);
+        }
+    }
+}
 
 // Warm up connections in background (non-blocking)
 async function warmupConnections() {
@@ -42,10 +91,15 @@ async function warmupConnections() {
         getPool(connStr).catch(() => { /* ignore - will retry on first use */ });
     }
 }
-warmupConnections();
+
+(async () => {
+    await hydrateSqlConnectionStringsFromKeyVault();
+    warmupConnections();
+})().catch(() => warmupConnections());
 const keysRouter = require('./routes/keys');
 const refreshRouter = require('./routes/refresh');
 const matterRequestsRouter = require('./routes/matterRequests');
+const matterAuditRouter = require('./routes/matter-audit');
 const opponentsRouter = require('./routes/opponents');
 const clioContactsRouter = require('./routes/clioContacts');
 const clioMattersRouter = require('./routes/clioMatters');
@@ -87,6 +141,8 @@ const forwardEmailRouter = require('./routes/forwardEmail');
 const searchInboxRouter = require('./routes/searchInbox');
 const callrailCallsRouter = require('./routes/callrailCalls');
 const attendanceRouter = require('./routes/attendance');
+const resourcesAnalyticsRouter = require('./routes/resources-analytics');
+const resourcesCoreRouter = require('./routes/resources-core');
 const reportingRouter = require('./routes/reporting');
 const reportingStreamRouter = require('./routes/reporting-stream');
 const homeMetricsStreamRouter = require('./routes/home-metrics-stream');
@@ -95,6 +151,7 @@ const homeEnquiriesRouter = require('./routes/home-enquiries');
 const poidRouter = require('./routes/poid');
 const futureBookingsRouter = require('./routes/futureBookings');
 const outstandingBalancesRouter = require('./routes/outstandingBalances');
+const matterMetricsRouter = require('./routes/matter-metrics');
 const transactionsRouter = require('./routes/transactions');
 const marketingMetricsRouter = require('./routes/marketing-metrics');
 const cachePreheaterRouter = require('./routes/cache-preheater');
@@ -113,6 +170,7 @@ const telemetryRouter = require('./routes/telemetry');
 const bookSpaceRouter = require('./routes/bookSpace');
 const financialTaskRouter = require('./routes/financialTask');
 const releaseNotesRouter = require('./routes/release-notes');
+const { router: dataOperationsRouter } = require('./routes/dataOperations');
 const { userContextMiddleware } = require('./middleware/userContext');
 
 const app = express();
@@ -196,6 +254,7 @@ app.use(userContextMiddleware);
 
 app.use('/api/keys', keysRouter);
 app.use('/api/matter-requests', matterRequestsRouter);
+app.use('/api/matter-audit', matterAuditRouter);
 app.use('/api/opponents', opponentsRouter);
 app.use('/api/risk-assessments', riskAssessmentsRouter);
 app.use('/api/bundle', bundleRouter);
@@ -282,8 +341,13 @@ app.use('/api/tech-tickets', techTicketsRouter);
 // Telemetry endpoint for pitch builder and client-side event tracking
 app.use('/api/telemetry', telemetryRouter);
 
+// Data operations (collected time, WIP sync) - manual triggers for Data Centre
+app.use('/api/data-operations', dataOperationsRouter);
+
 // IMPORTANT: Attendance routes must come BEFORE proxy routes to avoid conflicts
 app.use('/api/attendance', attendanceRouter);
+app.use('/api/resources/analytics', resourcesAnalyticsRouter);
+app.use('/api/resources/core', resourcesCoreRouter);
 
 // Book space and financial task routes (migrated from Azure Functions)
 app.use('/api/book-space', bookSpaceRouter);
@@ -293,6 +357,7 @@ app.use('/api/financial-task', financialTaskRouter);
 app.use('/api/poid', poidRouter);
 app.use('/api/future-bookings', futureBookingsRouter);
 app.use('/api/outstanding-balances', outstandingBalancesRouter);
+app.use('/api/matter-metrics', matterMetricsRouter);
 app.use('/api/transactions', transactionsRouter);
 
 app.use('/ccls', express.static(CCL_DIR));
@@ -402,4 +467,5 @@ app.use((error, req, res, next) => {
 
 app.listen(PORT, () => {
     // Server started
+    startDataOperationsScheduler();
 });

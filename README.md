@@ -4,7 +4,7 @@
 ## 🚀 Quick Start for New Agents
 
 **PRIORITY**: Execute database cleanup to remove 67% test data noise.  
-**See**: [`docs/AGENT_ONBOARDING_GUIDE.md`](docs/AGENT_ONBOARDING_GUIDE.md) for 5-minute setup.
+**See**: [`docs/PLATFORM_OPERATIONS.md`](docs/PLATFORM_OPERATIONS.md) for 5-minute setup.
 
 ### Current State (Oct 1, 2025)
 - ✅ **Teams Mobile Fix**: ECONNRESET errors resolved with enhanced connection pooling
@@ -36,7 +36,7 @@
 ### Important Documentation
 - **� [Teams Mobile Fix Summary](docs/TEAMS_MOBILE_FIX_SUMMARY.md)** - Connection error resolution
 - **⚡ [Azure Config Quick Reference](docs/AZURE_CONFIG_QUICK_REFERENCE.md)** - Deployment guide
-- **�📋 [Instructions Component Guide](docs/QUICKSTART_INSTRUCTIONS.md)** - Fast track for next agent
+- **�📋 [Instructions Reference](docs/INSTRUCTIONS_REFERENCE.md)** - Fast track for next agent
 - **📊 [Database Analysis](docs/INSTRUCTIONS_DATABASE_ANALYSIS.md)** - Complete technical details
 - **🏗️ [Architecture Analysis](ARCHITECTURE_ANALYSIS.md)** - System overview
 

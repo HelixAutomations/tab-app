@@ -140,6 +140,7 @@ module.exports = function(app) {
     '/api/attendance', // Attendance routes with annual leave integration
     '/api/rate-changes',
     '/api/ccl-date',
+    '/api/data-operations', // Manual data sync triggers
   '/api/reporting-stream', // Streaming datasets endpoint
   '/api/home-metrics',     // Home metrics SSE endpoint
   '/api/home-wip',         // Standalone WIP metrics endpoint

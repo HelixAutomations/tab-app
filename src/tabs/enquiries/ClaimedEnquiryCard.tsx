@@ -44,6 +44,13 @@ interface Props {
   documentCount?: number;
   inlineWorkbenchItem?: any;
   teamData?: any[] | null;
+  workbenchHandlers?: {
+    onDocumentPreview?: (doc: any) => void;
+    onOpenRiskAssessment?: (instruction: any) => void;
+    onOpenMatter?: (instruction: any) => void;
+    onTriggerEID?: (instructionRef: string) => void | Promise<void>;
+    onOpenIdReview?: (instructionRef: string) => void;
+  };
 }
 
 /**
@@ -72,6 +79,7 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
   documentCount = 0,
   inlineWorkbenchItem,
   teamData,
+  workbenchHandlers,
 }) => {
   // Pitched button component with hover transition
   const PitchedButtonContent: React.FC<{ pitchCount: number; isDarkMode: boolean }> = ({ pitchCount, isDarkMode }) => {
@@ -1339,6 +1347,11 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
             item={inlineWorkbenchItem}
             isDarkMode={isDarkMode}
             enableContextStageChips={true}
+            onDocumentPreview={workbenchHandlers?.onDocumentPreview}
+            onTriggerEID={workbenchHandlers?.onTriggerEID}
+            onOpenIdReview={workbenchHandlers?.onOpenIdReview}
+            onOpenMatter={workbenchHandlers?.onOpenMatter}
+            onOpenRiskAssessment={workbenchHandlers?.onOpenRiskAssessment}
             onClose={() => setExpandedNotes(false)}
             teamData={teamData}
           />

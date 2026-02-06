@@ -26,6 +26,15 @@ const STALE_TTL_SECONDS = 300;
 // In-memory fallback when Redis unavailable
 const memoryCache = new Map();
 
+const resolveUserOverride = (emailRaw, initialsRaw) => {
+  const email = (emailRaw || '').trim().toLowerCase();
+  const initials = (initialsRaw || '').trim().toLowerCase().replace(/\./g, '');
+  if (email === 'lz@helix-law.com' || initials === 'lz') {
+    return { email: 'ac@helix-law.com', initials: 'ac', overridden: true };
+  }
+  return { email, initials, overridden: false };
+};
+
 /**
  * GET /api/home-enquiries?email=<email>&initials=<initials>
  * 
@@ -48,8 +57,7 @@ const memoryCache = new Map();
  * }
  */
 router.get('/', async (req, res) => {
-  const email = (req.query.email || '').trim().toLowerCase();
-  const initials = (req.query.initials || '').trim().toLowerCase().replace(/\./g, '');
+  const { email, initials, overridden } = resolveUserOverride(req.query.email, req.query.initials);
 
   if (!email && !initials) {
     return res.status(400).json({ error: 'email or initials query parameter required' });
@@ -72,7 +80,7 @@ router.get('/', async (req, res) => {
       log.warn('[home-enquiries] Cache set failed:', err.message);
     });
 
-    return res.json({ ...freshData, cached: false, stale: false });
+    return res.json({ ...freshData, cached: false, stale: false, overridden });
   } catch (err) {
     log.error('[home-enquiries] Fetch failed:', err.message);
 
@@ -97,8 +105,58 @@ router.get('/', async (req, res) => {
       prevEnquiriesMonthToDate: 0,
       error: err.message,
       cached: false,
-      stale: false
+      stale: false,
+      overridden
     });
+  }
+});
+
+/**
+ * GET /api/home-enquiries/details?email=<email>&initials=<initials>&period=<today|weekToDate|monthToDate>&limit=50
+ * Returns sample rows for the requested period to help verify filtering.
+ */
+router.get('/details', async (req, res) => {
+  const { email, initials, overridden } = resolveUserOverride(req.query.email, req.query.initials);
+  const period = String(req.query.period || '').trim();
+  const limit = Math.min(Math.max(Number(req.query.limit) || 50, 10), 200);
+
+  if (!email && !initials) {
+    return res.status(400).json({ error: 'email or initials query parameter required' });
+  }
+
+  if (!['today', 'weekToDate', 'monthToDate'].includes(period)) {
+    return res.status(400).json({ error: 'period must be today, weekToDate, or monthToDate' });
+  }
+
+  try {
+    const ranges = buildPeriodRanges(period);
+    const [currentMain, currentInst, prevMain, prevInst] = await Promise.all([
+      queryMainDbRecords(process.env.SQL_CONNECTION_STRING, email, initials, ranges.currentStart, ranges.currentEnd, limit),
+      queryInstructionsDbRecords(process.env.INSTRUCTIONS_SQL_CONNECTION_STRING, email, initials, ranges.currentStart, ranges.currentEnd, limit),
+      queryMainDbRecords(process.env.SQL_CONNECTION_STRING, email, initials, ranges.previousStart, ranges.previousEnd, limit),
+      queryInstructionsDbRecords(process.env.INSTRUCTIONS_SQL_CONNECTION_STRING, email, initials, ranges.previousStart, ranges.previousEnd, limit),
+    ]);
+
+    const current = [...currentMain, ...currentInst].sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, limit);
+    const previous = [...prevMain, ...prevInst].sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, limit);
+
+    return res.json({
+      period,
+      limit,
+      currentRange: ranges.currentLabel,
+      previousRange: ranges.previousLabel,
+      current: { records: current },
+      previous: { records: previous },
+      filters: {
+        email: email || undefined,
+        initials: initials || undefined,
+        includeTeamInbox: false,
+        overridden: overridden || undefined,
+      },
+    });
+  } catch (err) {
+    log.error('[home-enquiries] Details fetch failed:', err.message);
+    return res.status(500).json({ error: err.message || 'Failed to fetch details' });
   }
 });
 
@@ -128,11 +186,14 @@ async function fetchEnquiryMetrics(email, initials) {
   
   const prevWeekStart = new Date(startOfWeek);
   prevWeekStart.setDate(prevWeekStart.getDate() - 7);
-  const prevWeekEnd = new Date(startOfWeek);
-  prevWeekEnd.setDate(prevWeekEnd.getDate() - 1);
+  const prevWeekEnd = new Date(prevToday);
+  prevWeekEnd.setHours(23, 59, 59, 999);
   
   const prevMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-  const prevMonthEnd = new Date(today.getFullYear(), today.getMonth(), 0);
+  const prevMonthEnd = new Date(prevMonthStart);
+  const prevMonthDays = new Date(prevMonthStart.getFullYear(), prevMonthStart.getMonth() + 1, 0).getDate();
+  prevMonthEnd.setDate(Math.min(today.getDate(), prevMonthDays));
+  prevMonthEnd.setHours(23, 59, 59, 999);
 
   // End of today for inclusive queries
   const endOfToday = new Date(today);
@@ -179,6 +240,160 @@ async function fetchEnquiryMetrics(email, initials) {
   };
 }
 
+function buildPeriodRanges(period) {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const endOfToday = new Date(today);
+  endOfToday.setHours(23, 59, 59, 999);
+
+  const dayOfWeek = today.getDay();
+  const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+  const startOfWeek = new Date(today);
+  startOfWeek.setDate(today.getDate() - daysToMonday);
+  startOfWeek.setHours(0, 0, 0, 0);
+
+  const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+
+  if (period === 'today') {
+    const prevToday = new Date(today);
+    prevToday.setDate(today.getDate() - 7);
+    const prevEnd = new Date(prevToday);
+    prevEnd.setHours(23, 59, 59, 999);
+    return {
+      currentStart: today,
+      currentEnd: endOfToday,
+      previousStart: prevToday,
+      previousEnd: prevEnd,
+      currentLabel: today.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }),
+      previousLabel: prevToday.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }),
+    };
+  }
+
+  if (period === 'weekToDate') {
+    const prevWeekStart = new Date(startOfWeek);
+    prevWeekStart.setDate(prevWeekStart.getDate() - 7);
+    const prevWeekEnd = new Date(today);
+    prevWeekEnd.setDate(prevWeekEnd.getDate() - 7);
+    prevWeekEnd.setHours(23, 59, 59, 999);
+    return {
+      currentStart: startOfWeek,
+      currentEnd: endOfToday,
+      previousStart: prevWeekStart,
+      previousEnd: prevWeekEnd,
+      currentLabel: `${startOfWeek.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })} – ${endOfToday.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}`,
+      previousLabel: `${prevWeekStart.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })} – ${prevWeekEnd.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}`,
+    };
+  }
+
+  const prevMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+  const prevMonthDays = new Date(prevMonthStart.getFullYear(), prevMonthStart.getMonth() + 1, 0).getDate();
+  const prevMonthEnd = new Date(prevMonthStart);
+  prevMonthEnd.setDate(Math.min(today.getDate(), prevMonthDays));
+  prevMonthEnd.setHours(23, 59, 59, 999);
+  return {
+    currentStart: startOfMonth,
+    currentEnd: endOfToday,
+    previousStart: prevMonthStart,
+    previousEnd: prevMonthEnd,
+    currentLabel: `${startOfMonth.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })} – ${endOfToday.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}`,
+    previousLabel: `${prevMonthStart.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })} – ${prevMonthEnd.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}`,
+  };
+}
+
+async function queryMainDbRecords(connectionString, email, initials, rangeStart, rangeEnd, limit) {
+  if (!connectionString) return [];
+
+  try {
+    const result = await withRequest(connectionString, async (request) => {
+      const pocConditions = [];
+      if (email) {
+        request.input('userEmail', sql.VarChar(255), email);
+        pocConditions.push("LOWER(LTRIM(RTRIM(Point_of_Contact))) = @userEmail");
+      }
+      if (initials) {
+        request.input('userInitials', sql.VarChar(50), initials);
+        pocConditions.push("LOWER(REPLACE(REPLACE(LTRIM(RTRIM(Point_of_Contact)), ' ', ''), '.', '')) = @userInitials");
+      }
+      // User-scoped metrics only (no team inbox)
+      const pocFilter = `(${pocConditions.join(' OR ')})`;
+
+      request.input('rangeStart', sql.DateTime2, rangeStart);
+      request.input('rangeEnd', sql.DateTime2, rangeEnd);
+      request.input('limit', sql.Int, limit);
+
+      const rows = await request.query(`
+        SELECT TOP (@limit)
+          CONVERT(VARCHAR(19), Date_Created, 120) as date,
+          LTRIM(RTRIM(Point_of_Contact)) as poc,
+          COALESCE(NULLIF(LTRIM(RTRIM(Area_of_Work)), ''), 'Other') as aow,
+          CAST(ID as VARCHAR(50)) as id
+        FROM enquiries
+        WHERE ${pocFilter}
+          AND Date_Created >= @rangeStart
+          AND Date_Created <= @rangeEnd
+        ORDER BY Date_Created DESC
+      `);
+      return (rows.recordset || []).map((r) => ({
+        date: r.date,
+        poc: r.poc,
+        aow: r.aow,
+        id: r.id,
+        source: 'legacy',
+      }));
+    });
+    return result;
+  } catch (err) {
+    log.warn('[home-enquiries] Main records query failed:', err.message);
+    return [];
+  }
+}
+
+async function queryInstructionsDbRecords(connectionString, email, initials, rangeStart, rangeEnd, limit) {
+  if (!connectionString) return [];
+
+  try {
+    const result = await withRequest(connectionString, async (request) => {
+      const pocConditions = [];
+      if (email) {
+        request.input('userEmail', sql.VarChar(255), email);
+        pocConditions.push("LOWER(LTRIM(RTRIM(poc))) = @userEmail");
+      }
+      if (initials) {
+        request.input('userInitials', sql.VarChar(50), initials);
+        pocConditions.push("LOWER(REPLACE(REPLACE(LTRIM(RTRIM(poc)), ' ', ''), '.', '')) = @userInitials");
+      }
+      // User-scoped metrics only (no team inbox)
+      const pocFilter = `(${pocConditions.join(' OR ')})`;
+
+      request.input('rangeStart', sql.DateTime2, rangeStart);
+      request.input('rangeEnd', sql.DateTime2, rangeEnd);
+      request.input('limit', sql.Int, limit);
+
+      const rows = await request.query(`
+        SELECT TOP (@limit)
+          CONVERT(VARCHAR(19), datetime, 120) as date,
+          LTRIM(RTRIM(poc)) as poc,
+          COALESCE(NULLIF(LTRIM(RTRIM(aow)), ''), 'Other') as aow
+        FROM dbo.enquiries
+        WHERE ${pocFilter}
+          AND datetime >= @rangeStart
+          AND datetime <= @rangeEnd
+        ORDER BY datetime DESC
+      `);
+      return (rows.recordset || []).map((r) => ({
+        date: r.date,
+        poc: r.poc,
+        aow: r.aow,
+        source: 'instructions',
+      }));
+    });
+    return result;
+  } catch (err) {
+    log.warn('[home-enquiries] Instructions records query failed:', err.message);
+    return [];
+  }
+}
+
 /**
  * Query main (legacy) enquiries database for counts
  */
@@ -200,8 +415,7 @@ async function queryMainDbCounts(connectionString, email, initials, dates) {
         request.input('userInitials', sql.VarChar(50), initials);
         pocConditions.push("LOWER(REPLACE(REPLACE(LTRIM(RTRIM(Point_of_Contact)), ' ', ''), '.', '')) = @userInitials");
       }
-      // Always include team inbox
-      pocConditions.push("LOWER(LTRIM(RTRIM(Point_of_Contact))) IN ('team@helix-law.com', 'team', 'team inbox')");
+      // User-scoped metrics only (no team inbox)
       
       const pocFilter = `(${pocConditions.join(' OR ')})`;
 
@@ -300,8 +514,7 @@ async function queryInstructionsDbCounts(connectionString, email, initials, date
         request.input('userInitials', sql.VarChar(50), initials);
         pocConditions.push("LOWER(REPLACE(REPLACE(LTRIM(RTRIM(poc)), ' ', ''), '.', '')) = @userInitials");
       }
-      // Always include team inbox
-      pocConditions.push("LOWER(LTRIM(RTRIM(poc))) IN ('team@helix-law.com', 'team', 'team inbox')");
+      // User-scoped metrics only (no team inbox)
       
       const pocFilter = `(${pocConditions.join(' OR ')})`;
 

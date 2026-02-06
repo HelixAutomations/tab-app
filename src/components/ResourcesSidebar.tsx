@@ -4,6 +4,7 @@ import { IconButton, mergeStyles, SearchBox, Stack, Text, ActionButton, Icon, Sp
 import { useTheme } from '../app/functionality/ThemeContext';
 import { colours } from '../app/styles/colours';
 import Resources from '../tabs/resources/Resources';
+import type { UserData } from '../app/functionality/types';
 import './PremiumSidebar.css';
 
 interface ResourcesSidebarProps {
@@ -11,6 +12,7 @@ interface ResourcesSidebarProps {
     hovered?: boolean;
     pinned: boolean;
     setPinned: (pinned: boolean) => void;
+    userData?: UserData[] | null;
 }
 
 const sidebarWidth = '380px';
@@ -85,6 +87,7 @@ const ResourcesSidebar: React.FC<ResourcesSidebarProps> = ({
     hovered,
     pinned,
     setPinned,
+    userData,
 }) => {
     const { isDarkMode } = useTheme();
     const [searchQuery, setSearchQuery] = useState('');
@@ -356,7 +359,7 @@ const ResourcesSidebar: React.FC<ResourcesSidebarProps> = ({
                             overflow: 'hidden',
                             animation: 'premiumContentFadeIn 0.6s ease 0.2s both',
                         }}>
-                            <Resources />
+                            <Resources userData={userData} />
                         </div>
                     </div>
                 )}

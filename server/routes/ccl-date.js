@@ -8,6 +8,29 @@ const fetch = global.fetch || require('node-fetch');
 
 const CCL_DATE_FIELD_ID = process.env.CLIO_CCL_DATE_FIELD_ID || '381463';
 
+// Admin gating for CCL Date writes (Clio + legacy SQL).
+const DEFAULT_ADMIN_INITIALS = ['LZ', 'RL', 'LB', 'MC', 'AH', 'JH'];
+const ADMIN_INITIALS = new Set(
+    String(process.env.ADMIN_USERS_INITIALS || '')
+        .split(',')
+        .map(s => s.trim().toUpperCase())
+        .filter(Boolean)
+        .concat(DEFAULT_ADMIN_INITIALS)
+);
+
+function requireAdminInitials(req, res, next) {
+    const initialsRaw = req.query?.initials || req.body?.initials || req.headers?.['x-helix-initials'];
+    const initials = String(initialsRaw || '').trim().toUpperCase();
+
+    if (!initials) {
+        return res.status(401).json({ error: 'Missing initials' });
+    }
+    if (!ADMIN_INITIALS.has(initials)) {
+        return res.status(403).json({ error: 'Admin only' });
+    }
+    return next();
+}
+
 async function getClioAccessToken() {
     const { getSecret } = require('../utils/getSecret');
     const initials = (process.env.CLIO_USER_INITIALS || 'lz').toLowerCase();
@@ -105,7 +128,7 @@ async function updateLegacySqlCclDate(legacyConn, matterId, displayNumber, dateV
  * Body (legacy): { matter_ids: string[], display_numbers: string[], date_value: 'YYYY-MM-DD' }
  * Streams progress as Server-Sent Events (SSE)
  */
-router.post('/stream', async (req, res) => {
+router.post('/stream', requireAdminInitials, async (req, res) => {
     const { updates, matter_ids, display_numbers, date_value } = req.body || {};
 
     // SSE headers

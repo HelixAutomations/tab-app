@@ -462,7 +462,12 @@ function AnnualLeaveForm({
       }
       const result = await response.json();
       console.log('Insert Annual Leave Successful:', result);
-      setConfirmationMessage('✅ Your annual leave request has been submitted successfully and is pending approval.');
+      const isAutoBookedUser = ['AC', 'JW'].includes(String(feeEarner || '').toUpperCase());
+      setConfirmationMessage(
+        isAutoBookedUser
+          ? '✅ Your annual leave has been submitted and auto-booked. It should appear in your calendar shortly.'
+          : '✅ Your annual leave request has been submitted successfully and is pending approval.'
+      );
       handleClear();
     } catch (error) {
       console.error('Error submitting Annual Leave Form:', error);

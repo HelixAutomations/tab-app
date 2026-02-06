@@ -50,14 +50,23 @@ router.get('/user/:entraId', async (req, res) => {
         const clioApiBaseUrl = 'https://eu.app.clio.com/api/v4';
         const mattersUrl = `${clioApiBaseUrl}/matters.json?fields=id&user_id=${userClioId}`;
         
-        const mattersResponse = await fetch(mattersUrl, {
+        const fetchMatters = async (token) => fetch(mattersUrl, {
           method: 'GET',
           headers: {
-            'Authorization': `Bearer ${accessToken}`,
+            'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json'
           }
         });
-        
+
+        let mattersResponse = await fetchMatters(accessToken);
+        if (!mattersResponse.ok && mattersResponse.status === 401) {
+          console.log('[OutstandingBalances] Access token invalid, clearing cache');
+          cachedAccessToken = null;
+          tokenExpiresAt = null;
+          const freshToken = await getClioAccessToken();
+          mattersResponse = await fetchMatters(freshToken);
+        }
+
         if (!mattersResponse.ok) {
           throw new Error(`Clio matters API error: ${mattersResponse.status}`);
         }
@@ -121,7 +130,7 @@ router.get('/', async (req, res) => {
 
     // Generate cache key for outstanding balances (changes daily)
     const today = new Date().toISOString().split('T')[0];
-    const cacheKey = generateCacheKey('metrics', 'outstanding-balances', today);
+    const cacheKey = generateCacheKey('metrics', 'outstanding-balances-v2', today);
 
     const balancesData = await cacheWrapper(
       cacheKey,
@@ -133,7 +142,7 @@ router.get('/', async (req, res) => {
         // Clio API configuration - minimal fields for performance
         const clioApiBaseUrl = 'https://eu.app.clio.com/api/v4';
         // Only fetch essential fields: contact name/ID and total balance
-        const outstandingFields = 'id,contact{id,name,first_name,last_name},total_outstanding_balance,last_payment_date';
+        const outstandingFields = 'id,contact{id,name,first_name,last_name},total_outstanding_balance,last_payment_date,associated_matter_ids';
         const balancesUrl = `${clioApiBaseUrl}/outstanding_client_balances.json?fields=${encodeURIComponent(outstandingFields)}`;
 
         // Fetch from Clio API

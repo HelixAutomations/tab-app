@@ -114,6 +114,7 @@ export interface Enquiry {
   Search_Keyword?: string;
   GCLID?: string;
   Initial_first_call_notes?: string;
+  notes?: string; // New space enquiries use 'notes' directly
   Do_not_Market?: string;
   IP_Address?: string;
   TDMY?: string;

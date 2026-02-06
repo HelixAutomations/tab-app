@@ -1,12 +1,13 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Enquiry } from '../../app/functionality/types';
 import { colours } from '../../app/styles/colours';
 import SectionCard from '../home/SectionCard';
 import { useTheme } from '../../app/functionality/ThemeContext';
-import { FaEnvelope, FaPhone, FaFileAlt, FaCheckCircle, FaCircle, FaArrowRight, FaUser, FaCalendar, FaInfoCircle, FaChevronDown, FaChevronUp, FaPoundSign, FaClipboard, FaExternalLinkAlt, FaLink } from 'react-icons/fa';
+import { FaEnvelope, FaPhone, FaFileAlt, FaCheck, FaCheckCircle, FaCircle, FaArrowRight, FaUser, FaCalendar, FaInfoCircle, FaChevronDown, FaChevronUp, FaPoundSign, FaClipboard, FaExternalLinkAlt, FaLink, FaIdCard, FaShieldAlt, FaFolderOpen, FaExclamationTriangle, FaList, FaStream, FaBuilding, FaHome, FaHardHat, FaBriefcase, FaUsers, FaUserClock, FaKey, FaGavel, FaQuestionCircle, FaCopy, FaCreditCard, FaFolder } from 'react-icons/fa';
+import { FaRegEnvelope, FaRegFileAlt, FaRegClipboard, FaRegAddressCard, FaRegFolderOpen, FaRegCheckCircle, FaRegCircle, FaRegUser, FaRegCommentDots } from 'react-icons/fa';
 import { parseISO, format, differenceInDays } from 'date-fns';
-import OperationStatusToast from './pitch-builder/OperationStatusToast';
+import { useToast } from '../../components/feedback/ToastProvider';
 import { practiceAreasByArea } from '../instructions/MatterOpening/config';
 import { SCENARIOS } from './pitch-builder/scenarios';
 import InlineWorkbench from '../instructions/InlineWorkbench';
@@ -106,6 +107,94 @@ actionButtonStyle.textContent = `
       transition: none !important;
     }
   }
+  
+  /* Card hover effects (Apple/MS-style micro-interactions) */
+  .helix-card-hover {
+    transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .helix-card-hover:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12) !important;
+  }
+  
+  /* Pipeline stage hover */
+  .helix-pipeline-stage {
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  
+  /* Timeline card hover */
+  .helix-timeline-card {
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  /* Hide inline workbench inside timeline items */
+  .helix-timeline-card .inline-workbench {
+    display: none !important;
+  }
+  
+  /* Action button hover effects */
+  .helix-action-btn {
+    position: relative;
+    overflow: hidden;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .helix-action-btn::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(180deg, rgba(255,255,255,0.1) 0%, transparent 100%);
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  .helix-action-btn:hover::before {
+    opacity: 1;
+  }
+  
+  /* Workbench card hover */
+  .helix-workbench-card {
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  
+  /* Timeline item focus state for keyboard navigation */
+  .helix-timeline-focus {
+    outline: 2px solid rgba(54, 144, 206, 0.5);
+    outline-offset: 2px;
+  }
+  
+  /* Button ripple effect */
+  .helix-btn-ripple {
+    position: relative;
+    overflow: hidden;
+  }
+  .helix-btn-ripple::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    transition: width 0.3s, height 0.3s;
+  }
+  .helix-btn-ripple:active::after {
+    width: 200px;
+    height: 200px;
+  }
+  
+  /* Attention indicator pulse */
+  @keyframes attentionPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+  .helix-attention-pulse {
+    animation: attentionPulse 2s ease-in-out infinite;
+  }
 `;
 
 const existingActionButtonStyle = document.head.querySelector('style[data-action-buttons]') as HTMLStyleElement | null;
@@ -172,6 +261,9 @@ function sanitizeEmailHtml(html: string): string {
     // Remove anything that can leak styles/scripts into the host page.
     doc.querySelectorAll('script, style, link, meta, base, iframe, object, embed').forEach((n) => n.remove());
 
+    // Strip any embedded workbench markup if it appears in pitch/email HTML.
+    doc.body.querySelectorAll('.inline-workbench, [data-action-button]').forEach((n) => n.remove());
+
     // Drop embedded-content images (common in signatures) which render as broken placeholders in the UI.
     doc.body.querySelectorAll('img[src]').forEach((img) => {
       const src = img.getAttribute('src') || '';
@@ -216,7 +308,12 @@ function sanitizeEmailHtml(html: string): string {
   }
 }
 
-type CommunicationType = 'pitch' | 'link-enabled' | 'email' | 'call' | 'instruction' | 'note' | 'document';
+// Stage types for the prospect/case journey
+type StageType = 'enquiry' | 'pitch' | 'instruction' | 'identity' | 'payment' | 'risk' | 'matter';
+// Communication/activity types
+type ActivityType = 'email' | 'call' | 'document' | 'note' | 'link-enabled';
+// Combined type for all timeline items
+type CommunicationType = StageType | ActivityType;
 
 interface TimelineItem {
   id: string;
@@ -227,6 +324,8 @@ interface TimelineItem {
   contentHtml?: string;
   createdBy: string;
   actionRequired?: boolean | string; // true/string = action needed, false/undefined = complete
+  // Stage-specific status for quick visual
+  stageStatus?: 'complete' | 'pending' | 'review' | 'failed';
   metadata?: {
     duration?: number;
     direction?: 'inbound' | 'outbound';
@@ -264,6 +363,88 @@ interface TimelineItem {
     dealEmailSubject?: string | null;
     dealPasscode?: string | null;
     dealServiceDescription?: string;
+    
+    // Enquiry-specific fields
+    areaOfWork?: string;
+    ultimateSource?: string;
+    methodOfContact?: string;
+    pointOfContact?: string;
+    callTaker?: string;
+    enquiryValue?: number | string;
+    phoneNumber?: string;
+    email?: string;
+    company?: string;
+    
+    // Pitch-specific fields (expanded)
+    pitchAmount?: number;
+    pitchService?: string;
+    pitchValidUntil?: string;
+    pitchInstructionRef?: string;
+    pitchDealId?: number | string;
+    pitchPasscode?: string | null;
+    pitchScenarioId?: string;
+    pitchScenarioLabel?: string;
+    pitchPitchedBy?: string;
+    pitchEmailSubject?: string | null;
+    pitchAreaOfWork?: string;
+    
+    // Instruction-specific fields
+    instructionRef?: string;
+    instructionFeeEarner?: string;
+    instructionArea?: string;
+    instructionStage?: string;
+    instructionInternalStatus?: string;
+    instructionClientType?: string;
+    instructionMatterId?: string | number;
+    instructionSubmissionDate?: string;
+    
+    // Identity-specific fields
+    identityResult?: string;         // 'Pass' | 'Fail' | 'Refer' | 'Consider'
+    identityDocType?: string;        // 'Passport' | 'Driving Licence'
+    identityDocExpiry?: string;
+    identityChecks?: Array<{ name: string; result: string }>;
+    identityManualApproval?: boolean;
+    identityProvider?: string;
+    identityStatus?: string;
+    identityCheckId?: string;
+    identityPepResult?: string;
+    identityAddressResult?: string;
+    
+    // Payment-specific fields
+    paymentAmount?: number;
+    paymentMethod?: string;          // 'card' | 'bank_transfer'
+    paymentStatus?: string;          // 'succeeded' | 'failed' | 'pending'
+    paymentStripeId?: string;
+    paymentIntentId?: string;
+    paymentCurrency?: string;
+    paymentReceiptUrl?: string;
+    paymentInternalStatus?: string;
+    
+    // Risk-specific fields
+    riskResult?: string;             // 'Standard' | 'High' | etc.
+    riskScore?: number;
+    riskLevel?: string;
+    riskAssessor?: string;
+    riskJurisdiction?: string;
+    riskComplianceDate?: string;
+    riskComplianceExpiry?: string;
+    riskClientType?: string;
+    riskSourceOfFunds?: string;
+    riskDestinationOfFunds?: string;
+    riskFundsType?: string;
+    riskValueOfInstruction?: string;
+    
+    // Matter-specific fields
+    matterDisplayNumber?: string;
+    matterStatus?: string;
+    matterFeeEarner?: string;
+    matterClient?: string;
+    matterClioUrl?: string;
+    matterPracticeArea?: string;
+    matterDescription?: string;
+    matterResponsibleSolicitor?: string;
+    matterOriginatingSolicitor?: string;
+    matterSupervisingPartner?: string;
   };
 }
 
@@ -642,8 +823,17 @@ interface EnquiryTimelineProps {
   featureToggles?: Record<string, boolean>;
   demoModeEnabled?: boolean;
   onOpenPitchBuilder?: (scenarioId?: string) => void;
+  allEnquiries?: Enquiry[];
+  onSelectEnquiry?: (enquiry: Enquiry) => void;
   /** Pre-fetched instruction workbench item for this enquiry (from parent instructionData) */
   inlineWorkbenchItem?: any;
+  workbenchHandlers?: {
+    onDocumentPreview?: (doc: any) => void;
+    onOpenRiskAssessment?: (instruction: any) => void;
+    onOpenMatter?: (instruction: any) => void;
+    onTriggerEID?: (instructionRef: string) => void | Promise<void>;
+    onOpenIdReview?: (instructionRef: string) => void;
+  };
   /** Pre-fetched pitch data from enrichment (email-based lookup fallback) */
   enrichmentPitchData?: {
     dealId: number;
@@ -663,22 +853,33 @@ interface EnquiryTimelineProps {
     scenarioId?: string;
     scenarioDisplay?: string;
   };
+  /** Pre-fetched Teams data from enrichment (Teams activity tracking) */
+  enrichmentTeamsData?: {
+    teamsLink?: string;
+    MessageTimestamp?: string;
+    CreatedAt?: string;
+    CreatedAtMs?: number;
+  };
   /** Initial filter to apply on mount (e.g. 'pitch' to show deals at top) */
   initialFilter?: 'pitch' | 'link-enabled' | 'email' | 'call' | 'instruction' | 'note' | 'document';
 }
 
-const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoadingStatus = true, userInitials, userEmail, featureToggles, demoModeEnabled = false, onOpenPitchBuilder, inlineWorkbenchItem, enrichmentPitchData, initialFilter }) => {
+const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoadingStatus = true, userInitials, userEmail, featureToggles, demoModeEnabled = false, onOpenPitchBuilder, allEnquiries, onSelectEnquiry, inlineWorkbenchItem, workbenchHandlers, enrichmentPitchData, enrichmentTeamsData, initialFilter }) => {
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
+  const [stageItemsState, setStageItemsState] = useState<TimelineItem[]>([]);
   const [selectedItem, setSelectedItem] = useState<TimelineItem | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeFilters, setActiveFilters] = useState<CommunicationType[]>(initialFilter ? [initialFilter] : []);
+  // initialFilter no longer activates the Filtered View - it just scrolls to the first matching item
+  // User can manually toggle filters if they want the filtered view
+  const [activeFilters, setActiveFilters] = useState<CommunicationType[]>([]);
+  const [hoveredFilter, setHoveredFilter] = useState<CommunicationType | null>(null);
+  const [tableSortColumn, setTableSortColumn] = useState<'date' | 'type' | 'description' | 'by'>('date');
+  const [tableSortDirection, setTableSortDirection] = useState<'asc' | 'desc'>('desc');
+  const [hoveredTableDayKey, setHoveredTableDayKey] = useState<string | null>(null);
+  const [hoveredCaseId, setHoveredCaseId] = useState<string | null>(null);
   
-  // Update filter when initialFilter prop changes (e.g. opening from different chip)
-  useEffect(() => {
-    if (initialFilter) {
-      setActiveFilters([initialFilter]);
-    }
-  }, [initialFilter]);
+  // Track if we should scroll to a specific item type on mount (from chip click)
+  const scrollToTypeRef = React.useRef<CommunicationType | null>(initialFilter || null);
   
   const [hiddenItemIds, setHiddenItemIds] = useState<Set<string>>(() => {
     try {
@@ -690,7 +891,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
   });
   const [hiddenPanelOpen, setHiddenPanelOpen] = useState(false);
   const [collapsedDays, setCollapsedDays] = useState<Set<string>>(() => new Set());
-  const [expandedQuickAccessEmailIds, setExpandedQuickAccessEmailIds] = useState<Set<string>>(() => new Set());
+  const hasAppliedInitialCollapseRef = useRef<boolean>(false);
+
   const [expandedCallTranscriptIds, setExpandedCallTranscriptIds] = useState<Set<string>>(() => new Set());
   const [loadingStates, setLoadingStates] = useState({
     pitches: true,
@@ -705,13 +907,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
   });
   const [previewDocument, setPreviewDocument] = useState<TimelineItem | null>(null);
   const [instructionStatuses, setInstructionStatuses] = useState<{[pitchId: string]: InstructionStatus}>({});
-  const [toast, setToast] = useState<{
-    message: string;
-    type: 'success' | 'error' | 'info' | 'warning';
-    loading?: boolean;
-    details?: string;
-    progress?: number;
-  } | null>(null);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [copiedContact, setCopiedContact] = useState<'email' | 'phone' | null>(null);
   const [showEmailConfirm, setShowEmailConfirm] = useState(false);
   const [emailSyncData, setEmailSyncData] = useState<{
     feeEarnerEmail: string;
@@ -732,12 +929,39 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
   const [selectedScenario, setSelectedScenario] = useState<string | null>(null);
   const [ledgerMode, setLedgerMode] = useState<boolean>(() => {
     try {
-      return localStorage.getItem('timelineLedgerMode') === 'true';
+      const stored = localStorage.getItem('timelineLedgerMode');
+      if (stored === null) return true;
+      return stored === 'true';
+    } catch {
+      return true;
+    }
+  });
+  
+  // ═══════════════════════════════════════════════════════════════════════
+  // NEW: Enhanced UX state variables
+  // ═══════════════════════════════════════════════════════════════════════
+  const [isWorkbenchCollapsed, setIsWorkbenchCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('workbenchCollapsed') === 'true';
     } catch {
       return false;
     }
   });
+  type WorkbenchTabKey = 'details' | 'identity' | 'payment' | 'risk' | 'matter' | 'documents';
+  type ContextStageKey = 'enquiry' | 'pitch' | 'instructed';
+  const [selectedWorkbenchTab, setSelectedWorkbenchTab] = useState<WorkbenchTabKey>('details');
+  const [selectedContextStage, setSelectedContextStage] = useState<ContextStageKey | null>(null);
+  const [focusedTimelineIndex, setFocusedTimelineIndex] = useState<number>(-1);
+  
+  // Persist view preferences
+  useEffect(() => {
+    try {
+      localStorage.setItem('workbenchCollapsed', String(isWorkbenchCollapsed));
+    } catch {}
+  }, [isWorkbenchCollapsed]);
+  
   const { isDarkMode } = useTheme();
+  const { showToast: showGlobalToast } = useToast();
 
   const viewAsProdFromStorage = (() => {
     try {
@@ -750,13 +974,151 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
   })();
 
   const isProductionPreview = featureToggles?.viewAsProd === true || viewAsProdFromStorage;
-  const showResourcesConcept = demoModeEnabled;
+  const showResourcesConcept = demoModeEnabled && !isProductionPreview;
   // Request Docs should be available in all environments by default.
   // Use a feature toggle kill switch if needed.
   const requestDocsEnabled = featureToggles?.docRequestWorkspace !== false;
 
   // Timeline access - unlocked for all users
   const [timelineUnlocked] = useState<boolean>(true);
+
+  const normaliseCaseValue = (value: string | undefined | null) => String(value ?? '').trim().toLowerCase();
+  const getEnquiryTimestamp = (enquiryInput: Partial<Enquiry> | undefined): number => {
+    const raw = enquiryInput?.Touchpoint_Date || enquiryInput?.Date_Created || (enquiryInput as any)?.datetime || (enquiryInput as any)?.claim;
+    if (!raw) return 0;
+    const ts = new Date(raw).getTime();
+    return Number.isFinite(ts) ? ts : 0;
+  };
+
+  const caseEnquiries = useMemo(() => {
+    const pool = allEnquiries && allEnquiries.length > 0 ? allEnquiries : [enquiry];
+    const currentEmail = normaliseCaseValue(enquiry.Email);
+    const currentName = normaliseCaseValue(`${enquiry.First_Name || ''} ${enquiry.Last_Name || ''}`.trim());
+    const matches = pool.filter((candidate) => {
+      if (!candidate) return false;
+      if (String(candidate.ID) === String(enquiry.ID)) return true;
+      const candidateEmail = normaliseCaseValue(candidate.Email);
+      const candidateName = normaliseCaseValue(`${candidate.First_Name || ''} ${candidate.Last_Name || ''}`.trim());
+      if (currentEmail && candidateEmail) return candidateEmail === currentEmail;
+      if (!currentEmail && currentName && candidateName) return candidateName === currentName;
+      return false;
+    });
+    const keyed = new Map<string, Enquiry>();
+    matches.forEach((candidate) => {
+      const key = String(candidate.ID || `${candidate.Email || ''}-${candidate.Touchpoint_Date || ''}`);
+      if (!keyed.has(key)) keyed.set(key, candidate as Enquiry);
+    });
+    if (!keyed.has(String(enquiry.ID || `${enquiry.Email || ''}-${enquiry.Touchpoint_Date || ''}`))) {
+      keyed.set(String(enquiry.ID || `${enquiry.Email || ''}-${enquiry.Touchpoint_Date || ''}`), enquiry);
+    }
+    return Array.from(keyed.values());
+  }, [allEnquiries, enquiry]);
+
+  const enquiryWindows = useMemo(() => {
+    const sorted = [...caseEnquiries]
+      .map((candidate) => ({ enquiry: candidate, ts: getEnquiryTimestamp(candidate) }))
+      .sort((a, b) => a.ts - b.ts);
+    return sorted.map((entry, idx) => {
+      const next = sorted[idx + 1];
+      return {
+        enquiry: entry.enquiry,
+        startTs: entry.ts,
+        endTs: next?.ts || 0,
+      };
+    });
+  }, [caseEnquiries]);
+
+  const activeEnquiryWindow = useMemo(() => {
+    const match = enquiryWindows.find((window) => String(window.enquiry.ID) === String(enquiry.ID));
+    return match || enquiryWindows[enquiryWindows.length - 1] || null;
+  }, [enquiryWindows, enquiry.ID]);
+
+  const filterTimelineToWindow = (items: TimelineItem[]) => {
+    if (!activeEnquiryWindow) return items;
+    const startTs = activeEnquiryWindow.startTs;
+    const endTs = activeEnquiryWindow.endTs;
+    return items.filter((item) => {
+      const itemTs = new Date(item.date).getTime();
+      if (!Number.isFinite(itemTs)) return true;
+      if (startTs && itemTs < startTs) return false;
+      if (endTs && itemTs >= endTs) return false;
+      return true;
+    });
+  };
+
+  // Merge timeline with stage items and filter to window
+  const scopedTimeline = useMemo(() => {
+    // Merge timeline items with stage items, avoiding duplicates by ID
+    const byId = new Map<string, TimelineItem>();
+    for (const item of timeline) byId.set(item.id, item);
+    for (const item of stageItemsState) byId.set(item.id, item);
+    const merged = Array.from(byId.values());
+    merged.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    return filterTimelineToWindow(merged);
+  }, [timeline, stageItemsState, activeEnquiryWindow]);
+
+  useEffect(() => {
+    hasAppliedInitialCollapseRef.current = false;
+  }, [enquiry.ID]);
+
+  useEffect(() => {
+    if (hasAppliedInitialCollapseRef.current) return;
+    if (scopedTimeline.length === 0) return;
+
+    const allDays = new Set(
+      scopedTimeline
+        .filter((item) => !hiddenItemIds.has(item.id))
+        .map((item) => {
+          const d = parseISO(item.date);
+          return Number.isFinite(d.getTime()) ? format(d, 'yyyy-MM-dd') : null;
+        })
+        .filter((d): d is string => d !== null)
+    );
+
+    setCollapsedDays(allDays);
+    hasAppliedInitialCollapseRef.current = true;
+  }, [scopedTimeline, hiddenItemIds]);
+
+  const formatEnquiryWindowDate = (ts: number) => {
+    if (!ts) return 'Unknown date';
+    try {
+      return format(new Date(ts), 'dd MMM yyyy');
+    } catch {
+      return 'Unknown date';
+    }
+  };
+
+  const formatCaseAreaLabel = (value: string | undefined) => {
+    const raw = String(value ?? '').trim();
+    if (!raw) return 'General';
+    const lowered = raw.toLowerCase();
+    if (lowered.includes('other') || lowered.includes('unsure')) return 'Other/Unsure';
+    return raw;
+  };
+
+  const getCaseAreaColour = (value: string | undefined) => {
+    const raw = String(value ?? '').trim().toLowerCase();
+    if (raw.includes('commercial')) return colours.blue;
+    if (raw.includes('property')) return colours.green;
+    if (raw.includes('construction')) return colours.orange;
+    if (raw.includes('employment')) return colours.yellow;
+    return colours.greyText;
+  };
+
+  const getAreaIcon = (value: string | undefined) => {
+    const raw = String(value ?? '').trim();
+    // Match IconAreaFilter logic
+    switch (raw) {
+      case 'Commercial': return '🏢';
+      case 'Property': return '🏠';
+      case 'Construction': return '🏗️';
+      case 'Employment': return '👩🏻‍💼';
+      default: return 'ℹ️';
+    }
+  };
+
+  const activeWindowLabel = activeEnquiryWindow ? formatEnquiryWindowDate(activeEnquiryWindow.startTs) : 'Unknown date';
+  const activeWindowEndLabel = activeEnquiryWindow?.endTs ? formatEnquiryWindowDate(activeEnquiryWindow.endTs) : 'Present';
 
   const resolveEnquiryAreaOfWorkRaw = (enquiryInput: Enquiry | undefined): string => {
     if (!enquiryInput) return '';
@@ -769,6 +1131,30 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
     const candidate = String(rawAreaOfWork ?? '').trim();
     if (candidate && Object.prototype.hasOwnProperty.call(practiceAreasByArea, candidate)) return candidate;
     return 'Commercial';
+  };
+
+  const resolvePocRaw = (enquiryInput: Enquiry | undefined): string => {
+    if (!enquiryInput) return '';
+    const record = enquiryInput as unknown as Record<string, unknown>;
+    const candidate = record.Point_of_Contact ?? record.PointOfContact ?? record.point_of_contact ?? record.poc ?? record.POC;
+    return String(candidate ?? '').trim();
+  };
+
+  const derivePocInitials = (raw: string): string | null => {
+    const cleaned = String(raw || '').trim();
+    if (!cleaned) return null;
+    if (/^[A-Za-z]{2,4}$/.test(cleaned)) return cleaned.toUpperCase();
+    if (cleaned.includes('@')) {
+      const local = cleaned.split('@')[0] || '';
+      if (/^[A-Za-z]{2,4}$/.test(local)) return local.toUpperCase();
+      const parts = local.split(/[._\-\s]+/).filter(Boolean);
+      if (parts.length === 0) return null;
+      return parts.map(part => part[0]).join('').toUpperCase();
+    }
+    const parts = cleaned.split(/[\s._\-]+/).filter(Boolean);
+    if (parts.length === 0) return null;
+    if (parts.length === 1 && /^[A-Za-z]{2,4}$/.test(parts[0])) return parts[0].toUpperCase();
+    return parts.map(part => part[0]).join('').toUpperCase();
   };
 
   // Doc request state
@@ -1344,16 +1730,19 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
     }
   };
 
-  // Toast helper
+  // Toast helper - uses global ToastProvider
   const showToast = (
     message: string,
     type: 'success' | 'error' | 'info' | 'warning',
     options?: { loading?: boolean; details?: string; progress?: number; duration?: number }
   ) => {
-    setToast({ message, type, ...options });
-    if (!options?.loading && options?.duration !== 0) {
-      setTimeout(() => setToast(null), options?.duration || 4000);
-    }
+    showGlobalToast({
+      message,
+      type: options?.loading ? 'loading' : type,
+      title: options?.details,
+      duration: options?.duration,
+      persist: options?.loading,
+    });
   };
 
   // Hide/show timeline items
@@ -1385,6 +1774,33 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
     showToast('All hidden items restored', 'success');
   };
 
+  const handleCopy = React.useCallback(async (value: string, key: 'email' | 'phone') => {
+    const text = String(value ?? '').trim();
+    if (!text) return;
+
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.left = '-1000px';
+        textarea.style.top = '-1000px';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      setCopiedContact(key);
+      window.setTimeout(() => {
+        setCopiedContact((prev) => (prev === key ? null : prev));
+      }, 1500);
+    } catch {
+      // silent fail as per new design
+    }
+  }, []);
+
   const copyToClipboard = async (value: string, label: string) => {
     const text = String(value ?? '').trim();
     if (!text) {
@@ -1408,6 +1824,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         document.body.removeChild(textarea);
       }
       showToast(`${label} copied`, 'success');
+      setCopiedField(label);
+      setTimeout(() => setCopiedField(null), 2000);
     } catch {
       showToast(`Failed to copy ${label.toLowerCase()}`, 'error');
     }
@@ -1440,7 +1858,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
   };
 
   const openPitchBuilder = () => {
-    const existingPitches = timeline.filter((t) => t.type === 'pitch');
+    const existingPitches = scopedTimeline.filter((t) => t.type === 'pitch');
     if (existingPitches.length > 0) {
       setShowPitchConfirm(true);
     } else {
@@ -1476,7 +1894,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
 
   // Request Documents - creates a DOC_REQUEST deal and generates a shareable link
   const handleRequestDocuments = async () => {
-    const existingWorkspace = timeline.find((t) => t.type === 'document' && Boolean(t.metadata?.isDocWorkspace));
+    const existingWorkspace = scopedTimeline.find((t) => t.type === 'document' && Boolean(t.metadata?.isDocWorkspace));
     if (existingWorkspace) {
       // Workspace already requested for this enquiry; open the existing item instead of re-requesting.
       setSelectedItem(existingWorkspace);
@@ -1571,7 +1989,6 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
       if (!worktype) {
         showToast('Worktype is required', 'warning', { duration: 3500 });
         setDocRequestLoading(false);
-        setToast(null);
         return;
       }
 
@@ -1752,7 +2169,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         ? urlPathFromApi
         : (passcode ? `/pitch/${passcode}` : urlPathFromApi);
 
-      const existingWorkspace = timeline.find((t) => t.id === `doc-workspace-${enquiry.ID}` && Boolean(t.metadata?.isDocWorkspace));
+      const existingWorkspace = scopedTimeline.find((t) => t.id === `doc-workspace-${enquiry.ID}` && Boolean(t.metadata?.isDocWorkspace));
 
       const createdAtRaw = readString('createdAt')
         ?? readString('created_at')
@@ -2065,21 +2482,25 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
       const result = await response.json();
 
       // Transform search results into timeline items
-      const emailItems: TimelineItem[] = result.emails.map((email: any) => ({
+      const prospectName = [enquiry.First_Name, enquiry.Last_Name].filter(Boolean).join(' ').trim();
+      const emailItems: TimelineItem[] = result.emails.map((email: any) => {
+        const isInbound = email.from?.toLowerCase() === prospectEmail.toLowerCase();
+        return {
         id: `email-${email.id}`,
         type: 'email' as CommunicationType,
         date: email.receivedDateTime,
         subject: email.subject,
         contentHtml: email.bodyHtml || undefined,
         content: (email.bodyText || email.bodyPreview) || '',
-        createdBy: email.fromName || email.from,
+        createdBy: isInbound && prospectName ? prospectName : (email.fromName || email.from),
         metadata: {
-          direction: email.from.toLowerCase() === prospectEmail.toLowerCase() ? 'inbound' : 'outbound',
+          direction: isInbound ? 'inbound' : 'outbound',
           messageId: email.id, // Store Graph message ID for true forwarding
           feeEarnerEmail: feeEarnerEmail, // Store mailbox owner for forwarding
           internetMessageId: email.internetMessageId || undefined,
         },
-      }));
+        };
+      });
 
       // Add the found emails to the timeline
       setTimeline(prev => {
@@ -2423,14 +2844,16 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         emails: cached.sourceProgress.emails.status !== 'loading',
       });
       setLoading(false);
-      // When initialFilter is set, auto-select first matching item; otherwise fall back to first item
+      // When scrollToType is set, auto-select first matching item; otherwise fall back to first item
       setSelectedItem((prevSelected) => {
         if (prevSelected) return prevSelected;
-        if (initialFilter) {
-          const firstMatch = cached.timeline.find((t) => t.type === initialFilter);
+        const scopedCached = filterTimelineToWindow(cached.timeline);
+        const targetType = scrollToTypeRef.current;
+        if (targetType) {
+          const firstMatch = scopedCached.find((t) => t.type === targetType);
           if (firstMatch) return firstMatch;
         }
-        return cached.timeline.length > 0 ? cached.timeline[0] : null;
+        return scopedCached.length > 0 ? scopedCached[0] : null;
       });
     }
 
@@ -2438,8 +2861,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
       if (!options?.background) {
         setLoading(true);
         setTimeline([]);
-        // Don't clear selection if entering via chip (initialFilter set) - auto-select will handle it
-        if (!initialFilter) {
+        // Don't clear selection if entering via chip (scrollToType set) - auto-select will handle it
+        if (!scrollToTypeRef.current) {
           setSelectedItem(null);
         }
       }
@@ -2479,6 +2902,266 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
       };
 
       const statusMap: {[pitchId: string]: InstructionStatus} = {};
+
+      // ─── SYNTHETIC DATA FOR DEMO MODE (DEMO-ENQ-*) ─────────────────────────
+      if (demoModeEnabled && (enquiry.ID === 'DEMO-ENQ-0001' || enquiry.ID === 'DEMO-ENQ-0002')) {
+        const baseDateRaw = enquiry.Touchpoint_Date || enquiry.Date_Created || new Date().toISOString().split('T')[0];
+        const baseDate = new Date(`${baseDateRaw}T09:00:00`);
+        const makeDate = (daysOffset: number, hoursOffset: number) => {
+          const d = new Date(baseDate.getTime());
+          d.setDate(d.getDate() + daysOffset);
+          d.setHours(d.getHours() + hoursOffset);
+          return d.toISOString();
+        };
+
+        const timelineItems: TimelineItem[] = [];
+        const isFirstCase = enquiry.ID === 'DEMO-ENQ-0001';
+
+        // ─── MILESTONE TYPES (filled square container) ───
+        
+        // Enquiry stage item
+        timelineItems.push({
+          id: `enquiry-demo-${enquiry.ID}`,
+          type: 'enquiry',
+          date: makeDate(-3, 0),
+          subject: 'Enquiry received',
+          content: isFirstCase ? 'Area: Commercial' : 'Area: Property',
+          createdBy: isFirstCase ? 'Luke Zipfel' : 'Chris Baguley',
+          stageStatus: 'complete',
+          metadata: {
+            areaOfWork: isFirstCase ? 'Commercial' : 'Property',
+            ultimateSource: 'Google Search',
+            methodOfContact: 'Phone',
+            pointOfContact: isFirstCase ? 'Luke Zipfel' : 'Chris Baguley',
+          },
+        });
+
+        // Pitch stage item
+        const pitchId = `pitch-demo-${enquiry.ID}`;
+        timelineItems.push({
+          id: pitchId,
+          type: 'pitch',
+          date: makeDate(isFirstCase ? 1 : 2, 2),
+          subject: isFirstCase ? 'Deal captured – Contract Dispute' : 'Deal captured – Lease Renewal',
+          content: isFirstCase
+            ? 'Dear Demo Client,\n\nSharing our initial advice and next steps for the contract dispute.\n\nBest, Helix Law'
+            : 'Dear Demo Client,\n\nHere is the proposed approach for the lease renewal.\n\nBest, Helix Law',
+          createdBy: isFirstCase ? 'Luke Zipfel' : 'Chris Baguley',
+          stageStatus: 'complete',
+          metadata: {
+            amount: isFirstCase ? 1500 : 3200,
+            status: 'sent',
+            scenarioId: isFirstCase ? 'before-call-call' : 'after-call-email',
+            dealOrigin: isFirstCase ? 'email' : 'link',
+            dealOriginLabel: isFirstCase ? 'Email' : 'Link',
+            dealServiceDescription: isFirstCase ? 'Contract Dispute' : 'Lease Renewal',
+            pitchAmount: isFirstCase ? 1500 : 3200,
+            pitchService: isFirstCase ? 'Contract Dispute' : 'Lease Renewal',
+          },
+        });
+        statusMap[pitchId] = {
+          verifyIdStatus: isFirstCase ? 'pending' : 'complete',
+          riskStatus: isFirstCase ? 'pending' : 'complete',
+          matterStatus: isFirstCase ? 'pending' : 'complete',
+          cclStatus: isFirstCase ? 'pending' : 'complete',
+          paymentStatus: isFirstCase ? 'pending' : 'complete',
+        };
+
+        // Instruction stage item (only for second case to show progression)
+        if (!isFirstCase) {
+          timelineItems.push({
+            id: `instruction-demo-${enquiry.ID}`,
+            type: 'instruction',
+            date: makeDate(3, 1),
+            subject: 'Instruction received',
+            content: 'Ref: HLX-DEMO-0002',
+            createdBy: 'Chris Baguley',
+            stageStatus: 'complete',
+            metadata: {
+              instructionRef: 'HLX-DEMO-0002',
+              instructionFeeEarner: 'Chris Baguley',
+              instructionArea: 'Property',
+            },
+          });
+          
+          // Identity stage item
+          timelineItems.push({
+            id: `identity-demo-${enquiry.ID}`,
+            type: 'identity',
+            date: makeDate(3, 3),
+            subject: 'ID verification: Pass',
+            content: 'Passport',
+            createdBy: '',
+            stageStatus: 'complete',
+            metadata: {
+              identityResult: 'Pass',
+              identityDocType: 'Passport',
+            },
+          });
+          
+          // Payment stage item
+          timelineItems.push({
+            id: `payment-demo-${enquiry.ID}`,
+            type: 'payment',
+            date: makeDate(4, 0),
+            subject: 'Payment received: £3,200.00',
+            content: 'Card payment',
+            createdBy: '',
+            stageStatus: 'complete',
+            metadata: {
+              paymentAmount: 3200,
+              paymentMethod: 'card',
+              paymentStatus: 'succeeded',
+            },
+          });
+          
+          // Risk stage item
+          timelineItems.push({
+            id: `risk-demo-${enquiry.ID}`,
+            type: 'risk',
+            date: makeDate(4, 2),
+            subject: 'Risk assessment: Low',
+            content: 'Standard risk profile',
+            createdBy: 'Chris Baguley',
+            stageStatus: 'complete',
+            metadata: {
+              riskLevel: 'Low',
+            },
+          });
+          
+          // Matter stage item
+          timelineItems.push({
+            id: `matter-demo-${enquiry.ID}`,
+            type: 'matter',
+            date: makeDate(5, 0),
+            subject: 'Matter opened: DEMO-MTR-0002',
+            content: 'Lease Renewal',
+            createdBy: 'Chris Baguley',
+            stageStatus: 'complete',
+            metadata: {
+              matterDisplayNumber: 'DEMO-MTR-0002',
+              matterDescription: 'Lease Renewal',
+            },
+          });
+        }
+
+        // ─── COMMUNICATION TYPES (circular outline container) ───
+        
+        // Inbound email
+        timelineItems.push({
+          id: `email-demo-in-${enquiry.ID}`,
+          type: 'email',
+          date: makeDate(-1, 3),
+          subject: isFirstCase ? 'Re: Contract dispute follow-up' : 'Re: Lease renewal next steps',
+          content: 'Thanks for the update — confirming availability this week.',
+          createdBy: 'Demo Client',
+          metadata: {
+            direction: 'inbound',
+            messageId: `demo-msg-in-${enquiry.ID}`,
+            feeEarnerEmail: userEmail || 'lz@helix-law.com',
+          },
+        });
+
+        // Outbound email
+        timelineItems.push({
+          id: `email-demo-out-${enquiry.ID}`,
+          type: 'email',
+          date: makeDate(0, -2),
+          subject: isFirstCase ? 'Next steps for your contract dispute' : 'Lease renewal scope + costs',
+          content: 'Outlined scope, pricing, and proposed timeline for your matter.',
+          createdBy: isFirstCase ? 'Luke Zipfel' : 'Chris Baguley',
+          metadata: {
+            direction: 'outbound',
+            messageId: `demo-msg-out-${enquiry.ID}`,
+            feeEarnerEmail: userEmail || 'lz@helix-law.com',
+          },
+        });
+
+        // Call
+        timelineItems.push({
+          id: `call-demo-${enquiry.ID}`,
+          type: 'call',
+          date: makeDate(0, -6),
+          subject: isFirstCase ? 'Inbound Call' : 'Outbound Call',
+          content: isFirstCase
+            ? 'Duration: 14:20\nAnswered\nNote: Initial dispute summary and desired outcome.'
+            : 'Duration: 09:10\nAnswered\nNote: Lease renewal requirements and timing.',
+          createdBy: 'Demo Client',
+          metadata: {
+            duration: isFirstCase ? 860 : 550,
+            direction: isFirstCase ? 'inbound' : 'outbound',
+          },
+        });
+
+        // ─── RESOURCE TYPES (dashed square container) ───
+        
+        // Document
+        timelineItems.push({
+          id: `document-demo-${enquiry.ID}-1`,
+          type: 'document',
+          date: makeDate(-2, 1),
+          subject: isFirstCase ? 'Contract_Dispute_Summary.pdf' : 'Lease_Terms_Review.pdf',
+          content: 'Demo document (previewable)',
+          createdBy: 'Demo Client',
+          metadata: {
+            documentType: isFirstCase ? 'Correspondence' : 'Contract',
+            filename: isFirstCase ? 'Contract_Dispute_Summary.pdf' : 'Lease_Terms_Review.pdf',
+            fileSize: isFirstCase ? 245678 : 189234,
+            contentType: 'application/pdf',
+            blobUrl: '/api/demo-documents/Demo_Document_1.pdf',
+            stageUploaded: 'enquiry',
+          },
+        });
+        
+        // Second document
+        timelineItems.push({
+          id: `document-demo-${enquiry.ID}-2`,
+          type: 'document',
+          date: makeDate(-1, -1),
+          subject: isFirstCase ? 'Supporting_Evidence.pdf' : 'Property_Photos.zip',
+          content: 'Additional supporting materials',
+          createdBy: 'Demo Client',
+          metadata: {
+            documentType: isFirstCase ? 'Evidence' : 'Property Files',
+            filename: isFirstCase ? 'Supporting_Evidence.pdf' : 'Property_Photos.zip',
+            fileSize: isFirstCase ? 512000 : 2048000,
+            contentType: isFirstCase ? 'application/pdf' : 'application/zip',
+            blobUrl: '/api/demo-documents/Demo_Document_2.pdf',
+            stageUploaded: 'pitch',
+          },
+        });
+
+        // Note
+        timelineItems.push({
+          id: `note-demo-${enquiry.ID}`,
+          type: 'note',
+          date: makeDate(0, 1),
+          subject: 'Internal note',
+          content: isFirstCase 
+            ? 'Client prefers email communication. Available afternoons only.'
+            : 'Urgent timeline - lease expires end of month.',
+          createdBy: isFirstCase ? 'Luke Zipfel' : 'Chris Baguley',
+        });
+
+        timelineItems.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+        setTimeline((prev) => {
+          const prevWorkspace = prev.find((t) => t.type === 'document' && Boolean(t.metadata?.isDocWorkspace));
+          const next = [...timelineItems];
+          if (prevWorkspace && !next.some((t) => t.id === prevWorkspace.id)) {
+            next.unshift(prevWorkspace);
+          }
+          next.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+          timelineSnapshot = next;
+          return next;
+        });
+        setInstructionStatuses(statusMap);
+        setLoadingStates({ pitches: false, emails: false, calls: false, documents: false });
+        setCompletedSources({ pitches: true, emails: true });
+        setLoading(false);
+        return;
+      }
+      // ─── END DEMO MODE SYNTHETIC DATA ─────────────────────────────────────
 
       // ─── SYNTHETIC DATA FOR DEV PREVIEW TEST RECORD ──────────────────────────
       // Inject comprehensive test data to preview all timeline features
@@ -2618,11 +3301,12 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         setInstructionStatuses(statusMap);
         setLoadingStates({ pitches: false, emails: false, calls: false, documents: false });
         setCompletedSources({ pitches: true, emails: true });
-        // When initialFilter is set, auto-select first matching item
+        // When scrollToType is set, auto-select first matching item
         setSelectedItem((prevSelected) => {
           if (prevSelected) return prevSelected;
-          if (initialFilter) {
-            const firstMatch = timelineItems.find((t) => t.type === initialFilter);
+          const targetType = scrollToTypeRef.current;
+          if (targetType) {
+            const firstMatch = timelineItems.find((t) => t.type === targetType);
             if (firstMatch) return firstMatch;
           }
           return timelineItems.length > 0 ? timelineItems[0] : null;
@@ -2634,7 +3318,17 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
 
       // Fetch pitches
       try {
-        const pitchesRes = await fetch(`/api/pitches/${enquiry.ID}?_ts=${Date.now()}`, {
+        const enquiryAny = enquiry as unknown as {
+          acid?: string | number;
+          ACID?: string | number;
+          ProspectId?: string | number;
+          prospectId?: string | number;
+          ID?: string | number;
+        };
+        const pitchLookupId = String(
+          enquiryAny?.acid || enquiryAny?.ACID || enquiryAny?.ProspectId || enquiryAny?.prospectId || enquiryAny?.ID || ''
+        ).trim();
+        const pitchesRes = await fetch(`/api/pitches/${pitchLookupId}?_ts=${Date.now()}`, {
           cache: 'no-store',
           headers: { 'Cache-Control': 'no-cache' },
         });
@@ -2667,35 +3361,70 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             const pitch = pitches[index];
             
             // Distinguish between full pitch (with email) and link-enabled-only (deal created without email)
-            const hasEmailContent = !!(pitch.EmailSubject?.trim() || pitch.EmailBody?.trim());
+            const hasEmailContent = !!(
+              pitch.EmailSubject?.trim() ||
+              pitch.EmailBody?.trim() ||
+              pitch.EmailBodyHtml?.trim()
+            );
             const rawDealStatus = String(pitch.DealStatus || '').trim().toUpperCase();
             const isLinkOnlyStatus = rawDealStatus === 'CHECKOUT_LINK';
-            const itemType: CommunicationType = 'pitch';
             const dealOrigin: 'email' | 'link' = hasEmailContent ? 'email' : 'link';
             const dealOriginLabel = hasEmailContent ? 'Pitch email' : (isLinkOnlyStatus ? 'Checkout link' : 'Link enabled');
             const serviceDescription = String(pitch.ServiceDescription || '').trim();
             const dealSubject = serviceDescription ? `Deal captured – ${serviceDescription}` : 'Deal captured';
+            const scenarioLabel = getScenarioName(pitch.ScenarioId);
             
             const pitchId = `pitch-${index}`;
+            const pitchStageId = `stage-pitch-${pitch.DealId || pitch.Passcode || pitchId}`;
+            const pitchDate = pitch.CreatedAt || new Date().toISOString();
+
+            // Stage entry (clean summary, no inline workbench)
             pitchItems.push({
-              id: pitchId,
-              type: itemType,
-              date: pitch.CreatedAt,
+              id: pitchStageId,
+              type: 'pitch',
+              date: pitchDate,
               subject: dealSubject,
-              content: pitch.EmailBody,
-              contentHtml: pitch.EmailBodyHtml,
+              content: dealOriginLabel,
               createdBy: pitch.CreatedBy || 'Unknown',
+              stageStatus: hasEmailContent || isLinkOnlyStatus ? 'complete' : 'pending',
               metadata: {
-                amount: pitch.Amount,
-                status: hasEmailContent ? 'sent' : (isLinkOnlyStatus ? 'checkout-link' : 'link-enabled'),
-                scenarioId: pitch.ScenarioId,
-                dealOrigin,
+                pitchAmount: pitch.Amount,
+                pitchService: serviceDescription || undefined,
+                pitchInstructionRef: pitch.InstructionRef || null,
+                pitchValidUntil: pitch.ValidUntil || pitch.validUntil || null,
+                pitchDealId: pitch.DealId,
+                pitchPasscode: pitch.Passcode || null,
+                pitchScenarioId: pitch.ScenarioId,
+                pitchScenarioLabel: scenarioLabel || undefined,
+                pitchPitchedBy: pitch.CreatedBy || pitch.PitchedBy || null,
+                pitchEmailSubject: hasEmailContent ? (pitch.EmailSubject || null) : null,
+                pitchAreaOfWork: pitch.AreaOfWork || pitch.Area || undefined,
                 dealOriginLabel,
-                dealEmailSubject: hasEmailContent ? (pitch.EmailSubject || null) : null,
                 dealPasscode: pitch.Passcode || null,
-                dealServiceDescription: serviceDescription || undefined,
-              }
+                scenarioId: pitch.ScenarioId,
+              },
             });
+
+            // Email entry (kept as email activity)
+            if (hasEmailContent) {
+              pitchItems.push({
+                id: `${pitchId}-email`,
+                type: 'email',
+                date: pitchDate,
+                subject: pitch.EmailSubject || dealSubject,
+                content: pitch.EmailBody,
+                contentHtml: pitch.EmailBodyHtml,
+                createdBy: pitch.CreatedBy || 'Unknown',
+                metadata: {
+                  direction: 'outbound',
+                  dealOrigin,
+                  dealOriginLabel,
+                  dealEmailSubject: pitch.EmailSubject || null,
+                  dealPasscode: pitch.Passcode || null,
+                  dealServiceDescription: serviceDescription || undefined,
+                },
+              });
+            }
 
             // If the pitch payload includes instruction-stage info (from server-side joins),
             // translate it into the legacy chip status model.
@@ -2706,7 +3435,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             // When the pitch includes instruction-stage/internalStatus, the same helper
             // will mark the appropriate stages as progressed.
             try {
-              statusMap[pitchId] = calculateInstructionStatus({
+              statusMap[pitchStageId] = calculateInstructionStatus({
                 Stage: instructionStage || undefined,
                 InternalStatus: instructionInternalStatus || undefined,
               });
@@ -3001,57 +3730,312 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
     fetchTimeline({ background: Boolean(cached) });
   }, [enquiry.ID, timelineUnlocked]);
 
-  // Auto-select the first item only on initial timeline load (not when user collapses).
-  // When initialFilter is set (e.g. 'pitch' from chip click), auto-select first matching item.
+  // ═══════════════════════════════════════════════════════════════════════
+  // STAGE ITEMS: Generate timeline entries from inlineWorkbenchItem data
+  // These represent the journey stages: enquiry → pitch → instruction → ID → payment → risk → matter
+  // ═══════════════════════════════════════════════════════════════════════
+  useEffect(() => {
+    if (!inlineWorkbenchItem && !enquiry) return;
+    
+    const stageItems: TimelineItem[] = [];
+    
+    // 1. ENQUIRY ITEM - from the enquiry itself
+    const enquiryDate = enquiry?.Touchpoint_Date || enquiry?.Date_Created;
+    const fallbackStageDate = enquiryDate ? new Date(enquiryDate).toISOString() : new Date().toISOString();
+    if (enquiryDate) {
+      const areaOfWork = enquiry?.Area_of_Work || '';
+      const source = enquiry?.Ultimate_Source || '';
+      const value = enquiry?.Value || '';
+      
+      stageItems.push({
+        id: `stage-enquiry-${enquiry.ID}`,
+        type: 'enquiry',
+        date: new Date(enquiryDate).toISOString(),
+        subject: 'Enquiry received',
+        content: areaOfWork ? `Area: ${areaOfWork}` : undefined,
+        createdBy: enquiry?.Point_of_Contact || enquiry?.Call_Taker || '',
+        stageStatus: 'complete',
+        metadata: {
+          areaOfWork,
+          ultimateSource: source,
+          methodOfContact: (enquiry as any)?.Method_of_Contact || (enquiry as any)?.method_of_contact || (enquiry as any)?.Method || undefined,
+          pointOfContact: enquiry?.Point_of_Contact || undefined,
+          callTaker: enquiry?.Call_Taker || undefined,
+          enquiryValue: value,
+          phoneNumber: enquiry?.Phone_Number,
+          email: enquiry?.Email,
+          company: (enquiry as any)?.Company || (enquiry as any)?.Company_Name || undefined,
+        },
+      });
+    }
+    
+    // 2. INSTRUCTION ITEM - from instruction data
+    const instruction = inlineWorkbenchItem?.instruction;
+    if (instruction) {
+      const instructedDate = instruction.instructedDate || instruction.InstructedDate || instruction.SubmissionDate || instruction.submissionDate;
+      const ref = instruction.InstructionRef || instruction.instructionRef || '';
+      const feeEarner = instruction['Fee Earner'] || instruction.feeEarner || instruction.FeeEarner || '';
+      const area = instruction['Area of Work'] || instruction.areaOfWork || instruction.Area || '';
+      const instructionDate = instructedDate ? new Date(instructedDate).toISOString() : fallbackStageDate;
+      
+      stageItems.push({
+        id: `stage-instruction-${ref || enquiry.ID}`,
+        type: 'instruction',
+        date: instructionDate,
+        subject: 'Instruction received',
+        content: ref ? `Ref: ${ref}` : undefined,
+        createdBy: feeEarner,
+        stageStatus: 'complete',
+        metadata: {
+          instructionRef: ref,
+          instructionFeeEarner: feeEarner,
+          instructionArea: area,
+          instructionStage: instruction.Stage || instruction.stage || undefined,
+          instructionInternalStatus: instruction.InternalStatus || instruction.internalStatus || undefined,
+          instructionClientType: instruction.ClientType || instruction.clientType || undefined,
+          instructionMatterId: instruction.MatterId || instruction.matterId || undefined,
+          instructionSubmissionDate: instructedDate || undefined,
+        },
+      });
+    }
+    
+    // 3. IDENTITY ITEM - from EID data
+    const eid = inlineWorkbenchItem?.eid;
+    if (eid) {
+      const eidDate = eid.EIDDate || eid.eidDate || eid.VerificationDate || eid.verificationDate || eid.CreatedAt || eid.createdAt;
+      const eidResult = eid.EIDOverallResult || eid.eidOverallResult || eid.Result || eid.result || '';
+      const eidStatus = (eid.EIDStatus || eid.eidStatus || '').toLowerCase();
+      
+      // Determine stage status
+      let identityStageStatus: 'complete' | 'pending' | 'review' | 'failed' = 'pending';
+      const resultLower = eidResult.toLowerCase();
+      if (resultLower.includes('pass') || resultLower.includes('verified')) {
+        identityStageStatus = 'complete';
+      } else if (resultLower.includes('fail')) {
+        identityStageStatus = 'failed';
+      } else if (resultLower.includes('refer') || resultLower.includes('consider')) {
+        identityStageStatus = 'review';
+      } else if (eidStatus.includes('pending') || eidStatus.includes('processing')) {
+        identityStageStatus = 'pending';
+      } else if (eidResult) {
+        identityStageStatus = 'complete';
+      }
+      
+      // Determine document type
+      const hasPassport = eid.PassportNumber || eid.passportNumber;
+      const hasLicense = eid.DrivingLicenseNumber || eid.drivingLicenseNumber || eid.LicenseNumber;
+      const docType = hasPassport ? 'Passport' : hasLicense ? 'Driving Licence' : 'ID Document';
+      const docExpiry = eid.PassportExpiry || eid.LicenseExpiry || eid.DocumentExpiry || '';
+      
+      // Display result
+      const displayResult = eidResult 
+        ? eidResult.charAt(0).toUpperCase() + eidResult.slice(1).toLowerCase()
+        : 'Pending';
+      
+      if (eidDate || eidResult) {
+        stageItems.push({
+          id: `stage-identity-${enquiry.ID}`,
+          type: 'identity',
+          date: eidDate ? new Date(eidDate).toISOString() : fallbackStageDate,
+          subject: `ID verification: ${displayResult}`,
+          content: docType,
+          createdBy: '',
+          stageStatus: identityStageStatus,
+          metadata: {
+            identityResult: displayResult,
+            identityDocType: docType,
+            identityDocExpiry: docExpiry,
+            identityManualApproval: eid.ManuallyApproved || eid.manuallyApproved || false,
+            identityProvider: eid.EIDProvider || eid.eidProvider || undefined,
+            identityStatus: eid.EIDStatus || eid.eidStatus || undefined,
+            identityCheckId: eid.EIDCheckId || eid.eidCheckId || undefined,
+            identityPepResult: eid.PEPAndSanctionsCheckResult || eid.pepAndSanctionsCheckResult || undefined,
+            identityAddressResult: eid.AddressVerificationResult || eid.addressVerificationResult || undefined,
+          },
+        });
+      }
+    }
+    
+    // 4. PAYMENT ITEMS - from payments array (each payment is a separate item)
+    const payments = Array.isArray(inlineWorkbenchItem?.payments) ? inlineWorkbenchItem.payments : 
+                     Array.isArray(instruction?.payments) ? instruction.payments : [];
+    payments.forEach((payment: any, index: number) => {
+      const paymentDate = payment.created_at || payment.CreatedAt || payment.PaymentDate || payment.paymentDate;
+      const paymentStatus = payment.payment_status || payment.PaymentStatus || payment.status || 'pending';
+      const paymentAmount = payment.amount || payment.Amount || 0;
+      const paymentMethod = payment.payment_method || payment.PaymentMethod || payment.method || 'card';
+      
+      // Determine stage status
+      let paymentStageStatus: 'complete' | 'pending' | 'review' | 'failed' = 'pending';
+      const statusLower = String(paymentStatus).toLowerCase();
+      if (statusLower === 'succeeded' || statusLower === 'confirmed' || statusLower === 'paid') {
+        paymentStageStatus = 'complete';
+      } else if (statusLower === 'failed' || statusLower === 'declined') {
+        paymentStageStatus = 'failed';
+      } else if (statusLower === 'pending' || statusLower === 'processing') {
+        paymentStageStatus = 'pending';
+      }
+      
+      // Format amount
+      const formattedAmount = paymentAmount 
+        ? `£${Number(paymentAmount).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+        : '';
+      
+      // Subject based on status
+      const statusLabel = paymentStageStatus === 'complete' ? 'received' : 
+                          paymentStageStatus === 'failed' ? 'failed' : 'pending';
+      
+      const resolvedPaymentDate = paymentDate ? new Date(paymentDate).toISOString() : fallbackStageDate;
+      stageItems.push({
+        id: `stage-payment-${index}-${enquiry.ID}`,
+        type: 'payment',
+        date: resolvedPaymentDate,
+          subject: `Payment ${statusLabel}${formattedAmount ? `: ${formattedAmount}` : ''}`,
+          content: paymentMethod === 'card' ? 'Card payment' : 'Bank transfer',
+          createdBy: '',
+          stageStatus: paymentStageStatus,
+          metadata: {
+            paymentAmount,
+            paymentMethod,
+            paymentStatus,
+            paymentStripeId: payment.stripe_payment_id || payment.StripePaymentId,
+          paymentIntentId: payment.payment_intent_id || payment.PaymentIntentId || undefined,
+          paymentCurrency: payment.currency || payment.Currency || undefined,
+          paymentReceiptUrl: payment.receipt_url || payment.ReceiptUrl || undefined,
+          paymentInternalStatus: payment.internal_status || payment.InternalStatus || undefined,
+          },
+        });
+    });
+    
+    // 5. RISK ITEM - from risk assessment data
+    const risk = inlineWorkbenchItem?.risk;
+    if (risk) {
+      const riskDate = risk.ComplianceDate || risk.complianceDate || risk.AssessmentDate || risk.assessmentDate || risk.CreatedAt || risk.createdAt;
+      const riskResult = risk.RiskAssessmentResult || risk.riskAssessmentResult || risk.Result || risk.result || '';
+      const riskScore = risk.RiskScore || risk.riskScore || risk.Score || risk.score;
+      const riskLevel = risk.TransactionRiskLevel || risk.transactionRiskLevel || risk.Level || risk.level || '';
+      const assessor = risk.Assessor || risk.assessor || risk.CompletedBy || risk.completedBy || '';
+      const jurisdiction = risk.Jurisdiction || risk.jurisdiction || '';
+      
+      // Determine stage status
+      let riskStageStatus: 'complete' | 'pending' | 'review' | 'failed' = 'pending';
+      if (riskResult) {
+        const resultLower = riskResult.toLowerCase();
+        if (resultLower.includes('high') || resultLower.includes('elevated')) {
+          riskStageStatus = 'review';
+        } else {
+          riskStageStatus = 'complete';
+        }
+      }
+      
+      if (riskDate || riskResult) {
+        stageItems.push({
+          id: `stage-risk-${enquiry.ID}`,
+          type: 'risk',
+          date: riskDate ? new Date(riskDate).toISOString() : fallbackStageDate,
+          subject: `Risk assessment: ${riskResult || 'Completed'}`,
+          content: riskScore !== undefined ? `Score: ${riskScore}` : undefined,
+          createdBy: assessor,
+          stageStatus: riskStageStatus,
+          metadata: {
+            riskResult,
+            riskScore,
+            riskLevel,
+            riskAssessor: assessor,
+            riskJurisdiction: jurisdiction,
+            riskComplianceDate: risk.ComplianceDate || risk.complianceDate || undefined,
+            riskComplianceExpiry: risk.ComplianceExpiry || risk.complianceExpiry || undefined,
+            riskClientType: risk.ClientType || risk.clientType || undefined,
+            riskSourceOfFunds: risk.SourceOfFunds || risk.sourceOfFunds || undefined,
+            riskDestinationOfFunds: risk.DestinationOfFunds || risk.destinationOfFunds || undefined,
+            riskFundsType: risk.FundsType || risk.fundsType || undefined,
+            riskValueOfInstruction: risk.ValueOfInstruction || risk.valueOfInstruction || undefined,
+          },
+        });
+      }
+    }
+    
+    // 6. MATTER ITEMS - from matters array
+    const matters = Array.isArray(inlineWorkbenchItem?.matters) ? inlineWorkbenchItem.matters : [];
+    matters.forEach((matter: any, index: number) => {
+      const matterDate = matter.OpenDate || matter.openDate || matter['Open Date'] || matter.CreatedAt || matter.createdAt;
+      const displayNumber = matter['Display Number'] || matter.DisplayNumber || matter.displayNumber || matter.MatterRef || '';
+      const matterStatus = matter.Status || matter.status || 'Open';
+      const feeEarner = matter['Fee Earner'] || matter.FeeEarner || matter.feeEarner || matter.ResponsibleAttorney || '';
+      const clientName = matter['Client Name'] || matter.ClientName || matter.clientName || '';
+      
+      if (matterDate || displayNumber) {
+        stageItems.push({
+          id: `stage-matter-${index}-${enquiry.ID}`,
+          type: 'matter',
+          date: matterDate ? new Date(matterDate).toISOString() : fallbackStageDate,
+          subject: `Matter opened${displayNumber ? `: ${displayNumber}` : ''}`,
+          content: matterStatus,
+          createdBy: feeEarner,
+          stageStatus: 'complete',
+          metadata: {
+            matterDisplayNumber: displayNumber,
+            matterStatus,
+            matterFeeEarner: feeEarner,
+            matterClient: clientName,
+            matterPracticeArea: matter.PracticeArea || matter.practiceArea || undefined,
+            matterDescription: matter.Description || matter.description || undefined,
+            matterResponsibleSolicitor: matter.ResponsibleSolicitor || matter.responsibleSolicitor || undefined,
+            matterOriginatingSolicitor: matter.OriginatingSolicitor || matter.originatingSolicitor || undefined,
+            matterSupervisingPartner: matter.SupervisingPartner || matter.supervisingPartner || undefined,
+          },
+        });
+      }
+    });
+    
+    // Set stage items in separate state (so fetchTimeline clearing timeline doesn't lose them)
+    setStageItemsState(stageItems);
+  }, [enquiry?.ID, enquiry?.Touchpoint_Date, enquiry?.Date_Created, inlineWorkbenchItem]);
+
+  // Auto-select only when navigating from a chip click (initialFilter), not on general entry.
+  // When initialFilter is set (e.g. 'pitch' from chip click), auto-select first matching item and scroll to it.
   const hasAutoSelectedRef = React.useRef(false);
   useEffect(() => {
-    if (!hasAutoSelectedRef.current && timeline.length > 0) {
-      // If we have an initialFilter, find the first matching item
-      if (initialFilter) {
-        const firstMatchingItem = timeline.find((item) => item.type === initialFilter);
+    if (!hasAutoSelectedRef.current && scopedTimeline.length > 0) {
+      // If we have a scrollToType from chip click, find and scroll to the first matching item
+      const targetType = scrollToTypeRef.current;
+      if (targetType) {
+        const firstMatchingItem = scopedTimeline.find((item) => item.type === targetType);
         if (firstMatchingItem) {
           setSelectedItem(firstMatchingItem);
-          // Scroll to Quick Access section with offset to ensure full visibility
+          // Scroll directly to the timeline item (not Quick Access section)
           setTimeout(() => {
-            const quickAccessEl = document.getElementById('quick-access-section');
-            if (quickAccessEl) {
-              const rect = quickAccessEl.getBoundingClientRect();
-              const scrollContainer = quickAccessEl.closest('[style*="overflow"]') || window;
-              const offset = 80; // Padding from top to ensure header is visible
-              if (scrollContainer === window) {
-                window.scrollTo({
-                  top: window.scrollY + rect.top - offset,
-                  behavior: 'smooth'
-                });
-              } else {
-                quickAccessEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
-              }
+            const el = document.getElementById(`timeline-item-${firstMatchingItem.id}`);
+            if (el) {
+              el.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }
-          }, 200);
-        } else {
-          setSelectedItem(timeline[0]);
+          }, 300);
         }
-      } else {
-        setSelectedItem(timeline[0]);
+        // Clear the ref so it doesn't re-trigger
+        scrollToTypeRef.current = null;
       }
+      // Don't auto-select first item on general entry - let user choose
       hasAutoSelectedRef.current = true;
     }
-  }, [timeline, initialFilter]);
+  }, [timeline]);
 
-  // Reset auto-select flag when enquiry changes.
+  // Reset auto-select flag when enquiry changes, and update scrollToType if initialFilter changed.
   useEffect(() => {
     hasAutoSelectedRef.current = false;
-  }, [enquiry.ID]);
+    if (initialFilter) {
+      scrollToTypeRef.current = initialFilter;
+    }
+  }, [enquiry.ID, initialFilter]);
 
   // Handle deep link scroll-to from Home page To Do actions
   useEffect(() => {
     const scrollTarget = sessionStorage.getItem('scrollToTimelineItem');
-    if (scrollTarget && timeline.length > 0) {
+    if (scrollTarget && scopedTimeline.length > 0) {
       sessionStorage.removeItem('scrollToTimelineItem');
       
       // Find the target item (e.g., 'doc-workspace' for document workspace)
       if (scrollTarget === 'doc-workspace') {
-        const docWorkspaceItem = timeline.find(
+        const docWorkspaceItem = scopedTimeline.find(
           (item) => item.type === 'document' && item.metadata?.isDocWorkspace
         );
         if (docWorkspaceItem) {
@@ -3066,7 +4050,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         }
       } else {
         // Generic scroll to item by ID
-        const targetItem = timeline.find((item) => item.id === scrollTarget);
+        const targetItem = scopedTimeline.find((item) => item.id === scrollTarget);
         if (targetItem) {
           setSelectedItem(targetItem);
           setTimeout(() => {
@@ -3082,44 +4066,91 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
 
   const getTypeIcon = (type: CommunicationType) => {
     switch (type) {
+      // Stage types - outline variants for consistency
+      case 'enquiry':
+        return <FaRegUser />;
       case 'pitch':
-        return <FaEnvelope />;
+        return <FaRegCheckCircle />;
+      case 'instruction':
+        return <FaRegClipboard />;
+      case 'identity':
+        return <FaRegAddressCard />;
+      case 'payment':
+        return <FaPoundSign />;
+      case 'risk':
+        return <FaShieldAlt />;
+      case 'matter':
+        return <FaRegFolderOpen />;
+      // Activity types - outline variants
       case 'link-enabled':
-        return <FaLink />;
+        return <FaRegCheckCircle />;
       case 'email':
-        return <FaEnvelope />;
+        return <FaRegEnvelope />;
       case 'call':
         return <FaPhone />;
-      case 'instruction':
-        return <FaFileAlt />;
       case 'document':
-        return <FaFileAlt />;
+        return <FaRegFileAlt />;
       case 'note':
-        return <FaCircle />;
+        return <FaRegCommentDots />;
       default:
-        return <FaCircle />;
+        return <FaRegCircle />;
     }
   };
 
   const getTypeColor = (type: CommunicationType) => {
+    const base = isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.78)';
+    const muted = isDarkMode ? 'rgba(148, 163, 184, 0.75)' : 'rgba(100, 116, 139, 0.7)';
     switch (type) {
-      case 'call':
-        return '#f59e0b'; // Amber/Orange - matches activity icon
-      case 'pitch':
-        return '#22c55e'; // Green - matches activity icon
-      case 'link-enabled':
-        return '#22c55e'; // Treat as deal
-      case 'email':
-        return colours.highlight; // Blue - matches activity icon
-      case 'instruction':
-        return '#10b981'; // Emerald - matches activity icon
-      case 'document':
-        return colours.accent; // Helix teal - on brand
       case 'note':
-        return '#6B7280';
+        return muted;
       default:
-        return '#6B7280';
+        return base;
     }
+  };
+
+  // Type category system: Groups types into visual categories for distinct styling
+  type TypeCategory = 'communication' | 'resource' | 'milestone';
+  
+  const getTypeCategory = (type: CommunicationType): TypeCategory => {
+    switch (type) {
+      case 'email':
+      case 'call':
+        return 'communication';
+      case 'document':
+      case 'note':
+      case 'link-enabled':
+        return 'resource';
+      case 'enquiry':
+      case 'pitch':
+      case 'instruction':
+      case 'identity':
+      case 'payment':
+      case 'risk':
+      case 'matter':
+      default:
+        return 'milestone';
+    }
+  };
+
+  // Unified icon container style - hollow box when inactive, filled with accent on active
+  const getTypeCategoryStyle = (type: CommunicationType, isActive: boolean = false): React.CSSProperties => {
+    // All types get the same box style - only active state differs
+    return {
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      width: 20,
+      height: 20,
+      borderRadius: 4,
+      border: isActive
+        ? `1.5px solid ${isDarkMode ? 'rgba(56, 189, 248, 0.5)' : 'rgba(54, 144, 206, 0.45)'}`
+        : `1.5px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(100, 116, 139, 0.25)'}`,
+      background: isActive
+        ? (isDarkMode ? 'rgba(56, 189, 248, 0.15)' : 'rgba(54, 144, 206, 0.1)')
+        : 'transparent',
+      flexShrink: 0,
+      transition: 'all 0.15s ease',
+    };
   };
 
   // Status-based colors for action required vs complete
@@ -3141,16 +4172,28 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
 
   const getTypeLabel = (type: CommunicationType) => {
     switch (type) {
+      // Stage types
+      case 'enquiry':
+        return 'Enquiry';
       case 'pitch':
-        return 'Deal';
+        return 'Pitch';
+      case 'instruction':
+        return 'Instructed';
+      case 'identity':
+        return 'ID Check';
+      case 'payment':
+        return 'Payment';
+      case 'risk':
+        return 'Risk';
+      case 'matter':
+        return 'Matter';
+      // Activity types
       case 'link-enabled':
         return 'Deal';
       case 'email':
         return 'Email';
       case 'call':
         return 'Call';
-      case 'instruction':
-        return 'Instruction';
       case 'document':
         return 'Document';
       case 'note':
@@ -3163,33 +4206,182 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
   const isDocRequestPitch = (item: TimelineItem) => item.type === 'document' && item.metadata?.isDocWorkspace;
   const getItemTypeLabel = (item: TimelineItem) => (isDocRequestPitch(item) ? 'Doc Request' : getTypeLabel(item.type));
   const getItemTypeIcon = (item: TimelineItem) => (isDocRequestPitch(item) ? <FaLink /> : getTypeIcon(item.type));
-  const getItemTypeColor = (item: TimelineItem) => (isDocRequestPitch(item) ? '#a855f7' : getTypeColor(item.type));
+  const getItemTypeColor = (item: TimelineItem) => getTypeColor(item.type);
 
-  const quickAccessTypes: CommunicationType[] = ['document', 'email', 'call', 'pitch', 'instruction'];
-  const getQuickAccessCount = (type: CommunicationType) => timeline.filter((item) => item.type === type).length;
-  const quickAccessItems = activeFilters.length > 0
-    ? timeline.filter((item) => activeFilters.includes(item.type))
-    : [];
-  const selectedQuickAccessTypes = quickAccessTypes.filter((t) => activeFilters.includes(t));
+  // Stage status pill colours
+  const getStageStatusColor = (status: TimelineItem['stageStatus']) => {
+    switch (status) {
+      case 'complete':
+        return { bg: isDarkMode ? 'rgba(34, 197, 94, 0.15)' : 'rgba(34, 197, 94, 0.1)', text: isDarkMode ? '#4ade80' : '#16a34a', border: isDarkMode ? 'rgba(34, 197, 94, 0.3)' : 'rgba(34, 197, 94, 0.25)' };
+      case 'pending':
+        return { bg: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)', text: isDarkMode ? 'rgba(148, 163, 184, 0.8)' : '#64748b', border: isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)' };
+      case 'review':
+        return { bg: isDarkMode ? 'rgba(251, 191, 36, 0.15)' : 'rgba(251, 191, 36, 0.1)', text: isDarkMode ? '#fbbf24' : '#d97706', border: isDarkMode ? 'rgba(251, 191, 36, 0.3)' : 'rgba(251, 191, 36, 0.25)' };
+      case 'failed':
+        return { bg: isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)', text: isDarkMode ? '#f87171' : '#dc2626', border: isDarkMode ? 'rgba(239, 68, 68, 0.3)' : 'rgba(239, 68, 68, 0.25)' };
+      default:
+        return { bg: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)', text: isDarkMode ? 'rgba(148, 163, 184, 0.8)' : '#64748b', border: isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)' };
+    }
+  };
 
-  const isDocumentFilterActive = activeFilters.includes('document');
-  const workspaceTimelineItem = timeline.find((t) => t.type === 'document' && Boolean(t.metadata?.isDocWorkspace));
-  const quickAccessItemsWithoutWorkspace = quickAccessItems.filter((t) => !t.metadata?.isDocWorkspace);
+  // Check if an item is a stage type
+  const isStageType = (type: CommunicationType): type is StageType => {
+    return ['enquiry', 'pitch', 'instruction', 'identity', 'payment', 'risk', 'matter'].includes(type);
+  };
 
-  const quickAccessEmailIds = quickAccessItems.filter((item) => item.type === 'email').map((item) => item.id);
-  const areAnyQuickAccessEmailsExpanded = quickAccessEmailIds.some((id) => expandedQuickAccessEmailIds.has(id));
-  const areAllQuickAccessEmailsExpanded = quickAccessEmailIds.length > 0 && quickAccessEmailIds.every((id) => expandedQuickAccessEmailIds.has(id));
+  // Render inline data bar for stage items (standardised layout)
+  const renderStageDataBar = (item: TimelineItem) => {
+    const dataItems: Array<{ label: string; value: string | number | undefined; highlight?: boolean; monospace?: boolean }> = [];
+    
+    switch (item.type) {
+      case 'enquiry':
+        if (item.metadata?.areaOfWork) dataItems.push({ label: 'Area', value: item.metadata.areaOfWork });
+        if (item.metadata?.ultimateSource) dataItems.push({ label: 'Source', value: item.metadata.ultimateSource });
+        if (item.metadata?.methodOfContact) dataItems.push({ label: 'Method', value: item.metadata.methodOfContact });
+        if (item.metadata?.enquiryValue) dataItems.push({ label: 'Value', value: `£${Number(item.metadata.enquiryValue).toLocaleString()}`, highlight: true });
+        if (item.metadata?.pointOfContact) dataItems.push({ label: 'Claimed By', value: item.metadata.pointOfContact });
+        if (item.metadata?.callTaker) dataItems.push({ label: 'Call Taker', value: item.metadata.callTaker });
+        if (item.metadata?.email) dataItems.push({ label: 'Email', value: item.metadata.email });
+        if (item.metadata?.phoneNumber) dataItems.push({ label: 'Phone', value: item.metadata.phoneNumber });
+        if (item.metadata?.company) dataItems.push({ label: 'Company', value: item.metadata.company });
+        break;
+        
+      case 'pitch':
+        if (item.metadata?.pitchAmount) dataItems.push({ label: 'Amount', value: `£${Number(item.metadata.pitchAmount).toLocaleString()}`, highlight: true });
+        if (item.metadata?.pitchService) dataItems.push({ label: 'Service', value: item.metadata.pitchService });
+        if (item.metadata?.pitchAreaOfWork) dataItems.push({ label: 'Area', value: item.metadata.pitchAreaOfWork });
+        if (item.metadata?.pitchPitchedBy) dataItems.push({ label: 'Pitched By', value: item.metadata.pitchPitchedBy });
+        if (item.metadata?.dealOriginLabel) dataItems.push({ label: 'Via', value: item.metadata.dealOriginLabel });
+        if (item.metadata?.pitchScenarioLabel || item.metadata?.pitchScenarioId) dataItems.push({ label: 'Scenario', value: item.metadata.pitchScenarioLabel || item.metadata.pitchScenarioId });
+        if (item.metadata?.pitchValidUntil) dataItems.push({ label: 'Valid Until', value: item.metadata.pitchValidUntil });
+        if (item.metadata?.pitchInstructionRef) dataItems.push({ label: 'Ref', value: item.metadata.pitchInstructionRef, monospace: true });
+        if (item.metadata?.pitchDealId) dataItems.push({ label: 'Deal ID', value: item.metadata.pitchDealId, monospace: true });
+        if (item.metadata?.pitchPasscode) dataItems.push({ label: 'Passcode', value: item.metadata.pitchPasscode, monospace: true });
+        if (item.metadata?.pitchEmailSubject) dataItems.push({ label: 'Email', value: item.metadata.pitchEmailSubject });
+        break;
+        
+      case 'instruction':
+        if (item.metadata?.instructionRef) dataItems.push({ label: 'Ref', value: item.metadata.instructionRef, monospace: true, highlight: true });
+        if (item.metadata?.instructionFeeEarner) dataItems.push({ label: 'Fee Earner', value: item.metadata.instructionFeeEarner });
+        if (item.metadata?.instructionArea) dataItems.push({ label: 'Area', value: item.metadata.instructionArea });
+        if (item.metadata?.instructionClientType) dataItems.push({ label: 'Client Type', value: item.metadata.instructionClientType });
+        if (item.metadata?.instructionInternalStatus) dataItems.push({ label: 'Status', value: item.metadata.instructionInternalStatus });
+        if (item.metadata?.instructionStage) dataItems.push({ label: 'Stage', value: item.metadata.instructionStage });
+        if (item.metadata?.instructionMatterId) dataItems.push({ label: 'Matter ID', value: item.metadata.instructionMatterId, monospace: true });
+        if (item.metadata?.instructionSubmissionDate) dataItems.push({ label: 'Submitted', value: formatDocDate(String(item.metadata.instructionSubmissionDate)) });
+        break;
+        
+      case 'identity':
+        if (item.metadata?.identityResult) dataItems.push({ label: 'Result', value: item.metadata.identityResult, highlight: true });
+        if (item.metadata?.identityStatus) dataItems.push({ label: 'Status', value: item.metadata.identityStatus });
+        if (item.metadata?.identityDocType) dataItems.push({ label: 'Document', value: item.metadata.identityDocType });
+        if (item.metadata?.identityDocExpiry) dataItems.push({ label: 'Expiry', value: item.metadata.identityDocExpiry });
+        if (item.metadata?.identityProvider) dataItems.push({ label: 'Provider', value: item.metadata.identityProvider });
+        if (item.metadata?.identityCheckId) dataItems.push({ label: 'Check ID', value: item.metadata.identityCheckId, monospace: true });
+        if (item.metadata?.identityPepResult) dataItems.push({ label: 'PEP/Sanctions', value: item.metadata.identityPepResult });
+        if (item.metadata?.identityAddressResult) dataItems.push({ label: 'Address', value: item.metadata.identityAddressResult });
+        if (item.metadata?.identityManualApproval) dataItems.push({ label: 'Approval', value: 'Manual' });
+        break;
+        
+      case 'payment':
+        if (item.metadata?.paymentAmount) dataItems.push({ label: 'Amount', value: `£${Number(item.metadata.paymentAmount).toLocaleString('en-GB', { minimumFractionDigits: 2 })}`, highlight: true });
+        if (item.metadata?.paymentMethod) dataItems.push({ label: 'Method', value: item.metadata.paymentMethod === 'card' ? 'Card' : 'Bank Transfer' });
+        if (item.metadata?.paymentStatus) dataItems.push({ label: 'Status', value: item.metadata.paymentStatus.charAt(0).toUpperCase() + item.metadata.paymentStatus.slice(1) });
+        if (item.metadata?.paymentInternalStatus) dataItems.push({ label: 'Internal', value: item.metadata.paymentInternalStatus });
+        if (item.metadata?.paymentCurrency) dataItems.push({ label: 'Currency', value: item.metadata.paymentCurrency?.toUpperCase?.() || item.metadata.paymentCurrency });
+        if (item.metadata?.paymentIntentId) dataItems.push({ label: 'Intent', value: item.metadata.paymentIntentId, monospace: true });
+        break;
+        
+      case 'risk':
+        if (item.metadata?.riskResult) dataItems.push({ label: 'Result', value: item.metadata.riskResult, highlight: true });
+        if (item.metadata?.riskScore !== undefined) dataItems.push({ label: 'Score', value: item.metadata.riskScore, monospace: true });
+        if (item.metadata?.riskLevel) dataItems.push({ label: 'Level', value: item.metadata.riskLevel });
+        if (item.metadata?.riskAssessor) dataItems.push({ label: 'Assessor', value: item.metadata.riskAssessor });
+        if (item.metadata?.riskClientType) dataItems.push({ label: 'Client Type', value: item.metadata.riskClientType });
+        if (item.metadata?.riskSourceOfFunds) dataItems.push({ label: 'Source of Funds', value: item.metadata.riskSourceOfFunds });
+        if (item.metadata?.riskDestinationOfFunds) dataItems.push({ label: 'Destination', value: item.metadata.riskDestinationOfFunds });
+        if (item.metadata?.riskFundsType) dataItems.push({ label: 'Funds Type', value: item.metadata.riskFundsType });
+        if (item.metadata?.riskValueOfInstruction) dataItems.push({ label: 'Value', value: item.metadata.riskValueOfInstruction });
+        if (item.metadata?.riskComplianceExpiry) dataItems.push({ label: 'Expiry', value: formatDocDate(String(item.metadata.riskComplianceExpiry)) });
+        break;
+        
+      case 'matter':
+        if (item.metadata?.matterDisplayNumber) dataItems.push({ label: 'Matter', value: item.metadata.matterDisplayNumber, monospace: true, highlight: true });
+        if (item.metadata?.matterStatus) dataItems.push({ label: 'Status', value: item.metadata.matterStatus });
+        if (item.metadata?.matterFeeEarner) dataItems.push({ label: 'Fee Earner', value: item.metadata.matterFeeEarner });
+        if (item.metadata?.matterClient) dataItems.push({ label: 'Client', value: item.metadata.matterClient });
+        if (item.metadata?.matterPracticeArea) dataItems.push({ label: 'Practice', value: item.metadata.matterPracticeArea });
+        if (item.metadata?.matterResponsibleSolicitor) dataItems.push({ label: 'Responsible', value: item.metadata.matterResponsibleSolicitor });
+        if (item.metadata?.matterOriginatingSolicitor) dataItems.push({ label: 'Originating', value: item.metadata.matterOriginatingSolicitor });
+        if (item.metadata?.matterSupervisingPartner) dataItems.push({ label: 'Supervisor', value: item.metadata.matterSupervisingPartner });
+        break;
+    }
+    
+    if (dataItems.length === 0) return null;
+    
+    return (
+      <div style={{
+        display: 'flex',
+        flexWrap: 'wrap',
+        gap: '8px 16px',
+        padding: '10px 12px',
+        background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : 'rgba(0, 0, 0, 0.02)',
+        borderRadius: '4px',
+        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
+      }}>
+        {dataItems.map((di, idx) => (
+          <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+            <span style={{
+              fontSize: '9px',
+              fontWeight: 600,
+              textTransform: 'uppercase',
+              letterSpacing: '0.3px',
+              color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8',
+            }}>
+              {di.label}
+            </span>
+            <span style={{
+              fontSize: '12px',
+              fontWeight: di.highlight ? 600 : 500,
+              fontFamily: di.monospace ? 'monospace' : 'inherit',
+              color: di.highlight ? colours.highlight : (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b'),
+            }}>
+              {di.value || '—'}
+            </span>
+          </div>
+        ))}
+      </div>
+    );
+  };
 
-  useEffect(() => {
-    // Quick Access is derived from filters; default to collapsed when the view changes.
-    setExpandedQuickAccessEmailIds(new Set());
-  }, [activeFilters]);
 
   const toggleActiveFilter = (type: CommunicationType) => {
     setActiveFilters((prev) => {
       if (prev.includes(type)) return prev.filter((t) => t !== type);
       return [...prev, type];
     });
+  };
+
+  const handleTableSort = (column: typeof tableSortColumn) => {
+    if (tableSortColumn === column) {
+      setTableSortDirection(prev => (prev === 'asc' ? 'desc' : 'asc'));
+      return;
+    }
+    setTableSortColumn(column);
+    setTableSortDirection(column === 'date' ? 'desc' : 'asc');
+  };
+
+  const renderTableSortIcon = (column: typeof tableSortColumn) => {
+    const isActive = tableSortColumn === column;
+    const colour = isActive
+      ? (isDarkMode ? colours.accent : colours.highlight)
+      : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)');
+    const Icon = isActive && tableSortDirection === 'asc' ? FaChevronUp : FaChevronDown;
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', marginLeft: 4, opacity: isActive ? 1 : 0.35, color: colour }}>
+        <Icon size={10} />
+      </span>
+    );
   };
 
   const getDocumentFilename = (item: TimelineItem): string => {
@@ -3224,6 +4416,21 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
     }
   };
 
+  const formatTableDayLabel = (dayKey: string, isHovered: boolean): string => {
+    if (dayKey === 'unknown') return 'No date';
+    try {
+      const date = parseISO(dayKey);
+      const now = new Date();
+      const isSameYear = date.getFullYear() === now.getFullYear();
+      if (isHovered) {
+        return isSameYear ? format(date, 'EEEE d MMMM') : format(date, 'EEEE d MMMM yyyy');
+      }
+      return isSameYear ? format(date, 'dd.MM') : format(date, 'dd.MM.yyyy');
+    } catch {
+      return 'No date';
+    }
+  };
+
   const openTimelineItem = (item: TimelineItem) => {
     setSelectedItem(item);
     // Best-effort scroll to the matching timeline entry.
@@ -3249,210 +4456,20 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
     return scenarios[scenarioId] || scenarioId;
   };
 
-  // Render instruction status indicators for pitches
-  const renderInstructionStatus = (itemId: string) => {
-    const status = instructionStatuses[itemId];
-
-    if (!status) return null;
-
-    const activeStatus = status;
-
-    const statusItems = [
-      { 
-        key: 'id', 
-        label: 'Identity', 
-        status: activeStatus.verifyIdStatus, 
-        icon: (
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <rect x="3" y="4" width="18" height="15" rx="2" stroke="currentColor" strokeWidth="2"/>
-            <circle cx="9" cy="10" r="2" stroke="currentColor" strokeWidth="2"/>
-            <path d="M7 16c0-1.5 1-2 2-2s2 .5 2 2" stroke="currentColor" strokeWidth="2"/>
-          </svg>
-        )
-      },
-      { 
-        key: 'payment', 
-        label: 'Payment', 
-        status: activeStatus.paymentStatus, 
-        icon: (
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <rect x="1" y="5" width="22" height="14" rx="2" stroke="currentColor" strokeWidth="2"/>
-            <line x1="1" y1="10" x2="23" y2="10" stroke="currentColor" strokeWidth="2"/>
-          </svg>
-        )
-      },
-      { 
-        key: 'risk', 
-        label: 'Risk', 
-        status: activeStatus.riskStatus, 
-        icon: (
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke="currentColor" strokeWidth="2"/>
-          </svg>
-        )
-      },
-      { 
-        key: 'matter', 
-        label: 'Matter', 
-        status: activeStatus.matterStatus, 
-        icon: (
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" stroke="currentColor" strokeWidth="2"/>
-          </svg>
-        )
-      },
-      { 
-        key: 'ccl', 
-        label: 'CCL', 
-        status: activeStatus.cclStatus, 
-        icon: (
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="currentColor" strokeWidth="2"/>
-            <polyline points="14,2 14,8 20,8" stroke="currentColor" strokeWidth="2"/>
-            <line x1="16" y1="13" x2="8" y2="13" stroke="currentColor" strokeWidth="2"/>
-            <line x1="16" y1="17" x2="8" y2="17" stroke="currentColor" strokeWidth="2"/>
-          </svg>
-        )
-      }
-    ];
-
-    const getStatusColor = (status: string) => {
-      switch (status) {
-        case 'complete':
-          return isDarkMode ? '#10b981' : '#059669'; // green
-        case 'processing':
-        case 'received':
-          return isDarkMode ? '#f59e0b' : '#d97706'; // amber
-        case 'review':
-          return isDarkMode ? '#ef4444' : '#dc2626'; // red
-        case 'pending':
-        default:
-          return isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(148, 163, 184, 0.6)'; // muted
-      }
-    };
-
-    const getStatusLabel = (status: string) => {
-      switch (status) {
-        case 'complete':
-          return 'Complete';
-        case 'processing':
-          return 'Processing';
-        case 'review':
-          return 'Review';
-        case 'received':
-          return 'Received';
-        case 'pending':
-        default:
-          return 'Pending';
-      }
-    };
-
-    return (
-      <div style={{
-        marginTop: '16px',
-        paddingTop: '12px',
-        borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)'}`,
-      }}>
-        <div style={{
-          display: 'flex',
-          gap: '1px',
-          borderRadius: '6px',
-          overflow: 'hidden',
-          background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)',
-          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)'}`,
-        }}>
-          {statusItems.map((item, index) => {
-            const statusColor = getStatusColor(item.status);
-            const isComplete = item.status === 'complete';
-            const isActive = item.status !== 'pending';
-            
-            return (
-              <div key={item.key} style={{
-                flex: 1,
-                padding: '8px 6px',
-                background: isDarkMode ? 'rgba(7, 16, 32, 0.8)' : 'rgba(255, 255, 255, 0.9)',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: '4px',
-                position: 'relative',
-                transition: 'all 0.2s ease',
-                ...(isActive && {
-                  background: isDarkMode ? 'rgba(7, 16, 32, 0.95)' : 'rgba(255, 255, 255, 1)',
-                }),
-              }}>
-                {/* Status indicator dot */}
-                <div style={{
-                  position: 'absolute',
-                  top: '4px',
-                  right: '4px',
-                  width: '6px',
-                  height: '6px',
-                  borderRadius: '50%',
-                  background: statusColor,
-                  opacity: isActive ? 1 : 0.3,
-                  transition: 'all 0.2s ease',
-                }} />
-                
-                {/* Icon */}
-                <div style={{
-                  color: statusColor,
-                  opacity: isActive ? 1 : 0.4,
-                  transition: 'all 0.2s ease',
-                }}>
-                  {item.icon}
-                </div>
-                
-                {/* Label */}
-                <span style={{
-                  fontSize: '9px',
-                  fontWeight: 600,
-                  color: isDarkMode 
-                    ? (isActive ? 'rgba(226, 232, 240, 0.9)' : 'rgba(148, 163, 184, 0.5)')
-                    : (isActive ? 'rgba(15, 23, 42, 0.8)' : 'rgba(148, 163, 184, 0.6)'),
-                  textAlign: 'center',
-                  lineHeight: 1,
-                  transition: 'all 0.2s ease',
-                }}>
-                  {item.label}
-                </span>
-                
-                {/* Status text */}
-                <span style={{
-                  fontSize: '7px',
-                  fontWeight: 500,
-                  color: statusColor,
-                  textAlign: 'center',
-                  lineHeight: 1,
-                  opacity: isActive ? 0.8 : 0.4,
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.3px',
-                  transition: 'all 0.2s ease',
-                }}>
-                  {getStatusLabel(item.status)}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
-  };
-
-  const getTotalCommunications = () => timeline.length;
+  const getTotalCommunications = () => scopedTimeline.length;
   const getDaysSinceFirstContact = () => {
-    if (timeline.length === 0) return 0;
-    const sorted = [...timeline].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    if (scopedTimeline.length === 0) return 0;
+    const sorted = [...scopedTimeline].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     return differenceInDays(new Date(), parseISO(sorted[0].date));
   };
 
-  const pitchCount = useMemo(() => timeline.reduce((acc, item) => acc + (item.type === 'pitch' ? 1 : 0), 0), [timeline]);
+  const pitchCount = useMemo(() => scopedTimeline.reduce((acc, item) => acc + (item.type === 'pitch' ? 1 : 0), 0), [scopedTimeline]);
 
   // Pitch confirmation and scenario picker modal
   const renderPitchConfirmModal = () => {
     if (!showPitchConfirm) return null;
 
-    const existingPitches = timeline.filter((t) => t.type === 'pitch');
+    const existingPitches = scopedTimeline.filter((t) => t.type === 'pitch');
     
     return createPortal(
       <div
@@ -3663,6 +4680,59 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
   // Do not block the page behind a global loader; render the container and let
   // dataset-level spinners indicate progress as data arrives.
 
+  // Compute activity metrics for the scoped timeline
+  const activityMetrics = useMemo(() => {
+    const emailCount = scopedTimeline.filter((t) => t.type === 'email').length;
+    const callCount = scopedTimeline.filter((t) => t.type === 'call').length;
+    const pitchCount = scopedTimeline.filter((t) => t.type === 'pitch').length;
+    const docCount = scopedTimeline.filter((t) => t.type === 'document' && !t.metadata?.isDocWorkspace).length;
+    
+    // Stage counts
+    const enquiryCount = scopedTimeline.filter((t) => t.type === 'enquiry').length;
+    const instructionCount = scopedTimeline.filter((t) => t.type === 'instruction').length;
+    const identityCount = scopedTimeline.filter((t) => t.type === 'identity').length;
+    const paymentCount = scopedTimeline.filter((t) => t.type === 'payment').length;
+    const riskCount = scopedTimeline.filter((t) => t.type === 'risk').length;
+    const matterCount = scopedTimeline.filter((t) => t.type === 'matter').length;
+    const stageCount = enquiryCount + pitchCount + instructionCount + identityCount + paymentCount + riskCount + matterCount;
+    
+    // Days since enquiry opened
+    const touchpointDate = enquiry.Touchpoint_Date || enquiry.Date_Created;
+    let daysOpen = 0;
+    if (touchpointDate) {
+      try {
+        const parsed = parseISO(touchpointDate);
+        if (Number.isFinite(parsed.getTime())) {
+          daysOpen = differenceInDays(new Date(), parsed);
+        }
+      } catch {}
+    }
+    
+    // Last activity date
+    const sortedByDate = [...scopedTimeline].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    const lastActivity = sortedByDate[0];
+    let daysSinceActivity = 0;
+    if (lastActivity?.date) {
+      try {
+        const parsed = parseISO(lastActivity.date);
+        if (Number.isFinite(parsed.getTime())) {
+          daysSinceActivity = differenceInDays(new Date(), parsed);
+        }
+      } catch {}
+    }
+    
+    return { emailCount, callCount, pitchCount, docCount, stageCount, enquiryCount, instructionCount, identityCount, paymentCount, riskCount, matterCount, daysOpen, daysSinceActivity };
+  }, [scopedTimeline, enquiry.Touchpoint_Date, enquiry.Date_Created]);
+
+  // Format area of work for display
+  const displayAreaOfWork = useMemo(() => {
+    const raw = String(enquiry.Area_of_Work || '').trim();
+    if (!raw) return 'General';
+    const lowered = raw.toLowerCase();
+    if (lowered.includes('other') || lowered.includes('unsure')) return 'Other';
+    return raw;
+  }, [enquiry.Area_of_Work]);
+
   return (
     <div style={{
       display: 'flex',
@@ -3670,1087 +4740,1175 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
       minHeight: '100vh',
       fontFamily: 'Raleway, sans-serif',
       padding: '0 16px',
-      gap: '12px',
+      gap: '0',
     }}>
-      {/* Compact Header Bar */}
+      {/* ═══════════════════════════════════════════════════════════════════════
+          UNIFIED COMMAND BAR - Apple/MS inspired amalgamated design
+          Combines: Prospect Banner + Case Selector + Pipeline + Actions
+      ═══════════════════════════════════════════════════════════════════════ */}
       <div style={{
-        background: isDarkMode 
-          ? 'rgba(15, 23, 42, 0.6)'
-          : 'rgba(255, 255, 255, 0.8)',
-        borderRadius: '6px',
-        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.15)'}`,
-        padding: '12px 16px',
+        background: isDarkMode
+          ? 'rgba(10, 15, 30, 0.92)'
+          : 'rgba(248, 250, 252, 0.98)',
+        borderRadius: '2px',
+        border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)'}`,
         marginTop: '12px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        flexWrap: 'wrap',
-        gap: '12px',
+        overflow: 'hidden',
+        boxShadow: isDarkMode
+          ? '0 2px 8px rgba(0, 0, 0, 0.3)'
+          : '0 2px 8px rgba(0, 0, 0, 0.06)',
       }}>
-        {/* Left: Client Info */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: '300px' }}>
-          <div style={{
-            width: '36px',
-            height: '36px',
-            borderRadius: '6px',
-            background: isDarkMode ? 'rgba(125, 211, 252, 0.1)' : 'rgba(54, 144, 206, 0.08)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: isDarkMode ? '#7DD3FC' : '#3690CE',
-          }}>
-            <FaUser size={16} />
-          </div>
-          <div>
+        {/* ─── TIER 1: Prospect Hero Banner (Apple-style minimal) ─── */}
+        <div style={{
+          padding: '20px 24px 16px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '20px',
+        }}>
+          {/* Left: Name as hero + subtle metadata */}
+          <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{
-              fontSize: '16px',
-              fontWeight: 700,
-              color: isDarkMode ? 'rgb(249, 250, 251)' : colours.light.text,
-              lineHeight: 1.2,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              fontSize: '22px',
+              fontWeight: 600,
+              letterSpacing: '-0.3px',
+              color: isDarkMode ? colours.dark.text : colours.light.text,
+              marginBottom: '4px',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
             }}>
-              {enquiry.First_Name && enquiry.Last_Name 
-                ? `${enquiry.First_Name} ${enquiry.Last_Name}`
-                : enquiry.First_Name || enquiry.Last_Name || 'Unknown'}
+              {/* Person icon - blue for new space, grey for legacy */}
+              {(() => {
+                // New space enquiries have the 'claim' field from Teams bot claiming
+                const isNewSpace = Boolean(
+                  (enquiry as any).claim ||
+                  (enquiry as any).Claim ||
+                  (enquiry as any).Teams_Activity_Id ||
+                  (enquiry as any).TeamsActivityTrackingId ||
+                  (enquiry as any).teamsTrackingRecordId
+                );
+                return (
+                  <FaUser 
+                    size={16} 
+                    style={{ 
+                      color: isNewSpace ? colours.highlight : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8'),
+                      flexShrink: 0
+                    }} 
+                    title={isNewSpace ? 'New space enquiry (rich data)' : 'Legacy enquiry'}
+                  />
+                );
+              })()}
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {enquiry.First_Name && enquiry.Last_Name 
+                  ? `${enquiry.First_Name} ${enquiry.Last_Name}`
+                  : enquiry.First_Name || enquiry.Last_Name || 'New Prospect'}
+              </span>
             </div>
+          </div>
+
+          {/* Right: Compact contact actions with separate CTA and copy */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+            {/* Email Action - split CTA and copy */}
             <div style={{
-              fontSize: '12px',
-              color: isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(15, 23, 42, 0.6)',
-              marginTop: '2px',
+              display: 'flex',
+              alignItems: 'stretch',
+              height: '32px',
+              borderRadius: '2px',
+              border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)'}`,
+              background: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : 'rgba(255, 255, 255, 0.9)',
+              overflow: 'hidden',
+              opacity: enquiry.Email ? 1 : 0.6,
             }}>
-              {enquiry.ID} • {enquiry.Email || enquiry.Point_of_Contact || '—'}
-            </div>
-          </div>
-        </div>
-
-        {/* Actions */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          {/* Contact icons - compact */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <button
-              onClick={() => enquiry.Email && copyToClipboard(enquiry.Email, 'Email')}
-              disabled={!enquiry.Email}
-              title={enquiry.Email ? `Copy email: ${enquiry.Email}` : 'No email'}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: '32px',
-                height: '32px',
-                borderRadius: '4px',
-                border: 'none',
-                background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)',
-                color: isDarkMode ? 'rgb(148, 163, 184)' : 'rgba(51, 65, 85, 0.7)',
-                cursor: enquiry.Email ? 'pointer' : 'default',
-                opacity: enquiry.Email ? 1 : 0.4,
-                transition: 'all 0.15s',
-              }}
-              onMouseEnter={(e) => {
-                if (enquiry.Email) {
-                  e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)';
-                  e.currentTarget.style.color = isDarkMode ? 'rgb(200, 210, 220)' : 'rgba(51, 65, 85, 0.9)';
-                }
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)';
-                e.currentTarget.style.color = isDarkMode ? 'rgb(148, 163, 184)' : 'rgba(51, 65, 85, 0.7)';
-              }}
-            >
-              <FaEnvelope size={14} style={{ color: 'currentColor' }} />
-            </button>
-            <button
-              onClick={() => enquiry.Phone_Number && copyToClipboard(enquiry.Phone_Number, 'Phone')}
-              disabled={!enquiry.Phone_Number}
-              title={enquiry.Phone_Number ? `Copy phone: ${enquiry.Phone_Number}` : 'No phone'}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: '32px',
-                height: '32px',
-                borderRadius: '4px',
-                border: 'none',
-                background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)',
-                color: isDarkMode ? 'rgb(148, 163, 184)' : 'rgba(51, 65, 85, 0.7)',
-                cursor: enquiry.Phone_Number ? 'pointer' : 'default',
-                opacity: enquiry.Phone_Number ? 1 : 0.4,
-                transition: 'all 0.15s',
-              }}
-              onMouseEnter={(e) => {
-                if (enquiry.Phone_Number) {
-                  e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)';
-                  e.currentTarget.style.color = isDarkMode ? 'rgb(200, 210, 220)' : 'rgba(51, 65, 85, 0.9)';
-                }
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)';
-                e.currentTarget.style.color = isDarkMode ? 'rgb(148, 163, 184)' : 'rgba(51, 65, 85, 0.7)';
-              }}
-            >
-              <FaPhone size={14} style={{ color: 'currentColor' }} />
-            </button>
-          </div>
-
-          {/* Separator */}
-          <div style={{ width: '1px', height: '20px', background: isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.25)' }} />
-
-          {/* Primary actions */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <button
-              onClick={openPitchBuilder}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = isDarkMode ? 'rgba(125, 211, 252, 0.18)' : 'rgba(54, 144, 206, 0.12)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = isDarkMode ? 'rgba(125, 211, 252, 0.1)' : 'rgba(54, 144, 206, 0.06)';
-              }}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                background: isDarkMode ? 'rgba(125, 211, 252, 0.1)' : 'rgba(54, 144, 206, 0.06)',
-                border: 'none',
-                borderRadius: '4px',
-                padding: '6px 12px',
-                cursor: 'pointer',
-                color: isDarkMode ? '#7DD3FC' : '#3690CE',
-                fontSize: '12px',
-                fontWeight: 500,
-                transition: 'background 0.15s',
-              }}
-            >
-              <FaCheckCircle size={12} />
-              <span>Pitch</span>
-              {pitchCount > 0 && (
-                <span style={{
-                  fontSize: '10px',
+              <button
+                onClick={() => enquiry.Email && openMailto(enquiry.Email)}
+                disabled={!enquiry.Email}
+                title={enquiry.Email ? `Email: ${enquiry.Email}` : 'Email not available'}
+                className="helix-action-btn"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '0 12px',
+                  border: 'none',
+                  background: 'transparent',
+                  color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(51, 65, 85, 0.9)',
+                  fontSize: '12px',
                   fontWeight: 600,
-                  padding: '0 5px',
-                  borderRadius: '8px',
-                  background: isDarkMode ? 'rgba(125, 211, 252, 0.2)' : 'rgba(54, 144, 206, 0.12)',
-                  color: isDarkMode ? '#7DD3FC' : '#3690CE',
-                  lineHeight: '16px',
-                }}>
-                  {pitchCount}
-                </span>
-              )}
-            </button>
-
-            {(() => {
-              const existingWorkspace = timeline.find((t) => t.type === 'document' && Boolean(t.metadata?.isDocWorkspace));
-              const hasPasscode = Boolean(existingWorkspace?.metadata?.workspacePasscode);
-              const hasUrl = Boolean(existingWorkspace?.metadata?.workspaceUrlPath);
-              const isWorkspaceLinkReady = hasPasscode && hasUrl;
-              const expiresAt = existingWorkspace?.metadata?.workspaceExpiresAt;
-              const isWorkspaceExpired = isWorkspaceLinkReady && isExpiredIso(expiresAt);
-              const isWorkspaceLive = isWorkspaceLinkReady && !isWorkspaceExpired;
-
-              const isDisabled = docRequestLoading || !requestDocsEnabled;
-
-              const label = (() => {
-                if (!isWorkspaceLinkReady) return 'Request Docs';
-                if (isWorkspaceExpired) return 'Expired';
-                return 'Workspace';
-              })();
-
-              // Determine colours based on state
-              const getColours = () => {
-                if (isWorkspaceLive) {
-                  return {
-                    bg: isDarkMode ? 'rgba(74, 222, 128, 0.1)' : 'rgba(34, 197, 94, 0.08)',
-                    hoverBg: isDarkMode ? 'rgba(74, 222, 128, 0.18)' : 'rgba(34, 197, 94, 0.14)',
-                    text: isDarkMode ? '#4ADE80' : '#16A34A',
-                  };
-                }
-                if (isWorkspaceExpired) {
-                  return {
-                    bg: isDarkMode ? 'rgba(251, 146, 60, 0.1)' : 'rgba(249, 115, 22, 0.08)',
-                    hoverBg: isDarkMode ? 'rgba(251, 146, 60, 0.18)' : 'rgba(249, 115, 22, 0.14)',
-                    text: isDarkMode ? '#FB923C' : '#EA580C',
-                  };
-                }
-                return {
-                  bg: isDarkMode ? 'rgba(125, 211, 252, 0.1)' : 'rgba(54, 144, 206, 0.06)',
-                  hoverBg: isDarkMode ? 'rgba(125, 211, 252, 0.18)' : 'rgba(54, 144, 206, 0.12)',
-                  text: isDarkMode ? '#7DD3FC' : '#3690CE',
-                };
-              };
-              const c = getColours();
-
-              return (
+                  cursor: enquiry.Email ? 'pointer' : 'default',
+                  transition: 'all 0.2s ease',
+                }}
+              >
+                <FaEnvelope size={12} style={{ color: colours.highlight }} />
+                <span style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{enquiry.Email || 'No Email'}</span>
+              </button>
+              {enquiry.Email && (
                 <button
-                  onClick={() => {
-                    if (existingWorkspace) {
-                      setActiveFilters(['document']);
-                      setSelectedItem(existingWorkspace);
-                      setTimeout(() => {
-                        const el = document.getElementById(`timeline-item-${existingWorkspace.id}`);
-                        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                      }, 250);
-                      return;
-                    }
-                    setDocRequestConfirmOpen(true);
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    copyToClipboard(enquiry.Email!, 'Email');
                   }}
-                  disabled={isDisabled}
-                  onMouseEnter={(e) => {
-                    if (!isDisabled) e.currentTarget.style.background = c.hoverBg;
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = c.bg;
-                  }}
+                  title="Copy email"
                   style={{
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '6px',
-                    background: c.bg,
+                    justifyContent: 'center',
+                    padding: '0 10px',
                     border: 'none',
-                    borderRadius: '4px',
-                    padding: '6px 12px',
-                    fontSize: '12px',
-                    fontWeight: 500,
-                    color: c.text,
-                    opacity: isDisabled ? 0.45 : 1,
-                    cursor: isDisabled ? 'default' : 'pointer',
-                    transition: 'background 0.15s',
+                    borderLeft: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)'}`,
+                    background: 'transparent',
+                    cursor: 'pointer',
+                    color: copiedField === 'Email' ? '#10B981' : (isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.5)'),
+                    transition: 'all 0.15s ease',
                   }}
                 >
-                  {docRequestLoading ? (
-                    <div
-                      style={{
-                        width: '12px',
-                        height: '12px',
-                        border: `2px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.2)' : 'rgba(54, 144, 206, 0.2)'}`,
-                        borderTop: `2px solid ${c.text}`,
-                        borderRadius: '50%',
-                        animation: 'spin 1s linear infinite',
-                      }}
-                    />
-                  ) : isWorkspaceLive ? (
-                    <FaCheckCircle size={12} color={c.text} />
-                  ) : (
-                    <FaArrowRight size={12} color={c.text} />
-                  )}
+                  {copiedField === 'Email' ? <FaCheckCircle size={11} /> : <FaCopy size={11} />}
+                </button>
+              )}
+            </div>
+
+            {/* Phone Action - split CTA and copy */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'stretch',
+              height: '32px',
+              borderRadius: '2px',
+              border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)'}`,
+              background: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : 'rgba(255, 255, 255, 0.9)',
+              overflow: 'hidden',
+              opacity: enquiry.Phone_Number ? 1 : 0.6,
+            }}>
+              <button
+                onClick={() => enquiry.Phone_Number && openTel(enquiry.Phone_Number)}
+                disabled={!enquiry.Phone_Number}
+                title={enquiry.Phone_Number ? `Call: ${enquiry.Phone_Number}` : 'Phone not available'}
+                className="helix-action-btn"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '0 12px',
+                  border: 'none',
+                  background: 'transparent',
+                  color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(51, 65, 85, 0.9)',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: enquiry.Phone_Number ? 'pointer' : 'default',
+                  transition: 'all 0.2s ease',
+                }}
+              >
+                <FaPhone size={12} style={{ color: colours.highlight }} />
+                <span>{enquiry.Phone_Number || 'No Phone'}</span>
+              </button>
+              {enquiry.Phone_Number && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    copyToClipboard(enquiry.Phone_Number!, 'Phone');
+                  }}
+                  title="Copy phone"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: '0 10px',
+                    border: 'none',
+                    borderLeft: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)'}`,
+                    background: 'transparent',
+                    cursor: 'pointer',
+                    color: copiedField === 'Phone' ? '#10B981' : (isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.5)'),
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  {copiedField === 'Phone' ? <FaCheckCircle size={11} /> : <FaCopy size={11} />}
+                </button>
+              )}
+            </div>
+
+            {/* Separator */}
+            <div style={{
+              width: '1px',
+              height: '24px',
+              background: isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)',
+              margin: '0 4px',
+            }} />
+
+            {/* Pitch Action */}
+            <button
+              onClick={openPitchBuilder}
+              className="helix-action-btn"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                height: '32px',
+                padding: '0 12px',
+                borderRadius: '16px',
+                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(226, 232, 240, 1)'}`,
+                background: isDarkMode ? 'rgba(30, 41, 59, 0.5)' : '#ffffff',
+                color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(51, 65, 85, 0.9)',
+                fontSize: '12px',
+                fontWeight: 500,
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = isDarkMode ? '#4ADE80' : '#16A34A';
+                e.currentTarget.style.color = isDarkMode ? '#4ADE80' : '#16A34A';
+                e.currentTarget.style.background = isDarkMode ? 'rgba(74, 222, 128, 0.1)' : 'rgba(34, 197, 94, 0.05)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(226, 232, 240, 1)';
+                e.currentTarget.style.color = isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(51, 65, 85, 0.9)';
+                e.currentTarget.style.background = isDarkMode ? 'rgba(30, 41, 59, 0.5)' : '#ffffff';
+              }}
+            >
+              <FaCheckCircle size={12} style={{ color: isDarkMode ? '#4ADE80' : '#16A34A' }} />
+              <span>{pitchCount > 0 ? `${pitchCount} Pitch${pitchCount > 1 ? 'es' : ''}` : 'Build Pitch'}</span>
+            </button>
+
+            {/* Docs Action */}
+            {(() => {
+              const existingWorkspace = scopedTimeline.find((t) => t.type === 'document' && Boolean(t.metadata?.isDocWorkspace));
+              const isWorkspaceLive = Boolean(existingWorkspace?.metadata?.workspacePasscode && existingWorkspace?.metadata?.workspaceUrlPath);
+              const isDisabled = docRequestLoading || !requestDocsEnabled;
+              const label = isWorkspaceLive ? 'Workspace' : 'Request Docs';
+              const activeColor = isDarkMode ? '#7DD3FC' : '#0284c7';
+              const successColor = isDarkMode ? '#4ADE80' : '#16A34A';
+
+              return (
+                <button
+                  onClick={() => {
+                      if (existingWorkspace) {
+                        setActiveFilters(['document']);
+                        setSelectedItem(existingWorkspace);
+                      } else {
+                        setDocRequestConfirmOpen(true);
+                      }
+                  }}
+                  disabled={isDisabled}
+                  className="helix-action-btn"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    height: '32px',
+                    padding: '0 12px',
+                    borderRadius: '16px',
+                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(226, 232, 240, 1)'}`,
+                    background: isDarkMode ? 'rgba(30, 41, 59, 0.5)' : '#ffffff',
+                    color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(51, 65, 85, 0.9)',
+                    fontSize: '12px',
+                    fontWeight: 500,
+                    cursor: isDisabled ? 'default' : 'pointer',
+                    transition: 'all 0.2s ease',
+                    opacity: isDisabled ? 0.6 : 1,
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isDisabled) {
+                      e.currentTarget.style.borderColor = isWorkspaceLive ? successColor : activeColor;
+                      e.currentTarget.style.color = isWorkspaceLive ? successColor : activeColor;
+                      e.currentTarget.style.background = isWorkspaceLive 
+                        ? (isDarkMode ? 'rgba(74, 222, 128, 0.1)' : 'rgba(34, 197, 94, 0.05)')
+                        : (isDarkMode ? 'rgba(125, 211, 252, 0.1)' : 'rgba(2, 132, 199, 0.05)');
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(226, 232, 240, 1)';
+                    e.currentTarget.style.color = isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(51, 65, 85, 0.9)';
+                    e.currentTarget.style.background = isDarkMode ? 'rgba(30, 41, 59, 0.5)' : '#ffffff';
+                  }}
+                >
+                  <FaFolderOpen size={12} style={{ color: isWorkspaceLive ? successColor : activeColor }} />
                   <span>{label}</span>
-                  {isWorkspaceLive && (
-                    <span style={{
-                      fontSize: '9px',
-                      fontWeight: 700,
-                      padding: '1px 5px',
-                      borderRadius: '8px',
-                      background: isDarkMode ? 'rgba(74, 222, 128, 0.2)' : 'rgba(34, 197, 94, 0.15)',
-                      color: c.text,
-                      letterSpacing: '0.3px',
-                    }}>
-                      LIVE
-                    </span>
-                  )}
                 </button>
               );
             })()}
-
-            <button
-              disabled
-              aria-disabled
-              style={{
-                display: 'none', // Hidden - functionality not ready
-              }}
-            >
-              <span>Request structured data</span>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Quick Access (only shows when a Journey Timeline chip is selected) */}
-      {activeFilters.length > 0 ? (
-      <div id="quick-access-section">
-      <SectionCard
-        variant="default"
-        styleOverrides={{
-          marginTop: '8px',
-          padding: '16px 20px',
-        }}
-      >
-        <div style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: '12px',
-        }}>
-          <div style={{
-            fontSize: '11px',
-            fontWeight: 700,
-            textTransform: 'uppercase',
-            letterSpacing: '0.8px',
-            color: isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(15, 23, 42, 0.6)',
-          }}>
-            Quick Access
-          </div>
-
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-            {quickAccessEmailIds.length > 0 && (
-              <>
-                <button
-                  onClick={() => {
-                    setExpandedQuickAccessEmailIds(new Set(quickAccessEmailIds));
-                  }}
-                  disabled={areAllQuickAccessEmailsExpanded}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    padding: '6px 10px',
-                    background: 'transparent',
-                    border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.25)' : 'rgba(148, 163, 184, 0.3)'}`,
-                    borderRadius: '2px',
-                    color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.65)',
-                    cursor: areAllQuickAccessEmailsExpanded ? 'default' : 'pointer',
-                    opacity: areAllQuickAccessEmailsExpanded ? 0.5 : 1,
-                  }}
-                  title="Expand all emails"
-                >
-                  <FaChevronDown size={11} />
-                  <span style={{ fontSize: '12px', fontWeight: 600 }}>Expand all</span>
-                </button>
-                <button
-                  onClick={() => {
-                    setExpandedQuickAccessEmailIds(new Set());
-                  }}
-                  disabled={!areAnyQuickAccessEmailsExpanded}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    padding: '6px 10px',
-                    background: 'transparent',
-                    border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.25)' : 'rgba(148, 163, 184, 0.3)'}`,
-                    borderRadius: '2px',
-                    color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.65)',
-                    cursor: !areAnyQuickAccessEmailsExpanded ? 'default' : 'pointer',
-                    opacity: !areAnyQuickAccessEmailsExpanded ? 0.5 : 1,
-                  }}
-                  title="Collapse all emails"
-                >
-                  <FaChevronUp size={11} />
-                  <span style={{ fontSize: '12px', fontWeight: 600 }}>Collapse all</span>
-                </button>
-              </>
-            )}
-            {selectedQuickAccessTypes.map((t) => {
-              const typeColor = getTypeColor(t);
-              return (
-                <button
-                  key={t}
-                  onClick={() => toggleActiveFilter(t)}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    padding: '6px 10px',
-                    background: isDarkMode ? `${typeColor}20` : `${typeColor}15`,
-                    border: `1px solid ${typeColor}`,
-                    borderRadius: '2px',
-                    color: typeColor,
-                    cursor: 'pointer',
-                    transition: 'all 0.2s ease',
-                  }}
-                  title={`Remove ${getTypeLabel(t)} filter`}
-                >
-                  <span style={{ display: 'flex', alignItems: 'center', color: typeColor }}>
-                    {getTypeIcon(t)}
-                  </span>
-                  <span style={{ fontSize: '12px', fontWeight: 600 }}>
-                    {getTypeLabel(t)}
-                  </span>
-                </button>
-              );
-            })}
           </div>
         </div>
 
-        {quickAccessItemsWithoutWorkspace.length === 0 && !isDocumentFilterActive ? (
+        {/* ─── TIER 2: Case Selector Cards (only when multiple cases) ─── */}
+        {enquiryWindows.length > 1 && (
           <div style={{
-            padding: '12px 0',
-            color: isDarkMode ? 'rgba(226, 232, 240, 0.5)' : 'rgba(15, 23, 42, 0.5)',
-            fontSize: '12px',
+            display: 'flex',
+            alignItems: 'stretch',
+            gap: '10px',
+            padding: '10px 24px 14px',
+            overflowX: 'auto',
+            borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.12)'}`,
+            borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.12)'}`,
+            background: isDarkMode ? 'rgba(2, 6, 23, 0.25)' : 'rgba(248, 250, 252, 0.7)',
           }}>
-            No items for the selected filters yet.
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {isDocumentFilterActive && (
-              <div
-                style={{
-                  border: `1px dashed ${isDarkMode ? 'rgba(125, 211, 252, 0.35)' : 'rgba(148, 163, 184, 0.45)'}`,
-                  borderRadius: '2px',
-                  padding: '12px',
-                  background: isDarkMode ? 'rgba(7, 16, 32, 0.35)' : 'rgba(255, 255, 255, 0.55)',
-                }}
-              >
-                {(() => {
-                  const passcode = workspaceTimelineItem?.metadata?.workspacePasscode || '';
-                  const urlPath = workspaceTimelineItem?.metadata?.workspaceUrlPath || '';
-                  const expiresAt = workspaceTimelineItem?.metadata?.workspaceExpiresAt;
-                  const error = workspaceTimelineItem?.metadata?.workspaceError || '';
-                  const isLive = Boolean(passcode && urlPath);
-                  const isExpired = isLive && isExpiredIso(expiresAt);
-                  const pitchBaseUrlRaw = process.env.REACT_APP_PITCH_BACKEND_URL || 'https://instruct.helix-law.com';
-                  const pitchBaseUrl = pitchBaseUrlRaw.replace(/\/$/, '');
-                  const clientLink = isLive ? `${pitchBaseUrl}${urlPath.startsWith('/') ? '' : '/'}${urlPath}` : '';
-                  const statusLabel = isExpired ? 'Expired' : isLive ? 'Live' : 'Not live';
-                  const dotColor = isExpired ? '#f59e0b' : isLive ? '#22c55e' : '#f59e0b';
-                  const statusColor = isExpired
-                    ? (isDarkMode ? 'rgba(253, 230, 138, 0.95)' : 'rgb(180, 83, 9)')
-                    : isLive
-                    ? (isDarkMode ? 'rgba(134, 239, 172, 0.95)' : 'rgb(22, 163, 74)')
-                    : (isDarkMode ? 'rgba(253, 230, 138, 0.95)' : 'rgb(180, 83, 9)');
+            {enquiryWindows.map((window, idx) => {
+              const caseId = String(window.enquiry.ID);
+              const isActive = caseId === String(enquiry.ID);
+              const isHovered = hoveredCaseId === caseId;
+              const canSelect = !isActive && typeof onSelectEnquiry === 'function';
+              const areaLabel = formatCaseAreaLabel(window.enquiry.Area_of_Work);
+              const areaColour = getCaseAreaColour(window.enquiry.Area_of_Work);
+              const rawCaseDate = (window.enquiry as any)?.datetime || window.enquiry.Touchpoint_Date || window.enquiry.Date_Created;
+              const hasNewSpaceTime = Boolean((window.enquiry as any)?.datetime);
+              const caseDateObj = rawCaseDate ? new Date(rawCaseDate) : null;
+              const isCaseDateValid = Boolean(caseDateObj && Number.isFinite(caseDateObj.getTime()));
+              const isCaseSameYear = isCaseDateValid ? caseDateObj!.getFullYear() === new Date().getFullYear() : true;
+              const caseDateLabel = isCaseDateValid
+                ? format(caseDateObj!, hasNewSpaceTime
+                    ? (isCaseSameYear ? 'dd MMM HH:mm' : 'dd MMM yyyy HH:mm')
+                    : (isCaseSameYear ? 'dd MMM' : 'dd MMM yyyy'))
+                : 'No Date';
 
-                  const docs = timeline
-                    .filter((t) => t.type === 'document' && !t.metadata?.isDocWorkspace)
-                    .slice()
-                    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
-                  return (
-                    <>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', marginBottom: '10px' }}>
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ fontSize: '12px', fontWeight: 700, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)' }}>
-                            Document Workspace
-                          </div>
-                          <div style={{ fontSize: '10px', color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(15, 23, 42, 0.6)', marginTop: '2px' }}>
-                            Passcode: {passcode || '—'} • {isLive ? getExpiryLabel(expiresAt) : 'Opens for 14 days once created'}
-                          </div>
-                          {!isLive && error ? (
-                            <div style={{ fontSize: '10px', color: isDarkMode ? 'rgba(253, 230, 138, 0.85)' : 'rgb(180, 83, 9)', marginTop: '6px' }}>
-                              {error}
-                            </div>
-                          ) : null}
-                        </div>
-
-                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-                          <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: dotColor }} />
-                          <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase', color: statusColor }}>
-                            {statusLabel}
-                          </div>
-                        </div>
-                      </div>
-
-                      {isLive ? (
-                        <div
-                          style={{
-                            border: `1px dashed ${isDarkMode ? 'rgba(125, 211, 252, 0.35)' : 'rgba(148, 163, 184, 0.45)'}`,
-                            borderRadius: '2px',
-                            padding: '10px 10px',
-                            background: isDarkMode ? 'rgba(2, 6, 23, 0.22)' : 'rgba(255, 255, 255, 0.7)',
-                            marginBottom: '10px',
-                          }}
-                        >
-                          <div style={{ fontSize: '10px', fontWeight: 700, color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.75)' }}>
-                            Client upload link
-                          </div>
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', marginTop: '6px' }}>
-                            <a
-                              href={clientLink}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              style={{
-                                fontSize: '11px',
-                                color: colours.highlight,
-                                textDecoration: 'underline',
-                                fontFamily: 'Consolas, Monaco, monospace',
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap',
-                                minWidth: 0,
-                                flex: 1,
-                              }}
-                              title={clientLink}
-                            >
-                              {clientLink}
-                            </a>
-
-                            <button
-                              type="button"
-                              onClick={async (e) => {
-                                e.stopPropagation();
-                                try {
-                                  await navigator.clipboard.writeText(clientLink);
-                                  showToast('Client link copied', 'success', { duration: 1800 });
-                                } catch {
-                                  showToast('Unable to copy link', 'error');
-                                }
-                              }}
-                              style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '6px',
-                                padding: '7px 10px',
-                                borderRadius: '2px',
-                                fontSize: '11px',
-                                fontWeight: 700,
-                                background: isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.12)',
-                                color: colours.highlight,
-                                border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.30)'}`,
-                                cursor: 'pointer',
-                                flexShrink: 0,
-                              }}
-                            >
-                              <span style={{ fontSize: '12px', lineHeight: 1 }}>⧉</span>
-                              Copy
-                            </button>
-                          </div>
-                        </div>
-                      ) : null}
-
-                      {docs.length === 0 ? (
-                        <div style={{ fontSize: '11px', color: isDarkMode ? 'rgba(148, 163, 184, 0.75)' : 'rgba(15, 23, 42, 0.6)' }}>
-                          No documents uploaded yet.
-                        </div>
-                      ) : (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                          {docs.slice(0, 6).map((doc) => (
-                            <button
-                              key={doc.id}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openTimelineItem(doc);
-                              }}
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                gap: '10px',
-                                padding: '8px 10px',
-                                borderRadius: '2px',
-                                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.22)'}`,
-                                background: isDarkMode ? 'rgba(2, 6, 23, 0.25)' : 'rgba(255, 255, 255, 0.65)',
-                                cursor: 'pointer',
-                                textAlign: 'left',
-                              }}
-                            >
-                              <div style={{ minWidth: 0 }}>
-                                <div style={{ fontSize: '11px', fontWeight: 600, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                  {doc.subject}
-                                </div>
-                                <div style={{ fontSize: '10px', color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(15, 23, 42, 0.55)', marginTop: '2px' }}>
-                                  {formatDocDate(doc.date)}
-                                </div>
-                              </div>
-                              <div style={{ fontSize: '10px', color: colours.highlight, fontWeight: 700 }}>
-                                View
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </>
-                  );
-                })()}
-              </div>
-            )}
-
-            {quickAccessItemsWithoutWorkspace.map((item) => {
-              const isDocument = item.type === 'document';
-              const isEmail = item.type === 'email';
-              const isPitch = item.type === 'pitch';
-              const isQuickAccessEmailExpanded = isEmail && expandedQuickAccessEmailIds.has(item.id);
-              const isQuickAccessPitchSelected = isPitch && selectedItem?.id === item.id;
-              const filename = isDocument ? getDocumentFilename(item) : item.subject;
-              const downloadHref = isDocument ? getDocumentDownloadHref(item) : null;
-              const safeEmailHtml = item.contentHtml ? sanitizeEmailHtml(item.contentHtml) : '';
-
-              const emailBodySurfaceStyle: React.CSSProperties = {
-                marginTop: '10px',
-                paddingTop: '10px',
-                borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.1)'}`,
-              };
-
-              const emailReaderStyle: React.CSSProperties = {
-                marginTop: '10px',
-                padding: '14px',
-                borderRadius: '2px',
-                border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.22)' : 'rgba(54, 144, 206, 0.18)'}`,
-                borderLeft: `3px solid ${colours.highlight}`,
-                // Intentional “email reader” surface: subtle gradient backdrop (no white block in dark mode).
-                background: isDarkMode
-                  ? 'linear-gradient(135deg, rgba(7, 16, 32, 0.92) 0%, rgba(2, 6, 23, 0.78) 100%)'
-                  : 'linear-gradient(135deg, rgba(255, 255, 255, 0.96) 0%, rgba(248, 250, 252, 0.96) 100%)',
-                color: isDarkMode ? 'rgba(226, 232, 240, 0.92)' : colours.darkBlue,
-                fontSize: '12px',
-                lineHeight: '1.7',
-                maxHeight: '520px',
-                overflow: 'auto',
-                overflowWrap: 'anywhere',
-                wordBreak: 'break-word',
-                boxShadow: isDarkMode
-                  ? 'rgba(0, 0, 0, 0.18) 0px 2px 8px, rgba(0, 0, 0, 0.10) 0px 1px 2px'
-                  : 'rgba(6, 23, 51, 0.06) 0px 2px 8px, rgba(6, 23, 51, 0.04) 0px 1px 2px',
-              };
+              // Check if this case is claimed
+              const pocRaw = resolvePocRaw(window.enquiry);
+              const pocLower = pocRaw.toLowerCase();
+              const isClaimed = pocRaw && 
+                pocLower !== 'team@helix-law.com' && 
+                pocLower !== 'team' && 
+                pocLower !== 'anyone' && 
+                pocLower !== 'unassigned' && 
+                pocLower !== 'unknown' && 
+                pocLower !== 'n/a';
+              // Extract initials or short name for POC badge
+              const pocDisplay = isClaimed ? derivePocInitials(pocRaw) : null;
 
               return (
-                isEmail ? (
+                <button
+                  key={caseId}
+                  type="button"
+                  className="helix-case-pill"
+                  onClick={() => canSelect && onSelectEnquiry?.(window.enquiry)}
+                  onMouseEnter={() => setHoveredCaseId(caseId)}
+                  onMouseLeave={() => setHoveredCaseId(null)}
+                  title={areaLabel}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'stretch',
+                    gap: '12px',
+                    padding: '10px 14px',
+                    minWidth: '180px',
+                    borderRadius: '2px',
+                    border: isActive
+                      ? `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(15, 23, 42, 0.18)'}`
+                      : `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'}`,
+                    background: isActive
+                      ? (isDarkMode ? 'rgba(15, 23, 42, 0.6)' : 'rgba(248, 250, 252, 0.8)')
+                      : (isDarkMode ? 'rgba(15, 23, 42, 0.4)' : '#ffffff'),
+                    color: isActive
+                      ? (isDarkMode ? 'rgba(226, 232, 240, 0.95)' : 'rgba(15, 23, 42, 0.9)')
+                      : (isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.82)'),
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: canSelect ? 'pointer' : 'default',
+                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                    whiteSpace: 'nowrap',
+                    flexShrink: 0,
+                    boxShadow: 'none',
+                    transform: isHovered && canSelect ? 'translateY(-0.5px)' : 'translateY(0)',
+                  }}
+                >
                   <div
-                    key={item.id}
                     style={{
-                      padding: '10px 12px',
-                      borderRadius: '2px',
-                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.22)'}`,
-                      background: isDarkMode
-                        ? 'linear-gradient(180deg, rgba(2, 6, 23, 0.40) 0%, rgba(2, 6, 23, 0.22) 100%)'
-                        : 'linear-gradient(180deg, rgba(255, 255, 255, 0.75) 0%, rgba(248, 250, 252, 0.70) 100%)',
+                      width: 3,
+                      borderRadius: 2,
+                      background: isActive
+                        ? areaColour
+                        : `${areaColour}66`,
                     }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
-                        <span style={{ color: getTypeColor(item.type), display: 'flex', alignItems: 'center', flex: '0 0 auto' }}>
-                          {getTypeIcon(item.type)}
-                        </span>
-                        <div
-                          style={{
-                            fontSize: '13px',
-                            fontWeight: 600,
-                            color: isDarkMode ? colours.dark.text : colours.light.text,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                            minWidth: 0,
-                          }}
-                        >
-                          {filename}
-                        </div>
-                      </div>
-
-                      <div style={{ display: 'flex', gap: '8px', flex: '0 0 auto', alignItems: 'center' }}>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setExpandedQuickAccessEmailIds((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(item.id)) next.delete(item.id);
-                              else next.add(item.id);
-                              return next;
-                            });
-                          }}
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            width: '34px',
-                            height: '34px',
-                            borderRadius: '2px',
-                            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.2)'}`,
-                            background: isDarkMode ? 'rgba(7, 16, 32, 0.6)' : 'rgba(255, 255, 255, 0.8)',
-                            color: isDarkMode ? 'rgba(226, 232, 240, 0.75)' : 'rgba(15, 23, 42, 0.65)',
-                            cursor: 'pointer',
-                          }}
-                          title={isQuickAccessEmailExpanded ? 'Collapse email' : 'Expand email'}
-                        >
-                          {isQuickAccessEmailExpanded ? <FaChevronUp size={12} /> : <FaChevronDown size={12} />}
-                        </button>
-                        <button
-                          onClick={() => openTimelineItem(item)}
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            padding: '8px 12px',
-                            borderRadius: '2px',
-                            fontSize: '12px',
-                            fontWeight: 700,
-                            background: colours.highlight,
-                            color: '#ffffff',
-                            border: 'none',
-                            cursor: 'pointer',
-                          }}
-                        >
-                          Open
-                        </button>
-                        {userEmail && (
-                          <button
-                            onClick={() => {
-                              setForwardEmail(item);
-                              setShowForwardDialog(true);
-                            }}
-                            style={{
-                              padding: '8px 12px',
-                              fontSize: '12px',
-                              fontWeight: 700,
-                              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.2)'}`,
-                              borderRadius: '2px',
-                              background: isDarkMode ? 'rgba(7, 16, 32, 0.6)' : 'rgba(255, 255, 255, 0.8)',
-                              color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.75)',
-                              cursor: 'pointer',
-                              transition: 'all 0.2s',
-                            }}
-                            onMouseEnter={(e) => {
-                              e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)';
-                              e.currentTarget.style.borderColor = colours.highlight;
-                              e.currentTarget.style.color = colours.highlight;
-                            }}
-                            onMouseLeave={(e) => {
-                              e.currentTarget.style.background = isDarkMode ? 'rgba(7, 16, 32, 0.6)' : 'rgba(255, 255, 255, 0.8)';
-                              e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.2)';
-                              e.currentTarget.style.color = isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.75)';
-                            }}
-                          >
-                            Forward to myself →
-                          </button>
-                        )}
-                      </div>
+                  />
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0, flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{
+                        fontSize: 10,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.08em',
+                        opacity: 0.65,
+                        fontWeight: 600,
+                      }}>
+                        Case {idx + 1}
+                      </span>
                     </div>
-
                     <div style={{
-                      marginTop: '4px',
-                      fontSize: '11px',
-                      color: isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(15, 23, 42, 0.6)',
                       display: 'flex',
-                      gap: '10px',
-                      flexWrap: 'wrap',
-                    }}>
-                      <span>{formatDocDate(item.date)}</span>
-                      {item.createdBy && <span>by {item.createdBy}</span>}
-                    </div>
-
-                    {isQuickAccessEmailExpanded && (item.contentHtml || item.content) && (
-                      <div style={emailBodySurfaceStyle}>
-                        <div style={emailReaderStyle}>
-                          {item.contentHtml ? (
-                            <div className="helix-email-html" dangerouslySetInnerHTML={{ __html: safeEmailHtml }} />
-                          ) : (
-                            <div style={{ whiteSpace: 'pre-wrap' }}>{item.content}</div>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ) : isPitch ? (
-                  // Pitch items - show inline workbench directly in Quick Access
-                  <div
-                    key={item.id}
-                    style={{
-                      padding: '12px 14px',
-                      borderRadius: '2px',
-                      border: `1px solid ${isQuickAccessPitchSelected ? colours.green : (isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.22)')}`,
-                      borderLeft: `3px solid ${colours.green}`,
-                      background: isDarkMode
-                        ? 'linear-gradient(180deg, rgba(2, 6, 23, 0.40) 0%, rgba(2, 6, 23, 0.22) 100%)'
-                        : 'linear-gradient(180deg, rgba(255, 255, 255, 0.75) 0%, rgba(248, 250, 252, 0.70) 100%)',
-                    }}
-                  >
-                    {/* Pitch header */}
-                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
-                        <span style={{ color: colours.green, display: 'flex', alignItems: 'center', flex: '0 0 auto' }}>
-                          {getTypeIcon(item.type)}
-                        </span>
-                        <div
-                          style={{
-                            fontSize: '13px',
-                            fontWeight: 600,
-                            color: isDarkMode ? colours.dark.text : colours.light.text,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {item.subject || 'Pitch'}
-                        </div>
-                        {item.metadata?.amount && (
-                          <span style={{
-                            fontSize: '11px',
-                            fontWeight: 700,
-                            padding: '2px 6px',
-                            borderRadius: '2px',
-                            background: isDarkMode ? 'rgba(74, 222, 128, 0.15)' : 'rgba(34, 197, 94, 0.12)',
-                            color: colours.green,
-                          }}>
-                            £{item.metadata.amount.toLocaleString()}
-                          </span>
-                        )}
-                      </div>
-                      <button
-                        onClick={() => setSelectedItem(isQuickAccessPitchSelected ? null : item)}
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                          padding: '6px 10px',
-                          borderRadius: '2px',
-                          fontSize: '11px',
-                          fontWeight: 600,
-                          background: isQuickAccessPitchSelected 
-                            ? (isDarkMode ? 'rgba(74, 222, 128, 0.15)' : 'rgba(34, 197, 94, 0.12)')
-                            : colours.highlight,
-                          color: isQuickAccessPitchSelected ? colours.green : '#ffffff',
-                          border: 'none',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        {isQuickAccessPitchSelected ? 'Collapse' : 'Expand'}
-                      </button>
-                    </div>
-
-                    {/* Pitch metadata */}
-                    <div style={{
-                      marginTop: '6px',
-                      fontSize: '11px',
-                      color: isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(15, 23, 42, 0.6)',
-                      display: 'flex',
-                      gap: '10px',
-                      flexWrap: 'wrap',
-                    }}>
-                      <span>{formatDocDate(item.date)}</span>
-                      {item.createdBy && <span>by {item.createdBy}</span>}
-                      {item.metadata?.scenarioId && <span>{getScenarioName(item.metadata.scenarioId)}</span>}
-                    </div>
-
-                    {/* Inline Workbench - expanded in Quick Access */}
-                    {isQuickAccessPitchSelected && inlineWorkbenchItem && (
-                      <div style={{ marginTop: '12px' }}>
-                        <InlineWorkbench
-                          item={{ ...(inlineWorkbenchItem ?? {}), enquiry, pitch: item }}
-                          isDarkMode={isDarkMode}
-                        />
-                      </div>
-                    )}
-                    {isQuickAccessPitchSelected && !inlineWorkbenchItem && (
-                      <div style={{ marginTop: '12px' }}>
-                        {renderInstructionStatus(item.id)}
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  // Non-pitch, non-email items (documents, calls, etc.)
-                  <div
-                    key={item.id}
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
                       alignItems: 'center',
-                      gap: '12px',
-                      padding: '10px 12px',
-                      borderRadius: '2px',
-                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.22)'}`,
-                      background: isDarkMode ? 'rgba(2, 6, 23, 0.28)' : 'rgba(255, 255, 255, 0.7)',
-                    }}
-                  >
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        minWidth: 0,
-                      }}>
-                        <span style={{ color: getTypeColor(item.type), display: 'flex', alignItems: 'center' }}>
-                          {getTypeIcon(item.type)}
-                        </span>
-                        <div style={{
-                          fontSize: '13px',
-                          fontWeight: 600,
-                          color: isDarkMode ? colours.dark.text : colours.light.text,
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                          maxWidth: '520px',
-                        }}>
-                          {filename}
-                        </div>
-                      </div>
-                      <div style={{
-                        marginTop: '4px',
-                        fontSize: '11px',
-                        color: isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(15, 23, 42, 0.6)',
-                        display: 'flex',
-                        gap: '10px',
-                        flexWrap: 'wrap',
-                      }}>
-                        <span>{formatDocDate(item.date)}</span>
-                        {item.createdBy && <span>by {item.createdBy}</span>}
-                        {isDocument && item.metadata?.stageUploaded && <span>stage: {item.metadata.stageUploaded}</span>}
-                      </div>
+                      gap: 8,
+                      fontSize: 13,
+                      fontWeight: 600,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                    }}>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{areaLabel}</span>
                     </div>
-
-                    <div style={{ display: 'flex', gap: '8px', flex: '0 0 auto' }}>
-                      {isDocument ? (
-                        <>
-                          <button
-                            onClick={() => setPreviewDocument(item)}
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '6px',
-                              padding: '8px 12px',
-                              borderRadius: '2px',
-                              fontSize: '12px',
-                              fontWeight: 700,
-                              background: colours.highlight,
-                              color: '#ffffff',
-                              border: 'none',
-                              cursor: 'pointer',
-                            }}
-                          >
-                            <FaFileAlt /> Preview
-                          </button>
-                          {downloadHref ? (
-                            <a
-                              href={downloadHref}
-                              style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '6px',
-                                padding: '8px 12px',
-                                borderRadius: '2px',
-                                fontSize: '12px',
-                                fontWeight: 700,
-                                background: isDarkMode ? 'rgba(148, 163, 184, 0.14)' : 'rgba(148, 163, 184, 0.18)',
-                                color: isDarkMode ? colours.dark.text : colours.light.text,
-                                textDecoration: 'none',
-                              }}
-                            >
-                              Download
-                            </a>
-                          ) : (
-                            <button
-                              disabled
-                              style={{
-                                padding: '8px 12px',
-                                borderRadius: '2px',
-                                fontSize: '12px',
-                                fontWeight: 700,
-                                background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.10)',
-                                color: isDarkMode ? 'rgba(226, 232, 240, 0.35)' : 'rgba(15, 23, 42, 0.35)',
-                                border: 'none',
-                                cursor: 'not-allowed',
-                              }}
-                            >
-                              Download
-                            </button>
-                          )}
-                        </>
-                      ) : (
-                        <button
-                          onClick={() => openTimelineItem(item)}
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            padding: '8px 12px',
-                            borderRadius: '2px',
-                            fontSize: '12px',
-                            fontWeight: 700,
-                            background: colours.highlight,
-                            color: '#ffffff',
-                            border: 'none',
-                            cursor: 'pointer',
-                          }}
-                        >
-                          Open
-                        </button>
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10,
+                      fontSize: 11,
+                      fontWeight: 500,
+                      color: isDarkMode ? 'rgba(148, 163, 184, 0.8)' : 'rgba(100, 116, 139, 0.75)',
+                    }}>
+                      <span>{caseDateLabel}</span>
+                      {isClaimed && pocDisplay && (
+                        <span style={{
+                          fontSize: 10,
+                          fontWeight: 600,
+                          color: isDarkMode ? 'rgba(148, 163, 184, 0.8)' : 'rgba(100, 116, 139, 0.75)',
+                        }}>
+                          · {pocDisplay}
+                        </span>
                       )}
                     </div>
                   </div>
-                )
+                  {/* Chevron indicator - rotates and lights up when active */}
+                  <span style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: 18,
+                    height: 18,
+                    marginLeft: 'auto',
+                    borderRadius: '50%',
+                    background: isActive
+                      ? (isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(54, 144, 206, 0.12)')
+                      : 'transparent',
+                    transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+                    transform: isHovered && !isActive ? 'scale(1.1)' : 'scale(1)',
+                  }}>
+                    <span style={{
+                      display: 'block',
+                      fontSize: 10,
+                      fontWeight: 600,
+                      lineHeight: 1,
+                      color: isActive
+                        ? (isDarkMode ? 'rgba(135, 243, 243, 0.9)' : colours.highlight)
+                        : (isDarkMode ? 'rgba(148, 163, 184, 0.45)' : 'rgba(100, 116, 139, 0.4)'),
+                      transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+                      transform: isActive ? 'rotate(90deg)' : 'rotate(0deg)',
+                      opacity: isActive ? 1 : (isHovered ? 0.8 : 0.5),
+                    }}>
+                      ›
+                    </span>
+                  </span>
+                </button>
               );
             })}
           </div>
         )}
-      </SectionCard>
-      </div>
-      ) : null}
 
-      {/* Client Journey Timeline */}
-      <SectionCard
-        variant="default"
-        styleOverrides={{
-          marginTop: '8px',
-          padding: '16px 20px',
-        }}
-      >
-        {/* Timeline Header with Activity Stats */}
+        {/* ─── TIER 3: Pipeline Progress (Pill Navigation) ─── */}
         <div style={{
           display: 'flex',
-          justifyContent: 'space-between',
           alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '16px',
+          padding: '12px 24px',
+          background: isDarkMode ? 'rgba(0, 0, 0, 0.15)' : 'rgba(0, 0, 0, 0.02)',
+          borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.1)'}`,
+        }}>
+          {/* Left: Full Pipeline stages (Unified Pills) */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0', flex: 1, overflowX: 'auto', scrollbarWidth: 'none' }}>
+            {(() => {
+              // Determine stage statuses from inlineWorkbenchItem
+              const hasPitch = pitchCount > 0 || stageItemsState.some((item) => item.type === 'pitch');
+              const instruction = inlineWorkbenchItem?.instruction;
+              const instructionRef = instruction?.InstructionRef || instruction?.instructionRef || '';
+              const instructionStage = (instruction?.Stage || instruction?.stage || '').toLowerCase();
+              const instructedDate = instruction?.instructedDate || instruction?.InstructedDate || instruction?.SubmissionDate || instruction?.submissionDate || instruction?.SubmittedAt || instruction?.submittedAt || instruction?.CreatedAt || instruction?.createdAt || instruction?.InstructionDateTime || instruction?.instructionDateTime;
+              const isShellInstruction = Boolean(instructionRef) && (instructionStage === 'initialised' || instructionStage === 'opened' || instructionStage === 'pitched' || instructionStage === '');
+              const hasInstruction = Boolean(instructionRef) && (Boolean(instructedDate) || !isShellInstruction);
+              const hasInstructionActivity = Boolean(instructionRef);
+              const stageStatuses = inlineWorkbenchItem?.stageStatuses;
+              const payments = Array.isArray(inlineWorkbenchItem?.payments) ? inlineWorkbenchItem.payments : [];
+              const risk = inlineWorkbenchItem?.risk;
+              const eid = inlineWorkbenchItem?.eid;
+              const matters = Array.isArray(inlineWorkbenchItem?.matters) ? inlineWorkbenchItem.matters : [];
+              const documents = Array.isArray(inlineWorkbenchItem?.documents) ? inlineWorkbenchItem.documents : [];
+
+              const eidResult = eid?.EIDOverallResult || instruction?.EIDOverallResult || '';
+              const eidStatusValue = (eid?.EIDStatus || instruction?.EIDStatus || '').toLowerCase();
+              const eidStatus = eidStatusValue.includes('pending') || eidStatusValue.includes('processing')
+                ? 'pending'
+                : eidResult.toLowerCase().includes('pass') || eidResult.toLowerCase().includes('verified')
+                ? 'verified'
+                : eidResult.toLowerCase().includes('fail')
+                ? 'failed'
+                : eidResult.toLowerCase().includes('skip')
+                ? 'skipped'
+                : eidResult.toLowerCase().includes('refer') || eidResult.toLowerCase().includes('consider')
+                ? 'review'
+                : eid && eidResult
+                ? 'completed'
+                : 'pending';
+              
+              // Format EID result for display (e.g., "Pass", "Refer", "Consider")
+              const eidDisplayResult = eidResult 
+                ? eidResult.charAt(0).toUpperCase() + eidResult.slice(1).toLowerCase()
+                : null;
+
+              const hasSuccessfulPayment = payments.some((p: any) =>
+                p.payment_status === 'succeeded' || p.payment_status === 'confirmed'
+              );
+              const hasFailedPayment = payments.some((p: any) =>
+                p.payment_status === 'failed' || p.internal_status === 'failed'
+              );
+
+              const riskComplete = !!risk?.RiskAssessmentResult;
+              const isHighRisk = risk?.RiskAssessmentResult?.toLowerCase().includes('high');
+              const riskLevel = risk?.RiskAssessmentResult?.toLowerCase().includes('high') ? 'High' 
+                : risk?.RiskAssessmentResult?.toLowerCase().includes('medium') ? 'Medium'
+                : risk?.RiskAssessmentResult?.toLowerCase().includes('low') ? 'Low'
+                : null;
+
+              const hasMatter = !!(instruction?.MatterId || instruction?.MatterRef || (Array.isArray(matters) && matters.length > 0));
+              const matterDisplayId = instruction?.MatterRef || instruction?.MatterId 
+                || (matters.length > 0 ? (matters[0]?.['Display Number'] || matters[0]?.displayNumber || matters[0]?.id) : null);
+              const hasDocs = documents.length > 0;
+              const docCount = documents.length;
+
+              // Check if enquiry is claimed (has a real person assigned)
+              const pocRaw = (enquiry?.Point_of_Contact || '').toLowerCase();
+              const isEnquiryClaimed = pocRaw && 
+                pocRaw !== 'team@helix-law.com' && 
+                pocRaw !== 'team' && 
+                pocRaw !== 'anyone' && 
+                pocRaw !== 'unassigned' && 
+                pocRaw !== 'unknown' && 
+                pocRaw !== 'n/a';
+
+              const identityStatus = stageStatuses?.id || (
+                eidStatus === 'verified' || eidStatus === 'completed' || eidStatus === 'skipped' 
+                  ? 'complete' 
+                  : eidStatus === 'failed' || eidStatus === 'review' 
+                  ? 'review' 
+                  : 'pending'
+              );
+              const paymentStatus = stageStatuses?.payment || (hasSuccessfulPayment ? 'complete' : hasFailedPayment ? 'review' : 'pending');
+              const riskStatus = stageStatuses?.risk || (riskComplete ? (isHighRisk ? 'review' : 'complete') : 'pending');
+              const matterStageStatus = stageStatuses?.matter || (hasMatter ? 'complete' : 'pending');
+              const documentStatus = stageStatuses?.documents || (hasDocs ? 'complete' : 'neutral');
+              
+              // Get dates for completed stages
+              const enquiryDate = enquiry?.Date_Created ? new Date(enquiry.Date_Created) : null;
+              const pitchItems = scopedTimeline.filter(t => t.type === 'pitch').sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+              const firstPitchDate = pitchItems.length > 0 ? new Date(pitchItems[0].date) : null;
+              const instructionDate = instructedDate ? new Date(instructedDate) : null;
+              
+              // Full 8-stage pipeline
+              const stages: Array<{
+                key: string;
+                label: string;
+                shortLabel: string;
+                icon: React.ReactNode;
+                status: 'complete' | 'current' | 'review' | 'pending' | 'processing' | 'neutral' | 'disabled';
+                date: Date | null;
+                detail?: string;
+              }> = [
+                { 
+                  key: 'enquiry', 
+                  label: isEnquiryClaimed ? 'Enquiry Claimed' : 'Enquiry', 
+                  shortLabel: isEnquiryClaimed ? 'Claimed' : 'Enquiry',
+                  icon: <FaUser size={10} />, 
+                  status: 'complete',
+                  date: enquiryDate,
+                },
+                { 
+                  key: 'pitch', 
+                  label: 'Pitched', 
+                  shortLabel: 'Pitched',
+                  icon: <FaCheckCircle size={10} />, 
+                  status: hasPitch ? 'complete' : 'current',
+                  date: firstPitchDate,
+                  detail: hasPitch ? `${pitchCount} pitch${pitchCount > 1 ? 'es' : ''}` : undefined,
+                },
+                { 
+                  key: 'instructed', 
+                  label: hasInstructionActivity ? 'Instructed' : 'Instruction', 
+                  shortLabel: hasInstructionActivity ? 'Instructed' : 'Instruction',
+                  icon: <FaClipboard size={10} />, 
+                  status: hasInstruction ? 'complete' : (hasInstructionActivity ? 'current' : 'disabled'),
+                  date: instructionDate,
+                },
+                { 
+                  key: 'id', 
+                  label: eidDisplayResult ? `ID: ${eidDisplayResult}` : 'ID Check', 
+                  shortLabel: eidDisplayResult ? `ID: ${eidDisplayResult}` : 'ID Check',
+                  icon: <FaIdCard size={10} />, 
+                  status: !hasInstruction ? 'disabled' : identityStatus,
+                  date: null,
+                },
+                { 
+                  key: 'payment', 
+                  label: hasSuccessfulPayment ? 'Paid' : 'Payment',
+                  shortLabel: hasSuccessfulPayment ? 'Paid' : 'Payment',
+                  icon: <FaPoundSign size={10} />, 
+                  status: !hasInstruction ? 'disabled' : paymentStatus,
+                  date: null,
+                },
+                { 
+                  key: 'risk', 
+                  label: riskLevel ? `Risk: ${riskLevel}` : 'Risk',
+                  shortLabel: riskLevel ? `Risk: ${riskLevel}` : 'Risk',
+                  icon: <FaShieldAlt size={10} />, 
+                  status: !hasInstruction ? 'disabled' : riskStatus,
+                  date: null,
+                },
+                { 
+                  key: 'matter', 
+                  label: matterDisplayId ? matterDisplayId : 'Matter',
+                  shortLabel: matterDisplayId ? matterDisplayId : 'Matter',
+                  icon: <FaFolderOpen size={10} />, 
+                  status: !hasInstruction ? 'disabled' : matterStageStatus,
+                  date: null,
+                },
+                {
+                  key: 'documents',
+                  label: 'Docs',
+                  shortLabel: 'Docs',
+                  icon: <FaFileAlt size={10} />,
+                  status: !hasInstruction ? 'disabled' : documentStatus,
+                  date: null,
+                  detail: docCount > 0 ? String(docCount) : undefined,
+                },
+              ];
+
+              const stageTabs = stages.map((stage) => {
+                const isCompleted = stage.status === 'complete';
+                const isCurrent = stage.status === 'current';
+                const isDisabled = stage.status === 'disabled';
+                const hasIssue = stage.status === 'review';
+
+                // Status text colors for inactive state
+                const statusColor = isCompleted ? '#22c55e' 
+                  : hasIssue ? '#ef4444' 
+                  : isCurrent ? colours.highlight 
+                  : (isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.8)');
+
+                const workbenchTab: WorkbenchTabKey = stage.key === 'id' ? 'identity'
+                  : stage.key === 'payment' ? 'payment'
+                  : stage.key === 'risk' ? 'risk'
+                  : stage.key === 'matter' ? 'matter'
+                  : stage.key === 'documents' ? 'documents'
+                  : 'details';
+
+                const contextStage: ContextStageKey = stage.key === 'pitch' ? 'pitch'
+                  : stage.key === 'enquiry' ? 'enquiry'
+                  : 'instructed';
+
+                const isContextStage = ['enquiry', 'pitch', 'instructed'].includes(stage.key);
+
+                // Determine active state matches InlineWorkbench logic
+                const isActive = selectedContextStage
+                  ? (selectedContextStage === contextStage && (isContextStage || selectedWorkbenchTab === workbenchTab))
+                  : (!isWorkbenchCollapsed && selectedWorkbenchTab === workbenchTab && !isContextStage);
+
+                return {
+                  ...stage,
+                  workbenchTab,
+                  contextStage,
+                  isDisabled,
+                  isActive,
+                  statusColor,
+                  hasIssue,
+                };
+              });
+
+              return stageTabs.map((stage, idx) => {
+                const prevStage = idx > 0 ? stageTabs[idx - 1] : null;
+                // Connector lights up only when both adjacent stages are complete
+                const isConnectorLit = prevStage?.status === 'complete' && stage.status === 'complete';
+                
+                return (
+                <React.Fragment key={stage.key}>
+                  {/* Connector line - lights up green when previous stage is complete */}
+                  {idx > 0 && (
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                    }}>
+                      <div style={{
+                        height: 1.5,
+                        width: 10,
+                        background: isConnectorLit 
+                          ? 'rgba(34, 197, 94, 0.7)'
+                          : (isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.25)'),
+                        borderRadius: 1,
+                        margin: '0 2px',
+                      }} />
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    title={stage.label}
+                    onClick={() => {
+                      // Always allow click - removed disabled gate
+                      // Action Logic
+                      if (['enquiry', 'pitch', 'instructed'].includes(stage.key)) {
+                        setSelectedWorkbenchTab('details');
+                        if (stage.key === 'enquiry' || stage.key === 'pitch') {
+                          setSelectedContextStage(stage.contextStage);
+                        } else {
+                          setSelectedContextStage('instructed'); // Default for instructed pill
+                        }
+                        setIsWorkbenchCollapsed(false);
+                      } else {
+                        setSelectedContextStage(null); 
+                        if (stage.isActive) {
+                          // Already active tab - maybe do nothing or toggle?
+                          // Let's just keep it active.
+                        } else {
+                          setSelectedWorkbenchTab(stage.workbenchTab);
+                        }
+                        setIsWorkbenchCollapsed(false);
+                      }
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '6px 12px',
+                      borderRadius: '16px',
+                      // Active: Sky blue tint like filter buttons
+                      background: stage.isActive 
+                        ? 'rgba(125, 211, 252, 0.12)' 
+                        : (isDarkMode ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)'),
+                      border: stage.isActive 
+                        ? '1px solid rgba(125, 211, 252, 0.45)' 
+                        : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)'}`,
+                      cursor: 'pointer',
+                      color: stage.statusColor,
+                      fontSize: 11,
+                      fontWeight: stage.isActive ? 700 : 600,
+                      opacity: stage.status === 'disabled' ? 0.7 : 1,
+                      transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                      whiteSpace: 'nowrap',
+                      boxShadow: 'none',
+                      position: 'relative',
+                      zIndex: stage.isActive ? 10 : 1,
+                    }}
+                  >
+                    <span style={{ 
+                      display: 'flex', 
+                      alignItems: 'center',
+                      color: stage.statusColor,
+                      opacity: stage.isActive ? 1 : 0.9,
+                    }}>
+                      {stage.icon}
+                    </span>
+                    
+                    <span>{stage.shortLabel}</span>
+                    
+                    {/* Status Icons for non-active states or counts */}
+                    {stage.detail && stage.key === 'documents' && stage.detail !== '0' && (
+                       <span style={{ 
+                         fontSize: '10px',
+                         fontWeight: 700,
+                         padding: '1px 6px',
+                         display: 'flex',
+                         alignItems: 'center',
+                         borderRadius: '999px',
+                         background: 'rgba(148, 163, 184, 0.18)',
+                         color: 'rgba(226, 232, 240, 0.8)',
+                         marginLeft: 2
+                       }}>
+                         {stage.detail}
+                       </span>
+                    )}
+                    {stage.status === 'complete' && stage.key !== 'documents' && (
+                      <FaCheck size={9} style={{ color: '#22c55e', marginLeft: 2 }} />
+                    )}
+                    {stage.hasIssue && (
+                      <FaExclamationTriangle size={9} style={{ color: '#ef4444', marginLeft: 2 }} />
+                    )}
+                  </button>
+                </React.Fragment>
+              )});
+            })()}
+          </div>
+        </div>
+
+        {/* ─── TIER 5: Integrated Workbench ─── */}
+        <div>
+          <InlineWorkbench
+            item={{ ...(inlineWorkbenchItem ?? {}), enquiry, enrichmentTeamsData }}
+            isDarkMode={isDarkMode}
+            initialTab={selectedWorkbenchTab}
+            initialContextStage={selectedContextStage}
+            enableContextStageChips={false}
+            enableTabStages={false}
+            contextStageKeys={['enquiry', 'pitch', 'instructed']}
+            onDocumentPreview={workbenchHandlers?.onDocumentPreview}
+            onTriggerEID={workbenchHandlers?.onTriggerEID}
+            onOpenIdReview={workbenchHandlers?.onOpenIdReview}
+            onOpenMatter={workbenchHandlers?.onOpenMatter}
+            onOpenRiskAssessment={workbenchHandlers?.onOpenRiskAssessment}
+          />
+        </div>
+      </div>
+
+      {/* ═══════════════════════════════════════════════════════════════════════
+          MAIN CONTENT AREA
+      ═══════════════════════════════════════════════════════════════════════ */}
+      <div style={{
+        flex: 1,
+        padding: '16px 0',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '12px',
+      }}>
+
+
+
+        {/* Journey Timeline */}
+        <div 
+          id="timeline-section"
+          style={{
+          background: isDarkMode 
+            ? `linear-gradient(180deg, ${colours.dark.sectionBackground} 0%, rgba(15, 23, 42, 0.92) 100%)`
+            : `linear-gradient(180deg, ${colours.light.sectionBackground} 0%, rgba(248, 250, 252, 0.95) 100%)`,
+          borderRadius: '8px',
+          padding: '16px 20px',
+          boxShadow: isDarkMode 
+            ? '0 1px 2px rgba(0, 0, 0, 0.2)'
+            : '0 1px 2px rgba(0, 0, 0, 0.04)',
+          transition: 'padding 0.2s ease',
+        }}>
+        {/* Timeline Header (label + count on first row, filters below) */}
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '10px',
           marginBottom: '16px',
         }}>
           <div style={{
-            fontSize: '11px',
-            fontWeight: 700,
-            textTransform: 'uppercase',
-            letterSpacing: '0.8px',
-            color: isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(15, 23, 42, 0.6)',
-          }}>
-            Journey Timeline ({activeFilters.length > 0
-              ? timeline.filter(item => activeFilters.includes(item.type)).length
-              : timeline.length})
-          </div>
-
-          {/* Communication Stats */}
-          <div style={{ 
-            display: 'flex', 
-            gap: '4px',
+            display: 'flex',
+            justifyContent: 'space-between',
             alignItems: 'center',
+            gap: '12px',
+            flexWrap: 'wrap',
           }}>
-            {['call', 'pitch', 'email', 'instruction', 'document'].map((type) => {
-              const count = timeline.filter(item => item.type === type).length;
-              const isActive = activeFilters.includes(type as CommunicationType);
-              let statusColor: string = '';
-              
-              if (type === 'call') {
-                statusColor = '#f59e0b'; // Amber for calls
-              } else if (type === 'pitch') {
-                statusColor = '#22c55e'; // Green
-              } else if (type === 'email') {
-                statusColor = colours.highlight; // Highlight blue
-              } else if (type === 'document') {
-                statusColor = isDarkMode ? '#7DD3FC' : colours.highlight; // Sky blue
-              } else {
-                statusColor = '#10b981'; // Emerald
-              }
-              
-              return (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+            }}>
+              <span style={{
+                fontSize: '14px',
+                fontWeight: 600,
+                color: isDarkMode ? colours.dark.text : colours.light.text,
+              }}>
+                Timeline
+              </span>
+              <span style={{
+                fontSize: '11px',
+                padding: '2px 8px',
+                borderRadius: '10px',
+                background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)',
+                color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)',
+                fontWeight: 500,
+              }}>
+                {activeFilters.length > 0
+                  ? `${scopedTimeline.filter(item => activeFilters.includes(item.type)).length} items`
+                  : `${scopedTimeline.length} items`}
+              </span>
+              {activeFilters.length > 0 && (
                 <button
-                  key={type}
-                  onClick={() => {
-                    if (count > 0) toggleActiveFilter(type as CommunicationType);
-                  }}
-                  title={`${type.charAt(0).toUpperCase() + type.slice(1)}s (${count})`}
+                  onClick={() => setActiveFilters([])}
                   style={{
                     display: 'inline-flex',
                     alignItems: 'center',
-                    justifyContent: 'center',
                     gap: '4px',
-                    padding: '4px 8px',
-                    background: isActive
-                      ? (isDarkMode ? `${statusColor}22` : `${statusColor}15`)
-                      : 'transparent',
-                    border: 'none',
+                    padding: '3px 8px',
+                    fontSize: '10px',
+                    fontWeight: 600,
+                    background: 'transparent',
+                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)'}`,
                     borderRadius: '4px',
-                    color: count === 0 
-                      ? (isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.5)')
-                      : (isActive ? statusColor : (isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.8)')),
-                    cursor: count === 0 ? 'default' : 'pointer',
+                    color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)',
+                    cursor: 'pointer',
                     transition: 'all 0.15s',
-                    fontSize: '13px',
-                  }}
-                  onMouseEnter={(e) => {
-                    if (count > 0 && !isActive) {
-                      e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)';
-                      e.currentTarget.style.color = statusColor;
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!isActive) {
-                      e.currentTarget.style.background = 'transparent';
-                      e.currentTarget.style.color = count === 0 
-                        ? (isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.5)')
-                        : (isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.8)');
-                    }
                   }}
                 >
-                  {getTypeIcon(type as CommunicationType)}
+                  Clear filter
+                </button>
+              )}
+            </div>
+
+            {/* View toggles */}
+            <div style={{ 
+              display: 'flex', 
+              gap: '8px',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+            }}>
+              <span style={{ 
+                fontSize: '11px', 
+                fontWeight: 600, 
+                color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)',
+                marginRight: '2px'
+              }}>
+                View:
+              </span>
+
+            
+            {/* Ledger/Card view toggle */}
+            <div
+              role="group"
+              aria-label="Timeline view"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 0,
+                height: 32,
+                padding: '3px',
+                background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                borderRadius: 16,
+                fontFamily: 'Raleway, sans-serif',
+              }}
+            >
+              <button
+                type="button"
+                title="Table view"
+                aria-label="Table view"
+                aria-pressed={ledgerMode}
+                onClick={() => {
+                  if (ledgerMode) return;
+                  setLedgerMode(true);
+                  try { localStorage.setItem('timelineLedgerMode', 'true'); } catch {}
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                  height: 26,
+                  padding: '0 10px',
+                  background: ledgerMode ? (isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.9)') : 'transparent',
+                  border: 'none',
+                  borderRadius: 13,
+                  cursor: 'pointer',
+                  transition: 'all 200ms ease',
+                  opacity: ledgerMode ? 1 : 0.6,
+                  boxShadow: ledgerMode
+                    ? (isDarkMode
+                        ? '0 1px 2px rgba(0,0,0,0.2)'
+                        : '0 1px 2px rgba(0,0,0,0.06)')
+                    : 'none',
+                }}
+              >
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  color: ledgerMode
+                    ? (isDarkMode ? 'rgba(255,255,255,0.95)' : '#1f2937')
+                    : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),
+                }}>
+                  <FaList size={11} />
+                </div>
+                <span style={{
+                  fontSize: '12px',
+                  fontWeight: 500,
+                  color: ledgerMode
+                    ? (isDarkMode ? 'rgba(255,255,255,0.95)' : '#1f2937')
+                    : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),
+                }}>
+                  Table
+                </span>
+              </button>
+              <button
+                type="button"
+                title="Timeline view"
+                aria-label="Timeline view"
+                aria-pressed={!ledgerMode}
+                onClick={() => {
+                  if (!ledgerMode) return;
+                  setLedgerMode(false);
+                  try { localStorage.setItem('timelineLedgerMode', 'false'); } catch {}
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                  height: 26,
+                  padding: '0 10px',
+                  background: !ledgerMode ? (isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.9)') : 'transparent',
+                  border: 'none',
+                  borderRadius: 13,
+                  cursor: 'pointer',
+                  transition: 'all 200ms ease',
+                  opacity: !ledgerMode ? 1 : 0.6,
+                  boxShadow: !ledgerMode
+                    ? (isDarkMode
+                        ? '0 1px 2px rgba(0,0,0,0.2)'
+                        : '0 1px 2px rgba(0,0,0,0.06)')
+                    : 'none',
+                }}
+              >
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  color: !ledgerMode
+                    ? (isDarkMode ? 'rgba(255,255,255,0.95)' : '#1f2937')
+                    : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),
+                }}>
+                  <FaStream size={11} />
+                </div>
+                <span style={{
+                  fontSize: '12px',
+                  fontWeight: 500,
+                  color: !ledgerMode
+                    ? (isDarkMode ? 'rgba(255,255,255,0.95)' : '#1f2937')
+                    : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),
+                }}>
+                  Timeline
+                </span>
+              </button>
+            </div>
+          </div>
+          </div>
+
+          {/* Activity filters + jump links */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            flexWrap: 'wrap',
+            padding: '10px 14px',
+            background: isDarkMode ? 'rgba(15, 23, 42, 0.4)' : 'rgba(248, 250, 252, 0.85)',
+            borderRadius: '8px',
+            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.18)'}`,
+            boxShadow: isDarkMode ? '0 8px 24px rgba(0, 0, 0, 0.25)' : '0 8px 24px rgba(15, 23, 42, 0.08)',
+          }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              minWidth: 140,
+            }}>
+              <div style={{
+                width: 3,
+                alignSelf: 'stretch',
+                borderRadius: 999,
+                background: isDarkMode ? 'rgba(56, 189, 248, 0.5)' : 'rgba(56, 189, 248, 0.4)',
+              }} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <span style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.4px',
+                  color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.7)',
+                }}>
+                  Filter
+                </span>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setActiveFilters([])}
+              onMouseEnter={() => setHoveredFilter(null)}
+              onMouseLeave={() => setHoveredFilter(null)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '4px 10px',
+                borderRadius: '999px',
+                border: `1px solid ${activeFilters.length === 0
+                  ? (isDarkMode ? 'rgba(226, 232, 240, 0.25)' : 'rgba(15, 23, 42, 0.18)')
+                  : (isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.18)')}`,
+                background: activeFilters.length === 0
+                  ? (isDarkMode ? 'rgba(226, 232, 240, 0.1)' : 'rgba(15, 23, 42, 0.08)')
+                  : (isDarkMode ? 'rgba(15, 23, 42, 0.2)' : 'rgba(148, 163, 184, 0.08)'),
+                color: activeFilters.length === 0
+                  ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.8)')
+                  : (isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)'),
+                cursor: 'pointer',
+                fontSize: 11,
+                fontWeight: 600,
+                transition: 'all 0.2s ease',
+                boxShadow: activeFilters.length === 0
+                  ? (isDarkMode ? '0 6px 14px rgba(15, 23, 42, 0.35)' : '0 6px 14px rgba(15, 23, 42, 0.08)')
+                  : 'none',
+              }}
+            >
+              All activity
+              <span style={{
+                fontSize: 10,
+                fontWeight: 700,
+                padding: '1px 6px',
+                borderRadius: '999px',
+                background: isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.12)',
+                color: isDarkMode ? 'rgba(226, 232, 240, 0.8)' : 'rgba(15, 23, 42, 0.7)',
+              }}>
+                {scopedTimeline.length}
+              </span>
+            </button>
+
+            {[
+              { type: 'email' as CommunicationType, label: 'Emails', count: activityMetrics.emailCount, icon: <FaRegEnvelope size={9} /> },
+              { type: 'call' as CommunicationType, label: 'Calls', count: activityMetrics.callCount, icon: <FaPhone size={9} /> },
+              { type: 'pitch' as CommunicationType, label: 'Pitches', count: activityMetrics.pitchCount, icon: <FaRegCheckCircle size={9} /> },
+              { type: 'document' as CommunicationType, label: 'Documents', count: activityMetrics.docCount, icon: <FaRegFileAlt size={9} /> },
+              { type: 'instruction' as CommunicationType, label: 'Instructions', count: activityMetrics.instructionCount, icon: <FaRegClipboard size={9} /> },
+              { type: 'identity' as CommunicationType, label: 'ID Checks', count: activityMetrics.identityCount, icon: <FaRegAddressCard size={9} /> },
+              { type: 'payment' as CommunicationType, label: 'Payments', count: activityMetrics.paymentCount, icon: <FaPoundSign size={9} /> },
+              { type: 'risk' as CommunicationType, label: 'Risk', count: activityMetrics.riskCount, icon: <FaShieldAlt size={9} /> },
+              { type: 'matter' as CommunicationType, label: 'Matters', count: activityMetrics.matterCount, icon: <FaRegFolderOpen size={9} /> },
+            ].filter(({ count }) => count > 0).map(({ type, label, count, icon }) => {
+              const isActive = activeFilters.includes(type);
+              const isHovered = hoveredFilter === type;
+              const baseColor = count === 0
+                ? (isDarkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(148, 163, 184, 0.45)')
+                : (isActive
+                  ? (isDarkMode ? colours.accent : colours.highlight)
+                  : (isDarkMode ? 'rgba(148, 163, 184, 0.75)' : 'rgba(100, 116, 139, 0.7)'));
+              return (
+                <button
+                  key={type}
+                  onClick={() => count > 0 && toggleActiveFilter(type)}
+                  onMouseEnter={() => setHoveredFilter(type)}
+                  onMouseLeave={() => setHoveredFilter(null)}
+                  disabled={count === 0}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '4px 10px',
+                    borderRadius: '999px',
+                    border: `1px solid ${isActive
+                      ? (isDarkMode ? 'rgba(56, 189, 248, 0.35)' : 'rgba(54, 144, 206, 0.3)')
+                      : (isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.18)')}`,
+                    background: isActive
+                      ? (isDarkMode ? 'rgba(56, 189, 248, 0.08)' : 'rgba(54, 144, 206, 0.06)')
+                      : isHovered
+                        ? (isDarkMode ? 'rgba(56, 189, 248, 0.05)' : 'rgba(56, 189, 248, 0.04)')
+                        : 'transparent',
+                    color: baseColor,
+                    cursor: count === 0 ? 'default' : 'pointer',
+                    fontSize: 11,
+                    fontWeight: 600,
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <span style={{ 
+                    ...getTypeCategoryStyle(type, isActive), 
+                    width: 18, 
+                    height: 18, 
+                    color: baseColor,
+                  }}>
+                    <span style={{ fontSize: 9, lineHeight: 1, display: 'flex' }}>{icon}</span>
+                  </span>
+                  <span>{label}</span>
                   <span style={{
-                    fontSize: '11px',
-                    fontWeight: 500,
+                    fontSize: 10,
+                    fontWeight: 700,
+                    padding: '1px 6px',
+                    borderRadius: '999px',
+                    background: isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.12)',
+                    color: isDarkMode ? 'rgba(226, 232, 240, 0.8)' : 'rgba(15, 23, 42, 0.7)',
                   }}>
                     {count}
                   </span>
@@ -4758,89 +5916,65 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               );
             })}
 
-            {/* Day fold toggle */}
-            <div style={{ width: '1px', height: '14px', background: isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.2)', margin: '0 2px' }} />
-            <button
-              onClick={() => {
-                if (collapsedDays.size > 0) {
-                  // Unfold all
-                  setCollapsedDays(new Set());
-                } else {
-                  // Fold all days
-                  const allDays = new Set(
-                    timeline
-                      .filter((item) => !hiddenItemIds.has(item.id))
-                      .map((item) => {
-                        const d = parseISO(item.date);
-                        return Number.isFinite(d.getTime()) ? format(d, 'yyyy-MM-dd') : null;
-                      })
-                      .filter((d): d is string => d !== null)
-                  );
-                  setCollapsedDays(allDays);
-                }
-              }}
-              title={collapsedDays.size > 0 ? 'Expand all days' : 'Collapse by day'}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: '28px',
-                height: '28px',
-                background: collapsedDays.size > 0
-                  ? (isDarkMode ? 'rgba(125, 211, 252, 0.12)' : 'rgba(54, 144, 206, 0.08)')
-                  : 'transparent',
-                border: 'none',
-                borderRadius: '4px',
-                color: collapsedDays.size > 0
-                  ? (isDarkMode ? '#7DD3FC' : '#3690CE')
-                  : (isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)'),
-                cursor: 'pointer',
-                fontSize: '11px',
-                transition: 'all 0.15s',
-              }}
-              onMouseEnter={(e) => {
-                if (collapsedDays.size === 0) {
-                  e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)';
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (collapsedDays.size === 0) {
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+              {activityMetrics.daysSinceActivity > 0 && (
+                <span style={{ fontSize: 10, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)' }}>
+                  Last activity {activityMetrics.daysSinceActivity}d ago
+                </span>
+              )}
+              <button
+                onClick={() => {
+                  if (collapsedDays.size > 0) {
+                    setCollapsedDays(new Set());
+                  } else {
+                    const allDays = new Set(
+                      timeline
+                        .filter((item) => !hiddenItemIds.has(item.id))
+                        .map((item) => {
+                          const d = parseISO(item.date);
+                          return Number.isFinite(d.getTime()) ? format(d, 'yyyy-MM-dd') : null;
+                        })
+                        .filter((d): d is string => d !== null)
+                    );
+                    setCollapsedDays(allDays);
+                  }
+                }}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '3px 10px',
+                  fontSize: 10,
+                  fontWeight: 600,
+                  background: 'transparent',
+                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)'}`,
+                  borderRadius: '6px',
+                  color: isDarkMode ? 'rgba(148, 163, 184, 0.75)' : 'rgba(100, 116, 139, 0.75)',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = colours.highlight;
+                  e.currentTarget.style.color = colours.highlight;
+                  e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.06)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)';
+                  e.currentTarget.style.color = isDarkMode ? 'rgba(148, 163, 184, 0.75)' : 'rgba(100, 116, 139, 0.75)';
                   e.currentTarget.style.background = 'transparent';
-                }
-              }}
-            >
-              {collapsedDays.size > 0 ? '▼' : '▶'}
-            </button>
-
-            {/* Ledger/Timeline view toggle */}
-            <button
-              onClick={() => {
-                const next = !ledgerMode;
-                setLedgerMode(next);
-                try { localStorage.setItem('timelineLedgerMode', String(next)); } catch {}
-              }}
-              title={ledgerMode ? 'Switch to card view' : 'Switch to ledger view'}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: '28px',
-                height: '28px',
-                background: ledgerMode
-                  ? (isDarkMode ? 'rgba(125, 211, 252, 0.12)' : 'rgba(54, 144, 206, 0.08)')
-                  : 'transparent',
-                border: 'none',
-                borderRadius: '4px',
-                color: ledgerMode
-                  ? (isDarkMode ? '#7DD3FC' : '#3690CE')
-                  : (isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)'),
-                cursor: 'pointer',
-                fontSize: '11px',
-                transition: 'all 0.15s',
-              }}
-            >
-              {ledgerMode ? '≡' : '☰'}
-            </button>
+                }}
+              >
+                <span>{collapsedDays.size > 0 ? 'Expand days' : 'Collapse days'}</span>
+                <FaChevronDown 
+                  size={10} 
+                  style={{ 
+                    transform: collapsedDays.size > 0 ? 'rotate(0deg)' : 'rotate(-90deg)', 
+                    transition: 'transform 0.2s ease',
+                    display: 'block'
+                  }} 
+                />
+              </button>
+            </div>
           </div>
         </div>
 
@@ -4866,7 +6000,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   marginBottom: '8px',
                 }}
               >
-                {loading && timeline.length === 0 ? 'Loading timeline…' : 'Updating timeline…'}
+                {loading && scopedTimeline.length === 0 ? 'Loading timeline…' : 'Updating timeline…'}
               </div>
               {(() => {
                 const completed = TIMELINE_SOURCES.filter(({ key }) => sourceProgress[key].status !== 'loading').length;
@@ -5006,7 +6140,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
           </div>
         ) : null}
 
-        {showDataLoadingStatus && loading && timeline.length === 0 ? (
+        {showDataLoadingStatus && loading && scopedTimeline.length === 0 ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '12px' }}>
             {[0, 1, 2].map((idx) => (
               <div
@@ -5024,7 +6158,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         ) : null}
 
         {/* LEDGER MODE: Clean table-style view */}
-        {ledgerMode && timeline.length > 0 && (
+        {ledgerMode && scopedTimeline.length > 0 && (
           <div style={{ marginTop: 8 }}>
             <table style={{
               width: '100%',
@@ -5034,146 +6168,433 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             }}>
               <thead>
                 <tr style={{
-                  borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)'}`,
+                  borderBottom: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)'}`,
+                  background: isDarkMode ? 'rgba(15, 25, 45, 0.98)' : 'rgba(248, 250, 252, 0.98)',
+                  color: isDarkMode ? colours.accent : colours.highlight,
                 }}>
-                  <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.8)', width: 80 }}>Date</th>
-                  <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.8)', width: 70 }}>Type</th>
-                  <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.8)' }}>Description</th>
-                  <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.8)', width: 90 }}>By</th>
+                  <th style={{ padding: '10px 12px', textAlign: 'left', width: 80 }}>
+                    <button
+                      type="button"
+                      onClick={() => handleTableSort('date')}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        background: 'transparent',
+                        border: 'none',
+                        padding: 0,
+                        color: 'inherit',
+                        textTransform: 'uppercase',
+                        fontSize: 10,
+                        fontWeight: 700,
+                        letterSpacing: '0.6px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Date
+                      {renderTableSortIcon('date')}
+                    </button>
+                  </th>
+                  <th style={{ padding: '10px 12px', textAlign: 'left', width: 110 }}>
+                    <button
+                      type="button"
+                      onClick={() => handleTableSort('type')}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        background: 'transparent',
+                        border: 'none',
+                        padding: 0,
+                        color: 'inherit',
+                        textTransform: 'uppercase',
+                        fontSize: 10,
+                        fontWeight: 700,
+                        letterSpacing: '0.6px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Type
+                      {renderTableSortIcon('type')}
+                    </button>
+                  </th>
+                  <th style={{ padding: '10px 12px', textAlign: 'left' }}>
+                    <button
+                      type="button"
+                      onClick={() => handleTableSort('description')}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        background: 'transparent',
+                        border: 'none',
+                        padding: 0,
+                        color: 'inherit',
+                        textTransform: 'uppercase',
+                        fontSize: 10,
+                        fontWeight: 700,
+                        letterSpacing: '0.6px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Description
+                      {renderTableSortIcon('description')}
+                    </button>
+                  </th>
+                  <th style={{ padding: '10px 12px', textAlign: 'left', width: 160 }}>
+                    <button
+                      type="button"
+                      onClick={() => handleTableSort('by')}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        background: 'transparent',
+                        border: 'none',
+                        padding: 0,
+                        color: 'inherit',
+                        textTransform: 'uppercase',
+                        fontSize: 10,
+                        fontWeight: 700,
+                        letterSpacing: '0.6px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      By
+                      {renderTableSortIcon('by')}
+                    </button>
+                  </th>
                 </tr>
               </thead>
               <tbody>
-                {timeline
-                  .slice()
-                  .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-                  .filter((item) => !hiddenItemIds.has(item.id))
-                  .filter((item) => activeFilters.length === 0 || activeFilters.includes(item.type))
-                  .map((item) => {
-                    const itemDate = parseISO(item.date);
-                    const dateStr = Number.isFinite(itemDate.getTime()) ? format(itemDate, 'd MMM') : '—';
-                    const timeStr = Number.isFinite(itemDate.getTime()) ? format(itemDate, 'HH:mm') : '';
-                    const typeColor = getItemTypeColor(item);
-                    const isExpanded = selectedItem?.id === item.id;
-                    const typeLabel = item.type === 'email'
-                      ? (item.metadata?.direction === 'inbound' ? 'Email In' : 'Email Out')
-                      : getItemTypeLabel(item);
-                    const dealOriginLabel = item.metadata?.dealOriginLabel;
+                {(() => {
+                  const shouldGroupByDate = tableSortColumn === 'date';
+                  const sortedItems = scopedTimeline
+                    .slice()
+                    .filter((item) => !hiddenItemIds.has(item.id))
+                    .filter((item) => activeFilters.length === 0 || activeFilters.includes(item.type))
+                    .sort((a, b) => {
+                      const getSortValue = (item: TimelineItem): string | number => {
+                        switch (tableSortColumn) {
+                          case 'type': {
+                            const typeLabel = item.type === 'email'
+                              ? (item.metadata?.direction === 'inbound' ? 'Email In' : 'Email Out')
+                              : getItemTypeLabel(item);
+                            return typeLabel.toLowerCase();
+                          }
+                          case 'description':
+                            return (item.subject || '').toLowerCase();
+                          case 'by':
+                            return (item.createdBy || '').toLowerCase();
+                          case 'date':
+                          default: {
+                            const parsed = Date.parse(item.date);
+                            return Number.isNaN(parsed) ? 0 : parsed;
+                          }
+                        }
+                      };
+                      const av = getSortValue(a);
+                      const bv = getSortValue(b);
+                      if (av === bv) return 0;
+                      if (tableSortDirection === 'asc') return av > bv ? 1 : -1;
+                      return av < bv ? 1 : -1;
+                    });
 
-                    return (
+                  const itemsByDay = new Map<string, typeof sortedItems>();
+                  if (shouldGroupByDate) {
+                    for (const item of sortedItems) {
+                      const d = parseISO(item.date);
+                      const dateKey = Number.isFinite(d.getTime()) ? format(d, 'yyyy-MM-dd') : 'unknown';
+                      const list = itemsByDay.get(dateKey) || [];
+                      list.push(item);
+                      itemsByDay.set(dateKey, list);
+                    }
+                  } else {
+                    itemsByDay.set('all', sortedItems);
+                  }
+
+                  const orderedDays = Array.from(itemsByDay.keys());
+
+                  return orderedDays.flatMap((dateKey) => {
+                    const dayItems = itemsByDay.get(dateKey) || [];
+                    const dateLabel = formatTableDayLabel(dateKey, hoveredTableDayKey === dateKey);
+
+                    const dayHeader = shouldGroupByDate ? (
                       <tr
-                        key={item.id}
-                        onClick={() => setSelectedItem(isExpanded ? null : item)}
-                        style={{
-                          borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.1)'}`,
-                          cursor: 'pointer',
-                          background: isExpanded
-                            ? (isDarkMode ? 'rgba(125, 211, 252, 0.06)' : 'rgba(54, 144, 206, 0.04)')
-                            : 'transparent',
-                          transition: 'background 0.15s',
-                        }}
-                        onMouseEnter={(e) => {
-                          if (!isExpanded) e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.05)' : 'rgba(148, 163, 184, 0.04)';
-                        }}
-                        onMouseLeave={(e) => {
-                          if (!isExpanded) e.currentTarget.style.background = 'transparent';
-                        }}
+                        key={`day-${dateKey}`}
+                        onMouseEnter={() => setHoveredTableDayKey(dateKey)}
+                        onMouseLeave={() => setHoveredTableDayKey(null)}
                       >
-                        <td style={{ padding: '10px 12px', verticalAlign: 'top' }}>
-                          <div style={{ fontWeight: 600, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)' }}>{dateStr}</div>
-                          <div style={{ fontSize: 10, color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)' }}>{timeStr}</div>
-                        </td>
-                        <td style={{ padding: '10px 12px', verticalAlign: 'top' }}>
+                        <td colSpan={4} style={{
+                          padding: '8px 12px',
+                          fontSize: 10,
+                          fontWeight: 600,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.3px',
+                          color: isDarkMode ? 'rgba(148, 163, 184, 0.65)' : 'rgba(100, 116, 139, 0.7)',
+                          background: isDarkMode ? 'rgba(15, 23, 42, 0.18)' : 'rgba(248, 250, 252, 0.55)',
+                          borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.12)'}`,
+                          borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.12)'}`,
+                        }}>
+                          {dateLabel}
                           <span style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: 4,
-                            fontSize: 11,
-                            fontWeight: 500,
-                            color: typeColor,
+                            marginLeft: 8,
+                            fontSize: 9,
+                            fontWeight: 600,
+                            color: isDarkMode ? 'rgba(148, 163, 184, 0.55)' : 'rgba(100, 116, 139, 0.6)',
                           }}>
-                            {getItemTypeIcon(item)}
-                            {typeLabel}
+                            · {dayItems.length} {dayItems.length === 1 ? 'item' : 'items'}
                           </span>
-                          {dealOriginLabel && item.type === 'pitch' && (
-                            <div style={{
-                              marginTop: 4,
-                              fontSize: 9,
-                              fontWeight: 600,
-                              letterSpacing: '0.3px',
-                              textTransform: 'uppercase',
-                              color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)',
-                            }}>
-                              via {dealOriginLabel}
-                            </div>
-                          )}
-                          {item.type === 'document' && item.metadata?.isDocWorkspace && (
-                            <div style={{
-                              marginTop: 4,
-                              fontSize: 9,
-                              fontWeight: 600,
-                              letterSpacing: '0.3px',
-                              textTransform: 'uppercase',
-                              color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)',
-                            }}>
-                              via Doc request
-                            </div>
-                          )}
                         </td>
-                        <td style={{ padding: '10px 12px', verticalAlign: 'top' }}>
-                          <div style={{
-                            fontWeight: 500,
-                            color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)',
-                            marginBottom: isExpanded ? 8 : 0,
-                          }}>
-                            {item.subject}
-                          </div>
-                          {isExpanded && item.content && (
-                            <div style={{
+                      </tr>
+                    ) : null;
+
+                    const rows = dayItems.map((item, rowIndex) => {
+                      const itemDate = parseISO(item.date);
+                      const timeStr = Number.isFinite(itemDate.getTime()) ? format(itemDate, 'HH:mm') : '';
+                      const hasTime = Boolean(timeStr && timeStr !== '00:00' && (item.date.includes('T') || item.date.includes(':')));
+                      const typeColor = getItemTypeColor(item);
+                      const isHoveredMatch = Boolean(hoveredFilter && hoveredFilter === item.type);
+                      const isExpanded = selectedItem?.id === item.id;
+                      const isStriped = rowIndex % 2 === 1;
+                      const baseRowBg = isStriped
+                        ? (isDarkMode ? 'rgba(15, 23, 42, 0.25)' : 'rgba(241, 245, 249, 0.65)')
+                        : 'transparent';
+                      const typeLabel = getItemTypeLabel(item);
+                      const dealOriginLabel = item.metadata?.dealOriginLabel;
+
+                      // Direction color cues (matching timeline) - emails and calls
+                      const directionBorderLeft = (() => {
+                        const dir = item.metadata?.direction;
+                        if ((item.type === 'email' || item.type === 'call') && dir === 'inbound') {
+                          return isDarkMode ? '3px solid rgba(74, 222, 128, 0.6)' : '3px solid rgba(34, 197, 94, 0.5)';
+                        }
+                        if ((item.type === 'email' || item.type === 'call') && dir === 'outbound') {
+                          return isDarkMode ? '3px solid rgba(125, 211, 252, 0.6)' : '3px solid rgba(54, 144, 206, 0.5)';
+                        }
+                        return undefined;
+                      })();
+
+                      return (
+                        <tr
+                          key={item.id}
+                          onClick={() => setSelectedItem(isExpanded ? null : item)}
+                          style={{
+                            borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.1)'}`,
+                            borderLeft: directionBorderLeft,
+                            cursor: 'pointer',
+                            background: isExpanded
+                              ? (isDarkMode ? 'rgba(125, 211, 252, 0.06)' : 'rgba(54, 144, 206, 0.04)')
+                              : isHoveredMatch
+                                ? (isDarkMode ? 'rgba(56, 189, 248, 0.06)' : 'rgba(56, 189, 248, 0.05)')
+                                : baseRowBg,
+                            transition: 'background 0.15s',
+                          }}
+                          onMouseEnter={(e) => {
+                            if (!isExpanded) e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.05)' : 'rgba(148, 163, 184, 0.04)';
+                          }}
+                          onMouseLeave={(e) => {
+                            if (!isExpanded) e.currentTarget.style.background = isHoveredMatch
+                              ? (isDarkMode ? 'rgba(56, 189, 248, 0.06)' : 'rgba(56, 189, 248, 0.05)')
+                              : baseRowBg;
+                          }}
+                        >
+                          <td style={{ padding: '10px 12px', verticalAlign: 'top', width: 160, minWidth: 140 }}>
+                            {hasTime && (
+                              <div style={{ fontWeight: 600, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)' }}>{timeStr}</div>
+                            )}
+                          </td>
+                          <td style={{ padding: '10px 12px', verticalAlign: 'top', width: 130, minWidth: 110 }}>
+                            <span style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 6,
                               fontSize: 11,
-                              lineHeight: 1.5,
-                              color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.7)',
-                              whiteSpace: 'pre-wrap',
-                              maxHeight: 200,
-                              overflow: 'auto',
-                              padding: '8px 10px',
-                              background: isDarkMode ? 'rgba(15, 23, 42, 0.3)' : '#F8FAFC',
-                              borderRadius: 4,
-                              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.15)'}`,
+                              fontWeight: 500,
+                              color: isExpanded ? (isDarkMode ? colours.accent : colours.highlight) : typeColor,
                             }}>
-                              {item.content}
+                              <span style={getTypeCategoryStyle(item.type, isExpanded)}>
+                                <span style={{ fontSize: 10, lineHeight: 1, display: 'flex' }}>
+                                  {getItemTypeIcon(item)}
+                                </span>
+                              </span>
+                              {typeLabel}
+                            </span>
+                            {/* Direction indicator for emails/calls */}
+                            {(item.type === 'email' || item.type === 'call') && item.metadata?.direction && (
+                              <div style={{
+                                marginTop: 4,
+                                marginLeft: 6,
+                                fontSize: 9,
+                                fontWeight: 600,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                padding: '1px 5px',
+                                borderRadius: '3px',
+                                background: item.metadata.direction === 'inbound'
+                                  ? isDarkMode ? 'rgba(74, 222, 128, 0.15)' : 'rgba(34, 197, 94, 0.12)'
+                                  : isDarkMode ? 'rgba(125, 211, 252, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                color: item.metadata.direction === 'inbound'
+                                  ? isDarkMode ? '#4ADE80' : '#16A34A'
+                                  : isDarkMode ? '#7DD3FC' : '#0284C7',
+                              }}>
+                                {item.metadata.direction === 'inbound' ? 'In' : 'Out'}
+                              </div>
+                            )}
+                            {dealOriginLabel && item.type === 'pitch' && (
+                              <div style={{
+                                marginTop: 4,
+                                fontSize: 9,
+                                fontWeight: 600,
+                                letterSpacing: '0.3px',
+                                textTransform: 'uppercase',
+                                color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.55)',
+                              }}>
+                                Sent {dealOriginLabel === 'Email' ? 'by email' : dealOriginLabel === 'Link' ? 'as link' : `via ${dealOriginLabel}`}
+                              </div>
+                            )}
+                            {item.type === 'document' && item.metadata?.isDocWorkspace && (
+                              <div style={{
+                                marginTop: 4,
+                                fontSize: 9,
+                                fontWeight: 600,
+                                letterSpacing: '0.3px',
+                                textTransform: 'uppercase',
+                                color: isDarkMode ? '#c4b5fd' : '#7c3aed',
+                              }}>
+                                via Doc request
+                              </div>
+                            )}
+                          </td>
+                          <td style={{ padding: '10px 12px', verticalAlign: 'top' }}>
+                            <div style={{
+                              fontWeight: 500,
+                              color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)',
+                              marginBottom: isExpanded ? 8 : 0,
+                            }}>
+                              {item.subject}
                             </div>
-                          )}
-                          {isExpanded && item.contentHtml && !item.content && (
-                            <div
-                              className="helix-email-html"
-                              style={{
+                            {isExpanded && item.content && (
+                              <div style={{
                                 fontSize: 11,
                                 lineHeight: 1.5,
                                 color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.7)',
-                                maxHeight: 200,
-                                overflow: 'auto',
+                                whiteSpace: 'pre-wrap',
                                 padding: '8px 10px',
                                 background: isDarkMode ? 'rgba(15, 23, 42, 0.3)' : '#F8FAFC',
                                 borderRadius: 4,
                                 border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.15)'}`,
-                              }}
-                              dangerouslySetInnerHTML={{ __html: sanitizeEmailHtml(item.contentHtml) }}
-                            />
-                          )}
-                        </td>
-                        <td style={{ padding: '10px 12px', verticalAlign: 'top', fontSize: 11, color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)' }}>
-                          {item.createdBy || '—'}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                              }}>
+                                {item.content}
+                              </div>
+                            )}
+                            {isExpanded && isStageType(item.type) && (
+                              <div style={{
+                                fontSize: 11,
+                                lineHeight: 1.5,
+                                color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.7)',
+                                padding: '8px 0',
+                              }}>
+                                {item.stageStatus && (
+                                  <div style={{ marginBottom: '8px' }}>
+                                    <span style={{
+                                      fontSize: '10px',
+                                      fontWeight: 700,
+                                      textTransform: 'uppercase',
+                                      letterSpacing: '0.3px',
+                                      padding: '3px 8px',
+                                      borderRadius: '2px',
+                                      background: getStageStatusColor(item.stageStatus).bg,
+                                      color: getStageStatusColor(item.stageStatus).text,
+                                      border: `1px solid ${getStageStatusColor(item.stageStatus).border}`,
+                                    }}>
+                                      {item.stageStatus}
+                                    </span>
+                                  </div>
+                                )}
+                                {renderStageDataBar(item)}
+                              </div>
+                            )}
+                            {isExpanded && item.contentHtml && !item.content && (
+                              <div
+                                className="helix-email-html"
+                                style={{
+                                  fontSize: 11,
+                                  lineHeight: 1.5,
+                                  color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.7)',
+                                  padding: '8px 10px',
+                                  background: isDarkMode ? 'rgba(15, 23, 42, 0.3)' : '#F8FAFC',
+                                  borderRadius: 4,
+                                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.15)'}`,
+                                }}
+                                dangerouslySetInnerHTML={{ __html: sanitizeEmailHtml(item.contentHtml) }}
+                              />
+                            )}
+                            {isExpanded && (item.type === 'email' || (item.type === 'pitch' && item.metadata?.dealOrigin !== 'link')) && userEmail && (
+                              <div style={{ marginTop: '12px' }}>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setForwardEmail(item);
+                                    setShowForwardDialog(true);
+                                  }}
+                                  style={{
+                                    padding: 0,
+                                    fontSize: '10px',
+                                    fontWeight: 600,
+                                    border: 'none',
+                                    background: 'transparent',
+                                    color: isDarkMode ? 'rgba(148, 163, 184, 0.85)' : 'rgba(100, 116, 139, 0.8)',
+                                    cursor: 'pointer',
+                                    transition: 'color 0.2s ease, opacity 0.2s ease',
+                                    textTransform: 'uppercase',
+                                    letterSpacing: '0.04em',
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.color = colours.highlight;
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.color = isDarkMode ? 'rgba(148, 163, 184, 0.85)' : 'rgba(100, 116, 139, 0.8)';
+                                  }}
+                                >
+                                  Forward
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                          <td style={{ padding: '10px 12px', verticalAlign: 'top' }}>
+                            <div style={{
+                              fontSize: 9,
+                              fontWeight: 700,
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.3px',
+                              color: isDarkMode ? 'rgba(148, 163, 184, 0.75)' : 'rgba(100, 116, 139, 0.7)',
+                              marginBottom: 4,
+                            }}>
+                              By
+                            </div>
+                            <div style={{
+                              fontSize: 12,
+                              fontWeight: 600,
+                              color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)',
+                            }}>
+                              {item.createdBy || '—'}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    });
+
+                    return shouldGroupByDate ? [dayHeader, ...rows] : rows;
+                  });
+                })()}
               </tbody>
             </table>
           </div>
         )}
 
         {/* CARD MODE: Original complex timeline view */}
-        {!ledgerMode && timeline.length > 0 ? (
+        {!ledgerMode && scopedTimeline.length > 0 ? (
           <div style={{ position: 'relative', paddingLeft: '96px' }}>
             {/* Vertical line */}
             <div style={{
@@ -5187,10 +6608,11 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
 
             {/* Timeline items */}
             {(() => {
-              const sortedItems = timeline
+              const sortedItems = scopedTimeline
                 .slice()
                 .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-                .filter((item) => !hiddenItemIds.has(item.id));
+                .filter((item) => !hiddenItemIds.has(item.id))
+                .filter((item) => activeFilters.length === 0 || activeFilters.includes(item.type));
 
               // Group items by day for collapse tracking
               const itemsByDay = new Map<string, typeof sortedItems>();
@@ -5210,7 +6632,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               return sortedItems.map((item, index, allItems) => {
                 const typeColor = getItemTypeColor(item);
                 const isExpanded = selectedItem?.id === item.id;
-                const isDimmed = Boolean(activeFilters.length > 0 && !activeFilters.includes(item.type));
+                const isHoveredMatch = Boolean(hoveredFilter && hoveredFilter === item.type);
                 // Individual doc uploads (not the workspace itself) should be subtle "bookmarks"
                 const isPortalUpload = item.type === 'document' && item.metadata && !item.metadata.isDocWorkspace;
 
@@ -5259,6 +6681,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 const dayName = format(itemDate, 'EEE');
                 const dayMonth = format(itemDate, 'd MMM');
                 const time = format(itemDate, 'HH:mm');
+                const hasValidTime = time !== '00:00' && (item.date.includes('T') || item.date.includes(':'));
 
                 const isDayCollapsed = collapsedDays.has(dateKey);
                 const isFirstOfDay = !renderedDays.has(dateKey);
@@ -5378,12 +6801,16 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                 style={{
                                   display: 'inline-flex',
                                   alignItems: 'center',
-                                  gap: '4px',
+                                  gap: '5px',
                                   fontSize: '10px',
                                   color: getTypeColor(type as CommunicationType),
                                 }}
                               >
-                                {getTypeIcon(type as CommunicationType)}
+                                <span style={getTypeCategoryStyle(type as CommunicationType)}>
+                                  <span style={{ fontSize: 9, lineHeight: 1, display: 'flex' }}>
+                                    {getTypeIcon(type as CommunicationType)}
+                                  </span>
+                                </span>
                                 <span style={{ opacity: 0.8 }}>{count}</span>
                               </span>
                             ))}
@@ -5407,17 +6834,43 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 if (isDayCollapsed && !isFirstOfDay) {
                   return null;
                 }
+                
+                // Check if this is the first pitch item (for jump link)
+                const isFirstPitch = item.type === 'pitch' && !sortedItems.slice(0, index).some(i => i.type === 'pitch');
+                
+                // Check if this item needs attention (unanswered inbound email)
+                const needsAttention = item.type === 'email' && item.metadata?.direction === 'inbound' && item.actionRequired;
               
               return (
                 <div
                   key={item.id}
-                  className="helix-timeline-item-in"
-                  id={`timeline-item-${item.id}`}
+                  className={`helix-timeline-item-in ${focusedTimelineIndex === index ? 'helix-timeline-focus' : ''} ${needsAttention ? 'helix-attention-pulse' : ''}`}
+                  id={isFirstPitch ? 'first-pitch-item' : `timeline-item-${item.id}`}
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'ArrowDown' && index < allItems.length - 1) {
+                      e.preventDefault();
+                      setFocusedTimelineIndex(index + 1);
+                      document.getElementById(`timeline-item-${allItems[index + 1].id}`)?.focus();
+                    } else if (e.key === 'ArrowUp' && index > 0) {
+                      e.preventDefault();
+                      setFocusedTimelineIndex(index - 1);
+                      document.getElementById(`timeline-item-${allItems[index - 1].id}`)?.focus();
+                    } else if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setSelectedItem(isExpanded ? null : item);
+                    } else if (e.key === 'Escape' && isExpanded) {
+                      e.preventDefault();
+                      setSelectedItem(null);
+                    }
+                  }}
+                  onFocus={() => setFocusedTimelineIndex(index)}
+                  onBlur={() => setFocusedTimelineIndex(-1)}
                   style={{
                     position: 'relative',
                     marginBottom: index < allItems.length - 1 ? '16px' : '0',
-                    opacity: isDimmed ? 0.3 : 1,
-                    transition: 'opacity 0.2s ease',
+                    outline: 'none',
+                    transition: 'margin 0.2s ease',
                   }}
                 >
                   {/* Date badge (left column) - clickable to fold this day */}
@@ -5506,31 +6959,61 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                     marginLeft: isPortalUpload ? '1px' : '0px',
                   }} />
 
-                  {/* Expandable item */}
-                  <div style={{
+                  {/* Expandable item with hover effect */}
+                  <div 
+                    className="helix-timeline-card"
+                    style={{
                     background: isExpanded
                       ? isDarkMode ? 'rgba(125, 211, 252, 0.06)' : 'rgba(54, 144, 206, 0.04)'
-                      : 'transparent',
+                      : isHoveredMatch
+                        ? (isDarkMode ? 'rgba(56, 189, 248, 0.05)' : 'rgba(56, 189, 248, 0.04)')
+                        : 'transparent',
                     border: isExpanded
                       ? `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.3)' : 'rgba(54, 144, 206, 0.2)'}`
-                      : isPortalUpload
-                        ? `1px dashed ${isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.15)'}`
-                        : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.1)'}`,
+                      : isHoveredMatch
+                        ? `1px solid ${isDarkMode ? 'rgba(56, 189, 248, 0.35)' : 'rgba(56, 189, 248, 0.3)'}`
+                        : isPortalUpload
+                          ? `1px dashed ${isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.15)'}`
+                          : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.1)'}`,
                     borderLeft: isExpanded
                       ? `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.3)' : 'rgba(54, 144, 206, 0.2)'}`
                       : isPortalUpload
                         ? `1px dashed ${isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.15)'}`
                         : item.type === 'email' && item.metadata?.direction === 'inbound'
-                          ? isDarkMode ? '2px solid rgba(74, 222, 128, 0.4)' : '2px solid rgba(34, 197, 94, 0.35)'
+                          ? isDarkMode ? '3px solid rgba(74, 222, 128, 0.6)' : '3px solid rgba(34, 197, 94, 0.5)'
                           : item.type === 'email' && item.metadata?.direction === 'outbound'
-                            ? isDarkMode ? '2px solid rgba(125, 211, 252, 0.4)' : '2px solid rgba(54, 144, 206, 0.35)'
-                            : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.1)'}`,
-                    borderRadius: '6px',
+                            ? isDarkMode ? '3px solid rgba(125, 211, 252, 0.6)' : '3px solid rgba(54, 144, 206, 0.5)'
+                            : item.type === 'call' && item.metadata?.direction === 'inbound'
+                              ? isDarkMode ? '3px solid rgba(74, 222, 128, 0.6)' : '3px solid rgba(34, 197, 94, 0.5)'
+                              : item.type === 'call' && item.metadata?.direction === 'outbound'
+                                ? isDarkMode ? '3px solid rgba(125, 211, 252, 0.6)' : '3px solid rgba(54, 144, 206, 0.5)'
+                                : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.1)'}`,
+                    borderRadius: '8px',
                     padding: isPortalUpload ? '6px 10px' : '10px 12px',
                     marginLeft: '-8px',
-                    transition: 'all 0.15s',
+                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                     opacity: isPortalUpload && !isExpanded ? 0.65 : 1,
-                  }}>
+                    transform: 'translateX(0)',
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isExpanded) {
+                      e.currentTarget.style.transform = 'translateX(4px)';
+                      e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.04)' : 'rgba(148, 163, 184, 0.03)';
+                      e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.18)';
+                      e.currentTarget.style.boxShadow = isDarkMode ? '0 2px 8px rgba(0, 0, 0, 0.2)' : '0 2px 8px rgba(0, 0, 0, 0.06)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isExpanded) {
+                      e.currentTarget.style.transform = 'translateX(0)';
+                      e.currentTarget.style.background = 'transparent';
+                      e.currentTarget.style.borderColor = isPortalUpload 
+                        ? (isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.15)')
+                        : (isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.1)');
+                      e.currentTarget.style.boxShadow = 'none';
+                    }
+                  }}
+                  >
                     {/* Header - clickable */}
                     <div
                       onClick={() => setSelectedItem(isExpanded ? null : item)}
@@ -5549,15 +7032,19 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                           fontWeight: isPortalUpload ? 500 : 600,
                           color: isPortalUpload
                             ? (isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(15, 23, 42, 0.55)')
-                            : (isDarkMode ? colours.dark.text : colours.light.text),
+                            : isExpanded
+                              ? (isDarkMode ? colours.accent : colours.highlight)
+                              : (isDarkMode ? colours.dark.text : colours.light.text),
                           marginBottom: isPortalUpload ? '2px' : '4px',
                           display: 'flex',
                           alignItems: 'center',
                           gap: '8px',
                         }}>
                           {!isPortalUpload && (
-                            <span style={{ color: typeColor }}>
-                              {getItemTypeIcon(item)}
+                            <span style={{ ...getTypeCategoryStyle(item.type, isExpanded), color: isExpanded ? (isDarkMode ? colours.accent : colours.highlight) : typeColor }}>
+                              <span style={{ fontSize: 10, lineHeight: 1, display: 'flex' }}>
+                                {getItemTypeIcon(item)}
+                              </span>
                             </span>
                           )}
                           {isPortalUpload && (
@@ -5568,20 +7055,22 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                               📎
                             </span>
                           )}
-                          {item.type === 'email' && item.metadata?.direction && (
+                          {(item.type === 'email' || item.type === 'call') && item.metadata?.direction && (
                             <span style={{
                               fontSize: '9px',
                               padding: '2px 6px',
                               borderRadius: '4px',
-                              fontWeight: 500,
+                              fontWeight: 600,
+                              display: 'inline-flex',
+                              alignItems: 'center',
                               background: item.metadata.direction === 'inbound'
-                                ? isDarkMode ? 'rgba(74, 222, 128, 0.12)' : 'rgba(34, 197, 94, 0.1)'
-                                : isDarkMode ? 'rgba(125, 211, 252, 0.12)' : 'rgba(54, 144, 206, 0.1)',
+                                ? isDarkMode ? 'rgba(74, 222, 128, 0.15)' : 'rgba(34, 197, 94, 0.12)'
+                                : isDarkMode ? 'rgba(125, 211, 252, 0.15)' : 'rgba(54, 144, 206, 0.12)',
                               color: item.metadata.direction === 'inbound'
                                 ? isDarkMode ? '#4ADE80' : '#16A34A'
                                 : isDarkMode ? '#7DD3FC' : '#0284C7',
                             }}>
-                              {item.metadata.direction === 'inbound' ? '← In' : 'Out →'}
+                              {item.metadata.direction === 'inbound' ? 'In' : 'Out'}
                             </span>
                           )}
                           {item.type === 'document' && item.metadata?.isDocWorkspace && (
@@ -5634,7 +7123,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  const workspaceItem = timeline.find((t) => t.type === 'document' && Boolean(t.metadata?.isDocWorkspace));
+                                  const workspaceItem = scopedTimeline.find((t) => t.type === 'document' && Boolean(t.metadata?.isDocWorkspace));
                                   if (workspaceItem) {
                                     setSelectedItem(workspaceItem);
                                     const el = document.getElementById(`timeline-item-${workspaceItem.id}`);
@@ -5657,12 +7146,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                             </>
                           ) : (
                             <>
-                              <span>{format(itemDate, 'd MMM yyyy, HH:mm')}</span>
                               {item.createdBy && (
-                                <>
-                                  <span>•</span>
-                                  <span>{item.createdBy}</span>
-                                </>
+                                <span>{item.createdBy}</span>
                               )}
                             </>
                           )}
@@ -6281,6 +7766,38 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                               Use this link to collect payment outside of Helix Hub.
                             </span>
                           </div>
+                        ) : isStageType(item.type) ? (
+                          /* Stage types: show standardised data bar */
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {item.stageStatus && (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span style={{
+                                  fontSize: '10px',
+                                  fontWeight: 700,
+                                  textTransform: 'uppercase',
+                                  letterSpacing: '0.3px',
+                                  padding: '3px 8px',
+                                  borderRadius: '2px',
+                                  background: getStageStatusColor(item.stageStatus).bg,
+                                  color: getStageStatusColor(item.stageStatus).text,
+                                  border: `1px solid ${getStageStatusColor(item.stageStatus).border}`,
+                                }}>
+                                  {item.stageStatus}
+                                </span>
+                              </div>
+                            )}
+                            {renderStageDataBar(item)}
+                            {item.content && (
+                              <div style={{
+                                marginTop: '4px',
+                                fontSize: '11px',
+                                color: isDarkMode ? 'rgba(148, 163, 184, 0.75)' : 'rgba(100, 116, 139, 0.8)',
+                                fontStyle: 'italic',
+                              }}>
+                                {item.content}
+                              </div>
+                            )}
+                          </div>
                         ) : (
                           <div style={{ 
                             color: isDarkMode ? 'rgba(226, 232, 240, 0.4)' : 'rgba(15, 23, 42, 0.4)',
@@ -6300,28 +7817,25 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                 setShowForwardDialog(true);
                               }}
                               style={{
-                                padding: '6px 12px',
-                                fontSize: '11px',
+                                padding: 0,
+                                fontSize: '10px',
                                 fontWeight: 600,
-                                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.2)'}`,
-                                borderRadius: '2px',
-                                background: isDarkMode ? 'rgba(7, 16, 32, 0.6)' : 'rgba(255, 255, 255, 0.8)',
-                                color: isDarkMode ? 'rgba(226, 232, 240, 0.8)' : 'rgba(15, 23, 42, 0.7)',
+                                border: 'none',
+                                background: 'transparent',
+                                color: isDarkMode ? 'rgba(148, 163, 184, 0.85)' : 'rgba(100, 116, 139, 0.8)',
                                 cursor: 'pointer',
-                                transition: 'all 0.2s',
+                                transition: 'color 0.2s ease, opacity 0.2s ease',
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.04em',
                               }}
                               onMouseEnter={(e) => {
-                                e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)';
-                                e.currentTarget.style.borderColor = colours.highlight;
                                 e.currentTarget.style.color = colours.highlight;
                               }}
                               onMouseLeave={(e) => {
-                                e.currentTarget.style.background = isDarkMode ? 'rgba(7, 16, 32, 0.6)' : 'rgba(255, 255, 255, 0.8)';
-                                e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.2)';
-                                e.currentTarget.style.color = isDarkMode ? 'rgba(226, 232, 240, 0.8)' : 'rgba(15, 23, 42, 0.7)';
+                                e.currentTarget.style.color = isDarkMode ? 'rgba(148, 163, 184, 0.85)' : 'rgba(100, 116, 139, 0.8)';
                               }}
                             >
-                              Forward to myself →
+                              Forward
                             </button>
                           </div>
                         )}
@@ -6402,20 +7916,6 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                             </button>
                           </div>
                         )}
-                        
-                        {/* InlineWorkbench for Pitches - replaces old status chips */}
-                        {item.type === 'pitch' && inlineWorkbenchItem && (
-                          <div style={{ marginTop: '16px', paddingTop: '12px', borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)'}` }}>
-                            <InlineWorkbench
-                              item={{ ...(inlineWorkbenchItem ?? {}), enquiry, pitch: item }}
-                              isDarkMode={isDarkMode}
-                              enableContextStageChips={true}
-                              contextStageKeys={['instructed']}
-                            />
-                          </div>
-                        )}
-                        {/* Fallback to old status chips if no instruction data */}
-                        {item.type === 'pitch' && !inlineWorkbenchItem && renderInstructionStatus(item.id)}
                       </div>
                     )}
                   </div>
@@ -6427,7 +7927,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         ) : null}
 
         {/* Empty state when no timeline items */}
-        {timeline.length === 0 && (
+        {scopedTimeline.length === 0 && (
           <div style={{
             padding: '20px',
             textAlign: 'center',
@@ -6437,7 +7937,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             No activity yet
           </div>
         )}
-      </SectionCard>
+      </div>
 
       {/* Resources & Actions */}
       {showResourcesConcept && (
@@ -6552,16 +8052,13 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               <span>Email</span>
             </button>
             <button
-              onClick={() => copyToClipboard(enquiry.Email || '', 'Email')}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleCopy(enquiry.Email || '', 'email');
+              }}
               disabled={!enquiry.Email}
-              title={enquiry.Email ? `Copy: ${enquiry.Email}` : 'Email not available'}
-              aria-label="Copy email"
-              onMouseEnter={(e) => {
-                if (enquiry.Email) e.currentTarget.style.opacity = '1';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.opacity = '0.4';
-              }}
+              title={copiedContact === 'email' ? 'Copied' : (enquiry.Email ? `Copy: ${enquiry.Email}` : 'Email not available')}
+              aria-label={copiedContact === 'email' ? 'Copied email' : 'Copy email'}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -6571,13 +8068,12 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 borderLeft: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.18)'}`,
                 background: 'transparent',
                 cursor: enquiry.Email ? 'pointer' : 'default',
-                color: isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(51, 65, 85, 0.85)',
+                color: copiedContact === 'email' ? '#10B981' : (isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(51, 65, 85, 0.85)'),
                 fontSize: '11px',
-                opacity: 0.4,
-                transition: 'opacity 0.15s ease',
+                opacity: enquiry.Email ? 1 : 0.4,
               }}
             >
-              <FaClipboard size={12} />
+              {copiedContact === 'email' ? <FaCheckCircle size={12} /> : <FaClipboard size={12} />}
             </button>
           </div>
 
@@ -6625,16 +8121,13 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               <span>Call</span>
             </button>
             <button
-              onClick={() => copyToClipboard(enquiry.Phone_Number || '', 'Phone number')}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleCopy(enquiry.Phone_Number || '', 'phone');
+              }}
               disabled={!enquiry.Phone_Number}
-              title={enquiry.Phone_Number ? `Copy: ${enquiry.Phone_Number}` : 'Phone number not available'}
-              aria-label="Copy phone number"
-              onMouseEnter={(e) => {
-                if (enquiry.Phone_Number) e.currentTarget.style.opacity = '1';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.opacity = '0.4';
-              }}
+              title={copiedContact === 'phone' ? 'Copied' : (enquiry.Phone_Number ? `Copy: ${enquiry.Phone_Number}` : 'Phone number not available')}
+              aria-label={copiedContact === 'phone' ? 'Copied phone' : 'Copy phone'}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -6644,13 +8137,12 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 borderLeft: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.18)'}`,
                 background: 'transparent',
                 cursor: enquiry.Phone_Number ? 'pointer' : 'default',
-                color: isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(51, 65, 85, 0.85)',
+                color: copiedContact === 'phone' ? '#10B981' : (isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(51, 65, 85, 0.85)'),
                 fontSize: '11px',
-                opacity: 0.4,
-                transition: 'opacity 0.15s ease',
+                opacity: enquiry.Phone_Number ? 1 : 0.4,
               }}
             >
-              <FaClipboard size={12} />
+              {copiedContact === 'phone' ? <FaCheckCircle size={12} /> : <FaClipboard size={12} />}
             </button>
           </div>
 
@@ -7603,6 +9095,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
           </div>
         </div>
       )}
+      </div>{/* END MAIN CONTENT AREA */}
 
       {/* Document Preview Modal */}
       {previewDocument && previewDocument.metadata && (
@@ -8319,7 +9812,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               padding: '16px 20px',
             }}>
               {(() => {
-                const hiddenItems = timeline.filter((item) => hiddenItemIds.has(item.id));
+                const hiddenItems = scopedTimeline.filter((item) => hiddenItemIds.has(item.id));
                 
                 if (hiddenItems.length === 0) {
                   return (
@@ -8490,16 +9983,6 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         </div>,
         document.body
       )}
-
-      {/* Toast Notifications */}
-      <OperationStatusToast
-        visible={toast !== null}
-        message={toast?.message || ''}
-        type={toast?.type || 'info'}
-        loading={toast?.loading}
-        details={toast?.details}
-        progress={toast?.progress}
-      />
     </div>
   );
 };

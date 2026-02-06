@@ -29,52 +29,90 @@ router.get('/', async (req, res) => {
       const sql = require('mssql');
       const results = {};
 
-      // Fetch Teams activity data for v2 enquiries (by ID)
+      // Fetch Teams activity data for enquiries
+      // TeamsBotActivityTracking.EnquiryId refers to instructions.enquiries.id (new enquiry IDs)
+      // Legacy IDs (from helix-core-data) are stored in instructions.enquiries.acid
+      // So we need to map legacy IDs → new enquiry IDs via acid column
       if (ids.length > 0) {
         const numericIds = ids.filter(id => !isNaN(parseInt(id, 10)));
         
         if (numericIds.length > 0) {
+          // First, map legacy IDs to new enquiry IDs via acid column
           numericIds.forEach((id, index) => {
-            request.input(`teamId${index}`, sql.Int, parseInt(id, 10));
+            request.input(`acid${index}`, sql.VarChar(50), id);
+          });
+          const acidPlaceholders = numericIds.map((_, index) => `@acid${index}`).join(', ');
+          
+          const acidMappingResult = await request.query(`
+            SELECT id, acid FROM [instructions].[dbo].[enquiries] 
+            WHERE acid IN (${acidPlaceholders})
+          `);
+          
+          // Build a map: legacyId → newEnquiryId
+          const acidToNewId = {};
+          acidMappingResult.recordset.forEach(row => {
+            if (row.acid && row.id) {
+              acidToNewId[row.acid] = row.id;
+            }
           });
 
-          const teamsPlaceholders = numericIds.map((_, index) => `@teamId${index}`).join(', ');
-          
-          const teamsResult = await request.query(`
-            SELECT 
-              Id,
-              ActivityId,
-              ChannelId,
-              TeamId,
-              EnquiryId,
-              LeadName,
-              Email,
-              Phone,
-              CardType,
-              MessageTimestamp,
-              TeamsMessageId,
-              DATEDIFF_BIG(MILLISECOND, '1970-01-01', CreatedAt) AS CreatedAtMs,
-              Stage,
-              Status,
-              ClaimedBy,
-              ClaimedAt,
-              CreatedAt,
-              UpdatedAt
-            FROM [instructions].[dbo].[TeamsBotActivityTracking]
-            WHERE EnquiryId IN (${teamsPlaceholders})
-              AND Status = 'active'
-              AND TeamsMessageId IS NOT NULL
-              AND LEN(ISNULL(TeamsMessageId, '')) > 0
-              AND ISNUMERIC(TeamsMessageId) = 1
-            ORDER BY CreatedAt DESC
-          `);
+          // Collect all IDs to query (both mapped new IDs and original IDs)
+          const allIdsToQuery = new Set();
+          numericIds.forEach(id => {
+            allIdsToQuery.add(parseInt(id, 10));
+            if (acidToNewId[id]) {
+              allIdsToQuery.add(acidToNewId[id]);
+            }
+          });
 
-          // Process Teams data
-          teamsResult.recordset.forEach(row => {
-            const enquiryId = row.EnquiryId?.toString();
-            if (enquiryId) {
-              if (!results[enquiryId]) results[enquiryId] = {};
-              results[enquiryId].teamsData = {
+          const allIdsArray = Array.from(allIdsToQuery);
+          if (allIdsArray.length > 0) {
+            allIdsArray.forEach((id, index) => {
+              request.input(`id${index}`, sql.Int, id);
+            });
+            const teamsPlaceholders = allIdsArray.map((_, index) => `@id${index}`).join(', ');
+
+            const teamsResult = await request.query(`
+              SELECT 
+                Id,
+                ActivityId,
+                ChannelId,
+                TeamId,
+                EnquiryId,
+                LeadName,
+                Email,
+                Phone,
+                CardType,
+                MessageTimestamp,
+                TeamsMessageId,
+                DATEDIFF_BIG(MILLISECOND, '1970-01-01', CreatedAt) AS CreatedAtMs,
+                Stage,
+                Status,
+                ClaimedBy,
+                ClaimedAt,
+                CreatedAt,
+                UpdatedAt
+              FROM [instructions].[dbo].[TeamsBotActivityTracking]
+              WHERE EnquiryId IN (${teamsPlaceholders})
+                AND Status = 'active'
+                AND TeamsMessageId IS NOT NULL
+                AND LEN(ISNULL(TeamsMessageId, '')) > 0
+                AND ISNUMERIC(TeamsMessageId) = 1
+              ORDER BY CreatedAt DESC
+            `);
+
+            // Build reverse map: newEnquiryId → legacyId (for result keying)
+            const newIdToAcid = {};
+            Object.entries(acidToNewId).forEach(([acid, newId]) => {
+              newIdToAcid[newId] = acid;
+            });
+
+            // Process Teams data - key by BOTH the new enquiry ID and the legacy ID if applicable
+            teamsResult.recordset.forEach(row => {
+              const newEnquiryId = row.EnquiryId?.toString();
+              const legacyId = newIdToAcid[row.EnquiryId];
+              
+              const teamsDataObj = {
                 ...row,
                 Phone: row.Phone || '',
                 ClaimedBy: row.ClaimedBy || '',
@@ -87,8 +125,24 @@ router.get('/', async (req, res) => {
                   row.CreatedAtMs
                 )
               };
-            }
-          });
+              
+              // Key by new enquiry ID (keep newest only)
+              if (newEnquiryId) {
+                if (!results[newEnquiryId]) results[newEnquiryId] = {};
+                if (!results[newEnquiryId].teamsData) {
+                  results[newEnquiryId].teamsData = teamsDataObj;
+                }
+              }
+              
+              // Also key by legacy ID if mapping exists (keep newest only)
+              if (legacyId) {
+                if (!results[legacyId]) results[legacyId] = {};
+                if (!results[legacyId].teamsData) {
+                  results[legacyId].teamsData = teamsDataObj;
+                }
+              }
+            });
+          }
         }
       }
 
@@ -240,6 +294,7 @@ router.get('/', async (req, res) => {
 
 /**
  * Generate Teams deep link using the message's creation timestamp (epoch ms).
+ * MS Docs: https://learn.microsoft.com/en-us/microsoftteams/platform/concepts/build-and-test/deep-link-teams
  */
 function generateTeamsDeepLink(channelId, activityId, teamId, teamsMessageId, createdAtMs) {
   const tenantId = "7fbc252f-3ce5-460f-9740-4e1cb8bf78b8";
@@ -249,15 +304,12 @@ function generateTeamsDeepLink(channelId, activityId, teamId, teamsMessageId, cr
     return null;
   }
 
-  // Use the precise TeamsMessageId that preserves exact millisecond timestamp
+  // Teams deep links use epoch millisecond timestamps as messageId
   let messageId;
-  
-  if (teamsMessageId && teamsMessageId > 1640995200000) { // After Jan 1, 2022
+  if (teamsMessageId && teamsMessageId > 1640995200000) {
     messageId = teamsMessageId;
-  } else if (createdAtMs) {
-    messageId = createdAtMs - 500;
-  } else {
-    messageId = activityId;
+  } else if (createdAtMs && createdAtMs > 1640995200000) {
+    messageId = createdAtMs;
   }
   
   if (!messageId) {

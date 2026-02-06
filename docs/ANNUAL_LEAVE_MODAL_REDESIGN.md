@@ -60,7 +60,7 @@ Created two new streamlined components:
 
 ## API Endpoints Tested
 
-Created `scripts/test-annual-leave-api.mjs` for comprehensive endpoint validation:
+Endpoints validated via manual checks:
 
 ### Endpoints
 1. **POST /api/attendance/getAnnualLeave** - Get user leave data ✅
@@ -164,7 +164,7 @@ Both components now follow the app's design system:
 
 1. ✅ Create new modal component
 2. ✅ Create new history component  
-3. ✅ Create API test script
+3. ✅ Verify API endpoints
 4. ⏳ Update parent components to use new imports
 5. ⏳ Test in development environment
 6. ⏳ Remove old AnnualLeaveForm.tsx (after verification)
@@ -175,7 +175,6 @@ Both components now follow the app's design system:
 
 - `src/CustomForms/AnnualLeaveModal.tsx` - New request form (400 lines)
 - `src/CustomForms/AnnualLeaveHistory.tsx` - History view (350 lines)
-- `scripts/test-annual-leave-api.mjs` - API test suite
 - `docs/ANNUAL_LEAVE_MODAL_REDESIGN.md` - This documentation
 
 ## Files to Update

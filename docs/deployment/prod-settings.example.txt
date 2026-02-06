@@ -1,0 +1,40 @@
+# Production app settings reference (example)
+#
+# Values intentionally omitted. Use Azure App Settings and/or Key Vault.
+# Keep real production values out of git.
+
+APPLICATIONINSIGHTS_CONNECTION_STRING=
+ApplicationInsightsAgent_EXTENSION_VERSION=
+
+KEY_VAULT_URL=https://<your-key-vault>.vault.azure.net/
+
+# Databases
+SQL_CONNECTION_STRING=
+INSTRUCTIONS_SQL_CONNECTION_STRING=
+
+# SQL client tuning
+SQL_CONNECTION_TIMEOUT_MS=60000
+SQL_POOL_MIN=5
+SQL_POOL_MAX=50
+SQL_POOL_IDLE_TIMEOUT_MS=600000
+SQL_REQUEST_TIMEOUT_MS=600000
+
+# Site/runtime
+WEBSITE_HTTPLOGGING_RETENTION_DAYS=3
+WEBSITE_NODE_DEFAULT_VERSION=~20
+
+# App Insights (classic extensions)
+XDT_MicrosoftApplicationInsights_Mode=default
+XDT_MicrosoftApplicationInsights_NodeJS=
+
+# Analytics / marketing (examples)
+CALLRAIL_ACCOUNT_ID=
+GA4_PROPERTY_ID=
+GA4_SERVICE_ACCOUNT_SECRET=
+GOOGLE_ADS_CUSTOMER_ID=
+GOOGLE_ADS_LOGIN_CUSTOMER_ID=
+GOOGLE_ADS_CLIENT_ID_SECRET=
+GOOGLE_ADS_CLIENT_SECRET_SECRET=
+GOOGLE_ADS_DEVELOPER_TOKEN_SECRET=
+GOOGLE_ADS_REFRESH_TOKEN_SECRET=
+

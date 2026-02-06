@@ -167,6 +167,8 @@ const ResourceCard: React.FC<ResourceCardProps> = React.memo(
     animationDelay = 0,
   }) => {
     const { isDarkMode } = useTheme();
+    const resourcesWithOperations = new Set(['Asana', 'Clio', 'Azure', 'NetDocuments']);
+    const hasOperations = resourcesWithOperations.has(resource.title);
 
     const isCustomIcon = resource.icon.endsWith('.svg');
 
@@ -228,6 +230,36 @@ const ResourceCard: React.FC<ResourceCardProps> = React.memo(
                 )
               )}
               <Text className={resourceTitleStyle}>{resource.title}</Text>
+              {hasOperations && (
+                <TooltipHost content="Has operations" id={`tooltip-ops-${resource.title}`}>
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      padding: '2px 6px',
+                      borderRadius: 999,
+                      border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.3)' : 'rgba(15,23,42,0.12)'}`,
+                      color: isDarkMode ? 'rgba(226,232,240,0.8)' : 'rgba(30,41,59,0.7)',
+                      fontSize: 10,
+                      fontWeight: 600,
+                      letterSpacing: 0.2,
+                      lineHeight: 1,
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: 6,
+                        height: 6,
+                        borderRadius: '50%',
+                        background: isDarkMode ? 'rgba(96,165,250,0.7)' : 'rgba(37,99,235,0.6)',
+                        boxShadow: isDarkMode ? '0 0 6px rgba(96,165,250,0.35)' : 'none',
+                      }}
+                    />
+                    Ops
+                  </span>
+                </TooltipHost>
+              )}
             </div>
 
             {/* Tabs Container */}

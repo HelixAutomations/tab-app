@@ -174,6 +174,13 @@ interface EnquiryLineItemProps {
    * Number of documents uploaded for this enquiry (if available)
    */
   documentCount?: number;
+  workbenchHandlers?: {
+    onDocumentPreview?: (doc: any) => void;
+    onOpenRiskAssessment?: (instruction: any) => void;
+    onOpenMatter?: (instruction: any) => void;
+    onTriggerEID?: (instructionRef: string) => void | Promise<void>;
+    onOpenIdReview?: (instructionRef: string) => void;
+  };
 }
 
 const formatCurrency = (value: string): string => {
@@ -222,6 +229,7 @@ const EnquiryLineItem: React.FC<EnquiryLineItemProps> = ({
   promotionStatus = null,
   teamsActivityData = null,
   documentCount = 0,
+  workbenchHandlers,
 }) => {
   const { isDarkMode } = useTheme();
   const hasNotes = Boolean(enquiry.Initial_first_call_notes && enquiry.Initial_first_call_notes.trim().length > 0);
@@ -1197,6 +1205,11 @@ const EnquiryLineItem: React.FC<EnquiryLineItemProps> = ({
                 item={inlineWorkbenchItem}
                 isDarkMode={isDarkMode}
                 enableContextStageChips={true}
+                onDocumentPreview={workbenchHandlers?.onDocumentPreview}
+                onTriggerEID={workbenchHandlers?.onTriggerEID}
+                onOpenIdReview={workbenchHandlers?.onOpenIdReview}
+                onOpenMatter={workbenchHandlers?.onOpenMatter}
+                onOpenRiskAssessment={workbenchHandlers?.onOpenRiskAssessment}
                 onClose={() => setNotesExpanded(false)}
                 teamData={teamData}
               />

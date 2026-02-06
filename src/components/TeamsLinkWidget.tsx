@@ -1,4 +1,5 @@
 import React from 'react';
+import { app } from '@microsoft/teams-js';
 import { Icon } from '@fluentui/react';
 import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { useTheme } from '../app/functionality/ThemeContext';
@@ -49,18 +50,79 @@ const TeamsLinkWidget: React.FC<TeamsLinkWidgetProps> = ({
   };
 
   // No hardcoded test links; rely on API-provided teamsLink when available
+  // If teamsLink is missing but we have ChannelId/TeamId, construct one
+  const constructTeamsLink = (): string | null => {
+    if (effectiveData.teamsLink) return effectiveData.teamsLink;
+    
+    // Need channelId and teamId at minimum
+    if (!effectiveData.ChannelId || !effectiveData.TeamId) return null;
+    
+    const tenantId = '7fbc252f-3ce5-460f-9740-4e1cb8bf78b8';
+    
+    const resolveMessageId = (value: unknown): string | null => {
+      if (!value) return null;
+      if (typeof value === 'number' && value > 1640995200000) return String(value);
+      const raw = String(value).trim();
+      if (!raw) return null;
+      if (raw.startsWith('0:')) {
+        const tail = raw.split(':')[1];
+        if (tail && /^\d{13,}$/.test(tail)) return tail;
+      }
+      const match = raw.match(/\d{13,}/);
+      if (match) return match[0];
+      return null;
+    };
+
+    // Try to get messageId from various sources (epoch ms timestamp)
+    let messageId: string | null = null;
+    if ((effectiveData as any).TeamsMessageId) {
+      messageId = resolveMessageId((effectiveData as any).TeamsMessageId);
+    }
+    if (!messageId && (effectiveData as any).ActivityId) {
+      messageId = resolveMessageId((effectiveData as any).ActivityId);
+    }
+    if (!messageId && effectiveData.MessageTimestamp) {
+      const d = new Date(effectiveData.MessageTimestamp);
+      if (!isNaN(d.getTime())) messageId = String(d.getTime());
+    }
+    if (!messageId && (effectiveData as any).CreatedAtMs) {
+      messageId = resolveMessageId((effectiveData as any).CreatedAtMs);
+    }
+    
+    if (!messageId) return null;
+
+    const channelId = encodeURIComponent(effectiveData.ChannelId);
+    const encMessageId = encodeURIComponent(messageId);
+
+    const query = new URLSearchParams({
+      tenantId,
+      groupId: effectiveData.TeamId,
+      parentMessageId: messageId,
+      createdTime: messageId,
+    });
+
+    return `https://teams.microsoft.com/l/message/${channelId}/${encMessageId}?${query.toString()}`;
+  };
+  
+  const resolvedTeamsLink = constructTeamsLink();
 
   const handleClick = (e: React.MouseEvent<any>) => {
     e.stopPropagation();
-    
-    if (effectiveData.teamsLink) {
-      // Open the specific Teams conversation
-      window.open(effectiveData.teamsLink, '_blank');
-    } else {
-      // No specific Teams link - just open Teams web app
-      const teamsWebUrl = 'https://teams.microsoft.com/';
-      window.open(teamsWebUrl, '_blank');
+
+    const openUrl = async (url: string) => {
+      try {
+        await app.openLink(url);
+      } catch {
+        window.open(url, '_blank');
+      }
+    };
+
+    if (resolvedTeamsLink) {
+      void openUrl(resolvedTeamsLink);
+      return;
     }
+
+    void openUrl('https://teams.microsoft.com/');
   };
 
   const statusColor = getActivityStatusColor(effectiveData.Stage, isDarkMode);
@@ -115,9 +177,9 @@ const TeamsLinkWidget: React.FC<TeamsLinkWidgetProps> = ({
     boxShadow: `0 0 0 2px ${statusColor}30`,
   });
 
-  const tooltipText = effectiveData.teamsLink 
-    ? `Open Teams conversation • Stage: ${effectiveData.Stage}`
-    : `Open Teams app`;
+  const tooltipText = resolvedTeamsLink 
+    ? `Open Teams card • Stage: ${effectiveData.Stage}`
+    : `Teams activity tracked (no direct link available)`;
 
   return (
     <button

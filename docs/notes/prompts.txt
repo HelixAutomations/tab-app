@@ -1,0 +1,63 @@
+add a notes/whiteboard component in the pitch builder to assist users wwhen drafting follow up emails with clients but dont store it in db only the session cache.
+this is so they go out and back into pitch builder the notes remain. after refresh they can clear.
+also add an option to call prospect from the pitch builder, there is a option to copy email and phone but not call, so the user has to come out.
+
+add better way to see technical details report data. 
+
+===
+
+pitch builder whiteboard
+
+===
+
+when using this the checkoutlink functionality, here is some helpful findable content to help you;
+Checkout link created (no pitch email).
+https://instruct.helix-law.com/pitch/61742
+Copy checkout link
+Use this link to collect payment outside of Helix Hub.
+the text Use this link to collect payment outside of Helix Hub.
+
+ is wrong because this is just like a pitch/collecting instructions and not just payment. in fact, payment links will be separate via stripe. there might already by 'payment link request' functionality or similar, in the inline workbench.
+ this inlink workbench is the one in the clients/old instructions tab. but we've moved all that into the prospect phase and in the timeline under specific pitch, since its all related/connected to that pitch.
+ your task is to test the payment request link functionality works and add it as a functionality in the overview journey timeline, so to be clear, overview tab when clicking into an enquiry, timeline space in there;
+ same as doc request and the checkout link. dont forget to update the checkout link timeline entry/item to reflect that change/tweak.
+
+ when popping out the app in a new teams app window, the home page metrics keep loading in. the problem was resolved normally, but the new window functionality still triggers it. try to find the cause and fix it.
+
+ ==
+
+ pitch builder AMOUNT
+
+ ===
+
+ scenario content not showing till double confirm.
+editor block empty till i reselect.
+
+ ===
+
+ daily app restarts
+
+ ===
+
+ win v enabled for everyone.
+
+ ===
+ 
+ payment on account of costs not estimate or quoer in pitch builder.
+
+===
+
+jonathan annual leave construction only
+
+===
+
+in the top banner with the tabs, overview activities documents comms billing etc, have we already actioned the prod gate? i want all but overview disabled/greyed out with an on brand prompt on hover confirming its not ready and under construction etc but come up with a neat brief form of words. this is just so people dont access and see nothing.
+
+===
+
+now add edit functions to all of the workbench contents for each chip. obviously actualyl changing the underlying data if the user confirms. this must include a neat intake state preview when edit active and include ui feedbbacl/processing cues and toasts etc to reassure the user and make everything clear, what will happen etc.
+
+maybe refer to the clients tab pipeline workbench to see some of the processing and neat toasts and reassuring copy? we need to bring all of those controls over into this space next since that space will be phased out soon, and prospects becomes the bench where actions are actually taken next. but dont remove anything from clients tab yet im just sying, that space has all of the neat content.,
+
+-===
+

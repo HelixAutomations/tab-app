@@ -71,22 +71,14 @@ Implementation reference: [api/src/functions/getAnnualLeave.ts](api/src/function
 ### 1. Identify Changes
 Check `src/tabs/home/RateChangeModal.tsx` for official rate structure.
 
-### 2. Update Scripts
-Use existing scripts in `scripts/`:
-- `updateRates2025.mjs` - Template for helix-core-data
-- `updateRatesInstructions.mjs` - Template for instructions DB
+### 2. Apply Updates
+Use a parameterised SQL session to update both databases.
 
-### 3. Execute Updates
-```bash
-node scripts/updateRates2025.mjs           # helix-core-data
-node scripts/updateRatesInstructions.mjs   # instructions
-```
-
-### 4. Verify
+### 3. Verify
 Query via API: `GET /api/team-data`
 
-### 5. Document
-Create migration record in `database/migrations/`
+### 4. Document
+Record the change in `logs/changelog.md`.
 
 ---
 
@@ -103,4 +95,4 @@ Create migration record in `database/migrations/`
 
 ## Related Migrations
 
-- `010_2025_rate_update.md` - 2025 rate structure, Senior Partner role added
+Removed. Use `logs/changelog.md` for historical notes.

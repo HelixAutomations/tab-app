@@ -236,6 +236,7 @@ interface HomeProps {
   originalAdminUser?: any; // For admin user switching context
   featureToggles?: Record<string, boolean>;
   demoModeEnabled?: boolean;
+  isSwitchingUser?: boolean;
 }
 
 interface QuickLink {
@@ -770,7 +771,7 @@ const CognitoForm: React.FC<{ dataKey: string; dataForm: string }> = ({ dataKey,
 // Home Component
 //////////////////////
 
-const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: providedMatters, instructionData: propInstructionData, onAllMattersFetched, onOutstandingBalancesFetched, onPOID6YearsFetched, onTransactionsFetched, teamData, onBoardroomBookingsFetched, onSoundproofBookingsFetched, isInMatterOpeningWorkflow = false, onImmediateActionsChange, originalAdminUser, featureToggles = {}, demoModeEnabled = false }) => {
+const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: providedMatters, instructionData: propInstructionData, onAllMattersFetched, onOutstandingBalancesFetched, onPOID6YearsFetched, onTransactionsFetched, teamData, onBoardroomBookingsFetched, onSoundproofBookingsFetched, isInMatterOpeningWorkflow = false, onImmediateActionsChange, originalAdminUser, featureToggles = {}, demoModeEnabled = false, isSwitchingUser = false }) => {
   const { isDarkMode, toggleTheme } = useTheme();
   const { setContent } = useNavigatorActions();
   const inTeams = isInTeams();
@@ -1880,6 +1881,7 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
   }, []);
 
   useEffect(() => {
+    if (!useLocalData) return;
     if (enquiries && currentUserEmail) {
       const today = new Date();
       const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -1894,7 +1896,10 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
   prevWeekStart.setHours(0, 0, 0, 0);
     const prevWeekEnd = new Date(prevToday);
       const prevMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-      const prevMonthEnd = new Date(today.getFullYear(), today.getMonth(), 0);
+      const prevMonthEnd = new Date(prevMonthStart);
+      const prevMonthDays = new Date(prevMonthStart.getFullYear(), prevMonthStart.getMonth() + 1, 0).getDate();
+      prevMonthEnd.setDate(Math.min(today.getDate(), prevMonthDays));
+      prevMonthEnd.setHours(23, 59, 59, 999);
 
       // Normalize enquiries data like in Enquiries.tsx
       const normalizedEnquiries = enquiries.map((enq: any) => ({
@@ -2004,7 +2009,7 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
       setPrevEnquiriesWeekToDate(prevWeekCount);
       setPrevEnquiriesMonthToDate(prevMonthCount);
     }
-  }, [enquiries, currentUserEmail, userInitials]);
+  }, [enquiries, currentUserEmail, userInitials, useLocalData]);
 
   // Helper function to derive approvers for annual leave requests based on AOW
   const deriveApproversForPerson = useCallback((personRaw: unknown): string[] => {
@@ -2089,6 +2094,8 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
         setIsLoadingAttendance(true);
         setIsLoadingAnnualLeave(true);
         setIsActionsLoading(true);
+        setIsLoadingWipClio(true);
+        setIsLoadingEnquiryMetrics(true);
         console.log('[parallel-fetch] Firing Promise.all...');
         // Start all requests in parallel
         const [attendanceRes, annualLeaveRes, wipRes, enquiriesRes] = await Promise.all([
@@ -4604,10 +4611,51 @@ const conversionRate = displayEnquiriesMonthToDate
 
   return (
     <div className={containerStyle(isDarkMode)}>
+      <style>{`
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+      `}</style>
       {/* Portal immediate actions to app level */}
       {typeof document !== 'undefined' && document.getElementById('app-level-immediate-actions') && 
         createPortal(appLevelImmediateActions, document.getElementById('app-level-immediate-actions')!)
       }
+
+      {isSwitchingUser && (
+        <div style={{
+          position: 'absolute',
+          top: 12,
+          right: 16,
+          zIndex: 50,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          padding: '10px 14px',
+          borderRadius: 10,
+          background: isDarkMode ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+          border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(148, 163, 184, 0.25)'}`,
+          boxShadow: isDarkMode ? '0 6px 18px rgba(0,0,0,0.35)' : '0 6px 16px rgba(0,0,0,0.08)',
+          pointerEvents: 'none',
+        }}>
+          <div style={{
+            width: 16,
+            height: 16,
+            borderRadius: '50%',
+            border: `2px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.35)' : 'rgba(54, 144, 206, 0.4)'}`,
+            borderTopColor: isDarkMode ? colours.accent : colours.highlight,
+            animation: 'spin 0.8s linear infinite',
+          }} />
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: isDarkMode ? '#E2E8F0' : '#0f172a' }}>
+              Rebuilding your view…
+            </span>
+            <span style={{ fontSize: 11, color: isDarkMode ? 'rgba(148, 163, 184, 0.8)' : 'rgba(100, 116, 139, 0.85)' }}>
+              Recalculating personalised metrics.
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Modern Time Metrics V2 - directly on page background */}
       <div style={{ paddingTop: '16px' }}>
@@ -4621,11 +4669,19 @@ const conversionRate = displayEnquiriesMonthToDate
           { 
             title: 'Conversion Rate', 
             percentage: conversionRate, 
-            isPercentage: true 
+            isPercentage: true,
+            showTrend: false,
+            context: {
+              enquiriesMonthToDate: displayEnquiriesMonthToDate,
+              mattersOpenedMonthToDate: displayMattersOpenedCount,
+              prevEnquiriesMonthToDate: displayPrevEnquiriesMonthToDate,
+            },
           }
         ]}
         enquiryMetricsBreakdown={enquiryMetricsBreakdown}
         isDarkMode={isDarkMode}
+        userEmail={userData?.[0]?.Email || ''}
+        userInitials={userData?.[0]?.Initials || ''}
         onRefresh={handleRefreshTimeMetrics}
         isRefreshing={isRefreshingTimeMetrics}
         isLoading={isLoadingWipClio}

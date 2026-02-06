@@ -1,10 +1,10 @@
-import React, { useMemo, useState, useEffect } from 'react';
-import { Text, SpinnerSize, MessageBar, MessageBarType, IconButton, mergeStyles, Icon } from '@fluentui/react';
+import React, { useMemo, useState, useEffect, useTransition, useDeferredValue, useRef } from 'react';
+import { Text, SpinnerSize, MessageBar, MessageBarType, IconButton, ActionButton, mergeStyles, Icon, Pivot, PivotItem } from '@fluentui/react';
 import ThemedSpinner from '../../components/ThemedSpinner';
 import SegmentedControl from '../../components/filter/SegmentedControl';
 import FilterBanner from '../../components/filter/FilterBanner';
 import EmptyState from '../../components/states/EmptyState';
-import { NormalizedMatter, UserData } from '../../app/functionality/types';
+import { Enquiry, NormalizedMatter, TeamData, UserData } from '../../app/functionality/types';
 import {
   filterMattersByStatus,
   filterMattersByArea,
@@ -18,6 +18,8 @@ import MatterTableView from './MatterTableView';
 import { colours } from '../../app/styles/colours';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { useNavigatorActions } from '../../app/functionality/NavigatorContext';
+import { useToast } from '../../components/feedback/ToastProvider';
+import { checkIsLocalDev } from '../../utils/useIsLocalDev';
 // Debugger removed: MatterApiDebugger was deleted
 
 interface MattersProps {
@@ -25,12 +27,34 @@ interface MattersProps {
   isLoading: boolean;
   error: string | null;
   userData: UserData[] | null;
+  teamData?: TeamData[] | null;
+  enquiries?: Enquiry[] | null;
+  workbenchByInstructionRef?: Map<string, any> | null;
 }
 
-const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }) => {
+type MatterDetailTabKey = 'overview' | 'activities' | 'documents' | 'communications' | 'billing';
+
+const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, teamData, enquiries, workbenchByInstructionRef }) => {
   const { isDarkMode } = useTheme();
   const { setContent } = useNavigatorActions();
+  const { showToast, updateToast, hideToast } = useToast();
   const [selected, setSelected] = useState<NormalizedMatter | null>(null);
+  const [activeDetailTab, setActiveDetailTab] = useState<MatterDetailTabKey>('overview');
+  const [isEnteringDetail, setIsEnteringDetail] = useState<boolean>(false);
+  const detailEnterTimerRef = useRef<number | null>(null);
+  const [overviewData, setOverviewData] = useState<any | null>(null);
+  const [outstandingData, setOutstandingData] = useState<any | null>(null);
+  const [outstandingBalancesList, setOutstandingBalancesList] = useState<any[] | null>(null);
+  const [wipStatus, setWipStatus] = useState<'idle' | 'loading' | 'ready' | 'pending' | 'error'>('idle');
+  const [fundsStatus, setFundsStatus] = useState<'idle' | 'loading' | 'ready' | 'pending' | 'error'>('idle');
+  const [outstandingStatus, setOutstandingStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [auditEnabled, setAuditEnabled] = useState(false);
+  const [auditStatus, setAuditStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [auditData, setAuditData] = useState<Record<string, unknown> | null>(null);
+  const [resolvedClioMatterId, setResolvedClioMatterId] = useState<number | null>(null);
+  const metricsRequestRef = useRef(0);
+  const auditRequestRef = useRef(0);
+  const metricsToastRef = useRef<string | null>(null);
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [activeFilter, setActiveFilter] = useState<string>('Active');
   const [activeAreaFilter, setActiveAreaFilter] = useState<string>('All');
@@ -38,6 +62,17 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
   // Debug inspector removed with MatterApiDebugger
   // Scope & dataset selection
   const [scope, setScope] = useState<'mine' | 'all'>('mine');
+  // Data source toggle: legacy only (default), include new, or new only (vnet_direct)
+  const [dataSourceFilter, setDataSourceFilter] = useState<'legacy' | 'all' | 'new'>('legacy');
+  
+  // Use transition for smoother scope/filter changes
+  const [isPending, startTransition] = useTransition();
+  const deferredScope = useDeferredValue(scope);
+  const deferredDataSourceFilter = useDeferredValue(dataSourceFilter);
+  const deferredActiveFilter = useDeferredValue(activeFilter);
+  const deferredActiveAreaFilter = useDeferredValue(activeAreaFilter);
+  const deferredActiveRoleFilter = useDeferredValue(activeRoleFilter);
+  const deferredSearchTerm = useDeferredValue(searchTerm);
 
   const userRec = userData?.[0] || {};
   const userRecAny = userRec as unknown as Record<string, unknown>;
@@ -48,18 +83,156 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
     userRec.Email ||
     ''
   ).toLowerCase();
+  const userEmail = String(userRec.Email || userRecAny.Email || userRecAny.email || '').trim();
+  const userInitials = String(
+    userRec.Initials || userRecAny.Initials || userRecAny['Initials'] || ''
+  ).trim();
+  const rawEntraId =
+    userRec.EntraID ||
+    userRecAny.EntraID ||
+    userRecAny['Entra ID'] ||
+    userRecAny.entra_id ||
+    userRecAny.entraId ||
+    '';
+  const userEntraId = (typeof rawEntraId === 'string' ? rawEntraId : String(rawEntraId || '')).trim();
+  const resolvedEntraId = useMemo(() => {
+    if (userEntraId && userEntraId !== 'undefined') return userEntraId;
+    const initials = userInitials.toLowerCase();
+    const email = userEmail.toLowerCase();
+    const fullName = userFullName.toLowerCase();
+    const match = (teamData || []).find((member) => {
+      const memberInitials = String(member?.['Initials'] || '').trim().toLowerCase();
+      const memberEmail = String(member?.['Email'] || '').trim().toLowerCase();
+      const memberName = String(member?.['Full Name'] || '').trim().toLowerCase();
+      return (
+        (initials && memberInitials === initials) ||
+        (email && memberEmail === email) ||
+        (fullName && memberName === fullName)
+      );
+    });
+    const teamEntraId = String(match?.['Entra ID'] || '').trim();
+    return teamEntraId || '';
+  }, [userEntraId, userInitials, userEmail, userFullName, teamData]);
   const userRoleRaw = (userRec.Role || userRecAny.role || '').toString().toLowerCase();
   const isAdmin = isAdminUser(userRec || null);
   const userRole = isAdmin ? 'admin' : userRoleRaw;
   const isLocalhost = (typeof window !== 'undefined') && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+  const isProduction = typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'production';
+  const isLocalDev = checkIsLocalDev();
+  const disableFutureTabs = isProduction && !isLocalDev;
+  const disabledTabMessage = 'Coming soon — this area is being prepared.';
 
 
-  // Apply all filters in sequence
+  // Apply all filters in sequence (using deferred values for smooth UI)
+  const mattersWithClient = useMemo(() => {
+    if (!workbenchByInstructionRef) return matters;
+    return matters.map((matter) => {
+      if (matter.clientName && matter.clientName.trim()) return matter;
+      const instructionRef = matter.instructionRef;
+      if (!instructionRef) return matter;
+      const workbenchItem = workbenchByInstructionRef.get(instructionRef);
+      if (!workbenchItem) return matter;
+
+      const instruction = workbenchItem.instruction || workbenchItem.Instruction || null;
+      const clients = Array.isArray(workbenchItem.clients) ? workbenchItem.clients : [];
+      const primaryClient = clients[0] || null;
+
+      const companyName =
+        instruction?.CompanyName ||
+        instruction?.companyName ||
+        primaryClient?.CompanyName ||
+        primaryClient?.companyName ||
+        '';
+      const firstName =
+        instruction?.FirstName ||
+        instruction?.Forename ||
+        primaryClient?.FirstName ||
+        primaryClient?.firstName ||
+        '';
+      const lastName =
+        instruction?.LastName ||
+        instruction?.Surname ||
+        primaryClient?.LastName ||
+        primaryClient?.lastName ||
+        '';
+      const personName = `${firstName} ${lastName}`.trim();
+      const resolvedName =
+        companyName ||
+        personName ||
+        instruction?.ClientName ||
+        instruction?.client_name ||
+        primaryClient?.ClientName ||
+        primaryClient?.client_name ||
+        matter.clientName ||
+        '';
+
+      const resolvedClientId =
+        matter.clientId ||
+        instruction?.ClientId ||
+        instruction?.clientId ||
+        primaryClient?.ClientId ||
+        primaryClient?.clientId ||
+        '';
+      const resolvedEmail =
+        matter.clientEmail ||
+        instruction?.Email ||
+        instruction?.ClientEmail ||
+        instruction?.EmailAddress ||
+        instruction?.Email_Address ||
+        instruction?.client_email ||
+        instruction?.email ||
+        primaryClient?.Email ||
+        primaryClient?.ClientEmail ||
+        primaryClient?.email ||
+        primaryClient?.email_address ||
+        '';
+      const resolvedPhone =
+        matter.clientPhone ||
+        instruction?.Phone ||
+        instruction?.ClientPhone ||
+        instruction?.Phone_Number ||
+        instruction?.phone_number ||
+        instruction?.phone ||
+        primaryClient?.Phone ||
+        primaryClient?.ClientPhone ||
+        primaryClient?.phone ||
+        primaryClient?.phone_number ||
+        '';
+      const resolvedPracticeArea =
+        matter.practiceArea ||
+        instruction?.PracticeArea ||
+        instruction?.practice_area ||
+        instruction?.AreaOfWork ||
+        instruction?.Area_of_Work ||
+        instruction?.area ||
+        primaryClient?.PracticeArea ||
+        primaryClient?.practice_area ||
+        primaryClient?.AreaOfWork ||
+        primaryClient?.Area_of_Work ||
+        '';
+
+      return {
+        ...matter,
+        clientName: resolvedName,
+        clientId: resolvedClientId || matter.clientId,
+        clientEmail: resolvedEmail || matter.clientEmail,
+        clientPhone: resolvedPhone || matter.clientPhone,
+        practiceArea: resolvedPracticeArea || matter.practiceArea,
+      };
+    });
+  }, [matters, workbenchByInstructionRef]);
+
   const filtered = useMemo(() => {
-    let result = matters;
+    let result = mattersWithClient;
 
     // Decide dataset and scope to construct allowed sources
-    const allowedSources = new Set<string>(['legacy_all', 'legacy_user', 'vnet_direct']);
+    const allowedSources = new Set<string>(
+      deferredDataSourceFilter === 'new'
+        ? ['vnet_direct']
+        : deferredDataSourceFilter === 'all'
+          ? ['legacy_all', 'legacy_user', 'vnet_direct']
+          : ['legacy_all', 'legacy_user']
+    );
     if (allowedSources.size > 0) {
       result = result.filter((m) => allowedSources.has(m.dataSource));
     } else {
@@ -68,37 +241,37 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
     }
 
     // Apply admin filter next
-  // - If scope is 'all' and user is admin => show everyone
-  // - Otherwise => show only user's matters
-  const effectiveShowEveryone = scope === 'all' && isAdmin;
-  result = applyAdminFilter(result, effectiveShowEveryone, userFullName || '', userRole || '');
+    // - If scope is 'all' => show everyone
+    // - Otherwise => show only user's matters
+    const effectiveShowEveryone = deferredScope === 'all';
+    result = applyAdminFilter(result, effectiveShowEveryone, userFullName || '', userRole || '');
 
     // For New data + Mine, restrict to Responsible solicitor only
 
     // Apply status filter
     // Admin-only extra option: 'Matter Requests' filters by originalStatus === 'MatterRequest'
-    if (activeFilter === 'Matter Requests') {
+    if (deferredActiveFilter === 'Matter Requests') {
       result = result.filter(m => (m.originalStatus || '').toLowerCase() === 'matterrequest');
-    } else if (activeFilter !== 'All') {
-      result = filterMattersByStatus(result, activeFilter.toLowerCase() as any);
+    } else if (deferredActiveFilter !== 'All') {
+      result = filterMattersByStatus(result, deferredActiveFilter.toLowerCase() as any);
     } else {
     }
 
     // Apply area filter
-    result = filterMattersByArea(result, activeAreaFilter);
+    result = filterMattersByArea(result, deferredActiveAreaFilter);
 
-    // Apply role filter (skip when admin is viewing All scope)
-    const shouldApplyRoleFilter = !(isAdmin && scope === 'all');
-    if (activeRoleFilter !== 'All' && shouldApplyRoleFilter) {
-      const allowedRoles = activeRoleFilter === 'Responsible' ? ['responsible'] :
-                          activeRoleFilter === 'Originating' ? ['originating'] :
+    // Apply role filter (skip when viewing All scope)
+    const shouldApplyRoleFilter = deferredScope !== 'all';
+    if (deferredActiveRoleFilter !== 'All' && shouldApplyRoleFilter) {
+      const allowedRoles = deferredActiveRoleFilter === 'Responsible' ? ['responsible'] :
+                          deferredActiveRoleFilter === 'Originating' ? ['originating'] :
                           ['responsible', 'originating'];
       result = filterMattersByRole(result, allowedRoles as any);
     }
 
     // Apply search term filter
-    if (searchTerm.trim()) {
-      const term = searchTerm.toLowerCase();
+    if (deferredSearchTerm.trim()) {
+      const term = deferredSearchTerm.toLowerCase();
       result = result.filter((m) =>
         m.clientName?.toLowerCase().includes(term) ||
         m.displayNumber?.toLowerCase().includes(term) ||
@@ -109,29 +282,41 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
 
     return result;
   }, [
-    matters,
+    mattersWithClient,
     userFullName,
     userRole,
-    activeFilter,
-    activeAreaFilter,
-    activeRoleFilter,
-    searchTerm,
-    scope,
-    isAdmin,
+    deferredActiveFilter,
+    deferredActiveAreaFilter,
+    deferredActiveRoleFilter,
+    deferredSearchTerm,
+    deferredScope,
+    deferredDataSourceFilter,
   ]);
 
   // Dataset count (post-source selection only, before other filters)
   const datasetCount = useMemo(() => {
-    const allowedSources = new Set<string>(['legacy_all', 'legacy_user', 'vnet_direct']);
-    return matters.filter(m => allowedSources.has(m.dataSource)).length;
-  }, [matters]);
+    const allowedSources = new Set<string>(
+      dataSourceFilter === 'new'
+        ? ['vnet_direct']
+        : dataSourceFilter === 'all'
+          ? ['legacy_all', 'legacy_user', 'vnet_direct']
+          : ['legacy_all', 'legacy_user']
+    );
+    return mattersWithClient.filter((m) => allowedSources.has(m.dataSource)).length;
+  }, [mattersWithClient, dataSourceFilter]);
 
   // Pre-compute scope counts for a compact scope control with badges
   const scopeCounts = useMemo(() => {
-    const allowedSources = new Set<string>(['legacy_all', 'legacy_user', 'vnet_direct']);
+    const allowedSources = new Set<string>(
+      dataSourceFilter === 'new'
+        ? ['vnet_direct']
+        : dataSourceFilter === 'all'
+          ? ['legacy_all', 'legacy_user', 'vnet_direct']
+          : ['legacy_all', 'legacy_user']
+    );
 
     // Base after sources
-    let base = matters.filter(m => allowedSources.has(m.dataSource));
+    let base = mattersWithClient.filter(m => allowedSources.has(m.dataSource));
 
     // Apply status filter
     if (activeFilter === 'Matter Requests') {
@@ -174,20 +359,20 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
       all: allList.length,
     };
   }, [
-    matters,
-    isAdmin,
+    mattersWithClient,
     activeFilter,
     activeAreaFilter,
     activeRoleFilter,
     searchTerm,
     userFullName,
     userRole,
+    dataSourceFilter,
   ]);
 
   // Get unique practice areas for filtering
   const availableAreas = useMemo(() => {
-    return getUniquePracticeAreas(matters);
-  }, [matters]);
+    return getUniquePracticeAreas(mattersWithClient);
+  }, [mattersWithClient]);
 
   // No auto-toggle for admins; let Luke/Alex choose when to see everyone's matters.
 
@@ -393,7 +578,7 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
                 onChange={(k) => setScope(k as 'mine' | 'all')}
                 options={[
                   { key: 'mine', label: 'Mine', badge: scopeCounts.mine },
-                  { key: 'all', label: 'All', badge: scopeCounts.all, disabled: !isAdmin }
+                      { key: 'all', label: 'All', badge: scopeCounts.all }
                 ]}
               />
               <StatusFilter />
@@ -409,14 +594,20 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
                     value={activeAreaFilter}
                     onChange={(e) => setActiveAreaFilter(e.target.value)}
                     style={{
-                      padding: '4px 10px',
-                      borderRadius: 10,
+                      height: 32,
+                      padding: '0 32px 0 12px',
+                      appearance: 'none',
+                      backgroundImage: `url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='${isDarkMode ? '%23f3f4f6' : '%23061733'}' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
+                      backgroundRepeat: 'no-repeat',
+                      backgroundPosition: 'right 10px center',
+                      borderRadius: 16,
                       border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                       background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
                       color: isDarkMode ? colours.dark.text : colours.light.text,
                       fontSize: 12,
                       fontFamily: 'Raleway, sans-serif',
-                      minWidth: activeAreaFilter === 'All' ? '88px' : '120px'
+                      minWidth: activeAreaFilter === 'All' ? '100px' : '130px', // slightly wider for padding
+                      cursor: 'pointer'
                     }}
                   >
                     <option value="All">All Areas</option>
@@ -435,7 +626,9 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
           }}
           middleActions={(isAdmin || isLocalhost) && (
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <div
+              <button
+                type="button"
+                onClick={() => setDataSourceFilter(prev => (prev === 'legacy' ? 'all' : prev === 'all' ? 'new' : 'legacy'))}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -443,18 +636,49 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
                   padding: '4px 10px',
                   height: 28,
                   borderRadius: 14,
-                  background: 'transparent',
-                  border: `1px solid ${isDarkMode ? 'rgba(255,183,77,0.35)' : 'rgba(255,152,0,0.3)'}`,
+                  background: dataSourceFilter === 'all'
+                    ? (isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)')
+                    : dataSourceFilter === 'new'
+                      ? (isDarkMode ? 'rgba(76, 175, 80, 0.2)' : 'rgba(76, 175, 80, 0.15)')
+                      : 'transparent',
+                  border: `1px solid ${dataSourceFilter === 'all'
+                    ? (isDarkMode ? 'rgba(54, 144, 206, 0.5)' : 'rgba(54, 144, 206, 0.4)')
+                    : dataSourceFilter === 'new'
+                      ? (isDarkMode ? 'rgba(76, 175, 80, 0.5)' : 'rgba(76, 175, 80, 0.4)')
+                      : (isDarkMode ? 'rgba(255,183,77,0.35)' : 'rgba(255,152,0,0.3)')}`,
                   fontSize: 10,
                   fontWeight: 600,
-                  color: isDarkMode ? '#FFB74D' : '#E65100'
+                  color: dataSourceFilter === 'all'
+                    ? (isDarkMode ? colours.highlight : colours.highlight)
+                    : dataSourceFilter === 'new'
+                      ? (isDarkMode ? 'rgb(134, 239, 172)' : '#2e7d32')
+                      : (isDarkMode ? '#FFB74D' : '#E65100'),
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
                 }}
-                title="Admin only"
-                aria-label="Admin only"
+                title={
+                  dataSourceFilter === 'legacy'
+                    ? 'Showing legacy only (click to include new)'
+                    : dataSourceFilter === 'all'
+                      ? 'Showing legacy + new (click for new only)'
+                      : 'Showing new only (click for legacy only)'
+                }
+                aria-label={
+                  dataSourceFilter === 'legacy'
+                    ? 'Legacy data only'
+                    : dataSourceFilter === 'all'
+                      ? 'Legacy + new data'
+                      : 'New data only'
+                }
               >
-                <Icon iconName="Shield" style={{ fontSize: 10, opacity: 0.7 }} />
-                <span style={{ fontSize: 10, whiteSpace: 'nowrap' }}>{filtered.length}/{datasetCount}</span>
-              </div>
+                <Icon
+                  iconName={dataSourceFilter === 'all' ? 'Database' : dataSourceFilter === 'new' ? 'Sparkle' : 'Shield'}
+                  style={{ fontSize: 10, opacity: 0.7 }}
+                />
+                <span style={{ fontSize: 10, whiteSpace: 'nowrap' }}>
+                  {dataSourceFilter === 'legacy' ? 'Legacy' : dataSourceFilter === 'all' ? 'All' : 'New'}: {filtered.length}/{datasetCount}
+                </span>
+              </button>
             </div>
           )}
         >
@@ -476,34 +700,109 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
           top: '48px',
           zIndex: 999,
         }}>
-          <IconButton
+          <ActionButton
             iconProps={{ iconName: 'ChevronLeft' }}
-            onClick={() => setSelected(null)}
+            onClick={() => {
+              if (detailEnterTimerRef.current) {
+                window.clearTimeout(detailEnterTimerRef.current);
+                detailEnterTimerRef.current = null;
+              }
+              setSelected(null);
+              setActiveDetailTab('overview');
+              setIsEnteringDetail(false);
+            }}
+            title="Back to matters list"
+            aria-label="Back to matters list"
             styles={{
               root: {
-                width: 32,
                 height: 32,
-                borderRadius: 0,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: isDarkMode ? colours.dark.sectionBackground : '#f3f3f3',
-                boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
-                marginRight: 8,
-              }
+                padding: '0 10px 0 6px',
+                color: isDarkMode ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.6)',
+                gap: 6,
+              },
+              rootHovered: {
+                backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.08)' : '#e7f1ff',
+              },
+              icon: {
+                fontSize: 16,
+                color: isDarkMode ? 'rgb(125, 211, 252)' : '#3690ce',
+              },
+              label: {
+                fontSize: 13,
+                userSelect: 'none',
+              },
             }}
-            title="Back"
-            ariaLabel="Back"
-          />
-          <Text variant="mediumPlus" styles={{
-            root: {
-              fontWeight: '600',
-              color: isDarkMode ? colours.dark.text : colours.light.text,
-              fontFamily: 'Raleway, sans-serif',
-            }
-          }}>
-            Matter Details
-          </Text>
+          >
+            Back
+          </ActionButton>
+          <div style={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: 0 }}>
+            <Pivot
+              selectedKey={activeDetailTab}
+              onLinkClick={(item) => {
+                const key = (item?.props?.itemKey || 'overview') as MatterDetailTabKey;
+                if (disableFutureTabs && key !== 'overview') return;
+                setActiveDetailTab(key);
+              }}
+              styles={{
+                root: { borderBottom: 'none', minWidth: 0 },
+                link: {
+                  color: isDarkMode ? colours.dark.text : colours.light.text,
+                  fontWeight: 500,
+                  fontSize: 13,
+                  padding: '0 10px',
+                  height: 32,
+                  lineHeight: '32px',
+                  selectors: {
+                    ':hover': {
+                      backgroundColor: isDarkMode
+                        ? colours.dark.cardHover
+                        : colours.light.cardHover,
+                    },
+                    '&[data-tab-disabled="true"]': {
+                      color: isDarkMode ? 'rgba(226, 232, 240, 0.45)' : 'rgba(15, 23, 42, 0.45)',
+                      cursor: 'not-allowed',
+                      backgroundColor: 'transparent',
+                    },
+                    '&[data-tab-disabled="true"]:hover': {
+                      backgroundColor: 'transparent',
+                    },
+                  },
+                },
+                linkIsSelected: {
+                  color: colours.highlight,
+                  fontWeight: 600,
+                  selectors: {
+                    '::before': {
+                      backgroundColor: colours.highlight,
+                      height: 3,
+                    },
+                  },
+                },
+              }}
+            >
+              <PivotItem itemKey="overview" headerText="Overview" />
+              <PivotItem
+                itemKey="activities"
+                headerText="Activities"
+                headerButtonProps={{ disabled: true, title: disabledTabMessage, ['data-tab-disabled']: 'true', ['aria-disabled']: true }}
+              />
+              <PivotItem
+                itemKey="documents"
+                headerText="Documents"
+                headerButtonProps={{ disabled: true, title: disabledTabMessage, ['data-tab-disabled']: 'true', ['aria-disabled']: true }}
+              />
+              <PivotItem
+                itemKey="communications"
+                headerText="Comms"
+                headerButtonProps={{ disabled: true, title: disabledTabMessage, ['data-tab-disabled']: 'true', ['aria-disabled']: true }}
+              />
+              <PivotItem
+                itemKey="billing"
+                headerText="Billing"
+                headerButtonProps={{ disabled: true, title: disabledTabMessage, ['data-tab-disabled']: 'true', ['aria-disabled']: true }}
+              />
+            </Pivot>
+          </div>
         </div>
       );
     }
@@ -522,20 +821,494 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
     datasetCount,
     isAdmin,
     isLocalhost,
+    dataSourceFilter,
+    activeDetailTab,
   ]);
 
-  if (selected) {
-    return <MatterOverview matter={selected} />;
+  useEffect(() => {
+    return () => {
+      if (detailEnterTimerRef.current) {
+        window.clearTimeout(detailEnterTimerRef.current);
+        detailEnterTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  function beginDetailEntryTransition() {
+    setIsEnteringDetail(true);
+    if (detailEnterTimerRef.current) {
+      window.clearTimeout(detailEnterTimerRef.current);
+    }
+    detailEnterTimerRef.current = window.setTimeout(() => {
+      setIsEnteringDetail(false);
+      detailEnterTimerRef.current = null;
+    }, 260);
   }
 
-  if (isLoading) {
+  function renderMatterDetailSkeleton() {
+    const box = (w: number | string, h: number, radius = 3) => (
+      <div
+        className="skeleton-shimmer"
+        style={{
+          width: w,
+          height: h,
+          borderRadius: radius,
+        }}
+      />
+    );
+
+    const casc = (delayMs: number) => ({
+      ['--cascade-delay' as any]: `${delayMs}ms`,
+    }) as React.CSSProperties;
+
+    return (
+      <div
+        className={containerStyle(isDarkMode)}
+        aria-busy="true"
+        aria-label="Loading matter details"
+      >
+        <div
+          className="skeleton-cascade"
+          style={{
+            ...casc(0),
+            backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+            borderBottom: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+            padding: '16px 24px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 16,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: 1 }}>
+            {box(120, 28, 6)}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0, flex: 1 }}>
+              {box('60%', 18, 6)}
+              {box('40%', 12, 6)}
+            </div>
+          </div>
+          {box(80, 26, 2)}
+        </div>
+
+        <div
+          className="skeleton-cascade"
+          style={{
+            ...casc(70),
+            display: 'grid',
+            gridTemplateColumns: '1fr 320px',
+            gap: 0,
+            flex: 1,
+            minHeight: 0,
+          }}
+        >
+          <div
+            style={{
+              padding: 24,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 20,
+            }}
+          >
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                gap: 16,
+              }}
+            >
+              {[0, 1, 2, 3].map((i) => (
+                <div
+                  key={i}
+                  className="skeleton-cascade"
+                  style={{
+                    ...casc(110 + i * 40),
+                    backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+                    border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                    borderRadius: 10,
+                    padding: 16,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 10,
+                  }}
+                >
+                  {box('55%', 12, 6)}
+                  {box('70%', 24, 6)}
+                  {box('45%', 12, 6)}
+                </div>
+              ))}
+            </div>
+
+            <div
+              className="skeleton-cascade"
+              style={{
+                ...casc(300),
+                backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+                border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                borderRadius: 10,
+                padding: 20,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 12,
+              }}
+            >
+              {box(160, 16, 6)}
+              {box('95%', 12, 6)}
+              {box('88%', 12, 6)}
+              {box('76%', 12, 6)}
+              {box('92%', 12, 6)}
+            </div>
+          </div>
+
+          <div
+            style={{
+              padding: 24,
+              borderLeft: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+              backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 20,
+            }}
+          >
+            <div
+              className="skeleton-cascade"
+              style={{
+                ...casc(160),
+                backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+                border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                borderRadius: 10,
+                padding: 20,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 12,
+              }}
+            >
+              {box(120, 16, 6)}
+              {box('85%', 12, 6)}
+              {box('70%', 12, 6)}
+              {box('92%', 12, 6)}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const selectedWorkbenchItem = useMemo(() => {
+    if (!selected?.instructionRef || !workbenchByInstructionRef) return undefined;
+    return workbenchByInstructionRef.get(selected.instructionRef);
+  }, [selected, workbenchByInstructionRef]);
+
+  useEffect(() => {
+    if (!auditEnabled || !selected) {
+      setAuditStatus('idle');
+      setAuditData(null);
+      return;
+    }
+
+    const requestId = ++auditRequestRef.current;
+    setAuditStatus('loading');
+
+    const workbenchMatter = Array.isArray(selectedWorkbenchItem?.matters)
+      ? selectedWorkbenchItem.matters[0]
+      : null;
+    const workbenchMatterId =
+      workbenchMatter?.MatterId || workbenchMatter?.MatterID || workbenchMatter?.id || null;
+
+    const payload = {
+      clioMatterId: workbenchMatterId,
+      instructionRef: selected.instructionRef || null,
+      entraId: resolvedEntraId,
+      initials: userInitials,
+      local: {
+        displayNumber: selected.displayNumber || null,
+        description: selected.description || null,
+        practiceArea: selected.practiceArea || null,
+        openDate: selected.openDate || null,
+        clientName: selected.clientName || null,
+      },
+    };
+
+    (async () => {
+      try {
+        const resp = await fetch('/api/matter-audit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!resp.ok) throw new Error(await resp.text());
+        const data = await resp.json();
+        if (auditRequestRef.current !== requestId) return;
+        setAuditData(data || null);
+        setAuditStatus('ready');
+      } catch (err) {
+        if (auditRequestRef.current !== requestId) return;
+        setAuditStatus('error');
+        setAuditData(null);
+      }
+    })();
+  }, [auditEnabled, selected, selectedWorkbenchItem, resolvedEntraId, userInitials]);
+
+  useEffect(() => {
+    if (!selected) {
+      setOverviewData(null);
+      setOutstandingData(null);
+      setOutstandingBalancesList(null);
+      setWipStatus('idle');
+      setFundsStatus('idle');
+      setOutstandingStatus('idle');
+      setResolvedClioMatterId(null);
+      return;
+    }
+
+    const requestId = ++metricsRequestRef.current;
+    const matterIdRaw = selected.matterId;
+    const matterIdNumber = Number(matterIdRaw);
+    if (!matterIdRaw) {
+      setWipStatus('error');
+      setFundsStatus('error');
+      setOutstandingStatus('error');
+      return;
+    }
+
+    type MetricStepKey = 'wip' | 'funds' | 'outstanding';
+    const metricSteps: Array<{ key: MetricStepKey; label: string }> = [
+      { key: 'wip', label: 'Time entries' },
+      { key: 'funds', label: 'Client funds' },
+      { key: 'outstanding', label: 'Outstanding balances' },
+    ];
+    const progressState: Record<MetricStepKey, 'active' | 'done' | 'error'> = {
+      wip: 'active',
+      funds: 'active',
+      outstanding: 'active',
+    };
+
+    const buildProgress = () =>
+      metricSteps.map((step) => ({
+        label: step.label,
+        status: progressState[step.key],
+      }));
+
+    const showMetricsToast = (message: string) => {
+      const progress = buildProgress();
+      if (metricsToastRef.current) {
+        updateToast(metricsToastRef.current, { type: 'loading', title: 'Matter metrics', message, persist: true, progress });
+      } else {
+        metricsToastRef.current = showToast({ type: 'loading', title: 'Matter metrics', message, persist: true, progress });
+      }
+    };
+
+    const finishMetricsToast = (type: 'success' | 'error', message: string) => {
+      if (metricsToastRef.current) {
+        updateToast(metricsToastRef.current, { type, message, persist: false, duration: 2500 });
+        const id = metricsToastRef.current;
+        window.setTimeout(() => hideToast(id), 2600);
+        metricsToastRef.current = null;
+      }
+    };
+
+    setOverviewData(null);
+    setOutstandingData(null);
+    setOutstandingBalancesList(null);
+    setWipStatus('loading');
+    setFundsStatus('loading');
+    setOutstandingStatus('loading');
+    setResolvedClioMatterId(null);
+
+    let pendingCount = metricSteps.length;
+    let hadError = false;
+    const updatePendingToast = () => {
+      const activeLabels = metricSteps
+        .filter((step) => progressState[step.key] === 'active')
+        .map((step) => step.label);
+      const message = activeLabels.length
+        ? `Processing: ${activeLabels.join(' · ')}`
+        : 'Finalising matter metrics';
+      showMetricsToast(message);
+    };
+    const markMetricDone = (key: MetricStepKey, ok: boolean) => {
+      progressState[key] = ok ? 'done' : 'error';
+      pendingCount -= 1;
+      if (!ok) hadError = true;
+      if (pendingCount > 0) {
+        updatePendingToast();
+        return;
+      }
+      finishMetricsToast(hadError ? 'error' : 'success', hadError ? 'Matter metrics incomplete' : 'Matter metrics ready');
+    };
+
+    updatePendingToast();
+
+    const formatIso = (raw?: string) => {
+      if (!raw) return undefined;
+      const parsed = new Date(raw);
+      if (Number.isNaN(parsed.getTime())) return undefined;
+      return parsed.toISOString().replace(/\.\d{3}Z$/, 'Z');
+    };
+
+    const dateFrom = formatIso(selected.openDate);
+    const dateTo = formatIso(new Date().toISOString());
+
+    (async () => {
+      try {
+        const params = new URLSearchParams({
+          matterId: String(matterIdRaw),
+          displayNumber: selected.displayNumber || '',
+          instructionRef: selected.instructionRef || '',
+          initials: userInitials,
+          entraId: resolvedEntraId,
+        });
+        if (dateFrom) params.set('dateFrom', dateFrom);
+        if (dateTo) params.set('dateTo', dateTo);
+        const resp = await fetch(`/api/matter-metrics/wip?${params.toString()}`);
+        if (!resp.ok) throw new Error(await resp.text());
+        const data = await resp.json();
+        if (metricsRequestRef.current !== requestId) return;
+        if (data?.status === 'pending') {
+          setWipStatus('pending');
+          markMetricDone('wip', true);
+          return;
+        }
+        setOverviewData((prev: Record<string, unknown> | null) => ({ ...(prev || {}), ...data }));
+        if (data?.clioMatterId) {
+          setResolvedClioMatterId(Number(data.clioMatterId));
+        }
+        setWipStatus('ready');
+        markMetricDone('wip', true);
+      } catch (err) {
+        if (metricsRequestRef.current !== requestId) return;
+        setWipStatus('error');
+        markMetricDone('wip', false);
+      }
+    })();
+
+    (async () => {
+      try {
+        const params = new URLSearchParams({
+          matterId: String(matterIdRaw),
+          displayNumber: selected.displayNumber || '',
+          instructionRef: selected.instructionRef || '',
+          initials: userInitials,
+          entraId: resolvedEntraId,
+        });
+        const resp = await fetch(`/api/matter-metrics/funds?${params.toString()}`);
+        if (!resp.ok) throw new Error(await resp.text());
+        const data = await resp.json();
+        if (metricsRequestRef.current !== requestId) return;
+        if (data?.status === 'pending') {
+          setFundsStatus('pending');
+          markMetricDone('funds', true);
+          return;
+        }
+        setOverviewData((prev: Record<string, unknown> | null) => ({ ...(prev || {}), ...data }));
+        if (data?.clioMatterId) {
+          setResolvedClioMatterId(Number(data.clioMatterId));
+        }
+        setFundsStatus('ready');
+        markMetricDone('funds', true);
+      } catch (err) {
+        if (metricsRequestRef.current !== requestId) return;
+        setFundsStatus('error');
+        markMetricDone('funds', false);
+      }
+    })();
+
+    (async () => {
+      try {
+        if (!resolvedEntraId) throw new Error('Missing Entra ID');
+        const resp = await fetch(`/api/outstanding-balances/user/${encodeURIComponent(resolvedEntraId)}`);
+        if (!resp.ok) throw new Error(await resp.text());
+        const data = await resp.json();
+        if (metricsRequestRef.current !== requestId) return;
+        const list = Array.isArray(data?.data) ? data.data : [];
+        const matchId = resolvedClioMatterId || (Number.isFinite(matterIdNumber) ? matterIdNumber : null);
+        const findRecord = (entries: Record<string, any>[]) =>
+          entries.find((entry) =>
+            matchId && Array.isArray(entry.associated_matter_ids) && entry.associated_matter_ids.includes(matchId)
+          );
+
+        let record = list.length ? findRecord(list) : null;
+        let finalList = list;
+
+        if (!record && matchId) {
+          const globalResp = await fetch(`/api/outstanding-balances?fresh=${Date.now()}`, {
+            cache: 'no-store',
+          });
+          if (globalResp.ok) {
+            const globalData = await globalResp.json();
+            const globalList = Array.isArray(globalData?.data) ? globalData.data : [];
+            const globalRecord = findRecord(globalList);
+            if (globalRecord) {
+              record = globalRecord;
+              finalList = globalList;
+            }
+          }
+        }
+
+        setOutstandingBalancesList(finalList);
+        setOutstandingData(record || null);
+        setOutstandingStatus('ready');
+        markMetricDone('outstanding', true);
+      } catch (err) {
+        if (metricsRequestRef.current !== requestId) return;
+        setOutstandingStatus('error');
+        markMetricDone('outstanding', false);
+      }
+    })();
+  }, [selected, userInitials, resolvedEntraId, showToast, updateToast, hideToast]);
+
+  useEffect(() => {
+    if (!selected || !outstandingBalancesList || !outstandingBalancesList.length) return;
+    const matterId = Number(selected.matterId);
+    const matchId = resolvedClioMatterId || matterId;
+    if (!matchId || Number.isNaN(matchId)) return;
+    const record = outstandingBalancesList.find((entry: Record<string, any>) =>
+      Array.isArray(entry.associated_matter_ids) && entry.associated_matter_ids.includes(matchId)
+    );
+    setOutstandingData(record || null);
+  }, [selected, resolvedClioMatterId, outstandingBalancesList]);
+
+  if (selected) {
+    if (isEnteringDetail) {
+      return (
+        <div className={detailContainerStyle(isDarkMode)}>
+          {renderMatterDetailSkeleton()}
+        </div>
+      );
+    }
+    return (
+      <div className={detailContainerStyle(isDarkMode)}>
+        <MatterOverview
+          key={selected.matterId}
+          matter={selected}
+          userInitials={userInitials}
+          activeTab={activeDetailTab}
+          overviewData={overviewData || undefined}
+          outstandingData={outstandingData || undefined}
+          wipStatus={wipStatus}
+          fundsStatus={fundsStatus}
+          outstandingStatus={outstandingStatus}
+          auditEnabled={auditEnabled}
+          auditStatus={auditStatus}
+          auditData={auditData || undefined}
+          onToggleAudit={() => setAuditEnabled((prev) => !prev)}
+          workbenchItem={selectedWorkbenchItem}
+          teamData={teamData}
+          enquiries={enquiries}
+        />
+      </div>
+    );
+  }
+
+  // Only show the full-screen loading state on first load.
+  // When switching users, keep the UI visible and show the in-context overlay cue instead.
+  if (isLoading && matters.length === 0) {
     return (
       <div className={containerStyle(isDarkMode)}>
-        <div style={{ 
-          display: 'flex', 
-          justifyContent: 'center', 
-          alignItems: 'center', 
-          height: '200px' 
+        <div style={{
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          height: '200px'
         }}>
           <ThemedSpinner label="Loading matters..." size={SpinnerSize.medium} />
         </div>
@@ -559,7 +1332,7 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
       activeFilter !== 'Active' ||
       activeAreaFilter !== 'All' ||
       activeRoleFilter !== 'Responsible' ||
-      (isAdmin && scope === 'all')
+      scope === 'all'
     );
 
     return (
@@ -582,9 +1355,7 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
                     setActiveFilter('Active');
                     setActiveAreaFilter('All');
                     setActiveRoleFilter('Responsible');
-                    if (isAdmin) {
-                      setScope('mine');
-                    }
+                    setScope('mine');
                   },
                   variant: 'primary'
                 }
@@ -595,12 +1366,76 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
     );
   }
 
+  // Check if we're in a pending/transitioning state
+  const isTransitioning = scope !== deferredScope || dataSourceFilter !== deferredDataSourceFilter ||
+                          activeFilter !== deferredActiveFilter || activeAreaFilter !== deferredActiveAreaFilter ||
+                          activeRoleFilter !== deferredActiveRoleFilter || searchTerm !== deferredSearchTerm;
+
+  const showOverlayCue = isLoading || isTransitioning;
+  const overlayCueText = isLoading ? 'Switching user…' : 'Updating view...';
+
   return (
     <div className={containerStyle(isDarkMode)}>
+      {/* Processing overlay when transitioning between filter states */}
+      {/* Spin animation for loading indicator */}
+      <style>{`
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+      `}</style>
+      {showOverlayCue && (
+        <div style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: isDarkMode ? 'rgba(2, 6, 23, 0.4)' : 'rgba(255, 255, 255, 0.4)',
+          backdropFilter: 'blur(1px)',
+          zIndex: 100,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          pointerEvents: 'none',
+        }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            padding: '12px 20px',
+            borderRadius: 8,
+            background: isDarkMode ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+            boxShadow: isDarkMode ? '0 4px 20px rgba(0, 0, 0, 0.4)' : '0 4px 20px rgba(0, 0, 0, 0.15)',
+            border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'}`,
+          }}>
+            <div style={{
+              width: 16,
+              height: 16,
+              border: `2px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)'}`,
+              borderTopColor: colours.highlight,
+              borderRadius: '50%',
+              animation: 'spin 0.7s linear infinite',
+            }} />
+            <span style={{
+              fontSize: 13,
+              fontWeight: 500,
+              color: isDarkMode ? 'rgba(255, 255, 255, 0.85)' : 'rgba(0, 0, 0, 0.7)',
+              fontFamily: 'Raleway, sans-serif',
+            }}>
+              {overlayCueText}
+            </span>
+          </div>
+        </div>
+      )}
       <MatterTableView
         matters={filtered}
         isDarkMode={isDarkMode}
-        onRowClick={(matter) => setSelected(matter)}
+        onRowClick={(matter) => {
+          setSelected(matter);
+          setActiveDetailTab('overview');
+          beginDetailEntryTransition();
+        }}
         loading={isLoading}
       />
     </div>
@@ -609,8 +1444,28 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData }
   function containerStyle(dark: boolean) {
     return mergeStyles({
       backgroundColor: dark ? colours.dark.background : colours.light.background,
-      minHeight: '100vh',
+      flex: 1,
+      minHeight: 0,
+      display: 'flex',
+      flexDirection: 'column',
       boxSizing: 'border-box',
+      position: 'relative',
+      overflow: 'hidden',
+      color: dark ? colours.light.text : colours.dark.text,
+    });
+  }
+
+  function detailContainerStyle(dark: boolean) {
+    return mergeStyles({
+      backgroundColor: dark ? colours.dark.background : colours.light.background,
+      flex: 1,
+      minHeight: 0,
+      display: 'flex',
+      flexDirection: 'column',
+      boxSizing: 'border-box',
+      position: 'relative',
+      overflowY: 'auto',
+      overflowX: 'hidden',
       color: dark ? colours.light.text : colours.dark.text,
     });
   }

@@ -1,5 +1,5 @@
 // Clean admin tools - removed beaker and legacy toggle
-import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef, useTransition, useDeferredValue } from 'react';
 import ReactDOM from 'react-dom';
 import { getProxyBaseUrl } from '../../utils/getProxyBaseUrl';
 import {
@@ -79,15 +79,18 @@ const DEV_PREVIEW_TEST_ENQUIRY: Enquiry = {
   ID: 'DEMO-ENQ-0001',
   Date_Created: '2026-01-01',
   Touchpoint_Date: '2026-01-01',
-  Email: 'demo.client@helix-law.com',
+  Email: 'demo.prospect@helix-law.com',
   Area_of_Work: 'Commercial',
   Type_of_Work: 'Contract Dispute',
   Method_of_Contact: 'Email',
   Point_of_Contact: 'team@helix-law.com',
   First_Name: 'Demo',
-  Last_Name: 'Client',
+  Last_Name: 'Prospect',
   Phone_Number: '07000000000',
   Rating: 'Neutral',
+  Value: '25000',
+  Ultimate_Source: 'Google Ads',
+  Initial_first_call_notes: 'Demo enquiry for testing. Client enquiring about a contract dispute with their supplier. They have been invoiced for goods they did not receive and are seeking advice on how to challenge the invoice and potentially recover costs. Urgent matter - supplier threatening legal action within 14 days.',
 };
 
 const shimmerStyle = `
@@ -507,6 +510,7 @@ interface EnquiriesProps {
   featureToggles?: Record<string, boolean>;
   isActive?: boolean; // Whether this tab is currently active
   demoModeEnabled?: boolean;
+  onTeamWideEnquiriesLoaded?: (enquiries: Enquiry[]) => void;
 }
 
 // Add keyframes for loading spinner
@@ -537,6 +541,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   featureToggles = {},
   isActive = false,
   demoModeEnabled: demoModeEnabledProp,
+  onTeamWideEnquiriesLoaded,
 }) => {
 
   // Function to check if an enquiry has been promoted to pitch/instruction
@@ -598,6 +603,15 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     const result = getPromotionStatus(enquiry);
     return result.type;
   }, [getPromotionStatus]);
+
+  const [demoModeEnabledLocal, setDemoModeEnabledLocal] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(DEMO_MODE_STORAGE_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const demoModeEnabled = typeof demoModeEnabledProp === 'boolean' ? demoModeEnabledProp : demoModeEnabledLocal;
 
   // Map enquiry ID -> InlineWorkbench item (instruction + attached domains)
   // This is intentionally lightweight and read-only for the Prospects view.
@@ -744,20 +758,180 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       }
     });
 
-    return result;
-  }, [instructionData]);
+    if (demoModeEnabled) {
+      const currentUserEmail = userData && userData[0] && userData[0].Email
+        ? userData[0].Email
+        : 'lz@helix-law.com';
+      const demoCases = [
+        {
+          id: 'DEMO-ENQ-0001',
+          instructionRef: null,
+          serviceDescription: 'Contract Dispute',
+          amount: 1500,
+          stage: 'enquiry',
+          eidStatus: 'pending',
+          eidResult: 'pending',
+          internalStatus: 'pending',
+          riskResult: 'pending',
+          hasMatter: false,
+          hasPayment: false,
+          documents: 0,
+        },
+        {
+          id: 'DEMO-ENQ-0002',
+          instructionRef: 'HLX-DEMO-0002-00001',
+          serviceDescription: 'Lease Renewal',
+          amount: 3200,
+          stage: 'matter-opened',
+          eidStatus: 'complete',
+          eidResult: 'passed',
+          internalStatus: 'paid',
+          riskResult: 'low',
+          hasMatter: true,
+          hasPayment: true,
+          documents: 2,
+        },
+      ];
 
+      demoCases.forEach((demoCase) => {
+        // Generate demo dates relative to now
+        const demoInstructionDate = new Date();
+        demoInstructionDate.setDate(demoInstructionDate.getDate() - 3); // 3 days ago
+        
+        const instruction = demoCase.instructionRef ? {
+          InstructionRef: demoCase.instructionRef,
+          ProspectId: demoCase.id,
+          Stage: demoCase.stage,
+          SubmissionDate: demoInstructionDate.toISOString(),
+          SubmissionTime: demoInstructionDate.toISOString(),
+          EIDStatus: demoCase.eidStatus,
+          EIDOverallResult: demoCase.eidResult,
+          InternalStatus: demoCase.internalStatus,
+          MatterId: demoCase.hasMatter ? 'MAT-DEMO-001' : undefined,
+        } : undefined;
+        const deal = {
+          ProspectId: demoCase.id,
+          InstructionRef: demoCase.instructionRef,
+          Amount: demoCase.amount,
+          ServiceDescription: demoCase.serviceDescription,
+          DealStatus: demoCase.internalStatus,
+        };
+        const payments = demoCase.hasPayment ? [{
+          payment_status: 'succeeded',
+          internal_status: 'paid',
+          amount: demoCase.amount,
+        }] : [];
+        const riskAssessments = [{ RiskAssessmentResult: demoCase.riskResult }];
+        const documents = Array.from({ length: demoCase.documents }).map((_, idx) => ({
+          id: `demo-doc-${demoCase.id}-${idx + 1}`,
+          filename: idx === 0 ? 'Demo_ID_Document.pdf' : 'Demo_Engagement_Letter.pdf',
+        }));
+        const matters = demoCase.hasMatter ? [{ MatterId: 'MAT-DEMO-001', DisplayNumber: 'HELIX01-01' }] : [];
+
+        result.set(demoCase.id, {
+          instruction,
+          deal,
+          clients: [{
+            Email: 'demo.client@helix-law.com',
+            ClientEmail: 'demo.client@helix-law.com',
+            FirstName: 'Demo',
+            LastName: 'Client',
+          }],
+          documents,
+          payments,
+          eid: { status: demoCase.eidStatus },
+          eids: [{ status: demoCase.eidStatus }],
+          risk: riskAssessments[0],
+          riskAssessments,
+          matters,
+          team: currentUserEmail,
+          prospectId: demoCase.id,
+          ProspectId: demoCase.id,
+        });
+      });
+    }
+
+    return result;
+  }, [instructionData, demoModeEnabled, userData]);
+
+  // Legacy used ActiveCampaign ID as internal ID; new space stores it in ACID.
+  // deal.ProspectId = ActiveCampaign ID = enquiry.ACID
   const getEnquiryWorkbenchKey = useCallback((enquiry: Enquiry): string | null => {
-    // Prefer ID over ACID since the inlineWorkbenchByEnquiryId map is keyed by ProspectId (which is the enquiry ID)
-    const key =
-      enquiry.ID ||
-      (enquiry as any).id ||
-      (enquiry as any).ACID ||
-      (enquiry as any).acid ||
-      (enquiry as any).Acid ||
-      null;
+    const acid = (enquiry as any).ACID || (enquiry as any).acid || (enquiry as any).Acid;
+    const fallbackId = (enquiry as any).ProspectId || (enquiry as any).prospectId || enquiry.ID;
+    const key = acid || fallbackId;
     return key ? String(key) : null;
   }, []);
+
+  // Look up workbench item by enquiry's ACID (maps to deal.ProspectId). Fallback to enquiry ID when ACID missing.
+  const getEnquiryWorkbenchItem = useCallback((enquiry: Enquiry): any | undefined => {
+    const acid = (enquiry as any).ACID || (enquiry as any).acid || (enquiry as any).Acid;
+    const fallbackId = (enquiry as any).ProspectId || (enquiry as any).prospectId || enquiry.ID;
+    const key = acid || fallbackId;
+    if (!key) return undefined;
+    return inlineWorkbenchByEnquiryId.get(String(key));
+  }, [inlineWorkbenchByEnquiryId]);
+
+  const PROSPECTS_INSTRUCTION_REF_KEY = 'navigateToInstructionRef';
+  const PROSPECTS_INSTRUCTION_ACTION_KEY = 'navigateToInstructionAction';
+  const PROSPECTS_INSTRUCTION_TAB_KEY = 'navigateToInstructionTab';
+  const PROSPECTS_INSTRUCTION_DOC_KEY = 'navigateToInstructionDoc';
+
+  type InstructionActionKind =
+    | 'workbench'
+    | 'trigger-eid'
+    | 'open-risk'
+    | 'open-matter'
+    | 'open-id-review'
+    | 'preview-document';
+
+  const dispatchInstructionAction = useCallback((action: InstructionActionKind, options: {
+    instructionRef?: string | null;
+    tab?: string | null;
+    doc?: any;
+  }) => {
+    const instructionRef = (options.instructionRef || '').trim();
+    if (!instructionRef) return;
+    try {
+      localStorage.setItem(PROSPECTS_INSTRUCTION_REF_KEY, instructionRef);
+      localStorage.setItem(PROSPECTS_INSTRUCTION_ACTION_KEY, action);
+      if (options.tab) {
+        localStorage.setItem(PROSPECTS_INSTRUCTION_TAB_KEY, options.tab);
+      } else {
+        localStorage.removeItem(PROSPECTS_INSTRUCTION_TAB_KEY);
+      }
+      if (options.doc) {
+        localStorage.setItem(PROSPECTS_INSTRUCTION_DOC_KEY, JSON.stringify(options.doc));
+      } else {
+        localStorage.removeItem(PROSPECTS_INSTRUCTION_DOC_KEY);
+      }
+    } catch {
+      // ignore storage failures
+    }
+    window.dispatchEvent(new CustomEvent('navigateToInstructions'));
+    window.dispatchEvent(new CustomEvent('navigateToInstructionAction'));
+  }, []);
+
+  const workbenchHandlers = useMemo(() => ({
+    onTriggerEID: (instructionRef: string) => {
+      dispatchInstructionAction('trigger-eid', { instructionRef, tab: 'identity' });
+    },
+    onOpenIdReview: (instructionRef: string) => {
+      dispatchInstructionAction('open-id-review', { instructionRef, tab: 'identity' });
+    },
+    onOpenRiskAssessment: (instruction: any) => {
+      const instructionRef = instruction?.InstructionRef || instruction?.instructionRef || '';
+      dispatchInstructionAction('open-risk', { instructionRef, tab: 'risk' });
+    },
+    onOpenMatter: (instruction: any) => {
+      const instructionRef = instruction?.InstructionRef || instruction?.instructionRef || '';
+      dispatchInstructionAction('open-matter', { instructionRef, tab: 'matter' });
+    },
+    onDocumentPreview: (doc: any) => {
+      const instructionRef = doc?.InstructionRef || doc?.instructionRef || doc?.instruction_ref || '';
+      dispatchInstructionAction('preview-document', { instructionRef, tab: 'documents', doc });
+    },
+  }), [dispatchInstructionAction]);
 
   // Use only real enquiries data
   // All normalized enquiries (union of legacy + new) retained irrespective of toggle
@@ -798,6 +972,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   
   // Track ongoing enrichment requests to prevent duplicates
   const enrichmentRequestsRef = useRef<Set<string>>(new Set());
+  // Track last enrichment attempt per enquiry to allow retries after failures
+  const enrichmentLastAttemptRef = useRef<Map<string, number>>(new Map());
   
   // Track visible enquiry IDs (only enrich what's in viewport)
   const [visibleEnquiryIds, setVisibleEnquiryIds] = useState<Set<string>>(new Set());
@@ -827,6 +1003,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   // Number of pipeline chips that fit in the available width (7 = all chips fit after merging teams+claim)
   // Start with 3 to ensure carousel shows by default, then ResizeObserver adjusts
   const [visiblePipelineChipCount, setVisiblePipelineChipCount] = useState<number>(3);
+  const pipelineMeasureRetryRef = useRef(0);
+  const pipelineMeasureRetryTimerRef = useRef<number | null>(null);
   // Counter to trigger re-measurement when returning from detail view
   const [pipelineRemeasureKey, setPipelineRemeasureKey] = useState<number>(0);
   // Minimum chip width at each mode (icon needs ~32px, short ~90px [increased to prevent squish], full ~110px)
@@ -837,6 +1015,24 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const TABLE_GRID_TEMPLATE_COLUMNS = `32px 90px 56px 90px 1.4fr 2.5fr ${ACTIONS_COLUMN_WIDTH_PX}px`;
   const TABLE_GRID_GAP_PX = 12;
   const PIPELINE_CHIP_MIN_WIDTH_PX = CHIP_MIN_WIDTHS[pipelineChipLabelMode] ?? CHIP_MIN_WIDTHS.short;
+
+  useEffect(() => {
+    if (!isActive) return;
+    const bump = () => setPipelineRemeasureKey((v) => v + 1);
+    const raf = requestAnimationFrame(bump);
+    const timeout = setTimeout(bump, 400);
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') bump();
+    };
+    window.addEventListener('focus', handleVisibility);
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(timeout);
+      window.removeEventListener('focus', handleVisibility);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [isActive]);
 
   const pipelineStageUi = useMemo(() => {
     const entries: Array<{
@@ -941,7 +1137,18 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
   useEffect(() => {
     const el = pipelineGridMeasureRef.current;
-    if (!el || typeof ResizeObserver === 'undefined') return;
+    if (!el || typeof ResizeObserver === 'undefined') {
+      if (pipelineMeasureRetryRef.current < 6) {
+        pipelineMeasureRetryRef.current += 1;
+        if (pipelineMeasureRetryTimerRef.current) {
+          window.clearTimeout(pipelineMeasureRetryTimerRef.current);
+        }
+        pipelineMeasureRetryTimerRef.current = window.setTimeout(() => {
+          setPipelineRemeasureKey((v) => v + 1);
+        }, 120);
+      }
+      return;
+    }
 
     // Track last measured width to avoid unnecessary state updates
     let lastMeasuredWidth = 0;
@@ -949,7 +1156,19 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     // Calculate and apply measurement immediately on mount (avoid layout flash)
     const measureAndApply = () => {
       const rect = el.getBoundingClientRect();
-      if (!rect.width) return;
+      if (!rect.width) {
+        if (pipelineMeasureRetryRef.current < 6) {
+          pipelineMeasureRetryRef.current += 1;
+          if (pipelineMeasureRetryTimerRef.current) {
+            window.clearTimeout(pipelineMeasureRetryTimerRef.current);
+          }
+          pipelineMeasureRetryTimerRef.current = window.setTimeout(() => {
+            setPipelineRemeasureKey((v) => v + 1);
+          }, 120);
+        }
+        return;
+      }
+      pipelineMeasureRetryRef.current = 0;
       
       // Skip if width hasn't changed significantly (within 1px tolerance)
       if (Math.abs(rect.width - lastMeasuredWidth) < 1) return;
@@ -1072,6 +1291,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       clearTimeout(delayedMeasure);
       clearInterval(pollInterval);
       if (resizeRaf) cancelAnimationFrame(resizeRaf);
+      if (pipelineMeasureRetryTimerRef.current) {
+        window.clearTimeout(pipelineMeasureRetryTimerRef.current);
+      }
       window.removeEventListener('resize', handleResize);
     };
   }, [viewMode, pipelineRemeasureKey, enquiryPipelineFilters.size, selectedPocFilter]); // Re-run when returning from detail view or filters change
@@ -1434,6 +1656,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       // Keep `allEnquiries` sourced from props (per-user), and store the unified dataset only in teamWideEnquiries.
       // This prevents Mine view from briefly switching to team-wide dataset and dropping claimed items.
       setTeamWideEnquiries(normalizedEnquiries);
+      onTeamWideEnquiriesLoaded?.(normalizedEnquiries as Enquiry[]);
       
       console.info('[Enquiries] fetchAllEnquiries:success', {
         reason: lastTeamWideFetchReasonRef.current || 'unknown',
@@ -1527,6 +1750,10 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const [showMineOnly, setShowMineOnly] = useState<boolean>(true);
   type EnquiriesActiveState = '' | 'Claimed' | 'Claimable' | 'Triaged';
   const [activeState, setActiveState] = useState<EnquiriesActiveState>('Claimed');
+
+  // Use deferred values for smoother filter transitions
+  const deferredShowMineOnly = useDeferredValue(showMineOnly);
+  const deferredActiveState = useDeferredValue(activeState);
 
   // Reset the carousel offset when switching tabs/views so the first chip (POC)
   // doesn't disappear in states like Unclaimed.
@@ -1773,14 +2000,10 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const [toastDetails, setToastDetails] = useState<string>('');
   const [toastType, setToastType] = useState<'success' | 'error' | 'info' | 'warning'>('success');
 
-  const [demoModeEnabledLocal, setDemoModeEnabledLocal] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem(DEMO_MODE_STORAGE_KEY) === 'true';
-    } catch {
-      return false;
-    }
-  });
-  const demoModeEnabled = typeof demoModeEnabledProp === 'boolean' ? demoModeEnabledProp : demoModeEnabledLocal;
+  const [demoOverlayVisible, setDemoOverlayVisible] = useState(false);
+  const [demoOverlayMessage, setDemoOverlayMessage] = useState('');
+  const [demoOverlayDetails, setDemoOverlayDetails] = useState('');
+
   const triggerFetchAllEnquiries = useCallback((reason: string) => {
     lastTeamWideFetchReasonRef.current = reason;
     console.info('[Enquiries] fetchAllEnquiries:trigger', {
@@ -2927,8 +3150,12 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   // Added for infinite scroll
   const [itemsToShow, setItemsToShow] = useState<number>(20);
   const loader = useRef<HTMLDivElement | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const loadMoreRafPendingRef = useRef(false);
   const previousMainTab = useRef<EnquiriesActiveState>('Claimed');
+  const previousActiveStateRef = useRef<EnquiriesActiveState>(activeState);
+  const [manualFilterTransitioning, setManualFilterTransitioning] = useState(false);
+  const manualFilterTransitionTimeoutRef = useRef<number | null>(null);
 
   const toggleDashboard = useCallback(() => {
     if (activeState === '') {
@@ -3391,6 +3618,10 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     openEnquiryWorkbench(enquiry, 'Pitch');
   }, [openEnquiryWorkbench]);
 
+  const handleSelectEnquiryForTimeline = useCallback((enquiry: Enquiry) => {
+    openEnquiryWorkbench(enquiry, 'Timeline');
+  }, [openEnquiryWorkbench]);
+
   const handleBackToList = useCallback(() => {
     setSelectedEnquiry(null);
     // Trigger pipeline grid re-measurement when returning to list view
@@ -3459,75 +3690,140 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     }
     setDemoModeEnabledLocal(true);
 
-    const demoEnquiry: Enquiry & { __sourceType: 'new' | 'legacy' } = {
-      ...DEV_PREVIEW_TEST_ENQUIRY,
-      Point_of_Contact: currentUserEmail,
-      Touchpoint_Date: new Date().toISOString().split('T')[0],
-      __sourceType: 'legacy',
-    };
+    const now = new Date();
+    const currentTouchpoint = now.toISOString().split('T')[0];
+    const priorDate = new Date(now.getTime() - 120 * 24 * 60 * 60 * 1000);
+    const priorTouchpoint = priorDate.toISOString().split('T')[0];
+
+    const demoEnquiries: Array<Enquiry & { __sourceType: 'new' | 'legacy' }> = [
+      {
+        ...DEV_PREVIEW_TEST_ENQUIRY,
+        ID: 'DEMO-ENQ-0001',
+        Point_of_Contact: currentUserEmail,
+        Touchpoint_Date: currentTouchpoint,
+        Date_Created: currentTouchpoint,
+        __sourceType: 'legacy',
+      },
+      {
+        ...DEV_PREVIEW_TEST_ENQUIRY,
+        ID: 'DEMO-ENQ-0002',
+        First_Name: 'Demo',
+        Last_Name: 'Prospect',
+        Point_of_Contact: currentUserEmail,
+        Touchpoint_Date: priorTouchpoint,
+        Date_Created: priorTouchpoint,
+        Area_of_Work: 'Property',
+        Type_of_Work: 'Lease Renewal',
+        Method_of_Contact: 'Phone',
+        Rating: 'Good',
+        Value: '45000',
+        Ultimate_Source: 'Referral',
+        Initial_first_call_notes: 'Client called regarding lease renewal for their commercial premises. Current lease expires in 6 months. Landlord has proposed a 15% rent increase which client believes is excessive. Client wants advice on negotiating terms and understanding their rights under the current lease agreement.',
+        __sourceType: 'legacy',
+      },
+    ];
+
+    const demoIds = new Set(demoEnquiries.map(enq => String(enq.ID)));
 
     setDisplayEnquiries(prev => {
-      const existingIndex = prev.findIndex(e => e.ID === DEV_PREVIEW_TEST_ENQUIRY.ID);
-      if (existingIndex === -1) {
-        return [demoEnquiry, ...prev];
-      }
-      const existing = prev[existingIndex];
-      const needsUpdate = (existing.Point_of_Contact || '').toLowerCase() !== currentUserEmail.toLowerCase();
-      const isAlreadyFirst = existingIndex === 0;
-      if (!needsUpdate && isAlreadyFirst) {
-        return prev;
-      }
-      const next = [...prev];
-      next.splice(existingIndex, 1);
-      next.unshift(needsUpdate ? { ...existing, Point_of_Contact: currentUserEmail } : existing);
-      return next;
+      const withoutDemo = prev.filter(e => !demoIds.has(String(e.ID)));
+      return [...demoEnquiries, ...withoutDemo];
+    });
+
+    setAllEnquiries(prev => {
+      const withoutDemo = prev.filter(e => !demoIds.has(String(e.ID)));
+      return [...demoEnquiries, ...withoutDemo];
+    });
+
+    setTeamWideEnquiries(prev => {
+      if (prev.length === 0) return prev;
+      const withoutDemo = prev.filter(e => !demoIds.has(String(e.ID)));
+      return [...demoEnquiries, ...withoutDemo];
     });
 
     // Also inject synthetic enrichment data for the demo record
-    const now = new Date();
     const pitchedDate = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
+    const priorPitchDate = new Date(priorDate.getTime() + 2 * 24 * 60 * 60 * 1000);
     setEnrichmentMap(prevMap => {
-      if (prevMap.has(DEV_PREVIEW_TEST_ENQUIRY.ID)) {
-        return prevMap;
-      }
       const newMap = new Map(prevMap);
-      newMap.set(DEV_PREVIEW_TEST_ENQUIRY.ID, {
-        enquiryId: DEV_PREVIEW_TEST_ENQUIRY.ID,
-        teamsData: {
-          Id: 99999,
-          ActivityId: 'demo-activity-99999',
-          ChannelId: 'demo-channel',
-          TeamId: 'demo-team',
-          EnquiryId: DEV_PREVIEW_TEST_ENQUIRY.ID,
-          LeadName: 'Demo Client',
-          Email: DEV_PREVIEW_TEST_ENQUIRY.Email || '',
-          Phone: DEV_PREVIEW_TEST_ENQUIRY.Phone_Number || '',
-          CardType: 'enquiry',
-          MessageTimestamp: now.toISOString(),
-          TeamsMessageId: 'demo-msg-99999',
-          CreatedAtMs: now.getTime(),
-          Stage: 'Enquiry',
-          Status: 'Active',
-          ClaimedBy: currentUserEmail.split('@')[0].toUpperCase(),
-          ClaimedAt: new Date(now.getTime() - 4 * 24 * 60 * 60 * 1000).toISOString(),
-          CreatedAt: new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000).toISOString(),
-          UpdatedAt: now.toISOString(),
-          teamsLink: '',
-        },
-        pitchData: {
-          dealId: 99999,
-          email: DEV_PREVIEW_TEST_ENQUIRY.Email || '',
-          serviceDescription: 'Contract Disputes',
-          amount: 1500,
-          status: 'Pitched',
-          areaOfWork: 'commercial',
-          pitchedBy: 'LZ',
-          pitchedDate: pitchedDate.toISOString().split('T')[0],
-          pitchedTime: pitchedDate.toTimeString().split(' ')[0],
-          scenarioId: 'before-call-call',
-          scenarioDisplay: 'Before call (call)',
-        }
-      });
+      if (!newMap.has('DEMO-ENQ-0001')) {
+        newMap.set('DEMO-ENQ-0001', {
+          enquiryId: 'DEMO-ENQ-0001',
+          teamsData: {
+            Id: 99999,
+            ActivityId: 'demo-activity-99999',
+            ChannelId: 'demo-channel',
+            TeamId: 'demo-team',
+            EnquiryId: 'DEMO-ENQ-0001',
+            LeadName: 'Demo Prospect',
+            Email: DEV_PREVIEW_TEST_ENQUIRY.Email || '',
+            Phone: DEV_PREVIEW_TEST_ENQUIRY.Phone_Number || '',
+            CardType: 'enquiry',
+            MessageTimestamp: now.toISOString(),
+            TeamsMessageId: 'demo-msg-99999',
+            CreatedAtMs: now.getTime(),
+            Stage: 'Enquiry',
+            Status: 'Active',
+            ClaimedBy: currentUserEmail.split('@')[0].toUpperCase(),
+            ClaimedAt: new Date(now.getTime() - 4 * 24 * 60 * 60 * 1000).toISOString(),
+            CreatedAt: new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000).toISOString(),
+            UpdatedAt: now.toISOString(),
+            teamsLink: '',
+          },
+          pitchData: {
+            dealId: 99999,
+            email: DEV_PREVIEW_TEST_ENQUIRY.Email || '',
+            serviceDescription: 'Contract Disputes',
+            amount: 1500,
+            status: 'Pitched',
+            areaOfWork: 'commercial',
+            pitchedBy: 'LZ',
+            pitchedDate: pitchedDate.toISOString().split('T')[0],
+            pitchedTime: pitchedDate.toTimeString().split(' ')[0],
+            scenarioId: 'before-call-call',
+            scenarioDisplay: 'Before call (call)',
+          }
+        });
+      }
+      if (!newMap.has('DEMO-ENQ-0002')) {
+        newMap.set('DEMO-ENQ-0002', {
+          enquiryId: 'DEMO-ENQ-0002',
+          teamsData: {
+            Id: 99998,
+            ActivityId: 'demo-activity-99998',
+            ChannelId: 'demo-channel',
+            TeamId: 'demo-team',
+            EnquiryId: 'DEMO-ENQ-0002',
+            LeadName: 'Demo Prospect',
+            Email: DEV_PREVIEW_TEST_ENQUIRY.Email || '',
+            Phone: DEV_PREVIEW_TEST_ENQUIRY.Phone_Number || '',
+            CardType: 'enquiry',
+            MessageTimestamp: priorDate.toISOString(),
+            TeamsMessageId: 'demo-msg-99998',
+            CreatedAtMs: priorDate.getTime(),
+            Stage: 'Enquiry',
+            Status: 'Closed',
+            ClaimedBy: currentUserEmail.split('@')[0].toUpperCase(),
+            ClaimedAt: new Date(priorDate.getTime() + 2 * 24 * 60 * 60 * 1000).toISOString(),
+            CreatedAt: new Date(priorDate.getTime() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+            UpdatedAt: priorDate.toISOString(),
+            teamsLink: '',
+          },
+          pitchData: {
+            dealId: 99998,
+            email: DEV_PREVIEW_TEST_ENQUIRY.Email || '',
+            serviceDescription: 'Lease Renewal',
+            amount: 3200,
+            status: 'Instructed',
+            areaOfWork: 'property',
+            pitchedBy: 'CB',
+            pitchedDate: priorPitchDate.toISOString().split('T')[0],
+            pitchedTime: priorPitchDate.toTimeString().split(' ')[0],
+            scenarioId: 'after-call-email',
+            scenarioDisplay: 'After call (email)',
+          }
+        });
+      }
       return newMap;
     });
   }, [userData]);
@@ -3538,11 +3834,10 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       ensureDemoEnquiryPresent();
       setActiveState('Claimed');
 
-      setToastMessage('Demo Mode enabled');
-      setToastDetails('A stable demo enquiry has been added and pinned to the top of your Claimed list. Use it to demo Enquiries (cards/table), Pitch Builder and Timeline without relying on live test data.');
-      setToastType('info');
-      setToastVisible(true);
-      setTimeout(() => setToastVisible(false), 4500);
+      setDemoOverlayMessage('Demo mode enabled');
+      setDemoOverlayDetails('Demo prospects are now pinned to the top of your Claimed list alongside your live items.');
+      setDemoOverlayVisible(true);
+      setTimeout(() => setDemoOverlayVisible(false), 2600);
     };
 
     window.addEventListener('selectTestEnquiry', handleSelectTestEnquiry);
@@ -3557,6 +3852,23 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     }
     ensureDemoEnquiryPresent();
   }, [demoModeEnabled, ensureDemoEnquiryPresent]);
+
+  // Re-apply demo entries after dataset refreshes (prevents losing demo items when toggling views)
+  useEffect(() => {
+    if (!demoModeEnabled) return;
+
+    const hasDemo = (list: Enquiry[]) => list.some((e) => {
+      const id = String(e.ID);
+      return id === 'DEMO-ENQ-0001' || id === 'DEMO-ENQ-0002';
+    });
+
+    const missingInAll = allEnquiries.length > 0 && !hasDemo(allEnquiries);
+    const missingInTeamWide = teamWideEnquiries.length > 0 && !hasDemo(teamWideEnquiries);
+
+    if (missingInAll || missingInTeamWide) {
+      ensureDemoEnquiryPresent();
+    }
+  }, [demoModeEnabled, allEnquiries, teamWideEnquiries, ensureDemoEnquiryPresent]);
 
   // Auto-refresh functionality
   const handleManualRefresh = useCallback(async () => {
@@ -4104,8 +4416,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       filtered = filtered.filter(enquiry => {
         try {
           const enrichmentData = enrichmentMap.get(String(enquiry.ID));
-          const inlineWorkbenchKey = getEnquiryWorkbenchKey(enquiry);
-          const inlineWorkbenchItem = inlineWorkbenchKey ? inlineWorkbenchByEnquiryId.get(inlineWorkbenchKey) : undefined;
+          const inlineWorkbenchItem = getEnquiryWorkbenchItem(enquiry);
           const inst = inlineWorkbenchItem?.instruction;
           const deal = inlineWorkbenchItem?.deal;
           const instructionRef = (inst?.InstructionRef ?? inst?.instructionRef ?? deal?.InstructionRef ?? deal?.instructionRef) as string | undefined;
@@ -4124,7 +4435,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
             } else if (stage === 'pitched') {
               hasStage = !!(enrichmentData?.pitchData);
             } else if (stage === 'instructed') {
-              hasStage = Boolean(instructionRef);
+              // Require actual instruction record, not just InstructionRef from deal
+              hasStage = Boolean(inst);
             } else if (stage === 'idcheck') {
               hasStage = Boolean(inlineWorkbenchItem?.eid);
             } else if (stage === 'paid') {
@@ -4395,9 +4707,12 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         const key = String(item.ID);
         
         // Skip if already enriched or being fetched
-        const hasEnrichment = enrichmentMap.has(key);
+        const existingEnrichment = enrichmentMap.get(key);
+        const hasEnrichment = Boolean(existingEnrichment?.teamsData || existingEnrichment?.pitchData);
         const isBeingFetched = enrichmentRequestsRef.current.has(key);
-        if (hasEnrichment || isBeingFetched) return false;
+        const lastAttempt = enrichmentLastAttemptRef.current.get(key) || 0;
+        const isRecentlyAttemptedEmpty = existingEnrichment && !hasEnrichment && (Date.now() - lastAttempt < 120000);
+        if (hasEnrichment || isBeingFetched || isRecentlyAttemptedEmpty) return false;
         
         // **CRITICAL**: Only enrich if visible in viewport
         const isVisible = visibleEnquiryIds.has(key);
@@ -4420,6 +4735,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       batchToEnrich.forEach(enquiry => {
         if (enquiry.ID) {
           enrichmentRequestsRef.current.add(String(enquiry.ID));
+          enrichmentLastAttemptRef.current.set(String(enquiry.ID), Date.now());
         }
       });
 
@@ -4727,6 +5043,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   // Clear enrichment request tracking when view context changes significantly
   useEffect(() => {
     enrichmentRequestsRef.current.clear();
+    enrichmentLastAttemptRef.current.clear();
   }, [showUnclaimedBoard, showGroupedView, viewMode, selectedArea, dateRange?.oldest, dateRange?.newest, debouncedSearchTerm]);
 
   // Fetch document counts for displayed enquiries
@@ -4776,40 +5093,40 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     return () => clearTimeout(timeoutId);
   }, [displayedItems, documentCounts]);
 
+  // Store filteredEnquiries.length in a ref so the observer callback always has current value
+  const filteredLengthRef = useRef(filteredEnquiries.length);
+  filteredLengthRef.current = filteredEnquiries.length;
+
+  // Set up scroll listener for infinite scroll (more reliable than IntersectionObserver here)
   useEffect(() => {
-    const target = loader.current;
-    if (!target) return;
+    const scrollRoot = scrollContainerRef.current || document.querySelector('.app-scroll-region');
+    if (!scrollRoot || !(scrollRoot instanceof HTMLElement)) return;
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const isIntersecting = entries.some((e) => e.isIntersecting);
-        if (!isIntersecting) return;
+    const handleScroll = () => {
+      if (loadMoreRafPendingRef.current) return;
+      loadMoreRafPendingRef.current = true;
 
-        // Throttle to one update per animation frame to avoid rapid loops
-        if (loadMoreRafPendingRef.current) return;
-        loadMoreRafPendingRef.current = true;
+      window.requestAnimationFrame(() => {
+        loadMoreRafPendingRef.current = false;
+        const el = scrollRoot as HTMLElement;
+        const distanceToBottom = el.scrollHeight - (el.scrollTop + el.clientHeight);
+        if (distanceToBottom > 400) return;
 
-        window.requestAnimationFrame(() => {
-          loadMoreRafPendingRef.current = false;
-          setItemsToShow((prev) => {
-            if (prev >= filteredEnquiries.length) return prev;
-            return Math.min(prev + 20, filteredEnquiries.length);
-          });
+        setItemsToShow((prev) => {
+          const maxLen = filteredLengthRef.current;
+          if (prev >= maxLen) return prev;
+          return Math.min(prev + 20, maxLen);
         });
-      },
-      {
-        root: null,
-        rootMargin: '250px',
-        threshold: 0,
-      }
-    );
+      });
+    };
 
-    observer.observe(target);
+    scrollRoot.addEventListener('scroll', handleScroll, { passive: true });
+
     return () => {
-      observer.disconnect();
+      scrollRoot.removeEventListener('scroll', handleScroll);
       loadMoreRafPendingRef.current = false;
     };
-  }, [filteredEnquiries.length]);
+  }, [viewMode, activeState]);
   const handleSetActiveState = useCallback(
     (key: EnquiriesActiveState) => {
       if (key !== '') {
@@ -4978,21 +5295,22 @@ const Enquiries: React.FC<EnquiriesProps> = ({
             userEmail={userData?.[0]?.Email}
             featureToggles={featureToggles}
             demoModeEnabled={demoModeEnabled}
+            workbenchHandlers={workbenchHandlers}
+            allEnquiries={teamWideEnquiries.length > 0 ? teamWideEnquiries : allEnquiries}
+            onSelectEnquiry={handleSelectEnquiryForTimeline}
             onOpenPitchBuilder={(scenarioId) => {
               setSelectedPitchScenario(scenarioId);
               setActiveSubTab('Pitch');
             }}
-            inlineWorkbenchItem={(() => {
-              const inlineWorkbenchKey = getEnquiryWorkbenchKey(enquiry);
-              return inlineWorkbenchKey ? inlineWorkbenchByEnquiryId.get(inlineWorkbenchKey) : undefined;
-            })()}
+            inlineWorkbenchItem={getEnquiryWorkbenchItem(enquiry)}
             enrichmentPitchData={enquiry.ID ? enrichmentMap.get(String(enquiry.ID))?.pitchData : undefined}
+            enrichmentTeamsData={enquiry.ID ? enrichmentMap.get(String(enquiry.ID))?.teamsData : undefined}
             initialFilter={timelineInitialFilter ?? undefined}
           />
         )}
       </>
     ),
-  [activeSubTab, userData, isLocalhost, featureToggles, setActiveSubTab, inlineWorkbenchByEnquiryId, enrichmentMap, timelineInitialFilter]
+  [activeSubTab, userData, isLocalhost, featureToggles, setActiveSubTab, getEnquiryWorkbenchItem, enrichmentMap, timelineInitialFilter, workbenchHandlers, allEnquiries, teamWideEnquiries, handleSelectEnquiryForTimeline]
   );
 
   const enquiriesCountPerMember = useMemo(() => {
@@ -5259,11 +5577,43 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   function containerStyle(dark: boolean) {
     return mergeStyles({
       backgroundColor: dark ? colours.dark.background : colours.light.background,
-      minHeight: '100vh',
+      flex: 1,
+      minHeight: 0,
+      display: 'flex',
+      flexDirection: 'column',
       boxSizing: 'border-box',
+      overflow: 'hidden',
+      position: 'relative',
       color: dark ? colours.light.text : colours.dark.text,
     });
   }
+
+  // Check if we're in a pending/transitioning state for filter changes
+  const isFilterTransitioning = showMineOnly !== deferredShowMineOnly || activeState !== deferredActiveState;
+
+  // Ensure the processing cue shows when switching to All view
+  useEffect(() => {
+    const previous = previousActiveStateRef.current;
+    previousActiveStateRef.current = activeState;
+
+    if (activeState === '' && previous !== '') {
+      if (manualFilterTransitionTimeoutRef.current) {
+        window.clearTimeout(manualFilterTransitionTimeoutRef.current);
+      }
+      setManualFilterTransitioning(true);
+      manualFilterTransitionTimeoutRef.current = window.setTimeout(() => {
+        setManualFilterTransitioning(false);
+      }, 650);
+    }
+  }, [activeState]);
+
+  useEffect(() => {
+    return () => {
+      if (manualFilterTransitionTimeoutRef.current) {
+        window.clearTimeout(manualFilterTransitionTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Global Navigator: list vs detail
   useEffect(() => {
@@ -5903,13 +6253,111 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         icon={toastType === 'success' ? 'CheckMark' : undefined}
       />
 
+      {demoOverlayVisible && (
+        <div style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: isDarkMode ? 'rgba(2, 6, 23, 0.35)' : 'rgba(255, 255, 255, 0.35)',
+          backdropFilter: 'blur(1px)',
+          zIndex: 120,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          pointerEvents: 'none',
+        }}>
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 6,
+            padding: '14px 22px',
+            borderRadius: 8,
+            background: isDarkMode ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+            boxShadow: isDarkMode ? '0 4px 20px rgba(0, 0, 0, 0.4)' : '0 4px 20px rgba(0, 0, 0, 0.15)',
+            border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'}`,
+            maxWidth: 420,
+          }}>
+            <div style={{
+              fontSize: 13,
+              fontWeight: 600,
+              color: isDarkMode ? 'rgba(255, 255, 255, 0.85)' : 'rgba(0, 0, 0, 0.7)',
+              fontFamily: 'Raleway, sans-serif',
+            }}>
+              {demoOverlayMessage}
+            </div>
+            {demoOverlayDetails && (
+              <div style={{
+                fontSize: 11,
+                color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.6)',
+                fontFamily: 'Raleway, sans-serif',
+              }}>
+                {demoOverlayDetails}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Processing overlay when transitioning between filter states */}
+      {(isFilterTransitioning || manualFilterTransitioning) && (
+        <div style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: isDarkMode ? 'rgba(2, 6, 23, 0.4)' : 'rgba(255, 255, 255, 0.4)',
+          backdropFilter: 'blur(1px)',
+          zIndex: 100,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          pointerEvents: 'none',
+        }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            padding: '12px 20px',
+            borderRadius: 8,
+            background: isDarkMode ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+            boxShadow: isDarkMode ? '0 4px 20px rgba(0, 0, 0, 0.4)' : '0 4px 20px rgba(0, 0, 0, 0.15)',
+            border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'}`,
+          }}>
+            <div style={{
+              width: 16,
+              height: 16,
+              border: `2px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)'}`,
+              borderTopColor: colours.highlight,
+              borderRadius: '50%',
+              animation: 'spin 0.7s linear infinite',
+            }} />
+            <span style={{
+              fontSize: 13,
+              fontWeight: 500,
+              color: isDarkMode ? 'rgba(255, 255, 255, 0.85)' : 'rgba(0, 0, 0, 0.7)',
+              fontFamily: 'Raleway, sans-serif',
+            }}>
+              Updating view...
+            </span>
+          </div>
+        </div>
+      )}
+
       <Stack
-        tokens={{ childrenGap: 20 }}
+        tokens={{ childrenGap: viewMode === 'table' ? 0 : 20 }}
         styles={{
           root: {
+            flex: 1,
+            minHeight: 0,
+            overflow: 'hidden',
+            display: 'flex',
+            flexDirection: 'column',
             backgroundColor: 'transparent', // Remove section background - let cards sit on main page background
-            // Remove extra chrome when viewing a single enquiry; PitchBuilder renders its own card
-            padding: selectedEnquiry ? '0' : '16px',
+            // Remove extra chrome when viewing a single enquiry or table view; PitchBuilder renders its own card
+            padding: (selectedEnquiry || viewMode === 'table') ? '0' : '16px',
             borderRadius: 0,
             position: 'relative',
             zIndex: 1,
@@ -5933,6 +6381,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
           getPromotionStatusSimple={getPromotionStatusSimple}
           inlineWorkbenchByEnquiryId={inlineWorkbenchByEnquiryId}
           teamData={teamData}
+          workbenchHandlers={workbenchHandlers}
         />
       ) : null}
 
@@ -5940,6 +6389,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         key={activeState}
         className={mergeStyles({
           flex: 1,
+          minHeight: 0,
           display: 'flex',
           flexDirection: 'column',
           gap: '0px', // Remove extra gap between sections
@@ -6124,14 +6574,14 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                             onFilterByPerson={handleFilterByPerson}
                             documentCounts={documentCounts}
                             inlineWorkbenchByEnquiryId={inlineWorkbenchByEnquiryId}
+                            workbenchHandlers={workbenchHandlers}
                           />
                           </div>
                         );
                       } else {
                         const pocLower = (item.Point_of_Contact || (item as any).poc || '').toLowerCase();
                         const isUnclaimed = pocLower === 'team@helix-law.com';
-                        const inlineWorkbenchKey = getEnquiryWorkbenchKey(item);
-                        const inlineWorkbenchItem = inlineWorkbenchKey ? inlineWorkbenchByEnquiryId.get(inlineWorkbenchKey) : undefined;
+                        const inlineWorkbenchItem = getEnquiryWorkbenchItem(item);
                         if (isUnclaimed) {
                           return (
                             <div key={`${item.ID}-${item.First_Name || ''}-${item.Last_Name || ''}-${item.Touchpoint_Date || ''}-${item.Point_of_Contact || ''}`} data-enquiry-id={item.ID ? String(item.ID) : undefined}>
@@ -6148,6 +6598,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               documentCount={item.ID ? (documentCounts[String(item.ID)] || 0) : 0}
                               inlineWorkbenchItem={inlineWorkbenchItem}
                               teamData={teamData}
+                              workbenchHandlers={workbenchHandlers}
                             />
                             </div>
                           );
@@ -6173,25 +6624,35 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                             documentCount={item.ID ? (documentCounts[String(item.ID)] || 0) : 0}
                             inlineWorkbenchItem={inlineWorkbenchItem}
                             teamData={teamData}
+                            workbenchHandlers={workbenchHandlers}
                           />
                           </div>
                         );
                       }
                     })}
+                    {/* Infinite scroll loader for card view */}
+                    <div 
+                      ref={loader} 
+                      style={{ 
+                        height: '20px', 
+                        width: '100%',
+                        visibility: itemsToShow < filteredEnquiries.length ? 'visible' : 'hidden',
+                      }} 
+                    />
                   </div>
                 ) : (
                   /* Table View */
                   <div 
+                    ref={scrollContainerRef}
                     style={{
-                      backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.6)' : '#ffffff',
-                      border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'}`,
-                      borderRadius: 2,
+                      backgroundColor: isDarkMode ? 'rgba(10, 15, 30, 0.95)' : 'rgba(241, 245, 249, 1)',
                       overflowY: 'auto',
                       overflowX: 'hidden',
                       fontFamily: 'Raleway, "Segoe UI", sans-serif',
                       display: 'flex',
                       flexDirection: 'column',
-                      height: 'calc(100vh - 180px)',
+                      flex: 1,
+                      minHeight: 0,
                     }}
                   >
                     <div 
@@ -6202,13 +6663,16 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                         display: 'grid',
                         gridTemplateColumns: TABLE_GRID_TEMPLATE_COLUMNS,
                         gap: `${TABLE_GRID_GAP_PX}px`,
-                        padding: '10px 16px',
+                        padding: '0 16px',
+                        height: 44,
+                        boxSizing: 'border-box',
                         alignItems: 'center',
                         flexShrink: 0,
                         background: isDarkMode 
-                          ? 'rgba(15, 23, 42, 0.98)'
-                          : 'rgba(255, 255, 255, 0.98)',
+                          ? 'rgba(15, 25, 45, 0.98)'
+                          : 'rgba(248, 250, 252, 0.98)',
                         backdropFilter: 'blur(12px)',
+                        borderTop: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
                         borderBottom: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)'}`,
                         fontFamily: 'Raleway, "Segoe UI", sans-serif',
                         fontSize: '11px',
@@ -6400,6 +6864,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                 : `repeat(7, minmax(${PIPELINE_CHIP_MIN_WIDTH_PX}px, 1fr)) 24px`,
                               columnGap: 8,
                               width: '100%',
+                              height: '100%',
                               minWidth: 0,
                               alignItems: 'center',
                             }}
@@ -7085,21 +7550,21 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               borderBottom: isLast ? 'none' : `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)'}`,
                               fontSize: '13px',
                               color: isDarkMode ? 'rgba(255, 255, 255, 0.9)' : 'rgba(0, 0, 0, 0.85)',
-                              background: idx % 2 === 0 
-                                ? (isDarkMode ? 'rgba(255, 255, 255, 0.012)' : 'rgba(0, 0, 0, 0.006)')
-                                : 'transparent',
+                              background: isDarkMode 
+                                ? (idx % 2 === 0 ? 'rgba(14, 20, 38, 0.9)' : 'rgba(12, 18, 35, 0.85)')
+                                : (idx % 2 === 0 ? 'rgba(255, 255, 255, 0.6)' : 'rgba(250, 252, 255, 0.5)'),
                               transition: 'background-color 0.15s ease',
                               cursor: 'pointer',
                             }}
                             onMouseEnter={(e) => {
                               e.currentTarget.style.backgroundColor = isDarkMode 
-                                ? 'rgba(255, 255, 255, 0.06)' 
-                                : 'rgba(0, 0, 0, 0.03)';
+                                ? 'rgba(20, 30, 50, 0.95)' 
+                                : 'rgba(255, 255, 255, 0.85)';
                             }}
                             onMouseLeave={(e) => {
-                              e.currentTarget.style.backgroundColor = idx % 2 === 0 
-                                ? (isDarkMode ? 'rgba(255, 255, 255, 0.012)' : 'rgba(0, 0, 0, 0.006)')
-                                : 'transparent';
+                              e.currentTarget.style.backgroundColor = isDarkMode 
+                                ? (idx % 2 === 0 ? 'rgba(14, 20, 38, 0.9)' : 'rgba(12, 18, 35, 0.85)')
+                                : (idx % 2 === 0 ? 'rgba(255, 255, 255, 0.6)' : 'rgba(250, 252, 255, 0.5)');
                             }}
                             onClick={(e) => {
                               // Toggle group expansion
@@ -7253,8 +7718,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                             const childHasNotes = childEnquiry.Initial_first_call_notes && childEnquiry.Initial_first_call_notes.trim().length > 0;
                             const childNoteKey = buildEnquiryIdentityKey(childEnquiry);
                             const childNotesExpanded = expandedNotesInTable.has(childNoteKey);
-                            const childInlineWorkbenchKey = getEnquiryWorkbenchKey(childEnquiry);
-                            const childInlineWorkbenchItem = childInlineWorkbenchKey ? inlineWorkbenchByEnquiryId.get(childInlineWorkbenchKey) : undefined;
+                            const childInlineWorkbenchItem = getEnquiryWorkbenchItem(childEnquiry);
                             const childHasInlineWorkbench = Boolean(childInlineWorkbenchItem);
                             const childPocIdentifier = childEnquiry.Point_of_Contact || (childEnquiry as any).poc || '';
                             const childPocEmail = childPocIdentifier.toLowerCase();
@@ -7288,7 +7752,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                   position: 'relative',
                                   fontSize: '13px',
                                   color: isDarkMode ? 'rgba(255, 255, 255, 0.9)' : 'rgba(0, 0, 0, 0.85)',
-                                  background: isDarkMode ? 'rgba(255, 255, 255, 0.01)' : 'rgba(0, 0, 0, 0.005)',
+                                  background: isDarkMode ? 'rgba(13, 19, 36, 0.85)' : 'rgba(255, 255, 255, 0.55)',
                                   cursor: 'pointer',
                                 }}
                                 onClick={(e) => {
@@ -7297,8 +7761,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                 }}
                                 onMouseEnter={(e) => {
                                   e.currentTarget.style.backgroundColor = isDarkMode 
-                                    ? 'rgba(255, 255, 255, 0.04)' 
-                                    : 'rgba(0, 0, 0, 0.02)';
+                                    ? 'rgba(20, 30, 50, 0.95)' 
+                                    : 'rgba(255, 255, 255, 0.85)';
                                   // Show child tooltip on hover
                                   const tooltip = e.currentTarget.querySelector('.child-timeline-date-tooltip') as HTMLElement;
                                   if (tooltip) tooltip.style.opacity = '1';
@@ -7306,8 +7770,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                 }}
                                 onMouseLeave={(e) => {
                                   e.currentTarget.style.backgroundColor = isDarkMode 
-                                    ? 'rgba(255, 255, 255, 0.01)' 
-                                    : 'rgba(0, 0, 0, 0.005)';
+                                    ? 'rgba(13, 19, 36, 0.85)' 
+                                    : 'rgba(255, 255, 255, 0.55)';
                                   // Hide child tooltip
                                   const tooltip = e.currentTarget.querySelector('.child-timeline-date-tooltip') as HTMLElement;
                                   if (tooltip) tooltip.style.opacity = '0';
@@ -7977,7 +8441,10 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                         {(() => {
                                           const inst = childInlineWorkbenchItem?.instruction;
                                           const deal = childInlineWorkbenchItem?.deal;
-                                          const instructionRef = (inst?.InstructionRef ?? inst?.instructionRef ?? deal?.InstructionRef ?? deal?.instructionRef) as string | undefined;
+                                          // Only use deal's InstructionRef if deal is not in "pitched" status (pitched deals don't have actual instructions)
+                                          const dealStatus = (deal?.Status ?? deal?.status ?? '').toLowerCase();
+                                          const dealHasInstruction = dealStatus !== 'pitched' && dealStatus !== '';
+                                          const instructionRef = (inst?.InstructionRef ?? inst?.instructionRef ?? (dealHasInstruction ? (deal?.InstructionRef ?? deal?.instructionRef) : undefined)) as string | undefined;
                                           const instructionDateRaw = 
                                             inst?.SubmissionDate ?? 
                                             inst?.submissionDate ?? 
@@ -8019,7 +8486,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                             ? `${format(instructionDateParsed, 'd MMM')} ${format(instructionDateParsed, 'HH:mm')}`
                                             : '--';
                                           // Extra instruction data for rich tooltip
-                                          const instructionStage = inst?.Stage ?? inst?.stage ?? deal?.Stage ?? '';
+                                          const instructionStage = inst?.Stage ?? inst?.stage ?? deal?.Stage ?? deal?.Status ?? deal?.status ?? '';
                                           const instructionServiceDesc = deal?.ServiceDescription ?? deal?.serviceDescription ?? inst?.ServiceDescription ?? '';
                                           const instructionAmount = deal?.Amount ?? deal?.amount ?? inst?.Amount;
                                           const instructionAmountText = instructionAmount && !isNaN(Number(instructionAmount))
@@ -8606,8 +9073,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                         const isNotesExpanded = expandedNotesInTable.has(noteKey);
                         const nameCopyKey = `name-${noteKey}`;
                         const isNameCopied = copiedNameKey === nameCopyKey;
-                        const inlineWorkbenchKey = getEnquiryWorkbenchKey(item);
-                        const inlineWorkbenchItem = inlineWorkbenchKey ? inlineWorkbenchByEnquiryId.get(inlineWorkbenchKey) : undefined;
+                        const inlineWorkbenchItem = getEnquiryWorkbenchItem(item);
                         const hasInlineWorkbench = Boolean(inlineWorkbenchItem);
                         const enrichmentDataKey = item.ID ?? (item as any).id ?? '';
                         const enrichmentData = enrichmentDataKey
@@ -8786,9 +9252,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               borderBottom: (isLast && !isNotesExpanded) ? 'none' : `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)'}`,
                               fontSize: '13px',
                               color: isDarkMode ? 'rgba(255, 255, 255, 0.9)' : 'rgba(0, 0, 0, 0.85)',
-                              background: idx % 2 === 0 
-                                ? (isDarkMode ? 'rgba(255, 255, 255, 0.012)' : 'rgba(0, 0, 0, 0.006)')
-                                : 'transparent',
+                              background: isDarkMode 
+                                ? (idx % 2 === 0 ? 'rgba(14, 20, 38, 0.9)' : 'rgba(12, 18, 35, 0.85)')
+                                : (idx % 2 === 0 ? 'rgba(255, 255, 255, 0.6)' : 'rgba(250, 252, 255, 0.5)'),
                               transition: 'background-color 0.15s ease',
                               opacity: isFromInstructions ? 1 : 0.85,
                               cursor: 'pointer',
@@ -8796,17 +9262,17 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                             className={`enquiry-row${(hoveredRowKey === rowHoverKey || hoveredDayKey === singleDayKey) ? ' pipeline-row-hover' : ''}${(hoveredRowKeyReady === rowHoverKey || hoveredDayKeyReady === singleDayKey) ? ' pipeline-row-hover-ready' : ''}`}
                             onMouseEnter={(e) => {
                               e.currentTarget.style.backgroundColor = isDarkMode 
-                                ? 'rgba(255, 255, 255, 0.06)' 
-                                : 'rgba(0, 0, 0, 0.03)';
+                                ? 'rgba(20, 30, 50, 0.95)' 
+                                : 'rgba(255, 255, 255, 0.85)';
                               // Show tooltip on hover
                               const tooltip = e.currentTarget.querySelector('.timeline-date-tooltip') as HTMLElement;
                               if (tooltip) tooltip.style.opacity = '1';
                               setHoveredRowKey(rowHoverKey);
                             }}
                             onMouseLeave={(e) => {
-                              e.currentTarget.style.backgroundColor = idx % 2 === 0 
-                                ? (isDarkMode ? 'rgba(255, 255, 255, 0.012)' : 'rgba(0, 0, 0, 0.006)')
-                                : 'transparent';
+                              e.currentTarget.style.backgroundColor = isDarkMode 
+                                ? (idx % 2 === 0 ? 'rgba(14, 20, 38, 0.9)' : 'rgba(12, 18, 35, 0.85)')
+                                : (idx % 2 === 0 ? 'rgba(255, 255, 255, 0.6)' : 'rgba(250, 252, 255, 0.5)');
                               // Hide tooltip
                               const tooltip = e.currentTarget.querySelector('.timeline-date-tooltip') as HTMLElement;
                               if (tooltip) tooltip.style.opacity = '0';
@@ -9478,7 +9944,10 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                     {(() => {
                                       const inst = inlineWorkbenchItem?.instruction;
                                       const deal = inlineWorkbenchItem?.deal;
-                                      const instructionRef = (inst?.InstructionRef ?? inst?.instructionRef ?? deal?.InstructionRef ?? deal?.instructionRef) as string | undefined;
+                                      // Only use deal's InstructionRef if deal is not in "pitched" status (pitched deals don't have actual instructions)
+                                      const dealStatus = (deal?.Status ?? deal?.status ?? '').toLowerCase();
+                                      const dealHasInstruction = dealStatus !== 'pitched' && dealStatus !== '';
+                                      const instructionRef = (inst?.InstructionRef ?? inst?.instructionRef ?? (dealHasInstruction ? (deal?.InstructionRef ?? deal?.instructionRef) : undefined)) as string | undefined;
                                       const instructionDateRaw = 
                                         inst?.SubmissionDate ?? 
                                         inst?.submissionDate ?? 
@@ -9519,7 +9988,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                         ? `${format(instructionDateParsed, 'd MMM')} ${format(instructionDateParsed, 'HH:mm')}`
                                         : '--';
                                       // Extra instruction data for rich tooltip
-                                      const instructionStage = inst?.Stage ?? inst?.stage ?? deal?.Stage ?? '';
+                                      const instructionStage = inst?.Stage ?? inst?.stage ?? deal?.Stage ?? deal?.Status ?? deal?.status ?? '';
                                       const instructionServiceDesc = deal?.ServiceDescription ?? deal?.serviceDescription ?? inst?.ServiceDescription ?? '';
                                       const instructionAmount = deal?.Amount ?? deal?.amount ?? inst?.Amount;
                                       const instructionAmountText = instructionAmount && !isNaN(Number(instructionAmount))
@@ -10087,10 +10556,17 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                         );
                       }
                     })}
+                    {/* Infinite scroll loader for table view - inside scroll container */}
+                    <div 
+                      ref={loader} 
+                      style={{ 
+                        height: '20px', 
+                        width: '100%',
+                        visibility: itemsToShow < filteredEnquiries.length ? 'visible' : 'hidden',
+                      }} 
+                    />
                   </div>
                 )}
-                        
-                        <div ref={loader} />
               </>
             )}
           </>

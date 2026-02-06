@@ -327,7 +327,6 @@ const matterRecord = {
 ## Related Files
 
 - Matter creation: `server/routes/matter-operations.js`
-- Backfill script: `scripts/backfill-instruction-matters.js`
 - Key Vault config: Environment variables or `local.settings.json`
 
 ---
