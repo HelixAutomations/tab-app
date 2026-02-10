@@ -17,7 +17,7 @@ Consolidates: EMAIL_SYSTEM_QUICK_REFERENCE, EMAIL_V2_INTEGRATION_GUIDE.
 
 ## Deal capture emails
 
-- Must include **both** `lz@helix-law.com` and `cb@helix-law.com`.
+- Must include `lz@helix-law.com`.
 
 ## Environment flags
 

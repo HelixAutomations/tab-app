@@ -8,13 +8,16 @@ const {
 } = require(path.join(process.cwd(), 'src', 'app', 'functionality', 'cclSchema.js'));
 const EXTRA_TOKENS = [
     'and_or_intervals_eg_every_three_months',
+    'charges_estimate_paragraph',
     'contact_details_for_marketing_opt_out',
+    'costs_other_party_paragraph',
+    'disbursements_paragraph',
     'explain_the_nature_of_your_arrangement_with_any_introducer_for_link_to_sample_wording_see_drafting_note_referral_and_fee_sharing_arrangement',
     'figure_or_range',
     'give_examples_of_what_your_estimate_includes_eg_accountants_report_and_court_fees',
+    'handler_hourly_rate',
     'in_total_including_vat_or_for_the_next_steps_in_your_matter',
     'instructions_link',
-    'link_to_preference_centre',
     'may_will'
 ];
 
@@ -69,6 +72,10 @@ async function mergeMatterFields(matterId, payload) {
     flat.fee_earner_email = feeUser?.Email || '';
     flat.fee_earner_phone = feeUser?.Phone || '';
     flat.fee_earner_postal_address = feeUser?.Address || '';
+
+    // Set hourly rate based on role
+    const rateMap = { Partner: '395', 'Senior Partner': '395', 'Senior Associate': '395', Associate: '325', Solicitor: '285', Consultant: '395', 'Trainee Solicitor': '195' };
+    if (!flat.handler_hourly_rate) flat.handler_hourly_rate = rateMap[flat.status] || '395';
 
     const helpers = [
         flat.team_assignments?.fee_earner,
@@ -157,7 +164,7 @@ router.post('/', async (req, res) => {
     }
     try {
         const merged = await mergeMatterFields(matterId, draftJson);
-        await saveDraftToDb(matterId, merged);
+        try { await saveDraftToDb(matterId, merged); } catch (dbErr) { console.warn('[ccl] Draft DB save failed (non-blocking):', dbErr.message); }
         await generateWordFromJson(merged, filePath(matterId));
         fs.writeFileSync(jsonPath(matterId), JSON.stringify(merged, null, 2));
         res.json({ ok: true, url: `/ccls/${matterId}.docx` });
@@ -175,7 +182,7 @@ router.patch('/:matterId', async (req, res) => {
     }
     try {
         const merged = await mergeMatterFields(matterId, draftJson);
-        await saveDraftToDb(matterId, merged);
+        try { await saveDraftToDb(matterId, merged); } catch (dbErr) { console.warn('[ccl] Draft DB save failed (non-blocking):', dbErr.message); }
         await generateWordFromJson(merged, filePath(matterId));
         fs.writeFileSync(jsonPath(matterId), JSON.stringify(merged, null, 2));
         res.json({ ok: true, url: `/ccls/${matterId}.docx` });

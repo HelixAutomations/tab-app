@@ -118,7 +118,7 @@ Use `node -e` only for trivial one-liners. For anything with SQL, Key Vault, or 
 - **Luke Test**: `HLX-27367-94842` is the production health indicator. Never delete.
 - **ID pills** must call `onEIDClick()` (no detail expansion).
 - **Risk colours** must use `RiskAssessmentResult` (not `TransactionRiskLevel`).
-- **Deal capture emails** must go to both `lz@helix-law.com` and `cb@helix-law.com`.
+- **Deal capture emails** must go to `lz@helix-law.com`.
 
 ## Session Start
 
@@ -126,6 +126,17 @@ On first interaction, run: `node tools/sync-context.mjs`
 This generates `.github/instructions/REALTIME_CONTEXT.md` with current branch, submodule state, and server status.
 
 Full session init (slower, more thorough): `node tools/session-start.mjs`
+
+## Session End
+
+When a session is winding down (user signals they're done, or the conversation has naturally concluded its work), review what you learned and offer a brief deposit:
+
+1. **Identify stale or missing context** in instruction files — patterns you discovered, prop chains you traced, gotchas you hit. Would a future agent benefit from knowing this?
+2. **Propose specific updates** — name the file, describe the addition in 1–2 lines. Don't dump a wall of suggestions.
+3. **Only deposit high-signal context** — things that cost time to rediscover. Skip anything obvious from reading the code itself.
+4. **Prefer updating existing files** over creating new ones. If nothing meaningful changed, say so and move on.
+
+This is the compounding mechanism. Each session should leave the instruction surface slightly sharper than it found it. The user will confirm before any changes are written.
 
 ## Conventions
 
@@ -136,6 +147,50 @@ Full session init (slower, more thorough): `node tools/session-start.mjs`
 ## Logging
 
 Log substantial tasks in `logs/changelog.md`. Format: Date / Request / What changed (+ files)
+
+## Application Insights (CRITICAL — read before adding server-side features)
+
+Every server-side process MUST emit telemetry to Application Insights. This is non-negotiable — if the server restarts or a sync fails silently, App Insights is the only way to know what happened.
+
+**How it works:**
+- SDK initialised in `server/index.js` (before Express) via `server/utils/appInsights.js`
+- Auto-detects `APPLICATIONINSIGHTS_CONNECTION_STRING` in Azure; no-op locally
+- HTTP requests, exceptions, console output, and dependencies are auto-tracked
+- Custom events/metrics added at key lifecycle points
+
+**When adding or modifying any server-side process:**
+```javascript
+const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
+
+// On start
+trackEvent('Component.Entity.Started', { operation, triggeredBy, ...context });
+
+// On success
+trackEvent('Component.Entity.Completed', { operation, triggeredBy, durationMs, rowCount, ...context });
+trackMetric('Component.Entity.Duration', durationMs, { operation });
+
+// On failure (MOST IMPORTANT — always track both exception AND event)
+trackException(error, { operation, phase: 'whatWasHappening', entity: 'WhatEntity' });
+trackEvent('Component.Entity.Failed', { operation, error: error.message, ...context });
+```
+
+**Naming convention:** `Component.Entity.Lifecycle` — e.g. `DataOps.CollectedTime.Completed`, `Scheduler.Wip.Hot.Failed`
+
+**Rules:**
+1. Track BOTH success and failure. Failure paths are most valuable.
+2. Always include `operation`, `triggeredBy`, and date range in properties.
+3. Use `trackException` in every catch block — this is how Azure Alerts find failures.
+4. Use `trackMetric` for anything you'd want to graph (durations, row counts, queue depths).
+5. Properties must be strings (the helper auto-converts).
+6. See `ARCHITECTURE_DATA_FLOW.md` → "Application Insights Telemetry" for KQL queries.
+
+**Currently instrumented:**
+- Data Operations: syncCollectedTime, syncWip (started/completed/validated/failed)
+- Scheduler: all Hot/Warm/Cold tiers for both Collected and WIP
+- Matter Opening Pipeline: opponents, matterRequests, clioContacts, clioMatters (started/completed/failed + duration metrics)
+- Client-side Matter Opening: pre-validation failures, processing step failures, successful completions (via /api/telemetry → trackEvent)
+- HTTP requests: auto-instrumented by SDK
+- Console output: auto-captured as traces
 
 ## Reference Files (read these)
 

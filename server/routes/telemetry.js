@@ -7,6 +7,7 @@
 const express = require('express');
 const router = express.Router();
 const opLog = require('../utils/opLog');
+const { trackEvent, trackException } = require('../utils/appInsights');
 
 /**
  * POST /api/telemetry
@@ -63,14 +64,19 @@ router.post('/', (req, res) => {
       ...telemetryLog
     }));
 
-    // For critical events, log at info level for visibility
-    if (type.includes('error') || type.includes('email_sent') || type.includes('completed')) {
-      console.info(`[Telemetry:${source}] ${type}`, JSON.stringify({
-        enquiryId,
-        feeEarner,
-        error,
-        durationMs: duration
-      }));
+    // Fire direct App Insights events for all client-side telemetry
+    const eventName = `Client.${source}.${type}`;
+    trackEvent(eventName, telemetryLog);
+
+    // Track errors/failures as exceptions in App Insights
+    if (type.includes('error') || type.includes('failed') || type.includes('Failed') || error) {
+      trackException(new Error(error || `${source}:${type}`), {
+        component: 'MatterOpening',
+        operation: type,
+        source,
+        instructionRef: data?.instructionRef || data?.instruction_ref || enquiryId || '',
+        feeEarner: feeEarner || ''
+      });
     }
 
     res.status(200).json({ received: true });

@@ -3,7 +3,6 @@ import { Icon } from '@fluentui/react';
 import { format, parseISO } from 'date-fns';
 import { colours } from '../../app/styles/colours';
 import { NormalizedMatter } from '../../app/functionality/types';
-import InlineExpansionChevron from '../../components/InlineExpansionChevron';
 import clioIcon from '../../assets/clio.svg';
 
 interface MatterTableViewProps {

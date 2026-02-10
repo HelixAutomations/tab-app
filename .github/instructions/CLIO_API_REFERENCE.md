@@ -311,6 +311,82 @@ const matterRecord = {
 
 ---
 
+## Data Pipeline APIs
+
+Two Clio API surfaces feed the Data Centre sync infrastructure. They serve fundamentally different purposes.
+
+### Activities API (WIP source)
+
+**Endpoint**: `GET /api/v4/activities.json`
+**Purpose**: Fetches unbilled time entries and expenses for a date range.
+**Used by**: `server/routes/dataOperations.js` → `syncWip()`
+
+```javascript
+const url = new URL('https://eu.app.clio.com/api/v4/activities.json');
+url.searchParams.set('fields', 'id,date,created_at,updated_at,type,matter,quantity_in_hours,note,total,price,expense_category,activity_description,user,bill,billed,non_billable');
+url.searchParams.set('start_date', '2026-02-01');
+url.searchParams.set('end_date', '2026-02-07');
+url.searchParams.set('limit', '200');
+url.searchParams.set('offset', '0');
+```
+
+**Key behaviours**:
+- Paginated: 200 items/page, use `offset` to iterate, stop when `batch.length < limit` or no `meta.paging.next`
+- Returns both `TimeEntry` and `ExpenseEntry` types
+- `non_billable` field: boolean, must be explicitly requested in `fields`
+- `quantity_in_hours`: 0 for expenses, >0 for time entries
+- `matter` is a nested object: `{ id, display_number }`
+- `activity_description` is nested: `{ id, name }`
+- `expense_category` is nested: `{ id, name }` (NULL for time entries)
+- Date filtering: `start_date`/`end_date` filter on the activity's `date` field
+
+**Validation endpoint**: Same API used for deep-validate — paginate with `fields=id` only to count total activities in Clio for comparison against SQL.
+
+### Reports API (Collected Time source)
+
+**Endpoint**: `POST /api/v4/reports.json` → poll → `GET /api/v4/reports/{id}.json`
+**Purpose**: Generates invoice payment reports for a date range (what has been collected/paid).
+**Used by**: `server/routes/dataOperations.js` → `syncCollectedTime()`
+
+```javascript
+// Step 1: Request report
+const response = await fetch('https://eu.app.clio.com/api/v4/reports.json', {
+  method: 'POST',
+  headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    data: {
+      start_date: '2026-02-01',
+      end_date: '2026-02-07',
+      format: 'json',
+      kind: 'invoice_payments_v2'
+    }
+  })
+});
+
+// Step 2: Poll until ready (state === 'completed')
+// Step 3: Download JSON data
+```
+
+**Key behaviours**:
+- Asynchronous: POST creates report, poll `GET /reports/{id}.json` until `state === 'completed'`
+- Report kind `invoice_payments_v2` returns payment line items, not invoices
+- Same line-item `id` can appear multiple times (split payments across invoices) — this is legitimate
+- Returns: `id`, `date`, `kind`, `type`, `sub_total`, `tax`, `payment_allocated`, `payment_date`, `user_name`, etc.
+- Deep validate for collected time also uses this API (slow: 30-60s per report generation)
+
+### API Comparison
+
+| Aspect | Activities API | Reports API |
+|--------|---------------|-------------|
+| HTTP method | GET (paginated) | POST + poll |
+| Speed | Fast (paginated, instant) | Slow (async report, 30-60s) |
+| Data type | Unbilled WIP | Collected payments |
+| Target table | `wip` | `collectedTime` |
+| ID uniqueness | Unique per activity | NOT unique (split payments) |
+| Amount field | `total` | `payment_allocated` |
+
+---
+
 ## Rate Limits
 
 **Clio API Rate Limits** (as of v4):

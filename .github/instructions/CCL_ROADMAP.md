@@ -1,0 +1,205 @@
+# CCL (Client Care Letter) Roadmap
+
+> "The UX should be review of a finished Word doc — user shouldn't see building blocks."  
+> — Alex Cook, June 2025
+
+## Current State (v1 — Sidebar Preview)
+
+Built and working:
+
+- **A4 paper preview** — 794×1123px centred on grey background, realistic proportions
+- **Letterhead** — Helix logo, firm address, recipient block (client name + "Re: description")
+- **Sidebar panel** (320px) with 3 tabs:
+  - **Sections** — clause navigation with numbered badges, expand/collapse, view mode toggle
+  - **Quick Edit** — 13 key fields editable without returning to questionnaire
+  - **Presets** — one-click clause variants (timescales, billing intervals, cost risk wording)
+- **Auto-fill** — `autoFillFromMatter()` fills ~15 fields from matter + teamData
+- **Rate map** — Partner/Senior/Consultant £395, Associate £325, Solicitor £285, Trainee £195
+- **Download** — .docx via `generateWordFromJson`, graceful DB save (CclDrafts table fallback)
+- **3-step flow** — questionnaire → editor → preview (user currently sees all steps)
+
+## Target State (Alex's Vision)
+
+User opens CCL → sees a near-complete document immediately. No questionnaire, no editor steps visible. Like reviewing a Word doc before sending.
+
+### What must change
+
+| # | Change | Status |
+|---|--------|--------|
+| 1 | Default to preview step (skip questionnaire/editor) | ⬜ Not started |
+| 2 | Richer auto-fill — practice area defaults, pitch/instruction data, scope from subcategory | ⬜ Not started |
+| 3 | Inline blank highlighting — yellow-highlight unfilled merge fields on the A4 document | ⬜ Not started |
+| 4 | Sidebar as assistant — surfaces blanks as a to-do list, not a gatekeeper | ⬜ Not started |
+| 5 | Remove step indicators — no "Step 1/2/3" chrome | ⬜ Not started |
+| 6 | Practice area template defaults — pre-fill scope/costs/actions per work silo | ⬜ Not started |
+| 7 | Action points — unique per template structure, always need user input | ⬜ Not started |
+
+---
+
+## Phase 1: "Mail Merge" (No AI)
+
+Goal: template-based generation. Questionnaire/editor stay as fallback but user doesn't see them by default.
+
+### 1.1 Default to Preview
+- `CCLEditor.tsx` — change initial step from `'questionnaire'` to `'preview'`
+- Keep questionnaire/editor accessible via sidebar "Edit all fields" button
+- `PreviewStep` becomes the landing experience
+
+### 1.2 Practice Area Defaults
+- Extend `cclSections.ts` with `PRACTICE_AREA_DEFAULTS` map
+- Keys: `commercial`, `property`, `employment`, `construction`, `dispute-resolution`, `general`
+- Each provides default `scope_summary`, `charges_estimate`, `billing_interval`, `timescale_estimate`, `cost_risk_wording`
+- Auto-fill from `matter.practiceArea` or `matter.subcategory`
+
+### 1.3 Pitch/Instruction Data Integration
+- Pull scope, fee estimate, key terms from Instruct Pitch (if exists for this matter)
+- Pull any existing instruction data from Instructions DB
+- Merge into fields before preview renders
+
+### 1.4 Inline Blank Highlighting
+- Scan rendered document for unfilled `{merge_field}` tokens or empty values
+- Highlight with yellow background on A4 preview
+- Click blank → sidebar scrolls to that field in Quick Edit tab
+
+### 1.5 Sidebar Blank Summary
+- Auto-generate "X fields need attention" badge
+- List unfilled fields as clickable items
+- Mark complete as user fills them
+- When all filled → show "Ready to download" state
+
+---
+
+## Phase 2: AI-Assisted (Scope & Costs)
+
+Goal: AI generates scope summary, action points, and cost estimates from existing data.
+
+### 2.1 AI Architecture (from enquiry-processing-v2 patterns)
+
+The existing AI implementation uses:
+- **Azure OpenAI** via `Azure.AI.OpenAI` SDK (currently `gpt-5.1` deployment)
+- **Key Vault** for API key retrieval (`DefaultAzureCredential` → `azure-openai-api-key`)
+- **Endpoint**: `https://autom-midmw1iy-eastus2.cognitiveservices.azure.com/`
+- **Pattern**: System prompt (instructions + JSON schema) → User message (data) → JSON response → Parse
+- **Fallback**: AI failure → rule-based fallback → safe default
+
+### 2.2 CCL AI Service Design
+
+```
+POST /api/ccl/ai-generate
+  Input: matterId, practiceArea, enquiryNotes, pitchData, existingCorrespondence
+  Output: { scope_summary, charges_estimate, action_points[], timescale_estimate, cost_risk_wording }
+```
+
+- Reuse Key Vault + Azure OpenAI client pattern from enquiry-processing-v2
+- Structured JSON output (`ChatResponseFormat.CreateJsonObjectFormat()`)
+- Temperature: 0.2 (low creativity, high consistency for legal text)
+- Fallback: practice area defaults (Phase 1.2) if AI fails
+- Track via Application Insights (`CCL.AiGenerate.Started/Completed/Failed`)
+
+### 2.3 Prompt Engineering
+
+System prompt should include:
+- Helix Law's standard CCL template structure
+- Practice area context and common clause patterns
+- JSON schema for output fields
+- Instruction: "Generate professional UK solicitor language, compliant with SRA Transparency Rules"
+
+User message should include:
+- Client name, matter description, practice area
+- Enquiry notes (from Core Data `enquiries` table)
+- Pitch data (from Instruct Pitch, if available)
+- Any existing correspondence summary
+
+### 2.4 Key Differences from enquiry-processing-v2
+
+| Aspect | enquiry-processing-v2 | CCL AI |
+|--------|----------------------|--------|
+| Runtime | C# Azure Functions | Node.js Express (server/routes/ccl.js) |
+| SDK | Azure.AI.OpenAI (C#) | @azure/openai (npm) or openai (npm) |
+| Output | Classification enum + confidence | Long-form legal text + structured fields |
+| Latency tolerance | <2s (email triage) | 5-10s acceptable (document generation) |
+| Token budget | ~2000 input + ~500 output | ~4000 input + ~2000 output |
+| Retry | None (fallback only) | Should add retry with backoff |
+
+### 2.5 Implementation Steps
+1. Add `@azure/openai` or `openai` package to server
+2. Create `server/utils/aiClient.js` — singleton client with Key Vault auth
+3. Create `server/routes/ccl-ai.js` — AI generation endpoint
+4. Build prompt templates (system + user) in `server/prompts/ccl-scope.txt`
+5. Wire into PreviewStep sidebar — "AI Suggest" button per section
+6. Add Application Insights telemetry
+
+---
+
+## Phase 3: AI-Powered (Correspondence Analysis)
+
+Goal: AI reads email correspondence and extracts scope, timelines, and action points.
+
+### 3.1 Email Corpus Ingestion
+- Fetch relevant emails from Graph API (matter-related threads)
+- Extract and clean body text (reuse `ExtractForwardedEmailDataAsync` patterns)
+- Summarise correspondence into structured context
+
+### 3.2 Scope from Correspondence
+- Feed email summaries + enquiry notes into AI prompt
+- AI identifies: agreed scope, discussed fees, key deadlines, opposing parties
+- Output merges into CCL fields
+
+### 3.3 Action Points from Correspondence
+- AI analyses what's been promised/discussed
+- Generates matter-specific action points (not generic template ones)
+- User reviews and edits before inclusion
+
+### 3.4 Confidence & Review
+- Each AI-generated section gets a confidence indicator
+- Low confidence → yellow highlight, user must review
+- High confidence → green indicator, still editable
+
+---
+
+## Technical Notes
+
+### Files to Modify (Phase 1)
+
+| File | Change |
+|------|--------|
+| `src/components/CCLEditor.tsx` | Default step → preview, remove step indicators |
+| `src/components/PreviewStep.tsx` | Blank highlighting, sidebar blank summary |
+| `src/constants/cclSections.ts` | Practice area defaults map |
+| `server/routes/ccl.js` | Pull pitch/instruction data for auto-fill |
+
+### Files to Create (Phase 2)
+
+| File | Purpose |
+|------|---------|
+| `server/utils/aiClient.js` | Azure OpenAI singleton client |
+| `server/routes/ccl-ai.js` | AI generation endpoint |
+| `server/prompts/ccl-scope.txt` | System prompt template |
+| `src/services/cclAiService.ts` | Client-side AI service calls |
+
+### Key Vault Secrets (already provisioned)
+- `azure-openai-api-key` — same key used by enquiry-processing-v2
+
+### enquiry-processing-v2 AI Patterns (Reference)
+
+Located in `submodules/enquiry-processing-v2/Services/AiClassificationService.cs` (1200 lines):
+- 6 AI methods: delegation classification, forwarded email extraction, reply sentiment, info@ classification, name extraction (×2)
+- All use: system prompt → user message → JSON response format → typed DTO parsing
+- Fallback chain: AI → keyword analysis → safe default
+- Singleton client with SemaphoreSlim double-check locking
+- Tracking IDs for end-to-end traceability
+- Body truncation (2000 chars) for implicit token control
+- No retry logic (should add for CCL)
+- No token/cost tracking (should add for CCL)
+
+---
+
+## Decision Log
+
+| Date | Decision | Rationale |
+|------|----------|-----------|
+| Jun 2025 | UX = "review of finished Word doc" | Alex Cook direction — users shouldn't see building blocks |
+| Jun 2025 | No AI in Phase 1 | Template-based mail merge first, AI in phases 2-3 |
+| Jun 2025 | Action points always need user input | Unique per matter, can't fully auto-generate |
+| Jun 2025 | Reuse Azure OpenAI infra from enquiry-processing-v2 | Same Key Vault, endpoint, deployment — no new provisioning |
+| Jun 2025 | Node.js AI client (not C#) | CCL runs in Express server, not Azure Functions |

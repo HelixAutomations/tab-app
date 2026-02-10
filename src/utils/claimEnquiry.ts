@@ -119,4 +119,5 @@ export function useClaimEnquiry() {
     };
 }
 
-export default { claimEnquiry, useClaimEnquiry };
+const claimEnquiryModule = { claimEnquiry, useClaimEnquiry };
+export default claimEnquiryModule;

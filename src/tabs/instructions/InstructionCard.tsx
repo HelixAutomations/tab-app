@@ -1309,9 +1309,13 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
   const handleCardClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     
-    // If this is the next action step for matter and we have a handler, call it
-    if (nextActionStep === 'matter' && onOpenMatter && instruction) {
-      onOpenMatter(instruction);
+    // If this is the next action step for matter, open the workbench matter tab
+    if (nextActionStep === 'matter' && instruction) {
+      if (onOpenWorkbench) {
+        onOpenWorkbench('matter');
+      } else if (onOpenMatter) {
+        onOpenMatter(instruction);
+      }
       return;
     }
     
@@ -2192,8 +2196,12 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
               icon: <FaFolder />,
               clickable: matterStatus !== 'complete',
               onClick: () => {
-                if (matterStatus !== 'complete' && onOpenMatter && instruction) {
-                  onOpenMatter(instruction);
+                if (matterStatus !== 'complete') {
+                  if (onOpenWorkbench) {
+                    onOpenWorkbench('matter');
+                  } else if (onOpenMatter && instruction) {
+                    onOpenMatter(instruction);
+                  }
                 }
               }
             });

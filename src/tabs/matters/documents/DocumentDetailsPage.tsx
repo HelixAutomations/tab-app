@@ -71,7 +71,8 @@ Make sure to replace all placeholders with the actual data and maintain the stru
     `.trim();
   }
 
-  const updateDraftPromptFromWizard = () => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const _updateDraftPromptFromWizard = () => {
     const base = generateDraftPrompt(doc);
     const replaced = base
       .replace('[Client Name]', wizardData.clientName || '...')
@@ -250,7 +251,8 @@ Fields: ${requiredFields.map(r => {
   }).join(', ')}
   `.trim();
 
-  const handleRequestData = () => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const _handleRequestData = () => {
     // TODO: Implement data request from client
   };
 

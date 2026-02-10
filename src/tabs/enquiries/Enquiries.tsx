@@ -56,9 +56,12 @@ import { useNavigatorActions } from '../../app/functionality/NavigatorContext';
 import UnclaimedEnquiries from './UnclaimedEnquiries';
 import FilterBanner from '../../components/filter/FilterBanner';
 import CreateContactModal from './CreateContactModal';
+import PeopleSearchPanel from '../../components/PeopleSearchPanel';
 import TeamsLinkWidget from '../../components/TeamsLinkWidget';
 import { EnquiryEnrichmentData, EnquiryEnrichmentResponse, fetchEnquiryEnrichment } from '../../app/functionality/enquiryEnrichment';
 import { claimEnquiry } from '../../utils/claimEnquiry';
+import { normalizeEnquiry, detectSourceType } from '../../utils/normalizeEnquiry';
+import type { NormalizedEnquiry } from '../../utils/normalizeEnquiry';
 import { app } from '@microsoft/teams-js';
 import AreaCountCard from './AreaCountCard';
 import 'rc-slider/assets/index.css';
@@ -613,11 +616,45 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   });
   const demoModeEnabled = typeof demoModeEnabledProp === 'boolean' ? demoModeEnabledProp : demoModeEnabledLocal;
 
+  // Local overrides for instruction data — merged on top of prop-supplied data
+  // after inline operations (EID, risk, matter) complete. Keyed by InstructionRef.
+  const [instructionOverrides, setInstructionOverrides] = useState<Map<string, any>>(new Map());
+
+  // Merge prop instructionData with local overrides so useMemo sees updates
+  const effectiveInstructionData = useMemo(() => {
+    if (!instructionData || instructionOverrides.size === 0) return instructionData;
+    return (instructionData as any[]).map((prospect: any) => {
+      const instructions = Array.isArray(prospect?.instructions) ? prospect.instructions : [];
+      const hasOverride = instructions.some((inst: any) =>
+        instructionOverrides.has(inst?.InstructionRef || inst?.instructionRef || '')
+      );
+      if (!hasOverride) return prospect;
+      return {
+        ...prospect,
+        instructions: instructions.map((inst: any) => {
+          const ref = inst?.InstructionRef || inst?.instructionRef || '';
+          const override = instructionOverrides.get(ref);
+          return override ? { ...inst, ...override } : inst;
+        }),
+        // Also merge idVerifications from override if present
+        idVerifications: (() => {
+          const overriddenInst = instructions.find((inst: any) =>
+            instructionOverrides.has(inst?.InstructionRef || inst?.instructionRef || '')
+          );
+          if (!overriddenInst) return prospect?.idVerifications;
+          const ref = overriddenInst?.InstructionRef || overriddenInst?.instructionRef || '';
+          const override = instructionOverrides.get(ref);
+          return override?.idVerifications ?? prospect?.idVerifications;
+        })(),
+      };
+    });
+  }, [instructionData, instructionOverrides]);
+
   // Map enquiry ID -> InlineWorkbench item (instruction + attached domains)
   // This is intentionally lightweight and read-only for the Prospects view.
   const inlineWorkbenchByEnquiryId = useMemo(() => {
     const result = new Map<string, any>();
-    if (!instructionData) return result;
+    if (!effectiveInstructionData) return result;
 
     const normaliseId = (value: unknown): string | null => {
       const s = String(value ?? '').trim();
@@ -629,7 +666,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     const dealByRef = new Map<string, any>();
     const dealsByProspectId = new Map<string, any[]>();
 
-    (instructionData as any[]).forEach((prospect) => {
+    (effectiveInstructionData as any[]).forEach((prospect) => {
       const instructions: any[] = Array.isArray(prospect?.instructions) ? prospect.instructions : [];
       const deals: any[] = Array.isArray(prospect?.deals) ? prospect.deals : [];
 
@@ -664,7 +701,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       return (hasMatter ? 2 : 0) + (hasInstructionRef ? 1 : 0) + (hasDeal ? 1 : 0);
     };
 
-    (instructionData as any[]).forEach((prospect) => {
+    (effectiveInstructionData as any[]).forEach((prospect) => {
       const instructions: any[] = Array.isArray(prospect?.instructions) ? prospect.instructions : [];
       const deals: any[] = Array.isArray(prospect?.deals) ? prospect.deals : [];
 
@@ -765,31 +802,50 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       const demoCases = [
         {
           id: 'DEMO-ENQ-0001',
-          instructionRef: null,
+          instructionRef: 'HLX-DEMO-00001',
           serviceDescription: 'Contract Dispute',
           amount: 1500,
           stage: 'enquiry',
           eidStatus: 'pending',
           eidResult: 'pending',
           internalStatus: 'pending',
-          riskResult: 'pending',
+          riskResult: null,          // No risk yet — early stage
           hasMatter: false,
           hasPayment: false,
           documents: 0,
         },
         {
+          // Mid-pipeline demo: instructed, EID needs review, risk pending, no matter
+          // Use this to realistically test EID review (approve/request docs), risk assessment, and trigger flows
           id: 'DEMO-ENQ-0002',
           instructionRef: 'HLX-DEMO-0002-00001',
           serviceDescription: 'Lease Renewal',
           amount: 3200,
+          stage: 'proof-of-id',
+          eidStatus: 'complete',
+          eidResult: 'Refer',       // Triggers "needs review" action picker
+          pepResult: 'Review',      // PEP flagged for review
+          addressResult: 'Passed',
+          internalStatus: 'pending',
+          riskResult: null,          // No risk yet — pending assessment
+          hasMatter: false,
+          hasPayment: false,
+          documents: 1,
+        },
+        {
+          // Fully completed demo: everything done
+          id: 'DEMO-ENQ-0003',
+          instructionRef: 'HLX-DEMO-0003-00001',
+          serviceDescription: 'Employment Tribunal',
+          amount: 5000,
           stage: 'matter-opened',
           eidStatus: 'complete',
-          eidResult: 'passed',
+          eidResult: 'Pass',
           internalStatus: 'paid',
-          riskResult: 'low',
+          riskResult: 'Low Risk',
           hasMatter: true,
           hasPayment: true,
-          documents: 2,
+          documents: 3,
         },
       ];
 
@@ -797,6 +853,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         // Generate demo dates relative to now
         const demoInstructionDate = new Date();
         demoInstructionDate.setDate(demoInstructionDate.getDate() - 3); // 3 days ago
+        const demoEidDate = new Date();
+        demoEidDate.setDate(demoEidDate.getDate() - 2); // 2 days ago
         
         const instruction = demoCase.instructionRef ? {
           InstructionRef: demoCase.instructionRef,
@@ -808,6 +866,31 @@ const Enquiries: React.FC<EnquiriesProps> = ({
           EIDOverallResult: demoCase.eidResult,
           InternalStatus: demoCase.internalStatus,
           MatterId: demoCase.hasMatter ? 'MAT-DEMO-001' : undefined,
+          // Fields used by InlineWorkbench identity tab
+          Forename: 'Demo',
+          Surname: 'Client',
+          FirstName: 'Demo',
+          LastName: 'Client',
+          Email: 'demo.client@helix-law.com',
+          Phone: '07700 900123',
+          CompanyName: 'Demo Corp',
+          CompanyNumber: '12345678',
+          ClientType: 'Individual',
+          AreaOfWork: demoCase.serviceDescription,
+          ServiceDescription: demoCase.serviceDescription,
+          // Personal details — mimic production data for card rendering
+          Nationality: 'British',
+          DOB: '1985-06-15',
+          PassportNumber: 'DEMO12345678',
+          HouseNumber: '42',
+          Street: 'Demo Street',
+          City: 'Brighton',
+          County: 'East Sussex',
+          Postcode: 'BN1 1AA',
+          Country: 'United Kingdom',
+          // PEP / Address verification from case config
+          PEPAndSanctionsCheckResult: (demoCase as any).pepResult || (demoCase.eidResult === 'Pass' ? 'Passed' : undefined),
+          AddressVerificationResult: (demoCase as any).addressResult || (demoCase.eidResult === 'Pass' ? 'Passed' : undefined),
         } : undefined;
         const deal = {
           ProspectId: demoCase.id,
@@ -818,17 +901,35 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         };
         const payments = demoCase.hasPayment ? [{
           payment_status: 'succeeded',
-          internal_status: 'paid',
-          amount: demoCase.amount,
+          internal_status: 'completed',
+          amount: demoCase.amount * 100,
+          created_at: new Date().toISOString(),
+          payment_id: `pi_demo_${demoCase.id}`,
         }] : [];
-        const riskAssessments = [{ RiskAssessmentResult: demoCase.riskResult }];
+        const riskAssessments = demoCase.riskResult
+          ? [{ RiskAssessmentResult: demoCase.riskResult, RiskScore: 12, RiskAssessor: currentUserEmail.split('@')[0], ComplianceDate: new Date().toISOString(), TransactionRiskLevel: 'Low' }]
+          : []; // Empty = risk pending
         const documents = Array.from({ length: demoCase.documents }).map((_, idx) => ({
           id: `demo-doc-${demoCase.id}-${idx + 1}`,
-          filename: idx === 0 ? 'Demo_ID_Document.pdf' : 'Demo_Engagement_Letter.pdf',
+          filename: idx === 0 ? 'Passport_Scan.pdf' : idx === 1 ? 'Engagement_Letter_Signed.pdf' : 'Demo_Contract.pdf',
+          FileName: idx === 0 ? 'Passport_Scan.pdf' : idx === 1 ? 'Engagement_Letter_Signed.pdf' : 'Demo_Contract.pdf',
+          DocumentType: idx === 0 ? 'ID' : idx === 1 ? 'Engagement' : 'Contract',
+          FileSizeBytes: idx === 0 ? 245000 : idx === 1 ? 182000 : 310000,
+          UploadedAt: new Date().toISOString(),
         }));
         const matters = demoCase.hasMatter ? [{ MatterId: 'MAT-DEMO-001', DisplayNumber: 'HELIX01-01' }] : [];
 
+        // Build EID record with realistic detail for demo testing
+        const eidRecord: Record<string, unknown> = {
+          EIDStatus: demoCase.eidStatus,
+          EIDOverallResult: demoCase.eidResult,
+          EIDCheckedDate: demoCase.eidStatus === 'complete' ? demoEidDate.toISOString() : undefined,
+          PEPResult: (demoCase as any).pepResult || (demoCase.eidResult === 'Pass' ? 'Passed' : undefined),
+          AddressVerification: (demoCase as any).addressResult || (demoCase.eidResult === 'Pass' ? 'Passed' : undefined),
+        };
+
         result.set(demoCase.id, {
+          isDemo: true,
           instruction,
           deal,
           clients: [{
@@ -836,12 +937,22 @@ const Enquiries: React.FC<EnquiriesProps> = ({
             ClientEmail: 'demo.client@helix-law.com',
             FirstName: 'Demo',
             LastName: 'Client',
+            Nationality: 'British',
+            DOB: '1985-06-15',
+            Phone: '07700 900123',
+            PassportNumber: 'DEMO12345678',
+            HouseNumber: '42',
+            Street: 'Demo Street',
+            City: 'Brighton',
+            County: 'East Sussex',
+            Postcode: 'BN1 1AA',
+            Country: 'United Kingdom',
           }],
           documents,
           payments,
-          eid: { status: demoCase.eidStatus },
-          eids: [{ status: demoCase.eidStatus }],
-          risk: riskAssessments[0],
+          eid: demoCase.eidStatus !== 'pending' ? eidRecord : null,
+          eids: demoCase.eidStatus !== 'pending' ? [eidRecord] : [],
+          risk: riskAssessments[0] ?? null,
           riskAssessments,
           matters,
           team: currentUserEmail,
@@ -852,7 +963,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     }
 
     return result;
-  }, [instructionData, demoModeEnabled, userData]);
+  }, [effectiveInstructionData, demoModeEnabled, userData]);
 
   // Legacy used ActiveCampaign ID as internal ID; new space stores it in ACID.
   // deal.ProspectId = ActiveCampaign ID = enquiry.ACID
@@ -913,19 +1024,49 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   }, []);
 
   const workbenchHandlers = useMemo(() => ({
-    onTriggerEID: (instructionRef: string) => {
-      dispatchInstructionAction('trigger-eid', { instructionRef, tab: 'identity' });
+    onTriggerEID: async (instructionRef: string) => {
+      // Run EID inline — no navigation to Instructions/Clients tab
+      if (!instructionRef) return;
+      const response = await fetch('/api/verify-id', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instructionRef }),
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP ${response.status}`);
+      }
+      const result = await response.json();
+      if (!result.success) {
+        throw new Error(result.message || 'Verification failed');
+      }
     },
-    onOpenIdReview: (instructionRef: string) => {
-      dispatchInstructionAction('open-id-review', { instructionRef, tab: 'identity' });
+    onRefreshData: async (instructionRef?: string) => {
+      // Fetch updated instruction data and merge locally so UI updates without full refresh
+      const ref = instructionRef?.trim();
+      if (!ref) return;
+      try {
+        const response = await fetch(`/api/instructions/${ref}`);
+        if (response.ok) {
+          const updated = await response.json();
+          setInstructionOverrides(prev => {
+            const next = new Map(prev);
+            next.set(ref, updated);
+            return next;
+          });
+        }
+      } catch (error) {
+        console.error('Failed to refresh instruction data inline:', error);
+      }
     },
-    onOpenRiskAssessment: (instruction: any) => {
-      const instructionRef = instruction?.InstructionRef || instruction?.instructionRef || '';
-      dispatchInstructionAction('open-risk', { instructionRef, tab: 'risk' });
+    onOpenIdReview: (_instructionRef: string) => {
+      // No-op — ID review (approve/request docs) is handled inline via InlineWorkbench's local modals
     },
-    onOpenMatter: (instruction: any) => {
-      const instructionRef = instruction?.InstructionRef || instruction?.instructionRef || '';
-      dispatchInstructionAction('open-matter', { instructionRef, tab: 'matter' });
+    onOpenRiskAssessment: (_instruction: any) => {
+      // No-op — risk assessment is handled inline via InlineWorkbench's local modal
+    },
+    onOpenMatter: (_instruction: any) => {
+      // No-op — matter opening is handled inline via InlineWorkbench's local modal
     },
     onDocumentPreview: (doc: any) => {
       const instructionRef = doc?.InstructionRef || doc?.instructionRef || doc?.instruction_ref || '';
@@ -935,11 +1076,11 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
   // Use only real enquiries data
   // All normalized enquiries (union of legacy + new) retained irrespective of toggle
-  const [allEnquiries, setAllEnquiries] = useState<(Enquiry & { __sourceType: 'new' | 'legacy' })[]>([]);
+  const [allEnquiries, setAllEnquiries] = useState<NormalizedEnquiry[]>([]);
   // Display subset after applying dataset toggle
-  const [displayEnquiries, setDisplayEnquiries] = useState<(Enquiry & { __sourceType: 'new' | 'legacy' })[]>([]);
+  const [displayEnquiries, setDisplayEnquiries] = useState<NormalizedEnquiry[]>([]);
   // Team-wide dataset for suppression index (includes other users' claimed enquiries)
-  const [teamWideEnquiries, setTeamWideEnquiries] = useState<(Enquiry & { __sourceType: 'new' | 'legacy' })[]>([]);
+  const [teamWideEnquiries, setTeamWideEnquiries] = useState<NormalizedEnquiry[]>([]);
   // Loading state to prevent flickering
   const [isLoadingAllData, setIsLoadingAllData] = useState<boolean>(false);
   // Track if we've already fetched all data to prevent duplicate calls
@@ -1298,22 +1439,21 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     };
   }, [viewMode, pipelineRemeasureKey, enquiryPipelineFilters.size, selectedPocFilter]); // Re-run when returning from detail view or filters change
   
-  // Pipeline filter toggle handler - cycles through: no filter → yes → no → no filter
+  // Pipeline filter toggle handler - cycles through: no filter → yes → no → clear (loop)
   const cycleEnquiryPipelineFilter = useCallback((stage: EnquiryPipelineStage) => {
     setEnquiryPipelineFilters(prev => {
       const newFilters = new Map(prev);
       const currentFilter = newFilters.get(stage);
       
       if (!currentFilter) {
-        // Start with 'yes' (has this stage)
+        // No filter → show 'has this stage' (green)
         newFilters.set(stage, 'yes');
       } else if (currentFilter === 'yes') {
-        // Switch to 'no' (doesn't have this stage)
+        // 'Has' → show 'missing this stage' (red)
         newFilters.set(stage, 'no');
       } else {
-        // Deselect (clear) currently causes a crash in some cases.
-        // Keep the last stable state and rely on the global Clear Filters button to remove.
-        newFilters.set(stage, 'no');
+        // 'Missing' → clear filter (loop back to no filter)
+        newFilters.delete(stage);
       }
       
       return newFilters;
@@ -1553,10 +1693,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const allDataParams = new URLSearchParams({ 
     fetchAll: 'true', 
     includeTeamInbox: 'true', 
-    limit: '999999',
+    limit: '5000',
     dateFrom,
     dateTo,
-    bypassCache: 'true'  // Force fresh data
   });
   const allDataUrl = `/api/enquiries-unified?${allDataParams.toString()}`;
   
@@ -1600,57 +1739,11 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       }
       
       debugLog('✅ Fetched all enquiries:', rawEnquiries.length);
-      debugLog('📊 All enquiries POC breakdown:', rawEnquiries.reduce((acc: any, enq) => {
-        const poc = enq.Point_of_Contact || enq.poc || 'unknown';
-        acc[poc] = (acc[poc] || 0) + 1;
-        return acc;
-      }, {}));
-      
-      // PRODUCTION DEBUG: Log sample of claimed enquiries
-      const claimedSample = rawEnquiries
-        .filter(enq => {
-          const poc = (enq.Point_of_Contact || enq.poc || '').toLowerCase();
-          return poc !== 'team@helix-law.com' && poc.trim() !== '';
-        })
-        .slice(0, 10);
-      debugLog('🔍 PRODUCTION DEBUG - Sample claimed enquiries:', claimedSample.map(e => ({
-        ID: e.ID || e.id,
-        POC: e.Point_of_Contact || e.poc,
-        Area: e.Area_of_Work || e.aow,
-        Date: e.Touchpoint_Date || e.datetime
-      })));
       
       // Convert to normalized format
-      const normalizedEnquiries = rawEnquiries.map((raw: any) => {
-        const sourceType = detectSourceType(raw);
-        return {
-          ...raw,
-          ID: raw.ID || raw.id?.toString(),
-          Touchpoint_Date: raw.Touchpoint_Date || raw.datetime,
-          Point_of_Contact: raw.Point_of_Contact || raw.poc,
-          Area_of_Work: raw.Area_of_Work || raw.aow,
-          Type_of_Work: raw.Type_of_Work || raw.tow,
-          Method_of_Contact: raw.Method_of_Contact || raw.moc,
-          First_Name: raw.First_Name || raw.first,
-          Last_Name: raw.Last_Name || raw.last,
-          Email: raw.Email || raw.email,
-          Phone_Number: raw.Phone_Number || raw.phone,
-          Value: raw.Value || raw.value,
-          Initial_first_call_notes: raw.Initial_first_call_notes || raw.notes,
-          Call_Taker: raw.Call_Taker || raw.rep,
-          // Preserve claim timestamp from instructions enquiries; legacy stays null
-          claim: raw.claim ?? null,
-          __sourceType: sourceType
-        };
-      });
+      const normalizedEnquiries = rawEnquiries.map((raw: any) => normalizeEnquiry(raw));
       
       debugLog('🔄 Setting normalized data to state:', normalizedEnquiries.length);
-      debugLog('🔍 Sample normalized enquiry:', normalizedEnquiries[0]);
-      debugLog('🔍 Normalized enquiries POC distribution:', normalizedEnquiries.reduce((acc: any, enq) => {
-        const poc = enq.Point_of_Contact || 'unknown';
-        acc[poc] = (acc[poc] || 0) + 1;
-        return acc;
-      }, {}));
       
       // IMPORTANT: Do not overwrite per-user dataset when fetching team-wide data for All/Mine+Claimed.
       // Keep `allEnquiries` sourced from props (per-user), and store the unified dataset only in teamWideEnquiries.
@@ -1787,6 +1880,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const [selectedPitchScenario, setSelectedPitchScenario] = useState<string | undefined>(undefined);
   const [showUnclaimedBoard, setShowUnclaimedBoard] = useState<boolean>(false);
   const [isCreateContactModalOpen, setIsCreateContactModalOpen] = useState<boolean>(false);
+  const [isPeopleSearchOpen, setIsPeopleSearchOpen] = useState<boolean>(false);
   const [selectedArea, setSelectedArea] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<{ oldest: string; newest: string } | null>(null);
   const [isSearchActive, setSearchActive] = useState<boolean>(false);
@@ -1859,7 +1953,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       ? String(claimedAt)
       : new Date().toISOString();
 
-    const updateEnquiry = (enquiry: Enquiry & { __sourceType: 'new' | 'legacy' }): Enquiry & { __sourceType: 'new' | 'legacy' } => {
+    const updateEnquiry = (enquiry: NormalizedEnquiry): NormalizedEnquiry => {
       if (String(enquiry.ID) !== String(enquiryId)) return enquiry;
       const next: any = { ...enquiry, Point_of_Contact: nextPoc, poc: nextPoc };
       // Only v2/instructions enquiries display claim timing.
@@ -2279,21 +2373,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     });
   }, [enquiries, userData]);
 
-  // Detect source type heuristically (keep pure & easily testable)
-  const detectSourceType = (enq: Record<string, unknown>): 'new' | 'legacy' => {
-    // Heuristics for NEW dataset:
-    // 1. Presence of distinctly lower-case schema keys (id + datetime)
-    // 2. Presence of pipeline fields 'stage' or 'claim'
-    // 3. Absence of ANY spaced legacy keys (e.g. "Display Number") combined with at least one expected lower-case key
-    const hasLowerCore = 'id' in enq && 'datetime' in enq;
-    const hasPipeline = 'stage' in enq || 'claim' in enq;
-    if (hasLowerCore || hasPipeline) return 'new';
-    const hasSpacedKey = Object.keys(enq).some(k => k.includes(' '));
-    const hasAnyLowerCompact = ['aow','poc','notes','rep','email'].some(k => k in enq);
-    if (!hasSpacedKey && hasAnyLowerCompact) return 'new';
-    return 'legacy';
-  };
-
   // Normalize all incoming enquiries once (unfiltered by toggle)
   useEffect(() => {
     debugLog('🔄 Prop useEffect triggered:', { 
@@ -2327,33 +2406,11 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       }
     }
     
-    const normalised: (Enquiry & { __sourceType: 'new' | 'legacy'; [k: string]: unknown })[] = enquiries.map((raw: any) => {
-      const sourceType = detectSourceType(raw);
-      const enquiryId = raw.ID || raw.id?.toString();
-      
-      const rec: Enquiry & { __sourceType: 'new' | 'legacy'; [k: string]: unknown } = {
-        ...raw,
-        ID: enquiryId,
-        Touchpoint_Date: raw.Touchpoint_Date || raw.datetime,
-        Point_of_Contact: raw.Point_of_Contact || raw.poc,
-        Area_of_Work: raw.Area_of_Work || raw.aow,
-        Type_of_Work: raw.Type_of_Work || raw.tow,
-        Method_of_Contact: raw.Method_of_Contact || raw.moc,
-        First_Name: raw.First_Name || raw.first,
-        Last_Name: raw.Last_Name || raw.last,
-        Email: raw.Email || raw.email,
-        Phone_Number: raw.Phone_Number || raw.phone,
-        Value: raw.Value || raw.value,
-        Initial_first_call_notes: raw.Initial_first_call_notes || raw.notes,
-        Call_Taker: raw.Call_Taker || raw.rep,
-        // Preserve claim timestamp from instructions enquiries; legacy stays null
-        claim: raw.claim ?? null,
-        // Map Ultimate_Source to source field for enquiry cards
-        source: raw.source || raw.Ultimate_Source || 'originalForward',
-        __sourceType: sourceType
-      };
+    const normalised: NormalizedEnquiry[] = enquiries.map((raw: any) => {
+      const rec = normalizeEnquiry(raw);
       
       // Check if this enquiry has a recent update that should override prop data
+      const enquiryId = rec.ID;
       const recentUpdate = recentUpdatesRef.current.get(enquiryId);
       if (recentUpdate && Date.now() - recentUpdate.timestamp < 5000) {
         // Apply the recent update to preserve user's change
@@ -2388,6 +2445,31 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     teamData?.forEach(td => { if (td.Email) map[td.Email.toLowerCase()] = td; });
     return map;
   }, [teamData]);
+
+  // Pre-computed POC dropdown options (avoids O(n²) findIndex dedup on every render)
+  const pocOptionsMemo = useMemo(() => {
+    const currentUserEmail = userData?.[0]?.Email?.toLowerCase() || '';
+    const currentUserInitials = userData?.[0]?.Initials ||
+      claimerMap[currentUserEmail]?.Initials ||
+      currentUserEmail.split('@')[0]?.slice(0, 2).toUpperCase() || 'ME';
+    const seen = new Set<string>();
+    const options: { email: string; label: string }[] = [];
+    const addIfNew = (email: string, label: string) => {
+      if (email && !seen.has(email)) {
+        seen.add(email);
+        options.push({ email, label });
+      }
+    };
+    addIfNew(currentUserEmail, `Me (${currentUserInitials})`);
+    addIfNew('team@helix-law.com', 'Team inbox');
+    (teamData || []).forEach(t => {
+      if (!t?.Email) return;
+      const email = t.Email.toLowerCase();
+      const label = `${t["Initials"] || ''} ${(t["Full Name"] || `${t["First"] || ''} ${t["Last"] || ''}`.trim() || t["Email"] || '')}`.trim();
+      addIfNew(email, label);
+    });
+    return { options, currentUserEmail, currentUserInitials };
+  }, [userData, teamData, claimerMap]);
 
   // Team member options for reassignment dropdown
   const teamMemberOptions = useMemo(() => {
@@ -3119,30 +3201,60 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     };
   };
 
-  // Fetch all enquiries when ANY user switches to "All" mode OR when in Mine+Claimed mode
+  // Fetch all enquiries when switching to "All" mode, Claimable, or Triaged
+  // Mine+Claimed uses prop data (user's own claimed items are already there)
   useEffect(() => {
     if (isLoadingAllData) return; // Prevent multiple concurrent fetches
     
-    const needsFullDataset = !showMineOnly || (showMineOnly && activeState === 'Claimed');
-    
-  debugLog('🔄 Toggle useEffect triggered:', { isAdmin, showMineOnly, activeState, userEmail, hasData: displayEnquiries.length, needsFullDataset });
-    
-    if (showMineOnly && activeState !== 'Claimed') {
-      // Regular Mine mode - use whatever dataset we have
-      const source = allEnquiries.length > 0 ? allEnquiries : teamWideEnquiries;
-      debugLog('🔄 Mine mode (not Claimed) - using current dataset for filtering:', source.length);
-      setDisplayEnquiries(source);
+    // Mine+Claimed: user's claimed items are already in allEnquiries from props.
+    // No need to fetch the full team-wide dataset on initial load.
+    // The full fetch will fire lazily via the background prefetch below.
+    if (showMineOnly && activeState === 'Claimed') {
+      debugLog('🔄 Mine+Claimed mode - using prop data, no team-wide fetch needed');
+      if (allEnquiries.length > 0) {
+        setDisplayEnquiries(allEnquiries);
+      }
       return;
     }
     
-    // Fetch unfiltered data when:
-    // 1. User switches to All mode, OR
-    // 2. User is in Mine+Claimed mode (needs full dataset to find all claimed enquiries)
-    if (needsFullDataset && !hasFetchedAllData.current) {
-      debugLog('🔄 Fetching complete dataset for:', showMineOnly ? 'Mine+Claimed mode' : 'All mode');
-      triggerFetchAllEnquiries(showMineOnly ? 'mode:mine+claimed' : 'mode:all');
+    if (showMineOnly && activeState !== 'Claimed') {
+      // Regular Mine mode (Claimable/Triaged) - needs team-wide data for cross-user filtering
+      if (teamWideEnquiries.length > 0) {
+        debugLog('🔄 Mine mode (not Claimed) - using existing team-wide dataset:', teamWideEnquiries.length);
+        setDisplayEnquiries(teamWideEnquiries);
+        return;
+      }
+      if (!hasFetchedAllData.current) {
+        debugLog('🔄 Mine mode needs team-wide data, fetching...');
+        triggerFetchAllEnquiries('mode:mine+' + activeState.toLowerCase());
+      }
+      return;
+    }
+    
+    // All mode - needs full dataset
+    if (!showMineOnly && !hasFetchedAllData.current) {
+      debugLog('🔄 All mode - fetching complete dataset');
+      triggerFetchAllEnquiries('mode:all');
     }
   }, [showMineOnly, activeState, userEmail, triggerFetchAllEnquiries, isAdmin]); // Simplified dependencies
+
+  // Background prefetch: after initial render with prop data, lazily fetch team-wide data
+  // so it's ready when user switches to All/Claimable/Triaged views
+  useEffect(() => {
+    if (!showMineOnly || activeState !== 'Claimed') return; // Only for initial Mine+Claimed
+    if (hasFetchedAllData.current || isLoadingAllData) return;
+    if (allEnquiries.length === 0) return; // Wait for prop data to load first
+    
+    // Delay background fetch to avoid competing with initial render
+    const timer = setTimeout(() => {
+      if (!hasFetchedAllData.current && !isLoadingAllData) {
+        debugLog('🔄 Background prefetch: lazy-loading team-wide data');
+        triggerFetchAllEnquiries('background-prefetch');
+      }
+    }, 3000); // 3s after props loaded — user sees their data instantly, full dataset loads silently
+    
+    return () => clearTimeout(timer);
+  }, [allEnquiries.length, showMineOnly, activeState, isLoadingAllData, triggerFetchAllEnquiries]);
 
   const [currentSliderStart, setCurrentSliderStart] = useState<number>(0);
   const [currentSliderEnd, setCurrentSliderEnd] = useState<number>(0);
@@ -3194,19 +3306,28 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
   useEffect(() => {
     if (displayEnquiries.length > 0) {
-      const validDates = displayEnquiries
-        .map((enq) => enq.Touchpoint_Date)
-        .filter((d): d is string => typeof d === 'string' && isValid(parseISO(d)))
-        .map((d) => parseISO(d));
-      if (validDates.length > 0) {
-        const oldestDate = new Date(Math.min(...validDates.map((date) => date.getTime())));
-        const newestDate = new Date(Math.max(...validDates.map((date) => date.getTime())));
-        setDateRange({
-          oldest: format(oldestDate, 'dd MMM yyyy'),
-          newest: format(newestDate, 'dd MMM yyyy'),
+      let minTs = Infinity;
+      let maxTs = -Infinity;
+      let validCount = 0;
+      for (let i = 0; i < displayEnquiries.length; i++) {
+        const raw = displayEnquiries[i].Touchpoint_Date;
+        if (typeof raw !== 'string') continue;
+        const d = parseISO(raw);
+        if (!isValid(d)) continue;
+        const ts = d.getTime();
+        if (ts < minTs) minTs = ts;
+        if (ts > maxTs) maxTs = ts;
+        validCount++;
+      }
+      if (validCount > 0) {
+        const oldest = format(new Date(minTs), 'dd MMM yyyy');
+        const newest = format(new Date(maxTs), 'dd MMM yyyy');
+        setDateRange(prev => {
+          if (prev && prev.oldest === oldest && prev.newest === newest) return prev;
+          return { oldest, newest };
         });
         setCurrentSliderStart(0);
-        setCurrentSliderEnd(validDates.length - 1);
+        setCurrentSliderEnd(validCount - 1);
       }
     } else {
       setDateRange(null);
@@ -3234,12 +3355,12 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
   // Temporary dedupe during platform transition: prefer Claimed > Triaged > Unclaimed and prefer v2 over legacy on ties
   const dedupedEnquiries = useMemo(() => {
-    if (!displayEnquiries || displayEnquiries.length === 0) return [] as (Enquiry & { __sourceType: 'new' | 'legacy' })[];
+    if (!displayEnquiries || displayEnquiries.length === 0) return [] as NormalizedEnquiry[];
 
     // Skip deduplication in Claimed view and whenever the user is filtering (search or explicit ID lookups)
     // Search is typically investigative work where each raw record matters.
     if (activeState === 'Claimed' || isIdSearch || hasActiveSearch) {
-      return [...displayEnquiries] as (Enquiry & { __sourceType: 'new' | 'legacy' })[];
+      return [...displayEnquiries] as NormalizedEnquiry[];
     }
 
     // Basic triaged detection (aligned with Reporting heuristics)
@@ -3445,7 +3566,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       }
     }
     
-    return Array.from(map.values()) as (Enquiry & { __sourceType: 'new' | 'legacy' })[];
+    return Array.from(map.values()) as NormalizedEnquiry[];
   }, [displayEnquiries, showMineOnly, userData, activeState]);
 
   // Build a suppression index: if a claimed record exists for the same contact on the same day, suppress unclaimed copies
@@ -3598,11 +3719,15 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
   // State for initial timeline filter (used when opening from pipeline chips)
   const [timelineInitialFilter, setTimelineInitialFilter] = useState<'pitch' | null>(null);
+  // State for initial workbench tab (used when opening from pipeline chips e.g. matter)
+  const [workbenchInitialTab, setWorkbenchInitialTab] = useState<string | undefined>(undefined);
 
-  const openEnquiryWorkbench = useCallback((enquiry: Enquiry, tab: 'Pitch' | 'Timeline', options?: { filter?: 'pitch' }) => {
+  const openEnquiryWorkbench = useCallback((enquiry: Enquiry, tab: 'Pitch' | 'Timeline', options?: { filter?: 'pitch'; workbenchTab?: string }) => {
+    console.log('[MATTER-DEBUG] openEnquiryWorkbench called', { enquiryId: enquiry?.ID, tab, options, workbenchTab: options?.workbenchTab });
     setSelectedEnquiry(enquiry);
     setActiveSubTab(tab);
     setTimelineInitialFilter(options?.filter ?? null);
+    setWorkbenchInitialTab(options?.workbenchTab);
   }, []);
 
   const handleSelectEnquiry = useCallback((enquiry: Enquiry) => {
@@ -3695,7 +3820,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     const priorDate = new Date(now.getTime() - 120 * 24 * 60 * 60 * 1000);
     const priorTouchpoint = priorDate.toISOString().split('T')[0];
 
-    const demoEnquiries: Array<Enquiry & { __sourceType: 'new' | 'legacy' }> = [
+    const demoEnquiries: Array<NormalizedEnquiry> = [
       {
         ...DEV_PREVIEW_TEST_ENQUIRY,
         ID: 'DEMO-ENQ-0001',
@@ -3719,6 +3844,23 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         Value: '45000',
         Ultimate_Source: 'Referral',
         Initial_first_call_notes: 'Client called regarding lease renewal for their commercial premises. Current lease expires in 6 months. Landlord has proposed a 15% rent increase which client believes is excessive. Client wants advice on negotiating terms and understanding their rights under the current lease agreement.',
+        __sourceType: 'legacy',
+      },
+      {
+        ...DEV_PREVIEW_TEST_ENQUIRY,
+        ID: 'DEMO-ENQ-0003',
+        First_Name: 'Demo',
+        Last_Name: 'Complete',
+        Point_of_Contact: currentUserEmail,
+        Touchpoint_Date: priorTouchpoint,
+        Date_Created: priorTouchpoint,
+        Area_of_Work: 'Employment',
+        Type_of_Work: 'Employment Tribunal',
+        Method_of_Contact: 'Email',
+        Rating: 'Good',
+        Value: '50000',
+        Ultimate_Source: 'Google Ads',
+        Initial_first_call_notes: 'Unfair dismissal claim — fully instructed demo prospect with matter opened, EID passed, risk assessed, and payment received.',
         __sourceType: 'legacy',
       },
     ];
@@ -3817,6 +3959,45 @@ const Enquiries: React.FC<EnquiriesProps> = ({
             status: 'Instructed',
             areaOfWork: 'property',
             pitchedBy: 'CB',
+            pitchedDate: priorPitchDate.toISOString().split('T')[0],
+            pitchedTime: priorPitchDate.toTimeString().split(' ')[0],
+            scenarioId: 'after-call-email',
+            scenarioDisplay: 'After call (email)',
+          }
+        });
+      }
+      if (!newMap.has('DEMO-ENQ-0003')) {
+        newMap.set('DEMO-ENQ-0003', {
+          enquiryId: 'DEMO-ENQ-0003',
+          teamsData: {
+            Id: 99997,
+            ActivityId: 'demo-activity-99997',
+            ChannelId: 'demo-channel',
+            TeamId: 'demo-team',
+            EnquiryId: 'DEMO-ENQ-0003',
+            LeadName: 'Demo Complete',
+            Email: DEV_PREVIEW_TEST_ENQUIRY.Email || '',
+            Phone: DEV_PREVIEW_TEST_ENQUIRY.Phone_Number || '',
+            CardType: 'enquiry',
+            MessageTimestamp: priorDate.toISOString(),
+            TeamsMessageId: 'demo-msg-99997',
+            CreatedAtMs: priorDate.getTime(),
+            Stage: 'Matter Opened',
+            Status: 'Closed',
+            ClaimedBy: currentUserEmail.split('@')[0].toUpperCase(),
+            ClaimedAt: new Date(priorDate.getTime() + 1 * 24 * 60 * 60 * 1000).toISOString(),
+            CreatedAt: new Date(priorDate.getTime() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+            UpdatedAt: priorDate.toISOString(),
+            teamsLink: '',
+          },
+          pitchData: {
+            dealId: 99997,
+            email: DEV_PREVIEW_TEST_ENQUIRY.Email || '',
+            serviceDescription: 'Employment Tribunal',
+            amount: 5000,
+            status: 'Instructed',
+            areaOfWork: 'employment',
+            pitchedBy: 'LZ',
             pitchedDate: priorPitchDate.toISOString().split('T')[0],
             pitchedTime: priorPitchDate.toTimeString().split(' ')[0],
             scenarioId: 'after-call-email',
@@ -3998,7 +4179,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       }
 
       // Update local state
-      const updateEnquiry = (enquiry: Enquiry & { __sourceType: 'new' | 'legacy' }): Enquiry & { __sourceType: 'new' | 'legacy' } => {
+      const updateEnquiry = (enquiry: NormalizedEnquiry): NormalizedEnquiry => {
         if (enquiry.ID === updatedEnquiry.ID) {
           return { ...enquiry, ...updates };
         }
@@ -4039,7 +4220,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       }
 
       // Update local state - create new array references to trigger re-renders
-      const updateEnquiry = (enquiry: Enquiry & { __sourceType: 'new' | 'legacy' }): Enquiry & { __sourceType: 'new' | 'legacy' } => {
+      const updateEnquiry = (enquiry: NormalizedEnquiry): NormalizedEnquiry => {
         if (enquiry.ID === enquiryId) {
           return { ...enquiry, Area_of_Work: newArea };
         }
@@ -4094,7 +4275,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       }
 
       // Update the local data
-      const updateEnquiry = (enquiry: Enquiry & { __sourceType: 'new' | 'legacy' }): Enquiry & { __sourceType: 'new' | 'legacy' } => {
+      const updateEnquiry = (enquiry: NormalizedEnquiry): NormalizedEnquiry => {
         if (enquiry.ID === enquiryId) {
           return { ...enquiry, ...updates };
         }
@@ -4134,7 +4315,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       }
 
       // Update local state - create new array references to trigger re-renders
-      const updateEnquiry = (enquiry: Enquiry & { __sourceType: 'new' | 'legacy' }): Enquiry & { __sourceType: 'new' | 'legacy' } => {
+      const updateEnquiry = (enquiry: NormalizedEnquiry): NormalizedEnquiry => {
         if (enquiry.ID === enquiryId) {
           return { ...enquiry, Rating: newRating as 'Good' | 'Neutral' | 'Poor' };
         }
@@ -4403,7 +4584,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     if (selectedPersonInitials) {
       filtered = filtered.filter(enquiry => {
         const poc = (enquiry.Point_of_Contact || (enquiry as any).poc || '').toLowerCase();
-        const matchingPerson = teamData?.find(t => t.Email?.toLowerCase() === poc);
+        const matchingPerson = claimerMap[poc];
         const initialsFromTeam = matchingPerson?.Initials || matchingPerson?.Email?.split('@')[0]?.slice(0, 2).toUpperCase();
         const initialsFromEmail = poc ? poc.split('@')[0].slice(0, 2).toUpperCase() : undefined;
         const computed = initialsFromTeam || initialsFromEmail;
@@ -4502,10 +4683,10 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     
     const dataset = teamWideEnquiries.length > 0 ? teamWideEnquiries : allEnquiries;
     if (!dataset.length) {
-      return new Map<string, (Enquiry & { __sourceType: 'new' | 'legacy' })[]>();
+      return new Map<string, NormalizedEnquiry[]>();
     }
 
-    const map = new Map<string, (Enquiry & { __sourceType: 'new' | 'legacy' })[]>();
+    const map = new Map<string, NormalizedEnquiry[]>();
     dataset.forEach((record) => {
       const rawId = record.ID ?? (record as any).id;
       if (rawId === undefined || rawId === null) {
@@ -4529,7 +4710,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       return filteredEnquiries;
     }
 
-    const getRecordKey = (record: Enquiry & { __sourceType: 'new' | 'legacy' }) => buildEnquiryIdentityKey(record);
+    const getRecordKey = (record: NormalizedEnquiry) => buildEnquiryIdentityKey(record);
 
     const seen = new Set(filteredEnquiries.map(getRecordKey));
     const augmented = [...filteredEnquiries];
@@ -4687,6 +4868,26 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     activeState,
   ]);
 
+  // Pre-compute day separator counts (avoids O(n²) filter inside render .map())
+  const dayCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    if (viewMode !== 'table') return counts;
+    const toDayKey = (s: string): string => {
+      if (!s) return '';
+      const d = new Date(s);
+      if (isNaN(d.getTime())) return '';
+      return d.toISOString().split('T')[0];
+    };
+    displayedItems.forEach(item => {
+      const dateStr = isGroupedEnquiry(item)
+        ? (item as GroupedEnquiry).latestDate
+        : ((item as any)?.Touchpoint_Date || (item as any)?.datetime || (item as any)?.claim || (item as any)?.Date_Created || '');
+      const key = toDayKey(dateStr);
+      if (key) counts.set(key, (counts.get(key) || 0) + 1);
+    });
+    return counts;
+  }, [displayedItems, viewMode]);
+
   const handleLoadMore = useCallback(() => {
     setItemsToShow((prev) => Math.min(prev + 20, filteredEnquiries.length));
   }, [filteredEnquiries.length]);
@@ -4702,7 +4903,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     const fetchProgressiveEnrichment = async () => {
       // Get currently displayed enquiries that need enrichment
       // **VIEWPORT OPTIMIZATION**: Only process items that are actually visible
-      const displayedEnquiriesSnapshot = displayedItems.filter((item): item is (Enquiry & { __sourceType: 'new' | 'legacy' }) => {
+      const displayedEnquiriesSnapshot = displayedItems.filter((item): item is NormalizedEnquiry => {
         if (!('ID' in item) || !item.ID) return false;
         const key = String(item.ID);
         
@@ -4873,7 +5074,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       // Get first 60 items (typical viewport + buffer)
       const firstBatch = displayedItems
         .slice(0, 60)
-        .filter((item): item is (Enquiry & { __sourceType: 'new' | 'legacy' }) => 
+        .filter((item): item is NormalizedEnquiry => 
           'ID' in item && Boolean(item.ID) && !enrichmentMap.has(String(item.ID))
         );
       
@@ -5303,14 +5504,16 @@ const Enquiries: React.FC<EnquiriesProps> = ({
               setActiveSubTab('Pitch');
             }}
             inlineWorkbenchItem={getEnquiryWorkbenchItem(enquiry)}
+            teamData={teamData}
             enrichmentPitchData={enquiry.ID ? enrichmentMap.get(String(enquiry.ID))?.pitchData : undefined}
             enrichmentTeamsData={enquiry.ID ? enrichmentMap.get(String(enquiry.ID))?.teamsData : undefined}
             initialFilter={timelineInitialFilter ?? undefined}
+            initialWorkbenchTab={workbenchInitialTab}
           />
         )}
       </>
     ),
-  [activeSubTab, userData, isLocalhost, featureToggles, setActiveSubTab, getEnquiryWorkbenchItem, enrichmentMap, timelineInitialFilter, workbenchHandlers, allEnquiries, teamWideEnquiries, handleSelectEnquiryForTimeline]
+  [activeSubTab, userData, isLocalhost, featureToggles, setActiveSubTab, getEnquiryWorkbenchItem, enrichmentMap, timelineInitialFilter, workbenchInitialTab, workbenchHandlers, allEnquiries, teamWideEnquiries, handleSelectEnquiryForTimeline, teamData]
   );
 
   const enquiriesCountPerMember = useMemo(() => {
@@ -5941,6 +6144,40 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                   ariaLabel="Filter enquiries by area of work"
                 />
               )}
+              {/* People Search button */}
+              <button
+                type="button"
+                title="Search people across all records"
+                aria-label="Search people"
+                onClick={() => setIsPeopleSearchOpen(true)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  height: 32,
+                  padding: '0 12px',
+                  borderRadius: 16,
+                  border: isDarkMode ? '1px solid rgba(102,170,232,0.3)' : '1px solid rgba(102,170,232,0.3)',
+                  background: isDarkMode ? 'rgba(102,170,232,0.12)' : 'rgba(102,170,232,0.08)',
+                  cursor: 'pointer',
+                  fontSize: 11,
+                  fontFamily: 'Raleway, sans-serif',
+                  color: colours.highlight,
+                  fontWeight: 600,
+                  transition: 'all 200ms ease',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = isDarkMode ? 'rgba(102,170,232,0.18)' : 'rgba(102,170,232,0.14)';
+                  e.currentTarget.style.borderColor = colours.highlight;
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = isDarkMode ? 'rgba(102,170,232,0.12)' : 'rgba(102,170,232,0.08)';
+                  e.currentTarget.style.borderColor = isDarkMode ? 'rgba(102,170,232,0.3)' : 'rgba(102,170,232,0.3)';
+                }}
+              >
+                <Icon iconName="Search" style={{ fontSize: 12 }} />
+                <span>Find Person</span>
+              </button>
               {/* Add Contact button */}
               <button
                 type="button"
@@ -6300,10 +6537,11 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         </div>
       )}
 
-      {/* Processing overlay when transitioning between filter states */}
-      {(isFilterTransitioning || manualFilterTransitioning) && (
+      {/* Processing overlay when transitioning between filter states, loading all data, or initial load */}
+      {/* Don't show loading overlay during background prefetch (user already has prop data visible) */}
+      {(isFilterTransitioning || manualFilterTransitioning || (isLoadingAllData && displayEnquiries.length === 0) || enquiries === null) && (
         <div style={{
-          position: 'absolute',
+          position: 'fixed',
           top: 0,
           left: 0,
           right: 0,
@@ -6340,7 +6578,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
               color: isDarkMode ? 'rgba(255, 255, 255, 0.85)' : 'rgba(0, 0, 0, 0.7)',
               fontFamily: 'Raleway, sans-serif',
             }}>
-              Updating view...
+              {enquiries === null ? 'Loading prospects…' : (isLoadingAllData && displayEnquiries.length === 0) ? 'Loading prospects…' : 'Updating view...'}
             </span>
           </div>
         </div>
@@ -6543,19 +6781,17 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                       }
                       return null;
                     })()}
-                    {displayedItems.map((item, idx) => {
-                      const isLast = idx === displayedItems.length - 1;
-
-                      // Extract user's areas of work (AOW) for filtering
-                      let userAOW: string[] = [];
-                      if (userData && userData.length > 0 && userData[0].AOW) {
-                        userAOW = userData[0].AOW.split(',').map((a) => a.trim().toLowerCase());
-                      }
-
-                      // Get user email for claim functionality
+                    {/* Pre-compute per-render constants outside the .map() loop */}
+                    {(() => {
+                      // These are stable for the entire render — no need to recompute per item
+                      const userAOW: string[] = userData && userData.length > 0 && userData[0].AOW
+                        ? userData[0].AOW.split(',').map((a: string) => a.trim().toLowerCase())
+                        : [];
                       const currentUserEmail = userData && userData[0] && userData[0].Email
                         ? userData[0].Email.toLowerCase()
                         : '';
+                      return displayedItems.map((item, idx) => {
+                      const isLast = idx === displayedItems.length - 1;
 
                       if (isGroupedEnquiry(item)) {
                         // Render grouped enquiry card
@@ -6629,7 +6865,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                           </div>
                         );
                       }
-                    })}
+                    });
+                    })()}
                     {/* Infinite scroll loader for card view */}
                     <div 
                       ref={loader} 
@@ -6906,35 +7143,21 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                 </div>
                               ) : (
                               (() => {
-                                const currentUserEmail = userData?.[0]?.Email?.toLowerCase() || '';
-                                const currentUserInitials = userData?.[0]?.Initials ||
-                                  teamData?.find(t => t.Email?.toLowerCase() === currentUserEmail)?.Initials ||
-                                  currentUserEmail.split('@')[0]?.slice(0, 2).toUpperCase() || 'ME';
+                                const { currentUserEmail, currentUserInitials } = pocOptionsMemo;
                                 const isFiltered = !!selectedPocFilter;
                                 const isFilteredToMe = selectedPocFilter?.toLowerCase() === currentUserEmail;
 
                                 const getFilteredInitials = () => {
                                   if (!selectedPocFilter) return 'POC';
                                   if (selectedPocFilter.toLowerCase() === currentUserEmail) return currentUserInitials;
-                                  const teamMember = teamData?.find(t => t.Email?.toLowerCase() === selectedPocFilter.toLowerCase());
+                                  const teamMember = claimerMap[selectedPocFilter.toLowerCase()];
                                   return teamMember?.Initials || selectedPocFilter.split('@')[0]?.slice(0, 2).toUpperCase() || 'POC';
                                 };
 
                                 const filterColor = isDarkMode ? colours.accent : colours.highlight;
 
                                 if (!showMineOnly) {
-                                  const pocOptions = [
-                                    { email: currentUserEmail, label: `Me (${currentUserInitials})` },
-                                    { email: 'team@helix-law.com', label: 'Team inbox' },
-                                    ...(teamData || [])
-                                      .filter((t) => !!t?.Email)
-                                      .map((t) => ({
-                                        email: (t.Email || '').toLowerCase(),
-                                        label: `${t["Initials"] || ''} ${(t["Full Name"] || `${t["First"] || ''} ${t["Last"] || ''}`.trim() || t["Email"] || '')}`.trim(),
-                                      })),
-                                  ]
-                                    .filter((opt) => !!opt.email)
-                                    .filter((opt, idx, arr) => arr.findIndex((o) => o.email === opt.email) === idx);
+                                  const pocOptions = pocOptionsMemo.options;
 
                                   return (
                                     <div style={{ position: 'relative', width: '100%' }}>
@@ -7122,14 +7345,15 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                 return colours.highlight;
                               };
                               const filterColor = getFilterColor();
-                              const stateLabel = filterState === 'yes' ? 'Has' : filterState === 'no' ? 'No' : null;
+                              const stateLabel = filterState === 'yes' ? 'Has pitch' : filterState === 'no' ? 'No pitch' : null;
+                              const nextState = !filterState ? 'has' : filterState === 'yes' ? 'missing' : 'clear filter';
 
                               return (
                                 <button
                                   type="button"
                                   title={hasFilter
-                                    ? `Pitch: ${stateLabel} (click to cycle)`
-                                    : `Filter by Pitch (click to activate)`}
+                                    ? `Showing: ${stateLabel} · Click → ${nextState}`
+                                    : `Filter by Pitch · Click to toggle`}
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     cycleEnquiryPipelineFilter('pitched');
@@ -7155,6 +7379,14 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                   }}
                                 >
                                   <span style={{ fontSize: 11, fontWeight: 600, color: filterColor, textTransform: 'uppercase' }}>PITCH</span>
+                                  {hasFilter && (
+                                    <span style={{
+                                      width: 6, height: 6, borderRadius: '50%',
+                                      background: filterColor,
+                                      flexShrink: 0,
+                                      boxShadow: `0 0 4px ${filterColor}80`,
+                                    }} />
+                                  )}
                                 </button>
                               );
                             })()
@@ -7173,7 +7405,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               const filterColor = !filterState
                                 ? (isDarkMode ? colours.accent : colours.highlight)
                                 : (filterState === 'yes' ? '#22c55e' : '#ef4444');
-                              const stateLabel = filterState === 'yes' ? 'Has' : filterState === 'no' ? 'No' : null;
+                              const stateLabel = filterState === 'yes' ? `Has ${label.toLowerCase()}` : filterState === 'no' ? `No ${label.toLowerCase()}` : null;
+                              const nextState = !filterState ? 'has' : filterState === 'yes' ? 'missing' : 'clear filter';
 
                               const fullLabel = pipelineStageUi.byStage.get(stage)?.fullLabel || label;
                               const shortLabel = pipelineStageUi.byStage.get(stage)?.shortLabel || label;
@@ -7183,8 +7416,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                   key={stage}
                                   type="button"
                                   title={hasFilter
-                                    ? `${label}: ${stateLabel} (click to cycle)`
-                                    : `Filter by ${label} (click to activate)`}
+                                    ? `Showing: ${stateLabel} · Click → ${nextState}`
+                                    : `Filter by ${label} · Click to toggle`}
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     cycleEnquiryPipelineFilter(stage);
@@ -7212,6 +7445,14 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                   <span style={{ fontSize: 11, fontWeight: 600, color: filterColor, textTransform: 'uppercase' }}>
                                     {label}
                                   </span>
+                                  {hasFilter && (
+                                    <span style={{
+                                      width: 6, height: 6, borderRadius: '50%',
+                                      background: filterColor,
+                                      flexShrink: 0,
+                                      boxShadow: `0 0 4px ${filterColor}80`,
+                                    }} />
+                                  )}
                                 </button>
                               );
                             })}
@@ -7490,10 +7731,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                   color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.55)',
                                   whiteSpace: 'nowrap',
                                 }}>
-                                  {displayedItems.filter((enq) => {
-                                    const enqDateStr = isGroupedEnquiry(enq) ? enq.latestDate : ((enq as any)?.Touchpoint_Date || (enq as any)?.datetime || (enq as any)?.claim || (enq as any)?.Date_Created || '');
-                                    return groupToDayKey(enqDateStr) === thisDayKey;
-                                  }).length}
+                                  {dayCounts.get(thisDayKey) || 0}
                                 </span>
                                 <div style={{
                                   height: 1,
@@ -7520,10 +7758,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                         color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)',
                                       },
                                     }}
-                                    title={`${displayedItems.filter((enq) => {
-                                      const enqDateStr = isGroupedEnquiry(enq) ? enq.latestDate : ((enq as any)?.Touchpoint_Date || (enq as any)?.datetime || (enq as any)?.claim || (enq as any)?.Date_Created || '');
-                                      return groupToDayKey(enqDateStr) === thisDayKey;
-                                    }).length} items hidden`}
+                                    title={`${dayCounts.get(thisDayKey) || 0} items hidden`}
                                   />
                                 )}
                                 <Icon 
@@ -8565,7 +8800,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                             { done: hasInstruction, index: 2, inPlay: shouldShowPostPitch },
                                             { done: eidPassed, index: 3, inPlay: shouldShowPostPitch },
                                             { done: hasConfirmedPayment, index: 4, inPlay: shouldShowPostPitch },
-                                            { done: hasRisk, index: 5, inPlay: shouldShowPostPitch },
+                                            { done: hasRisk && riskResult !== 'high' && riskResult !== 'medium', index: 5, inPlay: shouldShowPostPitch },
                                             { done: hasMatter, index: 6, inPlay: shouldShowPostPitch },
                                           ];
                                           const nextIncompleteIndex = pipelineStages.find(s => s.inPlay && !s.done)?.index ?? -1;
@@ -8624,7 +8859,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                               {renderMiniChip({
                                                 shortLabel: hasEid ? eidLabel : 'ID',
                                                 fullLabel: hasEid ? eidLabel : 'ID Check',
-                                                done: shouldShowPostPitch && hasEid,
+                                                done: shouldShowPostPitch && eidPassed,
                                                 color: hasEid ? eidColor : colours.highlight,
                                                 iconName: "ContactCard",
                                                 showConnector: true,
@@ -8669,8 +8904,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                               {renderMiniChip({
                                                 shortLabel: hasRisk ? riskLabel : "Risk",
                                                 fullLabel: "Risk",
-                                                done: shouldShowPostPitch && hasRisk,
-                                                color: colours.green,
+                                                done: shouldShowPostPitch && hasRisk && riskResult !== 'high' && riskResult !== 'medium',
+                                                color: hasRisk ? (riskResult === 'high' ? colours.red : riskResult === 'medium' ? colours.orange : colours.green) : colours.highlight,
                                                 iconName: riskIcon,
                                                 showConnector: true,
                                                 prevDone: hasConfirmedPayment,
@@ -8702,7 +8937,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                                 isNextAction: nextIncompleteIndex === 6,
                                                 onClick: (e: React.MouseEvent) => {
                                                   e.stopPropagation();
-                                                  openEnquiryWorkbench(childEnquiry, 'Timeline', { filter: 'pitch' });
+                                                  openEnquiryWorkbench(childEnquiry, 'Timeline', { workbenchTab: 'matter' });
                                                 }
                                               })}
                                               </div>
@@ -10205,7 +10440,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                             isNextAction: mainNextIncompleteIndex === 6,
                                             onClick: (e: React.MouseEvent) => {
                                               e.stopPropagation();
-                                              openEnquiryWorkbench(item, 'Timeline', { filter: 'pitch' });
+                                              openEnquiryWorkbench(item, 'Timeline', { workbenchTab: 'matter' });
                                             }
                                           })}
                                           </div>
@@ -10728,6 +10963,12 @@ const Enquiries: React.FC<EnquiriesProps> = ({
           </div>
         </div>
       )}
+
+      {/* People Search Panel */}
+      <PeopleSearchPanel
+        isOpen={isPeopleSearchOpen}
+        onDismiss={() => setIsPeopleSearchOpen(false)}
+      />
 
       {/* Create Contact Modal */}
       <CreateContactModal

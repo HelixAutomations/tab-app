@@ -397,6 +397,234 @@ LEFT JOIN Matters m ON i.InstructionRef = m.InstructionRef
 
 ---
 
+## Data Operations & Sync Architecture
+
+### Overview
+The Data Centre is the operational control plane for Helix CRM data integrity. It syncs data from Clio (source of truth) into Azure SQL tables for fast local querying, and provides full transparency into what happened, when, by whom, and whether the result is valid.
+
+### Key Components
+
+| Component | Location | Purpose |
+|-----------|----------|---------|
+| Data Centre (frontend) | `src/tabs/Reporting/DataCentre.tsx` | Sync controls, date range pickers, status display |
+| Operation Validator | `src/tabs/Reporting/components/OperationValidator.tsx` | 3-layer integrity UI (confidence strip → timeline → explain) |
+| Data Operations routes | `server/routes/dataOperations.js` | All sync, explain, sample, ops-log endpoints |
+| Scheduler | `server/utils/dataOperationsScheduler.js` | Automated syncs (daily at :03/:33, rolling 7d at 23:03) |
+
+### SQL Tables
+
+| Table | Database | Purpose |
+|-------|----------|---------|
+| `collectedTime` | Core (`SQL_CONNECTION_STRING`) | Clio collected-time line items (payments received) |
+| `wip` | Core (`SQL_CONNECTION_STRING`) | Clio unbilled activities (time entries + expenses) |
+| `dataOpsLog` | Instructions (`INSTRUCTIONS_SQL_CONNECTION_STRING`) | Audit log for every sync/validation operation |
+
+See `DATABASE_SCHEMA_REFERENCE.md` for full column listings, query patterns, and anti-patterns for each table.
+
+### Sync Pipeline — Collected Time
+
+```
+POST /api/data-operations/sync-collected { startDate, endDate }
+    ↓
+Request Clio report (POST /api/v4/reports.json, kind: invoice_payments_v2)
+    ↓
+Poll until state === 'completed' (30-60s)
+    ↓
+Download JSON → array of payment line items
+    ↓
+DELETE FROM collectedTime WHERE payment_date BETWEEN @start AND @end
+    ↓
+Batch INSERT (100 rows × 17 cols = 1,700 params)
+    ↓
+Post-insert dedup CTE: PARTITION BY id, bill_id — keeps one row per unique combination
+    ↓
+Auto-validate: COUNT(*), COUNT(DISTINCT id), SUM(payment_allocated), kind breakdown
+    ↓
+Log to dataOpsLog (status: started → completed → validated)
+```
+
+**Source API**: Reports API (`invoice_payments_v2`) — async, slow (30-60s report generation)
+**Amount column**: `payment_allocated`
+**Critical**: `id` is NOT unique per row (split payments). Never dedup by `id` alone — this destroyed £150k of revenue data historically.
+
+### Sync Pipeline — WIP
+
+```
+POST /api/data-operations/sync-wip { startDate, endDate }
+    ↓
+Paginate Clio Activities API (GET /api/v4/activities.json, 200/page)
+    ↓
+DELETE FROM wip WHERE date BETWEEN @start AND @end
+    ↓
+Batch INSERT (100 rows × 20 cols = 2,000 params — near SQL Server's 2,100 limit)
+    ↓
+Fallback: if batch fails, insert individually (one bad row doesn't lose the batch)
+    ↓
+Post-insert dedup CTE: PARTITION BY id — keeps one row per activity
+    ↓
+Auto-validate: COUNT(*), SUM(total), SUM(quantity_in_hours), type breakdown (TimeEntry/ExpenseEntry)
+    ↓
+Log to dataOpsLog (status: started → completed → validated)
+```
+
+**Source API**: Activities API (`/activities.json`) — paginated, fast
+**Amount column**: `total` (NOT `sub_total` — that's collectedTime)
+**ID uniqueness**: `id` IS unique per row, safe to dedup by `id` alone
+**Fields requested**: `id,date,created_at,updated_at,type,matter,quantity_in_hours,note,total,price,expense_category,activity_description,user,bill,billed,non_billable`
+
+### Post-Sync Validation Messages
+
+After every sync, auto-validation logs a breakdown in the audit trail:
+
+- **Collected**: `1748 payments · 283 splits · Service £48,662.37 · Expense £43,415.51`
+- **WIP**: `2450 activities · 312.5h · TimeEntry £18,200.00 · ExpenseEntry £1,500.00`
+
+### Deep Validate (Cross-Check Against Clio)
+
+Both entities support a "deep validate" that compares SQL row counts against the Clio source:
+
+- **WIP**: Paginates Activities API with `fields=id` to count total activities → compares against SQL `COUNT(*)` + `SUM(total)` + `SUM(hours)` + type breakdown + spot checks
+- **Collected**: Generates a fresh Clio report → counts line items → compares against SQL `COUNT(*)` + `SUM(payment_allocated)` + kind breakdown
+
+### Audit Trail
+Every sync operation logs:
+- **triggeredBy**: `manual` (user clicked) or `scheduler` (automated) or `system` (auto-validation)
+- **invokedBy**: user's full name (from `req.user.fullName` via userContext middleware) or `system` for auto-checks
+- **status**: `started` → `completed` → `validated` (auto-validation runs after every sync)
+
+### OperationValidator — 3-Layer UI
+1. **Confidence Strip** — traffic-light (green/amber/red) answering "Is this number right?" with plain-language explanation. WIP shows "activities" and hours; collected shows "payments" and splits.
+2. **Activity Timeline** — open by default, shows every operation with AUTO/USER tags, invoker name, timestamps, `✓ validated` entries. Last sync shows "via Activities API" (WIP) or "via Reports API" (collected).
+3. **Explain Panel** — clickable multi-row IDs open inline sample panels showing the actual rows and why they exist (split payments for collected; type breakdown for WIP).
+
+### Endpoints
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST | `/api/data-operations/sync-collected` | Sync collected time from Clio for date range |
+| POST | `/api/data-operations/sync-wip` | Sync WIP data from Clio |
+| GET | `/api/data-operations/validate?entity=X&start=&end=` | Quick validate (SQL counts/sums) |
+| GET | `/api/data-operations/deep-validate?entity=X&start=&end=` | Cross-check SQL against Clio source API |
+| GET | `/api/data-operations/monthly-totals?entity=X` | 12-month totals with kind/type breakdown |
+| GET | `/api/data-operations/ops-log` | Fetch operation audit log |
+| GET | `/api/data-operations/explain` | Full pipeline explanation with sum analysis |
+| GET | `/api/data-operations/explain/sample?clioId=X` | Actual rows for a specific Clio line-item ID |
+
+---
+
+## Application Insights Telemetry
+
+### Overview
+All server-side processes emit structured telemetry to Azure Application Insights via the `applicationinsights` SDK. Locally (no connection string), calls are no-ops — zero overhead.
+
+**Connection**: Auto-detected from `APPLICATIONINSIGHTS_CONNECTION_STRING` App Service setting. SDK initialised in `server/index.js` before Express, so HTTP requests are auto-instrumented.
+
+### Utility Module
+`server/utils/appInsights.js` — lightweight wrapper exposing:
+- `trackEvent(name, properties, measurements)` — named lifecycle events
+- `trackException(error, properties)` — structured error tracking with context
+- `trackMetric(name, value, properties)` — numeric measurements (duration, row counts)
+- `trackDependency(target, name, duration, success, properties)` — external calls (Clio, SQL)
+- `flush()` — called on SIGTERM/SIGINT for graceful shutdown
+
+### Event Naming Convention
+All events follow `Component.Entity.Lifecycle` pattern:
+```
+DataOps.CollectedTime.Started
+DataOps.CollectedTime.Completed
+DataOps.CollectedTime.Validated
+DataOps.CollectedTime.Failed
+DataOps.Wip.Started
+DataOps.Wip.Completed
+DataOps.Wip.Validated
+DataOps.Wip.Failed
+Scheduler.Started
+Scheduler.Collected.Hot.Completed
+Scheduler.Collected.Hot.Failed
+Scheduler.Collected.Warm.Completed
+Scheduler.Wip.Cold.Failed
+MatterOpening.Opponents.Completed
+MatterOpening.Opponents.Failed
+MatterOpening.MatterRequest.Started
+MatterOpening.MatterRequest.Completed
+MatterOpening.MatterRequest.Failed
+MatterOpening.ClioContact.Started
+MatterOpening.ClioContact.Completed
+MatterOpening.ClioContact.Failed
+MatterOpening.ClioMatter.Started
+MatterOpening.ClioMatter.Completed
+MatterOpening.ClioMatter.Failed
+Client.MatterOpening.PreValidation.Failed
+Client.MatterOpening.Processing.StepFailed
+Client.MatterOpening.Processing.Completed
+```
+
+### Standard Properties (always present on DataOps events)
+- `operation` — e.g. `syncCollectedTimeHot`, `syncWipCustom_2026-01-01`
+- `triggeredBy` — `scheduler` | `manual`
+- `startDate` / `endDate` — date range processed
+- `entity` — `CollectedTime` | `Wip`
+
+### Metrics Tracked
+- `DataOps.CollectedTime.Duration` — sync wall-clock time (ms)
+- `DataOps.CollectedTime.RowsInserted` — rows written
+- `DataOps.Wip.Duration` / `DataOps.Wip.RowsInserted` — same for WIP
+
+### KQL Queries (Log Analytics)
+```kql
+// All data operations events
+customEvents | where name startswith "DataOps" | project timestamp, name, customDimensions
+
+// Failed syncs in last 24h
+customEvents | where name endswith ".Failed" | where timestamp > ago(24h)
+
+// Scheduler health — all tier completions
+customEvents | where name startswith "Scheduler" | where name endswith ".Completed" | summarize count() by bin(timestamp, 1h), tostring(customDimensions.slotKey)
+
+// Exceptions with context
+exceptions | where customDimensions.component == "DataOps" | project timestamp, outerMessage, customDimensions
+
+// Sync duration trends
+customMetrics | where name == "DataOps.CollectedTime.Duration" | summarize avg(value) by bin(timestamp, 1d)
+
+// Row insertion volume
+customMetrics | where name endswith ".RowsInserted" | summarize sum(value) by bin(timestamp, 1d), name
+
+// Matter opening pipeline — all events
+customEvents | where name startswith "MatterOpening" or name startswith "Client.MatterOpening" | project timestamp, name, customDimensions | order by timestamp desc
+
+// Matter opening failures in last 7 days
+customEvents | where name endswith ".Failed" | where name contains "MatterOpening" | where timestamp > ago(7d) | project timestamp, name, tostring(customDimensions.instructionRef), tostring(customDimensions.error), tostring(customDimensions.initials)
+
+// Client-side pre-validation failures (e.g. user profile not loaded)
+customEvents | where name == "Client.MatterOpening.PreValidation.Failed" | project timestamp, tostring(customDimensions.instructionRef), tostring(customDimensions.error), tostring(customDimensions.feeEarner)
+
+// Matter opening success rate (last 30 days)
+customEvents | where name startswith "MatterOpening.ClioMatter" or name == "Client.MatterOpening.Processing.Completed" | where timestamp > ago(30d) | summarize count() by name, bin(timestamp, 1d)
+
+// Matter opening duration by step
+customMetrics | where name startswith "MatterOpening" | summarize avg(value) by name | order by avg_value desc
+```
+
+### Auto-Instrumentation (free from SDK)
+- HTTP request/response tracking (all Express routes)
+- Unhandled exceptions
+- Console.log/warn/error → traces
+- External dependency calls (fetch, SQL via mssql)
+- Live Metrics stream
+- Performance counters
+
+### When Adding New Telemetry
+1. Import: `const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');`
+2. Use `Component.Entity.Lifecycle` naming
+3. Always include `operation`, `triggeredBy`, and relevant IDs in properties
+4. Track both success AND failure paths — the failure path is most valuable
+5. Use `trackException` for catch blocks with `{ phase, entity, operation }` context
+6. Use `trackMetric` for durations and counts that should be graphable
+7. Properties must be strings — the helper auto-converts
+
+---
+
 ## Related Documentation
 
 - **Database Schema**: `.github/instructions/DATABASE_SCHEMA_REFERENCE.md`

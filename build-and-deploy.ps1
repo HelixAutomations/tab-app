@@ -69,6 +69,7 @@ Write-Host "Deploying to Azure"
 az webapp deploy --resource-group Main --name link-hub-v1 --src-path $zipPath
 
 
+
 Write-Host "Cleaning up"
 Remove-Item -Recurse -Force $deployDir
 Remove-Item -Force $zipPath

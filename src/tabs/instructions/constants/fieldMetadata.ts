@@ -48,7 +48,15 @@ export const FIELD_DISPLAY_NAMES = {
     describe_first_document_or_information_you_need_from_your_client: "First Document Required",
     describe_second_document_or_information_you_need_from_your_client: "Second Document Required",
     describe_third_document_or_information_you_need_from_your_client: "Third Document Required",
-    matter_number: "Matter Reference Number"
+    matter_number: "Matter Reference Number",
+    handler_hourly_rate: "Hourly Rate",
+    charges_estimate_paragraph: "Charges Estimate",
+    disbursements_paragraph: "Disbursements Detail",
+    costs_other_party_paragraph: "Other Party Costs",
+    fee_earner_email: "Fee Earner Email",
+    fee_earner_phone: "Fee Earner Phone",
+    fee_earner_postal_address: "Postal Address",
+    insert_consequence: "Non-Payment Consequence",
 };
 
 export const FIELD_PRESETS: Record<string, string[]> = {

@@ -30,6 +30,7 @@ interface Props {
     onOpenMatter?: (instruction: any) => void;
     onTriggerEID?: (instructionRef: string) => void | Promise<void>;
     onOpenIdReview?: (instructionRef: string) => void;
+    onRefreshData?: (instructionRef?: string) => void | Promise<void>;
   };
 }
 
@@ -393,6 +394,7 @@ const NewUnclaimedEnquiryCard: React.FC<Props> = ({ enquiry, onSelect, onAreaCha
             onOpenIdReview={workbenchHandlers?.onOpenIdReview}
             onOpenMatter={workbenchHandlers?.onOpenMatter}
             onOpenRiskAssessment={workbenchHandlers?.onOpenRiskAssessment}
+            onRefreshData={workbenchHandlers?.onRefreshData ? () => workbenchHandlers.onRefreshData!(inlineWorkbenchItem?.instruction?.InstructionRef || inlineWorkbenchItem?.instruction?.instructionRef) : undefined}
             onClose={() => setSelected(false)}
             teamData={teamData}
           />

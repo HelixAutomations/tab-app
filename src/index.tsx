@@ -626,9 +626,6 @@ async function fetchVNetMatters(fullName?: string): Promise<any[]> {
       }, 10_000);
       const timeoutId = window.setTimeout(() => controller.abort(), 45_000);
 
-      // eslint-disable-next-line no-console
-      console.info('[Matters] fetching unified…');
-
       const res = await fetch(url, { signal: controller.signal });
       window.clearTimeout(warnId);
       window.clearTimeout(timeoutId);
@@ -697,19 +694,6 @@ async function fetchTeamData(): Promise<TeamData[] | null> {
       throw new Error(`Failed to fetch team data: ${response.statusText}`);
     }
     const data: TeamData[] = await response.json();
-    
-    // Single-pass counting (optimization: avoids double filtering)
-    if (process.env.NODE_ENV === 'development') {
-      let activeCount = 0;
-      let inactiveCount = 0;
-      for (const m of data) {
-        const status = m.status?.toLowerCase();
-        if (status === 'active') activeCount++;
-        else if (status === 'inactive') inactiveCount++;
-      }
-  // eslint-disable-next-line no-console
-  console.info('Team data:', data.length, 'members |', activeCount, 'active |', inactiveCount, 'inactive');
-    }
     
     setCachedData(cacheKey, data);
     return data;

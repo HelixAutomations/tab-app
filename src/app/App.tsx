@@ -66,6 +66,7 @@ const App: React.FC<AppProps> = ({
   onOptimisticClaim,
 }) => {
   const [activeTab, setActiveTab] = useState('home');
+  const [pendingMatterId, setPendingMatterId] = useState<string | null>(null);
   const [demoModeEnabled, setDemoModeEnabled] = useState<boolean>(() => {
     try {
       return localStorage.getItem('demoModeEnabled') === 'true';
@@ -530,15 +531,24 @@ const App: React.FC<AppProps> = ({
     const handleNavigateToReporting = () => {
       setActiveTab('reporting');
     };
+    const handleNavigateToMatter = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.matterId) {
+        setPendingMatterId(detail.matterId);
+      }
+      setActiveTab('matters');
+    };
 
     window.addEventListener('navigateToInstructions', handleNavigateToInstructions);
     window.addEventListener('navigateToEnquiries', handleNavigateToEnquiries);
     window.addEventListener('navigateToReporting', handleNavigateToReporting);
+    window.addEventListener('navigateToMatter', handleNavigateToMatter);
 
     return () => {
       window.removeEventListener('navigateToInstructions', handleNavigateToInstructions);
       window.removeEventListener('navigateToEnquiries', handleNavigateToEnquiries);
       window.removeEventListener('navigateToReporting', handleNavigateToReporting);
+      window.removeEventListener('navigateToMatter', handleNavigateToMatter);
     };
   }, []);
 
@@ -961,6 +971,9 @@ const App: React.FC<AppProps> = ({
             teamData={teamData}
             enquiries={(teamWideEnquiries && teamWideEnquiries.length > 0) ? teamWideEnquiries : enquiries}
             workbenchByInstructionRef={workbenchByInstructionRef}
+            pendingMatterId={pendingMatterId}
+            onPendingMatterHandled={() => setPendingMatterId(null)}
+            demoModeEnabled={demoModeEnabled}
           />
         );
       case 'reporting':

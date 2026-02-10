@@ -1,14 +1,11 @@
 //
-// ⚠️  IMPORTANT: THIS FILE IS NOT THE MAIN SERVER FILE! ⚠️
+// ⚠️  IMPORTANT: This file is the IISNode entry point for Azure App Service. ⚠️
 // 
-// The actual server that runs in development/production is server/index.js
-// 
-// When adding new routes:
-// 1. Add the require() statement to server/index.js
-// 2. Add the app.use() registration to server/index.js
-// 3. DO NOT add routes here - they will be ignored!
+// When adding new routes, add them to BOTH files:
+// 1. server/index.js   (local dev server)
+// 2. server/server.js  (this file — Azure/IISNode entry point)
 //
-// This file appears to be legacy/backup - the main server is server/index.js
+// web.config routes all traffic to this file in Azure.
 //
 const path = require('path');
 
@@ -89,7 +86,8 @@ const counselRouter = require('./routes/counsel');
 const techTicketsRouter = require('./routes/techTickets');
 const telemetryRouter = require('./routes/telemetry');
 const financialTaskRouter = require('./routes/financialTask');
-// const { router: cclRouter, CCL_DIR } = require('./routes/ccl');
+const { router: dataOperationsRouter } = require('./routes/dataOperations');
+const { startDataOperationsScheduler } = require('./utils/dataOperationsScheduler');
 
 // Initialize ops log (loads recent entries and ensures log dir)
 try { opLog.init(); } catch { /* best effort */ }
@@ -150,8 +148,6 @@ app.use('/api/clio-client-lookup', clioClientLookupRouter);
 app.use('/api/related-clients', relatedClientsRouter);
 app.use('/api/sync-instruction-client', syncInstructionClientRouter);
 app.use('/api/getMatters', getMattersRouter);
-// app.use('/api/ccl', cclRouter);
-// app.use('/ccls', express.static(CCL_DIR));
 
 app.use('/api/enquiries-unified', enquiriesUnifiedRouter);
 app.use('/api/updateEnquiryPOC', updateEnquiryPOCRouter);
@@ -204,6 +200,9 @@ app.use('/api/tech-tickets', techTicketsRouter);
 
 // Telemetry endpoint for pitch builder and client-side event tracking
 app.use('/api/telemetry', telemetryRouter);
+
+// Data operations (collected time, WIP sync) - manual triggers for Data Centre
+app.use('/api/data-operations', dataOperationsRouter);
 
 // IMPORTANT: Attendance routes must come BEFORE proxy routes to avoid conflicts
 app.use('/api/attendance', attendanceRouter);
@@ -296,4 +295,5 @@ app.get('*', (_req, res) => {
 
 app.listen(PORT, () => {
     console.log(`Server listening on port ${PORT}`);
+    startDataOperationsScheduler();
 });

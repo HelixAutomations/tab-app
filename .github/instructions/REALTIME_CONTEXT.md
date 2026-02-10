@@ -1,12 +1,12 @@
 # Realtime Context
 
-Auto-generated: 2026-02-05T20:40:48.867Z
+Auto-generated: 2026-02-10T08:17:58.001Z
 
 ## Git State
 
 - **Branch**: main
-- **Uncommitted changes**: 301
-- **Last commit**: b9d5f8e pitch, forms, refinements
+- **Uncommitted changes**: 73
+- **Last commit**: 3278764e clients phase out, data hub, matters
 
 ## Submodules
 
@@ -38,12 +38,12 @@ Auto-generated: 2026-02-05T20:40:48.867Z
 - .github/instructions/WORKSPACE_OPTIMIZATION.md
 - .gitignore
 - README.md
+- api/.deployment
 - api/src/functions/approveVerification.ts
-- api/src/functions/createPaymentLink.ts
 - api/src/functions/getAnnualLeave.ts
 - api/src/functions/getReleaseNotes.ts
-- api/src/functions/insertCounsel.ts
-- api/src/functions/insertExpert.ts
+- api/src/functions/insertDeal.ts
+- api/src/functions/insertNotableCaseInfo.ts
 - api/src/index.ts
 - api/src/verificationHandlers.ts
 

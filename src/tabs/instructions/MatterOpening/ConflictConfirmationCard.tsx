@@ -4,20 +4,10 @@
  * Enhanced conflict confirmation card for Matter Opening flow.
  * Adopts InlineWorkbench patterns: status banners, confirmation modals, clear visual states.
  */
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useTheme } from '../../../app/functionality/ThemeContext';
 import { colours } from '../../../app/styles/colours';
-import { 
-  FaExclamationTriangle, 
-  FaCheck, 
-  FaCheckCircle, 
-  FaTimes,
-  FaShieldAlt,
-  FaFileAlt,
-  FaUserTie,
-  FaBriefcase,
-  FaSearch
-} from 'react-icons/fa';
+import { Icon } from '@fluentui/react/lib/Icon';
 
 interface ConflictConfirmationCardProps {
   /** Client names for display */
@@ -36,6 +26,8 @@ interface ConflictConfirmationCardProps {
   showOpponentSection?: boolean;
   /** Callback to focus opponent name input */
   onFocusOpponentName?: () => void;
+  /** Demo mode — auto-confirm conflict check */
+  demoModeEnabled?: boolean;
 }
 
 const ConflictConfirmationCard: React.FC<ConflictConfirmationCardProps> = ({
@@ -47,12 +39,20 @@ const ConflictConfirmationCard: React.FC<ConflictConfirmationCardProps> = ({
   onConflictStatusChange,
   showOpponentSection = true,
   onFocusOpponentName,
+  demoModeEnabled = false,
 }) => {
   const { isDarkMode } = useTheme();
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [clientSearched, setClientSearched] = useState(false);
   const [opponentSearched, setOpponentSearched] = useState(false);
   const [resultsReviewed, setResultsReviewed] = useState(false);
+
+  // Auto-confirm conflict in demo mode
+  useEffect(() => {
+    if (demoModeEnabled && !noConflict) {
+      onConflictStatusChange(true);
+    }
+  }, [demoModeEnabled, noConflict, onConflictStatusChange]);
 
   // Status colors
   const statusColors = {
@@ -96,7 +96,7 @@ const ConflictConfirmationCard: React.FC<ConflictConfirmationCardProps> = ({
             justifyContent: 'center',
             color: colors.text,
           }}>
-            {noConflict ? <FaCheckCircle size={16} /> : <FaExclamationTriangle size={16} />}
+            <Icon iconName={noConflict ? 'SkypeCheck' : 'Warning'} style={{ fontSize: 16 }} />
           </div>
           <div>
             <div style={{
@@ -135,7 +135,7 @@ const ConflictConfirmationCard: React.FC<ConflictConfirmationCardProps> = ({
               gap: 5,
             }}
           >
-            <FaCheck size={10} />
+            <Icon iconName="Accept" style={{ fontSize: 10 }} />
             Confirm No Conflict
           </button>
         )}
@@ -152,9 +152,9 @@ const ConflictConfirmationCard: React.FC<ConflictConfirmationCardProps> = ({
   ) => {
     const hasValue = value && value.trim().length > 0;
     const activeBg = isDarkMode
-      ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.16) 0%, rgba(54, 144, 206, 0.10) 100%)'
-      : 'linear-gradient(135deg, rgba(54, 144, 206, 0.10) 0%, rgba(54, 144, 206, 0.06) 100%)';
-    const idleBg = isDarkMode ? 'rgba(15, 23, 42, 0.5)' : 'rgba(255, 255, 255, 0.8)';
+      ? 'rgba(54, 144, 206, 0.12)'
+      : 'rgba(54, 144, 206, 0.06)';
+    const idleBg = isDarkMode ? '#0F172A' : '#F8FAFC';
     const activeBorder = isDarkMode ? 'rgba(54, 144, 206, 0.45)' : 'rgba(54, 144, 206, 0.35)';
     const idleBorder = isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(0, 0, 0, 0.06)';
     
@@ -209,15 +209,11 @@ const ConflictConfirmationCard: React.FC<ConflictConfirmationCardProps> = ({
 
   return (
     <div style={{
-      background: isDarkMode
-        ? 'linear-gradient(135deg, #111827 0%, #1F2937 100%)'
-        : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
-      border: `1px solid ${isDarkMode ? '#374151' : '#E2E8F0'}`,
-      borderRadius: 12,
+      background: isDarkMode ? '#0F172A' : '#FFFFFF',
+      border: `1px solid ${isDarkMode ? '#374151' : '#CBD5E1'}`,
+      borderRadius: 2,
       padding: 20,
-      boxShadow: isDarkMode
-        ? '0 2px 4px rgba(0, 0, 0, 0.3)'
-        : '0 2px 4px rgba(0, 0, 0, 0.04)',
+      boxShadow: isDarkMode ? 'none' : '0 1px 3px rgba(0,0,0,0.04)',
     }}>
       {/* Section Header */}
       <div style={{
@@ -230,13 +226,13 @@ const ConflictConfirmationCard: React.FC<ConflictConfirmationCardProps> = ({
           width: 32,
           height: 32,
           borderRadius: 0,
-          background: isDarkMode ? 'rgba(239, 68, 68, 0.1)' : 'rgba(239, 68, 68, 0.08)',
-          border: `1px solid ${isDarkMode ? 'rgba(239, 68, 68, 0.25)' : 'rgba(239, 68, 68, 0.2)'}`,
+          background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.08)',
+          border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)'}`,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
         }}>
-          <FaShieldAlt size={14} color="#ef4444" />
+          <Icon iconName="Shield" style={{ fontSize: 14, color: colours.highlight }} />
         </div>
         <div>
           <div style={{
@@ -248,7 +244,7 @@ const ConflictConfirmationCard: React.FC<ConflictConfirmationCardProps> = ({
           </div>
           <div style={{
             fontSize: 10,
-            color: isDarkMode ? '#9CA3AF' : '#64748B',
+            color: isDarkMode ? '#9CA3AF' : '#475569',
           }}>
             Confirm no conflicts exist before opening this matter
           </div>
@@ -258,17 +254,27 @@ const ConflictConfirmationCard: React.FC<ConflictConfirmationCardProps> = ({
       {/* Status Banner */}
       {renderStatusBanner()}
 
-      {/* Context Tiles Grid */}
+      {/* Context Tiles — Search these names in Clio */}
+      <div style={{
+        fontSize: 9,
+        fontWeight: 700,
+        color: isDarkMode ? '#9CA3AF' : '#475569',
+        textTransform: 'uppercase' as const,
+        letterSpacing: '0.8px',
+        marginBottom: 8,
+      }}>
+        Search these names in Clio
+      </div>
       <div style={{
         display: 'flex',
         gap: 12,
         flexWrap: 'wrap',
         marginBottom: noConflict ? 16 : 0,
       }}>
-        {renderContextTile('Client', clientName, <FaUserTie size={12} />, 'No client selected')}
-        {renderContextTile('Matter', matterDescription, <FaBriefcase size={12} />, 'No description')}
-        {showOpponentSection && renderContextTile('Opponent', opponentName, <FaFileAlt size={12} />, 'Not entered yet')}
-        {showOpponentSection && renderContextTile('Opponent Solicitor', opponentSolicitor, <FaUserTie size={12} />, 'Not entered yet')}
+        {renderContextTile('Client Name', clientName, <Icon iconName="Contact" style={{ fontSize: 12 }} />, 'No client selected')}
+        {renderContextTile('Matter Description', matterDescription, <Icon iconName="Suitcase" style={{ fontSize: 12 }} />, 'No description')}
+        {showOpponentSection && renderContextTile('Opponent Name', opponentName, <Icon iconName="People" style={{ fontSize: 12 }} />, 'Not entered yet')}
+        {showOpponentSection && renderContextTile('Opponent Solicitor', opponentSolicitor, <Icon iconName="ContactInfo" style={{ fontSize: 12 }} />, 'Not entered yet')}
       </div>
 
       {/* Reset/Modify Option when confirmed */}
@@ -302,7 +308,7 @@ const ConflictConfirmationCard: React.FC<ConflictConfirmationCardProps> = ({
             alignItems: 'center',
             gap: 5,
           }}>
-            <FaTimes size={10} />
+            <Icon iconName="Cancel" style={{ fontSize: 10 }} />
             Reset
           </div>
         </div>
@@ -328,7 +334,7 @@ const ConflictConfirmationCard: React.FC<ConflictConfirmationCardProps> = ({
           <div
             style={{
               background: isDarkMode ? '#1e293b' : '#ffffff',
-              borderRadius: 8,
+              borderRadius: 2,
               padding: 24,
               maxWidth: 480,
               width: '90%',
@@ -338,15 +344,16 @@ const ConflictConfirmationCard: React.FC<ConflictConfirmationCardProps> = ({
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
               <div style={{
-                width: 40,
-                height: 40,
-                borderRadius: '50%',
-                background: 'rgba(54, 144, 206, 0.15)',
+                width: 36,
+                height: 36,
+                borderRadius: 0,
+                background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.08)',
+                border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)'}`,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
               }}>
-                <FaShieldAlt size={18} color={colours.highlight} />
+                <Icon iconName="Shield" style={{ fontSize: 16, color: colours.highlight }} />
               </div>
               <div>
                 <div style={{
@@ -371,7 +378,7 @@ const ConflictConfirmationCard: React.FC<ConflictConfirmationCardProps> = ({
             <div style={{
               background: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : 'rgba(248, 250, 252, 0.8)',
               border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(0, 0, 0, 0.06)'}`,
-              borderRadius: 4,
+              borderRadius: 2,
               padding: 16,
               marginBottom: 18,
             }}>
@@ -422,7 +429,7 @@ const ConflictConfirmationCard: React.FC<ConflictConfirmationCardProps> = ({
                     transition: 'all 0.15s ease',
                     flexShrink: 0,
                   }}>
-                    {item.checked && <FaCheck size={10} color="#FFFFFF" />}
+                    {item.checked && <Icon iconName="Accept" style={{ fontSize: 10, color: '#FFFFFF' }} />}
                   </div>
                   <span style={{
                     fontSize: 12,
@@ -442,7 +449,7 @@ const ConflictConfirmationCard: React.FC<ConflictConfirmationCardProps> = ({
               padding: 12,
               background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)',
               border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)'}`,
-              borderRadius: 4,
+              borderRadius: 2,
               fontSize: 11,
               color: isDarkMode ? 'rgba(226, 232, 240, 0.75)' : 'rgba(15, 23, 42, 0.7)',
               marginBottom: 18,
@@ -450,7 +457,7 @@ const ConflictConfirmationCard: React.FC<ConflictConfirmationCardProps> = ({
               alignItems: 'flex-start',
               gap: 10,
             }}>
-              <FaSearch size={14} color={colours.highlight} style={{ marginTop: 1, flexShrink: 0 }} />
+              <Icon iconName="Search" style={{ fontSize: 14, color: colours.highlight, marginTop: 1, flexShrink: 0 }} />
               <div>
                 <strong>Tip:</strong> Search in Clio using the client's name, trading name, and any
                 known opponent details. Check for existing matters and contacts.
@@ -481,10 +488,12 @@ const ConflictConfirmationCard: React.FC<ConflictConfirmationCardProps> = ({
                   background: 'transparent',
                   color: isDarkMode ? 'rgba(148, 163, 184, 0.8)' : 'rgba(100, 116, 139, 0.8)',
                   border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.25)'}`,
-                  borderRadius: 4,
+                  borderRadius: 0,
                   fontSize: 11,
                   fontWeight: 600,
                   cursor: 'pointer',
+                  textTransform: 'uppercase' as any,
+                  letterSpacing: '0.5px',
                 }}
               >
                 Cancel
@@ -500,16 +509,18 @@ const ConflictConfirmationCard: React.FC<ConflictConfirmationCardProps> = ({
                   background: colours.highlight,
                   color: '#ffffff',
                   border: 'none',
-                  borderRadius: 4,
+                  borderRadius: 0,
                   fontSize: 11,
                   fontWeight: 700,
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   gap: 6,
+                  textTransform: 'uppercase' as any,
+                  letterSpacing: '0.5px',
                 }}
               >
-                <FaCheckCircle size={10} />
+                <Icon iconName="SkypeCheck" style={{ fontSize: 10 }} />
                 Confirm No Conflict
               </button>
             </div>

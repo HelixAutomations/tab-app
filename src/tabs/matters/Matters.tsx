@@ -1,5 +1,5 @@
-import React, { useMemo, useState, useEffect, useTransition, useDeferredValue, useRef } from 'react';
-import { Text, SpinnerSize, MessageBar, MessageBarType, IconButton, ActionButton, mergeStyles, Icon, Pivot, PivotItem } from '@fluentui/react';
+import React, { useMemo, useState, useEffect, useDeferredValue, useRef } from 'react';
+import { SpinnerSize, MessageBar, MessageBarType, ActionButton, mergeStyles, Icon, Pivot, PivotItem } from '@fluentui/react';
 import ThemedSpinner from '../../components/ThemedSpinner';
 import SegmentedControl from '../../components/filter/SegmentedControl';
 import FilterBanner from '../../components/filter/FilterBanner';
@@ -22,6 +22,31 @@ import { useToast } from '../../components/feedback/ToastProvider';
 import { checkIsLocalDev } from '../../utils/useIsLocalDev';
 // Debugger removed: MatterApiDebugger was deleted
 
+// Synthetic demo matter — shared between list injection and pending-matter auto-select
+const DEMO_MATTER: NormalizedMatter = {
+  matterId: 'DEMO-MATTER-001',
+  matterName: 'Test Client \u2014 Business Contract Dispute',
+  displayNumber: 'HLX-DEMO-00001',
+  instructionRef: 'HLX-DEMO-00001',
+  openDate: new Date().toISOString().split('T')[0],
+  closeDate: null,
+  status: 'active',
+  originalStatus: 'Active',
+  clientId: 'DEMO-CLIENT-001',
+  clientName: 'Test Client',
+  clientPhone: '07700 900123',
+  clientEmail: 'test.client@example.com',
+  description: 'Business Contract Dispute \u2014 Demo Matter',
+  practiceArea: 'Commercial',
+  source: 'Search',
+  responsibleSolicitor: 'Luke',
+  originatingSolicitor: 'Luke',
+  supervisingPartner: 'Luke',
+  opponent: 'Acme Industries Ltd',
+  role: 'responsible',
+  dataSource: 'legacy_user',
+};
+
 interface MattersProps {
   matters: NormalizedMatter[];
   isLoading: boolean;
@@ -30,17 +55,39 @@ interface MattersProps {
   teamData?: TeamData[] | null;
   enquiries?: Enquiry[] | null;
   workbenchByInstructionRef?: Map<string, any> | null;
+  pendingMatterId?: string | null;
+  onPendingMatterHandled?: () => void;
+  demoModeEnabled?: boolean;
 }
 
 type MatterDetailTabKey = 'overview' | 'activities' | 'documents' | 'communications' | 'billing';
 
-const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, teamData, enquiries, workbenchByInstructionRef }) => {
+const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, teamData, enquiries, workbenchByInstructionRef, pendingMatterId, onPendingMatterHandled, demoModeEnabled = false }) => {
   const { isDarkMode } = useTheme();
   const { setContent } = useNavigatorActions();
   const { showToast, updateToast, hideToast } = useToast();
   const [selected, setSelected] = useState<NormalizedMatter | null>(null);
   const [activeDetailTab, setActiveDetailTab] = useState<MatterDetailTabKey>('overview');
   const [isEnteringDetail, setIsEnteringDetail] = useState<boolean>(false);
+
+  // Inject demo matter into list when demo mode is on
+  const effectiveMatters = useMemo(() => {
+    if (!demoModeEnabled) return matters;
+    // Avoid duplicating if somehow already present
+    if (matters.some(m => m.matterId === DEMO_MATTER.matterId)) return matters;
+    return [DEMO_MATTER, ...matters];
+  }, [matters, demoModeEnabled]);
+
+  // Auto-select a matter when navigated to from matter opening
+  useEffect(() => {
+    if (!pendingMatterId) return;
+    const match = effectiveMatters.find(m => m.matterId === pendingMatterId || m.displayNumber === pendingMatterId);
+    if (match) {
+      setSelected(match);
+      setActiveDetailTab('overview');
+      onPendingMatterHandled?.();
+    }
+  }, [pendingMatterId, effectiveMatters, onPendingMatterHandled]);
   const detailEnterTimerRef = useRef<number | null>(null);
   const [overviewData, setOverviewData] = useState<any | null>(null);
   const [outstandingData, setOutstandingData] = useState<any | null>(null);
@@ -65,8 +112,7 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
   // Data source toggle: legacy only (default), include new, or new only (vnet_direct)
   const [dataSourceFilter, setDataSourceFilter] = useState<'legacy' | 'all' | 'new'>('legacy');
   
-  // Use transition for smoother scope/filter changes
-  const [isPending, startTransition] = useTransition();
+  // Use deferred values for smoother scope/filter changes
   const deferredScope = useDeferredValue(scope);
   const deferredDataSourceFilter = useDeferredValue(dataSourceFilter);
   const deferredActiveFilter = useDeferredValue(activeFilter);
@@ -125,8 +171,8 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
 
   // Apply all filters in sequence (using deferred values for smooth UI)
   const mattersWithClient = useMemo(() => {
-    if (!workbenchByInstructionRef) return matters;
-    return matters.map((matter) => {
+    if (!workbenchByInstructionRef) return effectiveMatters;
+    return effectiveMatters.map((matter) => {
       if (matter.clientName && matter.clientName.trim()) return matter;
       const instructionRef = matter.instructionRef;
       if (!instructionRef) return matter;
@@ -220,7 +266,7 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
         practiceArea: resolvedPracticeArea || matter.practiceArea,
       };
     });
-  }, [matters, workbenchByInstructionRef]);
+  }, [effectiveMatters, workbenchByInstructionRef]);
 
   const filtered = useMemo(() => {
     let result = mattersWithClient;
@@ -784,22 +830,22 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
               <PivotItem
                 itemKey="activities"
                 headerText="Activities"
-                headerButtonProps={{ disabled: true, title: disabledTabMessage, ['data-tab-disabled']: 'true', ['aria-disabled']: true }}
+                headerButtonProps={{ disabled: true, title: disabledTabMessage, 'data-tab-disabled': 'true', 'aria-disabled': true }}
               />
               <PivotItem
                 itemKey="documents"
                 headerText="Documents"
-                headerButtonProps={{ disabled: true, title: disabledTabMessage, ['data-tab-disabled']: 'true', ['aria-disabled']: true }}
+                headerButtonProps={{ disabled: true, title: disabledTabMessage, 'data-tab-disabled': 'true', 'aria-disabled': true }}
               />
               <PivotItem
                 itemKey="communications"
                 headerText="Comms"
-                headerButtonProps={{ disabled: true, title: disabledTabMessage, ['data-tab-disabled']: 'true', ['aria-disabled']: true }}
+                headerButtonProps={{ disabled: true, title: disabledTabMessage, 'data-tab-disabled': 'true', 'aria-disabled': true }}
               />
               <PivotItem
                 itemKey="billing"
                 headerText="Billing"
-                headerButtonProps={{ disabled: true, title: disabledTabMessage, ['data-tab-disabled']: 'true', ['aria-disabled']: true }}
+                headerButtonProps={{ disabled: true, title: disabledTabMessage, 'data-tab-disabled': 'true', 'aria-disabled': true }}
               />
             </Pivot>
           </div>
@@ -823,6 +869,8 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
     isLocalhost,
     dataSourceFilter,
     activeDetailTab,
+    disableFutureTabs,
+    scopeCounts,
   ]);
 
   useEffect(() => {
@@ -1254,7 +1302,8 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
         markMetricDone('outstanding', false);
       }
     })();
-  }, [selected, userInitials, resolvedEntraId, showToast, updateToast, hideToast]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, userInitials, resolvedEntraId]);
 
   useEffect(() => {
     if (!selected || !outstandingBalancesList || !outstandingBalancesList.length) return;
@@ -1294,6 +1343,7 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
           workbenchItem={selectedWorkbenchItem}
           teamData={teamData}
           enquiries={enquiries}
+          demoModeEnabled={demoModeEnabled}
         />
       </div>
     );
@@ -1301,7 +1351,7 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
 
   // Only show the full-screen loading state on first load.
   // When switching users, keep the UI visible and show the in-context overlay cue instead.
-  if (isLoading && matters.length === 0) {
+  if (isLoading && effectiveMatters.length === 0) {
     return (
       <div className={containerStyle(isDarkMode)}>
         <div style={{

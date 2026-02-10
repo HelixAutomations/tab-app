@@ -49,24 +49,42 @@ const DescriptionStep: React.FC<DescriptionStepProps> = ({
             boxSizing: 'border-box'
         }}>
             <Stack tokens={{ childrenGap: 16 }}>
-                {/* Professional header with icon */}
-                <div style={{ 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    gap: 8, 
-                    marginBottom: 4 
-                }}>
-                    <i className="ms-Icon ms-Icon--EditNote" style={{ 
-                        fontSize: 16, 
-                        color: themeColours.iconColor 
-                    }} />
-                    <span style={{ 
-                        fontSize: 16, 
-                        fontWeight: 600, 
-                        color: themeColours.text 
+                {/* Section header with description */}
+                <div style={{ marginBottom: 4 }}>
+                    <div style={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: 10, 
+                        marginBottom: 4 
                     }}>
-                        Matter Description
-                    </span>
+                        <div style={{
+                            width: 32,
+                            height: 32,
+                            borderRadius: 0,
+                            background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.08)',
+                            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)'}`,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                        }}>
+                            <i className="ms-Icon ms-Icon--EditNote" style={{ 
+                                fontSize: 14, 
+                                color: themeColours.iconColor 
+                            }} />
+                        </div>
+                        <div>
+                            <div style={{ 
+                                fontSize: 15, 
+                                fontWeight: 700, 
+                                color: themeColours.text 
+                            }}>
+                                Matter Description
+                            </div>
+                            <div style={{ fontSize: 12, color: isDarkMode ? '#9CA3AF' : '#64748B' }}>
+                                A short description that will appear on the matter record
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 
                 {/* Matter preview card */}

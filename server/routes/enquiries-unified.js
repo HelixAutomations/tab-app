@@ -401,6 +401,30 @@ async function performUnifiedEnquiriesQuery(queryParams) {
       const mapped = crossReferenceMap.get(enquiry.id);
       if (mapped !== undefined && mapped !== null) {
         enquiry.pitchEnquiryId = mapped;
+
+        // Merge enriched fields from the paired instructions record.
+        // Claiming via Teams only updates the instructions DB, so the legacy record
+        // can have a stale POC (e.g. "team@helix-law.com") while the instructions
+        // record has the claimer's email. Prefer the more advanced state.
+        const paired = instructionsEnquiries.find(inst => String(inst.id) === String(mapped));
+        if (paired) {
+          const legacyPoc = (enquiry.poc || '').toString().trim().toLowerCase();
+          const instrPoc = (paired.poc || '').toString().trim().toLowerCase();
+          const isLegacyUnclaimed = !legacyPoc || legacyPoc === 'team@helix-law.com' || legacyPoc === 'team' || legacyPoc === 'team inbox';
+          const isInstrClaimed = instrPoc && instrPoc !== 'team@helix-law.com' && instrPoc !== 'team' && instrPoc !== 'team inbox';
+
+          if (isLegacyUnclaimed && isInstrClaimed) {
+            enquiry.poc = paired.poc;
+            enquiry.Point_of_Contact = paired.poc;
+          }
+          // Also merge stage and claim if the instructions record is more advanced
+          if (paired.stage && !enquiry.stage) {
+            enquiry.stage = paired.stage;
+          }
+          if (paired.claim && !enquiry.claim) {
+            enquiry.claim = paired.claim;
+          }
+        }
       }
     } catch { /* ignore */ }
 

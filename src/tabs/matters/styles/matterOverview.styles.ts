@@ -1,0 +1,387 @@
+import { mergeStyles } from '@fluentui/react';
+import { colours } from '../../../app/styles/colours';
+
+export const SURFACE_RADIUS = 3;
+export const BADGE_RADIUS = 2;
+
+export const containerStyle = (isDarkMode: boolean) =>
+  mergeStyles({
+    backgroundColor: isDarkMode ? colours.dark.background : colours.light.background,
+    color: isDarkMode ? colours.dark.text : colours.light.text,
+    minHeight: '100%',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 0,
+  });
+
+export const entryStyle = mergeStyles({
+  animation: 'skeletonCascadeIn 220ms ease-out both',
+  willChange: 'opacity, transform',
+  '@media (prefers-reduced-motion: reduce)': {
+    animation: 'none',
+  },
+});
+
+export const headerStyle = (isDarkMode: boolean, hasNextSteps = false) =>
+  mergeStyles({
+    backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+    borderBottom: hasNextSteps
+      ? 'none'
+      : `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+    padding: '16px 24px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 16,
+  });
+
+export const headerLeftStyle = mergeStyles({
+  display: 'flex',
+  alignItems: 'center',
+  gap: 12,
+  flex: 1,
+  minWidth: 0,
+});
+
+export const headerTitleLineStyle = (isDarkMode: boolean) =>
+  mergeStyles({
+    display: 'flex',
+    alignItems: 'center',
+    minWidth: 0,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    fontFamily: 'Raleway, sans-serif',
+    fontSize: 16,
+    lineHeight: '20px',
+    paddingTop: 1,
+    paddingBottom: 1,
+    color: isDarkMode ? colours.dark.text : colours.light.text,
+  });
+
+export const headerClientStyle = mergeStyles({
+  fontWeight: 600,
+});
+
+export const headerSeparatorStyle = (isDarkMode: boolean) =>
+  mergeStyles({
+    padding: '0 8px',
+    opacity: isDarkMode ? 0.35 : 0.45,
+  });
+
+export const headerDescriptionStyle = (isDarkMode: boolean) =>
+  mergeStyles({
+    fontWeight: 500,
+    color: isDarkMode ? colours.dark.subText : colours.greyText,
+  });
+
+export const matterBadgeStyle = (isDarkMode: boolean) =>
+  mergeStyles({
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.03)',
+    border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+    borderRadius: BADGE_RADIUS,
+    padding: '6px 10px',
+    fontWeight: 600,
+    color: colours.highlight,
+    fontSize: 14,
+  });
+
+export const statusBadgeStyle = (status: 'active' | 'closed', isDarkMode: boolean) =>
+  mergeStyles({
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 4,
+    padding: '4px 10px',
+    borderRadius: BADGE_RADIUS,
+    fontSize: 12,
+    fontWeight: 600,
+    backgroundColor: 'transparent',
+    border: `1px solid ${
+      status === 'active'
+        ? (isDarkMode ? 'rgba(34, 197, 94, 0.45)' : 'rgba(34, 197, 94, 0.35)')
+        : (isDarkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(148, 163, 184, 0.3)')
+    }`,
+    color:
+      status === 'active'
+        ? isDarkMode
+          ? '#86efac'
+          : '#15803d'
+        : isDarkMode
+        ? '#94a3b8'
+        : '#64748b',
+  });
+
+export const mainLayoutStyle = mergeStyles({
+  display: 'grid',
+  gridTemplateColumns: '1fr 320px',
+  gap: 0,
+  flex: 1,
+  '@media (max-width: 1024px)': {
+    gridTemplateColumns: '1fr',
+  },
+});
+
+export const leftColumnStyle = (isDarkMode: boolean) =>
+  mergeStyles({
+    padding: 24,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 20,
+    backgroundColor: isDarkMode ? colours.dark.background : colours.light.background,
+  });
+
+export const rightColumnStyle = (isDarkMode: boolean) =>
+  mergeStyles({
+    padding: 24,
+    borderLeft: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+    backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 20,
+    '@media (max-width: 1024px)': {
+      borderLeft: 'none',
+      borderTop: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+    },
+  });
+
+export const metricsGridStyle = mergeStyles({
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+  gap: 16,
+});
+
+export const metricCardStyle = (isDarkMode: boolean) =>
+  mergeStyles({
+    backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+    border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+    borderRadius: SURFACE_RADIUS,
+    padding: 14,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 8,
+    transition: 'background-color 0.15s, border-color 0.15s',
+    ':hover': {
+      backgroundColor: isDarkMode ? colours.dark.cardHover : colours.light.cardHover,
+    },
+  });
+
+export const metricLabelStyle = (isDarkMode: boolean) =>
+  mergeStyles({
+    fontSize: 12,
+    fontWeight: 500,
+    color: isDarkMode ? colours.dark.subText : colours.greyText,
+    textTransform: 'uppercase',
+    letterSpacing: '0.5px',
+  });
+
+export const metricValueStyle = (isDarkMode: boolean, accent?: boolean) =>
+  mergeStyles({
+    fontSize: 24,
+    fontWeight: 700,
+    color: accent ? colours.highlight : isDarkMode ? colours.dark.text : colours.light.text,
+    fontFamily: 'Raleway, sans-serif',
+  });
+
+export const sectionCardStyle = (isDarkMode: boolean) =>
+  mergeStyles({
+    backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+    border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+    borderRadius: SURFACE_RADIUS,
+    padding: 16,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 16,
+  });
+
+export const sectionTitleStyle = (isDarkMode: boolean) =>
+  mergeStyles({
+    fontSize: 16,
+    fontWeight: 700,
+    color: isDarkMode ? colours.dark.text : colours.light.text,
+    fontFamily: 'Raleway, sans-serif',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    paddingBottom: 12,
+    borderBottom: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+  });
+
+export const fieldRowStyle = mergeStyles({
+  display: 'grid',
+  gridTemplateColumns: '140px 1fr',
+  gap: 12,
+  alignItems: 'baseline',
+});
+
+export const fieldLabelStyle = (isDarkMode: boolean) =>
+  mergeStyles({
+    fontSize: 13,
+    fontWeight: 500,
+    color: isDarkMode ? colours.dark.subText : colours.greyText,
+  });
+
+export const fieldValueStyle = (isDarkMode: boolean) =>
+  mergeStyles({
+    fontSize: 14,
+    fontWeight: 500,
+    color: isDarkMode ? colours.dark.text : colours.light.text,
+    wordBreak: 'break-word',
+  });
+
+export const clientFieldValueStyle = (isDarkMode: boolean) =>
+  mergeStyles({
+    fontSize: 12,
+    fontWeight: 500,
+    color: isDarkMode ? 'rgba(243, 244, 246, 0.78)' : 'rgba(15, 23, 42, 0.72)',
+    wordBreak: 'break-word',
+  });
+
+export const detailsGridStyle = mergeStyles({
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+  gap: 12,
+});
+
+export const detailsTeamGridStyle = mergeStyles({
+  display: 'grid',
+  gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)',
+  gap: 20,
+  alignItems: 'start',
+  '@media (max-width: 1024px)': {
+    gridTemplateColumns: '1fr',
+  },
+});
+
+export const avatarStyle = (bgColor: string) =>
+  mergeStyles({
+    width: 36,
+    height: 36,
+    borderRadius: '50%',
+    backgroundColor: bgColor,
+    color: 'white',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontWeight: 700,
+    fontSize: 13,
+    flexShrink: 0,
+  });
+
+export const teamRowStyle = mergeStyles({
+  display: 'flex',
+  alignItems: 'center',
+  gap: 12,
+});
+
+export const teamGridStyle = mergeStyles({
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 10,
+});
+
+export const clientActionButtonStyle = (isDarkMode: boolean) =>
+  mergeStyles({
+    width: 32,
+    height: 32,
+    borderRadius: BADGE_RADIUS,
+    backgroundColor: isDarkMode ? colours.dark.cardBackground : colours.light.grey,
+    border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
+    transition: 'background-color 0.15s, border-color 0.15s',
+    textDecoration: 'none',
+    ':hover': {
+      backgroundColor: isDarkMode ? colours.dark.cardHover : colours.light.cardHover,
+    },
+  });
+
+export const contactRowStyle = mergeStyles({
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 8,
+});
+
+export const copyChipStyle = (isCopied: boolean, isDarkMode: boolean) =>
+  mergeStyles({
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 18,
+    height: 18,
+    flexShrink: 0,
+    borderRadius: 5,
+    border: isCopied
+      ? `1px solid ${isDarkMode ? 'rgba(16, 185, 129, 0.5)' : 'rgba(16, 185, 129, 0.38)'}`
+      : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(100, 116, 139, 0.12)'}`,
+    background: isCopied
+      ? (isDarkMode ? 'rgba(16, 185, 129, 0.16)' : 'rgba(16, 185, 129, 0.12)')
+      : 'transparent',
+    color: isCopied
+      ? '#10B981'
+      : (isDarkMode ? 'rgba(203, 213, 225, 0.5)' : 'rgba(71, 85, 105, 0.55)'),
+    cursor: 'pointer',
+    padding: 0,
+    opacity: isCopied ? 1 : 0.6,
+    transition: 'opacity 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 160ms ease, background 160ms ease',
+    ':hover': {
+      opacity: isCopied ? 1 : 0.9,
+      borderColor: isCopied
+        ? (isDarkMode ? 'rgba(16, 185, 129, 0.6)' : 'rgba(16, 185, 129, 0.5)')
+        : (isDarkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(100, 116, 139, 0.3)'),
+    },
+  });
+
+export const clientFieldStackStyle = mergeStyles({
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 4,
+});
+
+export const progressBarStyle = (isDarkMode: boolean) =>
+  mergeStyles({
+    height: 8,
+    borderRadius: 2,
+    backgroundColor: isDarkMode ? colours.dark.border : '#e5e7eb',
+    overflow: 'hidden',
+    position: 'relative',
+  });
+
+export const progressFillStyle = (percentage: number) =>
+  mergeStyles({
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: `${percentage}%`,
+    backgroundColor: '#16a34a',
+    borderRadius: 2,
+    transition: 'width 0.3s ease',
+  });
+
+export const metricSkeletonStyle = (isDarkMode: boolean, width = '72%') =>
+  mergeStyles({
+    height: 26,
+    width,
+    borderRadius: 6,
+    backgroundColor: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+  });
+
+export const metricSubSkeletonStyle = (isDarkMode: boolean, width = '60%') =>
+  mergeStyles({
+    height: 12,
+    width,
+    borderRadius: 4,
+    backgroundColor: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
+  });
+
+export const processingHintStyle = (isDarkMode: boolean) =>
+  mergeStyles({
+    fontSize: 11,
+    color: isDarkMode ? colours.dark.subText : colours.greyText,
+  });

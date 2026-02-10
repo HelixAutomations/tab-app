@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const teamLookup = require('../utils/teamLookup');
 const createOrUpdate = require('../utils/createOrUpdate');
+const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
 
 const { PRACTICE_AREAS } = require('../utils/clioConstants');
 
@@ -168,8 +169,14 @@ function mapCompany(client, instructionRef) {
 
 const router = express.Router();
 router.post('/', async (req, res) => {
+    const matterStartTime = Date.now();
     const { formData, initials, contactIds, companyId } = req.body || {};
-    if (!formData || !initials) return res.status(400).json({ error: 'Missing data' });
+    const instructionRef = formData?.matter_details?.instruction_ref || 'unknown';
+    if (!formData || !initials) {
+        trackEvent('MatterOpening.ClioMatter.ValidationFailed', { instructionRef, reason: 'Missing formData or initials' });
+        return res.status(400).json({ error: 'Missing data' });
+    }
+    trackEvent('MatterOpening.ClioMatter.Started', { instructionRef, initials, practiceArea: formData?.matter_details?.practice_area || '', hasContactIds: String(Array.isArray(contactIds) && contactIds.length > 0) });
     try {
         // 1. Refresh token (normalize initials to lower-case to match secret naming convention)
         const lower = String(initials || '').toLowerCase();
@@ -581,13 +588,26 @@ router.post('/', async (req, res) => {
                             : `http://localhost:${port}`;
                         const base = process.env.PUBLIC_BASE_URL || defaultBase;
                         
-                        // TEST MODE: Send to lz@helix-law.com only for verification
-                        // TODO: After approval, change to fee earner with lz in CC
+                        // Resolve fee earner email — prefer formData, fall back to DB lookup
+                        let feeEarnerEmail = teamSafe.fee_earner_email || null;
+                        if (!feeEarnerEmail) {
+                                const feInitials = teamSafe.fee_earner_initials || initials;
+                                if (feInitials) {
+                                        try {
+                                                feeEarnerEmail = await teamLookup.getTeamEmail(feInitials);
+                                        } catch (lookupErr) {
+                                                console.warn('Fee earner email lookup failed:', lookupErr?.message);
+                                        }
+                                }
+                        }
+
+                        // Send to fee earner (primary), CC lz
                         const emailPayload = {
-                                user_email: 'lz@helix-law.com',
+                                user_email: feeEarnerEmail || 'lz@helix-law.com',
                                 subject,
                                 email_contents: bodyHtml,
                                 from_email: 'automations@helix-law.com',
+                                cc_emails: feeEarnerEmail ? 'lz@helix-law.com' : '',
                                 bcc_emails: '',
                                 skip_signature: true
                         };
@@ -608,9 +628,15 @@ router.post('/', async (req, res) => {
                         console.warn('Email dispatch error (non-blocking):', emailErr?.message || emailErr);
                 }
 
+                const matterDurationMs = Date.now() - matterStartTime;
+                trackEvent('MatterOpening.ClioMatter.Completed', { instructionRef, initials, displayNumber: matter.display_number || '', clioMatterId: String(matter.id), durationMs: String(matterDurationMs) });
+                trackMetric('MatterOpening.ClioMatter.Duration', matterDurationMs, { instructionRef });
                 res.json({ ok: true, matter });
     } catch (e) {
+        const matterDurationMs = Date.now() - matterStartTime;
         console.error(e);
+        trackException(e, { component: 'MatterOpening', operation: 'ClioMatter', phase: 'matterCreation', instructionRef, initials });
+        trackEvent('MatterOpening.ClioMatter.Failed', { instructionRef, initials, error: e.message, durationMs: String(matterDurationMs) });
         res.status(500).json({ error: e.message });
     }
 });

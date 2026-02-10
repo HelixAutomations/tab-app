@@ -32,7 +32,8 @@ interface ResourceDetailsProps {
 }
 
 // Define button styles similar to FormDetails
-const iconButtonStyles = (iconColor: string) => ({
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const _iconButtonStyles = (iconColor: string) => ({
   root: {
     marginBottom: '8px',
     color: iconColor,
@@ -174,7 +175,8 @@ const ResourceDetails: React.FC<ResourceDetailsProps> = ({ resource, onClose }) 
   }, [resource.url]);
 
   // Handle input changes for action forms
-  const handleInputChange = (
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const _handleInputChange = (
     e: React.FormEvent<HTMLInputElement | HTMLTextAreaElement>,
     field: string
   ): void => {

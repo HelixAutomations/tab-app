@@ -54,17 +54,20 @@ const ClientInfoStep: React.FC<ClientInfoStepProps> = ({
     onContinue,
 }) => {
     const { isDarkMode } = useTheme();
+
+    // Auto-pre-select Responsible Solicitor from requesting user if not already set
+    React.useEffect(() => {
+        if (!teamMember && requestingUser && solicitorOptions.includes(requestingUser)) {
+            setTeamMember(requestingUser);
+        }
+    }, [requestingUser, solicitorOptions]);
     
     // Use consistent theming like other components
     const themeColours = {
-        bg: isDarkMode 
-            ? 'linear-gradient(135deg, #0B1220 0%, #1F2937 100%)'
-            : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
+        bg: isDarkMode ? '#0F172A' : '#FFFFFF',
         border: isDarkMode ? '#334155' : '#E2E8F0',
         text: isDarkMode ? '#E5E7EB' : '#0F172A',
-        shadow: isDarkMode 
-            ? '0 2px 4px rgba(0, 0, 0, 0.3)'
-            : '0 2px 4px rgba(0, 0, 0, 0.04)',
+        shadow: 'none',
         iconColor: colours.highlight, // Use standard highlight color like other components
         focusColor: colours.highlight,
         fieldBg: isDarkMode ? '#111827' : '#ffffff',
@@ -94,20 +97,59 @@ const ClientInfoStep: React.FC<ClientInfoStepProps> = ({
         <div style={{
             background: themeColours.bg,
             border: `1px solid ${themeColours.border}`,
-            borderRadius: 12,
+            borderRadius: 2,
             padding: 20,
             boxShadow: themeColours.shadow,
             boxSizing: 'border-box'
         }}>
             <Stack tokens={{ childrenGap: 8 }}>
-                {/* Date/User chips now shown in global header; removed local chips row */}
+                {/* Section Header */}
+                <div style={{ marginBottom: 4 }}>
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
+                        marginBottom: 6,
+                    }}>
+                        <div style={{
+                            width: 32,
+                            height: 32,
+                            borderRadius: 0,
+                            background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.08)',
+                            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)'}`,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                        }}>
+                            <i className="ms-Icon ms-Icon--Teamwork" style={{ fontSize: 14, color: colours.highlight }} />
+                        </div>
+                        <div>
+                            <div style={{
+                                fontSize: 15,
+                                fontWeight: 700,
+                                color: isDarkMode ? '#E5E7EB' : '#0F172A',
+                            }}>
+                                Team Assignments
+                            </div>
+                            <div style={{
+                                fontSize: 12,
+                                color: isDarkMode ? '#9CA3AF' : '#64748B',
+                            }}>
+                                Who is responsible for this matter
+                            </div>
+                        </div>
+                    </div>
+                </div>
 
                 {/* Responsible Solicitor / Originating Solicitor */}
                 <div style={{ display: 'flex', gap: 12 }}>
                     <div style={{ flex: 1 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                            <i className="ms-Icon ms-Icon--Contact" style={{ fontSize: 16, color: themeColours.iconColor }} />
-                            <span style={{ fontSize: 16, fontWeight: 600, color: themeColours.textSecondary }}>Responsible Solicitor</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                            <i className="ms-Icon ms-Icon--ContactInfo" style={{ fontSize: 14, color: themeColours.iconColor }} />
+                            <span style={{ fontSize: 14, fontWeight: 600, color: themeColours.text }}>Responsible Solicitor</span>
+                        </div>
+                        <div style={{ fontSize: 12, color: themeColours.textSecondary, marginBottom: 6, paddingLeft: 22 }}>
+                            Day-to-day management of this matter
                         </div>
                         <div
                             style={{
@@ -115,7 +157,7 @@ const ClientInfoStep: React.FC<ClientInfoStepProps> = ({
                                 width: '100%',
                                 height: '40px',
                                 border: `1px solid ${teamMember ? themeColours.focusColor : themeColours.border}`,
-                                borderRadius: 6,
+                                borderRadius: 0,
                                 background: teamMember
                                     ? themeColours.selectedBg
                                     : themeColours.fieldBg,
@@ -177,9 +219,12 @@ const ClientInfoStep: React.FC<ClientInfoStepProps> = ({
                     </div>
 
                     <div style={{ flex: 1 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                            <i className="ms-Icon ms-Icon--Contact" style={{ fontSize: 16, color: themeColours.iconColor }} />
-                            <span style={{ fontSize: 16, fontWeight: 600, color: themeColours.textSecondary }}>Originating Solicitor</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                            <i className="ms-Icon ms-Icon--AddFriend" style={{ fontSize: 14, color: themeColours.iconColor }} />
+                            <span style={{ fontSize: 14, fontWeight: 600, color: themeColours.text }}>Originating Solicitor</span>
+                        </div>
+                        <div style={{ fontSize: 12, color: themeColours.textSecondary, marginBottom: 6, paddingLeft: 22 }}>
+                            Who introduced this client to the firm
                         </div>
                         <div
                             style={{
@@ -187,7 +232,7 @@ const ClientInfoStep: React.FC<ClientInfoStepProps> = ({
                                 width: '100%',
                                 height: '40px',
                                 border: `1px solid ${originatingSolicitor ? themeColours.focusColor : themeColours.border}`,
-                                borderRadius: 6,
+                                borderRadius: 0,
                                 background: originatingSolicitor
                                     ? themeColours.selectedBg
                                     : themeColours.fieldBg,
@@ -255,9 +300,12 @@ const ClientInfoStep: React.FC<ClientInfoStepProps> = ({
 
                 {/* Supervising Partner */}
                 <div style={{ marginTop: 12 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                        <i className="ms-Icon ms-Icon--Contact" style={{ fontSize: 16, color: themeColours.iconColor }} />
-                        <span style={{ fontSize: 16, fontWeight: 600, color: themeColours.textSecondary }}>Supervising Partner</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                        <i className="ms-Icon ms-Icon--AuthenticatorApp" style={{ fontSize: 14, color: themeColours.iconColor }} />
+                        <span style={{ fontSize: 14, fontWeight: 600, color: themeColours.text }}>Supervising Partner</span>
+                    </div>
+                    <div style={{ fontSize: 12, color: themeColours.textSecondary, marginBottom: 6, paddingLeft: 22 }}>
+                        Oversight and quality assurance
                     </div>
                     <ModernMultiSelect
                         label=""
@@ -280,19 +328,7 @@ const ClientInfoStep: React.FC<ClientInfoStepProps> = ({
                 )}
             </Stack>
 
-            <style>{`
-        @keyframes pulse {
-          0% {
-            box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
-          }
-          70% {
-            box-shadow: 0 0 0 6px rgba(16, 185, 129, 0);
-          }
-          100% {
-            box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
-          }
-        }
-      `}</style>
+            <style>{``}</style>
         </div>
     );
 };

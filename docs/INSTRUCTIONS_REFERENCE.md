@@ -48,4 +48,4 @@ Consolidates: Instruction-data-handbook, instruction-scenarios, local-instructio
 
 - Use `RiskAssessmentResult` for risk colour.
 - ID pill must trigger `onEIDClick()` (no detail expansion).
-- Deal capture emails go to both `lz@helix-law.com` and `cb@helix-law.com`.
+- Deal capture emails go to `lz@helix-law.com`.

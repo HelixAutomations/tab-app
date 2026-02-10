@@ -2,16 +2,21 @@ const express = require('express');
 const { getSecret } = require('../utils/getSecret');
 const { PRACTICE_AREAS } = require('../utils/clioConstants');
 const { loggers } = require('../utils/logger');
+const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
 
 const router = express.Router();
 const log = loggers.clio.child('Contacts');
 
 router.post('/', async (req, res) => {
+    const startTime = Date.now();
     const { formData, initials } = req.body || {};
+    const instructionRef = formData?.matter_details?.instruction_ref || 'unknown';
     if (!formData || !initials) {
+        trackEvent('MatterOpening.ClioContact.ValidationFailed', { instructionRef, reason: 'Missing formData or initials' });
         return res.status(400).json({ error: 'Missing data' });
     }
 
+    trackEvent('MatterOpening.ClioContact.Started', { instructionRef, initials, clientType: formData?.matter_details?.client_type || '' });
     try {
         // Fetch Clio credentials
         const clientId = await getSecret(`${initials.toLowerCase()}-clio-v1-clientid`);
@@ -335,10 +340,16 @@ router.post('/', async (req, res) => {
         }
 
         // Only return contact upsert results. Matter creation happens in /api/clio-matters step.
+        const durationMs = Date.now() - startTime;
         log.op('contacts:synced', { count: results.length, type });
+        trackEvent('MatterOpening.ClioContact.Completed', { instructionRef, initials, contactCount: String(results.length), clientType: type, durationMs: String(durationMs) });
+        trackMetric('MatterOpening.ClioContact.Duration', durationMs, { instructionRef });
         res.json({ ok: true, results });
     } catch (err) {
+        const durationMs = Date.now() - startTime;
         log.fail('contacts:sync', err, { initials });
+        trackException(err, { component: 'MatterOpening', operation: 'ClioContact', phase: 'contactSync', instructionRef, initials });
+        trackEvent('MatterOpening.ClioContact.Failed', { instructionRef, initials, error: err.message, durationMs: String(durationMs) });
         res.status(500).json({ error: 'Failed to sync contacts' });
     }
 });

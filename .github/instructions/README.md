@@ -10,11 +10,15 @@ Each document focuses on a specific aspect of the system:
 
 | Document | Purpose | When to Use |
 |----------|---------|-------------|
-| **DATABASE_SCHEMA_REFERENCE.md** | Database tables, fields, relationships, and query patterns | Working with Instructions/Matters tables, writing SQL queries, understanding data model |
-| **CLIO_API_REFERENCE.md** | Clio API integration, authentication, endpoints, and constraints | Integrating with Clio, creating clients/matters, troubleshooting API errors |
-| **ARCHITECTURE_DATA_FLOW.md** | System architecture, data flows, integration points, redundant code | Understanding overall system design, identifying cleanup opportunities, performance optimization |
-| **TEAM_DATA_REFERENCE.md** | Team table schema, rate structure, dual-database sync | Updating rates, adding team members, understanding fee earner data |
-| **WORKSPACE_OPTIMIZATION.md** | Cleanup priorities, automation scripts, code patterns | Starting cleanup work, understanding preferred patterns, session hygiene |
+| **DATABASE_SCHEMA_REFERENCE.md** | Database tables (Instructions, Matters, collectedTime, wip, dataOpsLog), field maps, query patterns | Working with any SQL table, writing queries, understanding data model |
+| **CLIO_API_REFERENCE.md** | Clio API integration, auth flow, contact/matter ops, Activities API (WIP), Reports API (collected) | Integrating with Clio, debugging syncs, understanding data pipeline sources |
+| **ARCHITECTURE_DATA_FLOW.md** | System architecture, data flows, Data Ops sync pipeline (collected + WIP), App Insights telemetry | Understanding overall system design, data sync infrastructure, adding new entities |
+| **TEAM_DATA_REFERENCE.md** | Team table schema, rate structure, dual-database sync, leave routing | Updating rates, adding team members, understanding fee earner data |
+| **WORKSPACE_OPTIMIZATION.md** | Cleanup philosophy, code patterns, Prospects component deep-dive | Starting cleanup work, understanding preferred patterns, session hygiene |
+| **DEMO_MODE_REFERENCE.md** | Demo data sources, new-feature checklist, field inventory | Adding new features, ensuring demo mode stays current |
+| **ENQUIRIES_TABLE_DESIGN_PATTERN.md** | Grid layout system, dual schema handling, design patterns | Building new table views, replicating enquiry table patterns |
+| **ROADMAP.md** | Tracked priorities, Prospects optimisation plan, completed items | Parking future work, picking up tasks, understanding vision |
+| **REALTIME_CONTEXT.md** | Auto-generated git/server state | Session start orientation (auto-refreshed) |
 
 ---
 

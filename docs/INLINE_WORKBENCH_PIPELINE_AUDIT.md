@@ -46,6 +46,7 @@ The pipeline experience has been consolidated from a separate "Clients" space in
 | Request Documents | ✅ Implemented | "Request Documents" button — drafts email |
 | Trigger EID Confirm | ✅ Implemented | "Run ID Verification" button |
 | Risk Assessment | ✅ Implemented | "Complete Assessment" button — embeds RiskAssessmentPage |
+| Matter Opening | ✅ Implemented | "Open Matter" button — embeds FlatMatterOpening wizard via portal |
 | Payment Link | ✅ Implemented | "Create payment link" — localhost only |
 
 ### Callback Props
@@ -53,8 +54,8 @@ The pipeline experience has been consolidated from a separate "Clients" space in
 | Prop | Status | Purpose |
 |------|--------|---------|
 | `onDocumentPreview` | ✅ Wired | Preview document from Documents tab |
-| `onOpenRiskAssessment` | ⚠️ Prop exists | Not used internally — handled locally via modal |
-| `onOpenMatter` | ✅ Wired | Triggers FlatMatterOpening wizard |
+| `onOpenRiskAssessment` | ⚠️ No-op | Not used — risk handled locally via portal modal |
+| `onOpenMatter` | ⚠️ No-op | Not used — matter handled locally via portal modal (FlatMatterOpening) |
 | `onTriggerEID` | ✅ Wired | Starts EID verification flow |
 | `onOpenIdReview` | ⚠️ Prop exists | Available for external ID review modal |
 | `onConfirmBankPayment` | ✅ Wired | Confirms bank transfer with date |
@@ -198,6 +199,13 @@ Run these checks before marking complete:
 | 2026-02-04 | Risk tab redesigned (chips + Q&A grid) | Copilot |
 | 2026-02-04 | Fixed matters data flow from Matters table | Copilot |
 | 2026-02-04 | Fixed pipeline chips always clickable (EnquiryTimeline.tsx) | Copilot |
+| 2026-02-06 | EID runs inline in prospects — no navigation to Clients tab | Copilot |
+| 2026-02-06 | Added processing state, readiness checklist, toasts, auto-refresh to EID flow | Copilot |
+| 2026-02-06 | Portal fix for EID confirmation modal (was clipped by overflow/transform) | Copilot |
+| 2026-02-06 | Risk assessment: portal-wrapped modal, auto-refresh via onRefreshData, processing pill state, parent toast on save | Copilot |
+| 2026-02-06 | Removed navigation dispatch for onOpenRiskAssessment — risk stays inline in prospects | Copilot |
+| 2026-02-06 | ID review: portal-wrapped EID action picker, approve, request docs modals; approve calls onRefreshData + toast; onOpenIdReview no-op'd | Copilot |
+| 2026-02-06 | Demo mode: added DEMO-ENQ-0002 at proof-of-id (EID Refer), DEMO-ENQ-0003 fully complete; enriched EID records with realistic fields | Copilot |
 
 ---
 

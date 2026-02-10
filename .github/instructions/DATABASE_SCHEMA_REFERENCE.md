@@ -340,6 +340,158 @@ WHERE i.InstructionRef = 'HLX-XXXXX-XXXXX';
 
 ---
 
+## Collected Time (`collectedTime`)
+
+**Database**: Core Data DB (`SQL_CONNECTION_STRING`)
+**Purpose**: Invoice payment line items synced from Clio. Each row = one payment allocation for a time entry. **CRITICAL**: The `id` column is a Clio line-item ID, NOT a unique row identifier. The same `id` can legitimately appear multiple times when a time entry is allocated across multiple invoices (split payments). `COUNT(DISTINCT id) ≠ COUNT(*)` is expected behaviour, not duplication.
+
+### Schema Summary
+
+| Column | Type | Purpose |
+|--------|------|---------|
+| `matter_id` | int | Clio matter ID |
+| `bill_id` | int | Clio bill/invoice ID — key to understanding splits |
+| `contact_id` | int | Clio contact ID |
+| `id` | int | Clio line-item ID — NOT unique per row |
+| `date` | date | Time entry date |
+| `created_at` | datetime | When record was created in Clio |
+| `kind` | nvarchar | Entry kind |
+| `type` | nvarchar | Entry type |
+| `activity_type` | nvarchar | Activity classification |
+| `description` | text | Time entry description (use CAST to VARCHAR for aggregates) |
+| `sub_total` | decimal | Pre-tax amount |
+| `tax` | decimal | Tax amount |
+| `secondary_tax` | decimal | Secondary tax |
+| `user_id` | int | Clio user ID |
+| `user_name` | nvarchar | Fee earner name |
+| `payment_allocated` | decimal | Amount allocated to this payment |
+| `payment_date` | date | Date payment was allocated — primary date column for queries |
+
+### Key Query Patterns
+
+```sql
+-- Total collected in a period (use SUM of all rows, NOT DISTINCT)
+SELECT SUM(CAST(payment_allocated AS DECIMAL(18,2))) FROM collectedTime
+WHERE payment_date >= '2026-02-01' AND payment_date <= '2026-02-07';
+
+-- Understand split allocations
+SELECT id, COUNT(*) as rows, COUNT(DISTINCT bill_id) as bills,
+  SUM(CAST(payment_allocated AS DECIMAL(18,2))) as total
+FROM collectedTime WHERE payment_date >= '2026-02-01' AND payment_date <= '2026-02-07'
+GROUP BY id HAVING COUNT(*) > 1;
+
+-- Per-user breakdown
+SELECT user_name, COUNT(*) rows, COUNT(DISTINCT id) payments,
+  SUM(CAST(payment_allocated AS DECIMAL(18,2))) total
+FROM collectedTime WHERE payment_date BETWEEN '2026-02-01' AND '2026-02-07'
+GROUP BY user_name, user_id ORDER BY total DESC;
+```
+
+### Sync Pipeline
+
+Source: Clio Reports API (`invoice_payments_v2`)
+Route: `server/routes/dataOperations.js` → `syncCollectedTime()`
+Schedule: `server/utils/dataOperationsScheduler.js`
+UI: `src/tabs/Reporting/components/OperationValidator.tsx`
+
+Pipeline: Request Clio report → Poll until ready → Download JSON → DELETE existing rows in date range → INSERT each line item → Auto-validate (COUNT/SUM)
+
+### Anti-pattern (NEVER DO THIS)
+
+```sql
+-- ❌ This deletes legitimate split allocations and loses real revenue
+DELETE FROM collectedTime WHERE id IN (
+  SELECT id FROM collectedTime GROUP BY id HAVING COUNT(*) > 1
+);
+-- This previously destroyed £150k of collected revenue data
+```
+
+---
+
+## WIP (`wip`)
+
+**Database**: Core Data DB (`SQL_CONNECTION_STRING`)
+**Purpose**: Unbilled time entries and expenses synced from Clio Activities API. Each row = one activity (TimeEntry or ExpenseEntry). Unlike `collectedTime`, the `id` column IS unique per row — each Clio activity has a single ID.
+
+### Schema Summary
+
+| Column | Type | Purpose |
+|--------|------|---------|
+| `id` | int | Clio activity ID (unique per row) |
+| `date` | date | Activity date |
+| `created_at_date` | date | Date portion of Clio created_at |
+| `created_at_time` | time | Time portion of Clio created_at |
+| `updated_at_date` | date | Date portion of Clio updated_at |
+| `updated_at_time` | time | Time portion of Clio updated_at |
+| `type` | nvarchar | `TimeEntry` or `ExpenseEntry` |
+| `matter_id` | int | Clio matter ID |
+| `matter_display_number` | nvarchar | Clio display number (e.g., `SCOTT10803-00001`) |
+| `quantity_in_hours` | decimal | Hours recorded (0 for expenses) |
+| `note` | nvarchar(max) | Activity description/narrative |
+| `total` | decimal | Total value £ — primary amount column |
+| `price` | decimal | Rate applied |
+| `expense_category` | nvarchar | Expense category (stringified `id: X, name: Y`) or NULL |
+| `activity_description_id` | int | Clio activity description ID |
+| `activity_description_name` | nvarchar | Activity description label |
+| `user_id` | int | Clio user ID |
+| `bill_id` | int | Clio bill ID (NULL if unbilled) |
+| `billed` | bit | Whether the activity has been billed |
+| `non_billable` | bit | Whether the activity is marked non-billable in Clio (DEFAULT 0) |
+
+### Key Differences from `collectedTime`
+
+| Aspect | `collectedTime` | `wip` |
+|--------|-----------------|-------|
+| Source API | Reports API (`invoice_payments_v2`) | Activities API (`/activities.json`) |
+| ID uniqueness | NOT unique (split payments) | Unique per row |
+| Amount column | `payment_allocated` | `total` |
+| Has hours | No (payments, not time) | Yes (`quantity_in_hours`) |
+| Dedup strategy | Never dedup by `id` alone | Safe to dedup by `id` (post-sync CTE) |
+| Types | `kind` (Service/Expense) | `type` (TimeEntry/ExpenseEntry) |
+
+### Key Query Patterns
+
+```sql
+-- Total WIP value in a period
+SELECT SUM(CAST(total AS DECIMAL(18,2))) FROM wip
+WHERE date >= '2026-02-01' AND date <= '2026-02-07';
+
+-- WIP by type with hours
+SELECT type, COUNT(*) as rows, SUM(CAST(quantity_in_hours AS DECIMAL(18,2))) as hours,
+  SUM(CAST(total AS DECIMAL(18,2))) as total
+FROM wip WHERE date BETWEEN '2026-02-01' AND '2026-02-07'
+GROUP BY type;
+
+-- Billable vs non-billable
+SELECT non_billable, COUNT(*) as rows, SUM(CAST(total AS DECIMAL(18,2))) as total
+FROM wip WHERE date BETWEEN '2026-02-01' AND '2026-02-07'
+GROUP BY non_billable;
+```
+
+### Sync Pipeline
+
+Source: Clio Activities API (`/api/v4/activities.json`)
+Route: `server/routes/dataOperations.js` → `syncWip()` (via `/api/data-operations/sync-wip`)
+Schedule: `server/utils/dataOperationsScheduler.js` (daily alongside collected)
+UI: `src/tabs/Reporting/components/OperationValidator.tsx`
+
+Pipeline: Paginate Clio Activities API (200/page) → DELETE existing rows in date range → Batch INSERT (100 rows × 20 cols = 2000 params, under SQL Server's 2100 limit) → Post-insert dedup CTE → Auto-validate (COUNT/SUM/hours/type breakdown)
+
+### Batch Strategy
+
+20 columns × 100 rows = 2,000 parameters per batch (SQL Server limit: 2,100). If a batch INSERT fails, falls back to individual row inserts so one bad record doesn't lose the batch.
+
+### Anti-pattern (NEVER DO THIS)
+
+```sql
+-- ❌ Don't use sub_total — that's collectedTime's column
+-- WIP's amount column is `total`
+SELECT SUM(sub_total) FROM wip;  -- WRONG: column doesn't exist
+SELECT SUM(total) FROM wip;      -- CORRECT
+```
+
+---
+
 ## Data Operations Log (`dataOpsLog`)
 
 **Database**: Instructions DB (`instructions.database.windows.net/instructions`)  

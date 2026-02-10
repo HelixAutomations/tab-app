@@ -1265,12 +1265,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
       if (!userData?.[0]) return;
 
       const currentUserData = userData[0];
-      console.log('🔍 Recovered fees - checking user:', {
-        initials: currentUserData?.Initials,
-        clioId: currentUserData?.['Clio ID'],
-        entraId: currentUserData?.['Entra ID'] || currentUserData?.EntraID
-      });
-
       let userClioId = currentUserData?.['Clio ID'] ? String(currentUserData['Clio ID']) : null;
       let userEntraId = currentUserData?.['Entra ID'] || currentUserData?.EntraID 
         ? String(currentUserData['Entra ID'] || currentUserData.EntraID) 
@@ -2040,11 +2034,7 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
   // Fires all requests simultaneously to reduce waterfall delay by ~600-800ms
   // ═════════════════════════════════════════════════════════════════════════════
   useEffect(() => {
-    console.log('[parallel-fetch] Effect triggered', { useLocalData, hasUserData: !!userData?.[0] });
-    
     if (useLocalData) {
-      // Local data mode - skip all fetches
-      console.log('[parallel-fetch] Skipping - local data mode');
       setHasStartedParallelFetch(true);
       setIsLoadingAttendance(false);
       setIsLoadingAnnualLeave(false);
@@ -2056,7 +2046,6 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
 
     // Wait for user data before fetching
     if (!userData?.[0]) {
-      console.log('[parallel-fetch] Waiting for userData');
       return;
     }
 
@@ -2077,13 +2066,12 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
     // Dedupe: skip if same request already in progress
     const requestKey = `parallel:${email}:${initials}:${entraId}`;
     if (parallelFetchKeyRef.current === requestKey) {
-      console.log('[parallel-fetch] Skipping duplicate request', { requestKey });
       setHasStartedParallelFetch(true);
       return;
     }
     parallelFetchKeyRef.current = requestKey;
 
-    console.log('[parallel-fetch] Starting parallel fetch', { email, initials, entraId, requestKey });
+
 
     const runId = Date.now();
     fetchRunIdRef.current = runId;
@@ -2096,7 +2084,6 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
         setIsActionsLoading(true);
         setIsLoadingWipClio(true);
         setIsLoadingEnquiryMetrics(true);
-        console.log('[parallel-fetch] Firing Promise.all...');
         // Start all requests in parallel
         const [attendanceRes, annualLeaveRes, wipRes, enquiriesRes] = await Promise.all([
           fetch('/api/attendance/getAttendance', {
@@ -2121,19 +2108,7 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
             : Promise.resolve(null)
         ]);
 
-        console.log('[parallel-fetch] All requests completed', {
-          attendance: attendanceRes.ok,
-          annualLeave: annualLeaveRes.ok,
-          wip: wipRes ? wipRes.ok : 'skipped',
-          enquiries: enquiriesRes ? enquiriesRes.ok : 'skipped',
-          runId,
-          activeRunId: fetchRunIdRef.current,
-        });
-
-        if (fetchRunIdRef.current !== runId) {
-          console.log('[parallel-fetch] Stale fetch result, ignoring', { runId, activeRunId: fetchRunIdRef.current });
-          return;
-        }
+        if (fetchRunIdRef.current !== runId) return;
 
         // Process attendance
         if (attendanceRes.ok) {
@@ -2155,7 +2130,7 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
             cachedAttendance = { attendance: transformedAttendance, team: data.team || [] };
             setAttendanceRecords(transformedAttendance);
             setAttendanceTeam(data.team || []);
-            console.log('[parallel-fetch] Attendance data set', { recordCount: transformedAttendance.length, teamCount: data.team?.length || 0 });
+
           }
         }
         setIsLoadingAttendance(false);
@@ -2240,7 +2215,7 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
         // Process WIP
         if (wipRes && wipRes.ok) {
           const data = await wipRes.json();
-          console.log('[parallel-fetch] WIP data received', { hasCurrentWeek: !!data.current_week, hasError: !!data.error });
+
           if (data && typeof data === 'object' && 'error' in data && (data as any).error) {
             setWipClioError(String((data as any).error));
           } else {
@@ -2250,7 +2225,7 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
             const dailyKeys = Object.keys(daily);
 
             if (!hasHours && !hasAmount && dailyKeys.length > 0) {
-              console.log('[parallel-fetch] Fetching from reporting endpoint');
+
               setIsLoadingWipClio(false); // End loading for lightweight endpoint
               if (!zeroWipFallbackRef.current) {
                 zeroWipFallbackRef.current = true;
@@ -2265,7 +2240,7 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
               setWipClioData(cachedWipClio);
               setWipClioError(null);
               const keys = Object.keys(cachedWipClio?.current_week?.daily_data || {});
-              console.log('[parallel-fetch] WIP state updated', { runId, keys, today: cachedWipClio?.current_week?.daily_data?.[formatDateLocal(new Date())] });
+
               setIsLoadingWipClio(false);
             }
           }
@@ -2277,7 +2252,7 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
         // Process enquiries
         if (enquiriesRes && enquiriesRes.ok) {
           const data = await enquiriesRes.json();
-          console.log('[parallel-fetch] Enquiries data received', data);
+
           setEnquiriesToday(data.enquiriesToday ?? 0);
           setEnquiriesWeekToDate(data.enquiriesWeekToDate ?? 0);
           setEnquiriesMonthToDate(data.enquiriesMonthToDate ?? 0);
@@ -2288,7 +2263,7 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
         }
         setIsLoadingEnquiryMetrics(false);
 
-        console.log('[parallel-fetch] All state updates complete');
+
 
       } catch (error: any) {
         console.error('[parallel-fetch] Error:', error);
@@ -2678,8 +2653,6 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
     });
     if (snapshot === lastTimeMetricsLogRef.current) return;
     lastTimeMetricsLogRef.current = snapshot;
-    // eslint-disable-next-line no-console
-    console.log('[TimeMetrics] WIP state changed', JSON.parse(snapshot));
   }, [wipClioData, isLoadingWipClio, wipClioError]);
 
   // Home no longer fetches matters itself; it receives normalized matters from App.
@@ -2813,7 +2786,6 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
     const fetchBalances = async () => {
       try {
         // 1. Fetch user balances first (fast - only your matters)
-        console.log('[OutstandingBalances] Fetching user balances first...');
         const userResponse = await fetch(`/api/outstanding-balances/user/${userEntraId}`, {
           credentials: 'include',
           headers: { Accept: 'application/json' }
@@ -2821,7 +2793,6 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
 
         if (userResponse.ok && !cancelled) {
           const userData = await userResponse.json();
-          console.log(`[OutstandingBalances] User balances loaded: ${userData.data?.length || 0} records`);
           setOutstandingBalancesData(userData);
           onOutstandingBalancesFetched?.(userData);
         }
@@ -2875,9 +2846,6 @@ const isThursdayAfterMidday = now.getDay() === 4 && now.getHours() >= 12;
   const nextKey = getNextWeekKey();
 
 const transformedAttendanceRecords = useMemo(() => {
-  console.log('[transformedAttendanceRecords] Recomputing. attendanceRecords count:', attendanceRecords.length);
-  // Use attendanceRecords directly - it's the source of truth for React state
-  // The cache is only for preventing re-fetches, not for rendering
   if (!attendanceRecords.length) return [];
   
   // Records should already be in the correct format from the fetch handler
@@ -2907,16 +2875,11 @@ const transformedAttendanceRecords = useMemo(() => {
       };
     });
   
-  console.log('[transformedAttendanceRecords] Result count:', result.length);
   return result;
 }, [attendanceRecords, transformedTeamData]);
 
 const handleAttendanceUpdated = (updatedRecords: AttendanceRecord[]) => {
-  console.log('[handleAttendanceUpdated] Called with records:', updatedRecords.length, updatedRecords.map(r => ({ Initials: r.Initials, Week_Start: r.Week_Start, Attendance_Days: r.Attendance_Days })));
-  if (updatedRecords.length === 0) {
-    console.log('[handleAttendanceUpdated] No records to update');
-    return;
-  }
+  if (updatedRecords.length === 0) return;
   
   // Helper to normalize date strings for comparison (extract YYYY-MM-DD)
   const normalizeDate = (dateStr: string): string => {
@@ -2926,7 +2889,6 @@ const handleAttendanceUpdated = (updatedRecords: AttendanceRecord[]) => {
   };
   
   setAttendanceRecords((prevRecords) => {
-    console.log('[handleAttendanceUpdated] prevRecords count:', prevRecords.length);
     const newRecords = [...prevRecords];
     let isChanged = false;
 
@@ -2938,13 +2900,9 @@ const handleAttendanceUpdated = (updatedRecords: AttendanceRecord[]) => {
         (rec: any) => rec.Initials === updated.Initials && normalizeDate(rec.Week_Start) === updatedWeekStart
       );
       
-      console.log('[handleAttendanceUpdated] Looking for:', { Initials: updated.Initials, Week_Start: updatedWeekStart }, 'Found at index:', index);
-      
       if (index !== -1) {
         // Update existing record
         const currentRecord = newRecords[index];
-        console.log('[handleAttendanceUpdated] Current record Attendance_Days:', currentRecord.Attendance_Days);
-        console.log('[handleAttendanceUpdated] Updated record Attendance_Days:', updated.Attendance_Days);
         if (currentRecord.Attendance_Days !== updated.Attendance_Days || 
             currentRecord.Confirmed_At !== updated.Confirmed_At) {
           newRecords[index] = {
@@ -2954,9 +2912,7 @@ const handleAttendanceUpdated = (updatedRecords: AttendanceRecord[]) => {
             Week_Start: currentRecord.Week_Start,
           };
           isChanged = true;
-          console.log('[handleAttendanceUpdated] Updated existing record:', updated.Initials, updatedWeekStart, '-> New Attendance_Days:', updated.Attendance_Days);
         } else {
-          console.log('[handleAttendanceUpdated] Record unchanged - same values');
         }
       } else {
         // Add new record - normalize the Week_Start to date-only format
@@ -2965,7 +2921,6 @@ const handleAttendanceUpdated = (updatedRecords: AttendanceRecord[]) => {
           Week_Start: updatedWeekStart,
         });
         isChanged = true;
-        console.log('[handleAttendanceUpdated] Added new record:', updated.Initials, updatedWeekStart);
       }
     });
 
@@ -3664,7 +3619,6 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
 
     if (!hasHours && !hasAmount) {
       zeroWipFallbackRef.current = true;
-      console.log('[wip-fallback] home-wip returned zeroes, invoking reporting refresh');
       handleRefreshTimeMetrics?.();
     }
   }, [wipClioData, isLoadingWipClio, useLocalData, demoModeEnabled, handleRefreshTimeMetrics]);
@@ -4165,12 +4119,6 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
           void refreshAnnualLeaveData(String(userData?.[0]?.Initials || ''), { forceRefresh: true })
             .finally(() => setIsLoadingAnnualLeave(false));
         }
-        console.log('[Home] Rendering AnnualLeaveModal with:', {
-          annualLeaveAllDataLength: annualLeaveAllData?.length,
-          futureLeaveRecordsLength: futureLeaveRecords?.length,
-          sampleAllData: annualLeaveAllData?.slice(0, 2),
-          isAdmin: isAdminUser(userData?.[0])
-        });
         content = (
           <Suspense fallback={<ModalSkeleton variant="annual-leave-request" />}>
             <AnnualLeaveModal

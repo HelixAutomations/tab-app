@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Icon } from '@fluentui/react';
 import type { TeamData } from '../../app/functionality/types';
 import { colours } from '../../app/styles/colours';
@@ -32,6 +33,8 @@ import {
   FaEdit,
 } from 'react-icons/fa';
 import RiskAssessmentPage from './RiskAssessmentPage';
+import FlatMatterOpening from './MatterOpening/FlatMatterOpening';
+import type { POID } from '../../app/functionality/types';
 
 type StageStatus = 'pending' | 'processing' | 'review' | 'complete' | 'neutral';
 type WorkbenchTab = 'details' | 'identity' | 'payment' | 'risk' | 'matter' | 'documents';
@@ -67,9 +70,11 @@ type InlineWorkbenchProps = {
   onTriggerEID?: (instructionRef: string) => void | Promise<void>;
   onOpenIdReview?: (instructionRef: string) => void;
   onConfirmBankPayment?: (paymentId: string, confirmedDate: string) => void | Promise<void>;
+  onRefreshData?: () => void | Promise<void>;
   onClose?: () => void;
   currentUser?: { FullName?: string; Email?: string } | null;
   onRiskAssessmentSave?: (risk: any) => void;
+  demoModeEnabled?: boolean;
 };
 
 const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
@@ -88,13 +93,23 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   onTriggerEID,
   onOpenIdReview,
   onConfirmBankPayment,
+  onRefreshData,
   onClose,
   currentUser,
   onRiskAssessmentSave,
+  demoModeEnabled = false,
 }) => {
   const [activeTab, setActiveTab] = useState<WorkbenchTab>(initialTab);
   const [showLocalRiskModal, setShowLocalRiskModal] = useState(false);
+  const [showLocalMatterModal, setShowLocalMatterModal] = useState(false);
+  const [localPoidData, setLocalPoidData] = useState<POID[]>([]);
   const [activeContextStage, setActiveContextStage] = useState<ContextStageKey | null>(initialContextStage);
+
+  // Sync activeTab when initialTab prop changes (e.g. parent switches to matter tab)
+  useEffect(() => {
+    console.log('[MATTER-DEBUG] InlineWorkbench useEffect initialTab =', initialTab, '→ setActiveTab');
+    setActiveTab(initialTab);
+  }, [initialTab]);
   const [expandedPayment, setExpandedPayment] = useState<string | null>(null);
   const [teamsCardLink, setTeamsCardLink] = useState<string | null>(null);
   const [isTeamsLinkLoading, setIsTeamsLinkLoading] = useState(false);
@@ -113,7 +128,9 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   const [showRequestDocsModal, setShowRequestDocsModal] = useState(false);
   const [showTriggerEidConfirmModal, setShowTriggerEidConfirmModal] = useState(false);
   const [copiedPaymentRefId, setCopiedPaymentRefId] = useState<string | null>(null);
-  const { showToast } = useToast();
+  const { showToast, updateToast, hideToast } = useToast();
+  const [eidProcessingState, setEidProcessingState] = useState<'idle' | 'processing' | 'complete' | 'error'>('idle');
+  const eidProcessingToastRef = React.useRef<string | null>(null);
   const [emailOverrideTo, setEmailOverrideTo] = useState<string>('');
   const [emailOverrideCc, setEmailOverrideCc] = useState<string>('');
   const [useManualToRecipient, setUseManualToRecipient] = useState<boolean>(false);
@@ -645,6 +662,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     ? 'failed'
     : eidResult.toLowerCase().includes('skip')
     ? 'skipped'
+    : eidResult.toLowerCase().includes('refer') || eidResult.toLowerCase().includes('consider') || eidResult.toLowerCase().includes('review')
+    ? 'review'
     : eid
     ? 'completed'
     : 'pending';
@@ -778,20 +797,35 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     if (!onTriggerEID || !instructionRef) return;
     setShowTriggerEidConfirmModal(false);
     setIsTriggerEidLoading(true);
-    if (!isDemoInstruction) {
-      showToast({ type: 'loading', message: 'Starting ID verification…' });
-    }
+    setEidProcessingState('processing');
+
+    // Show persistent loading toast
+    const toastId = showToast({ type: 'loading', message: 'Running ID verification…', persist: true });
+    eidProcessingToastRef.current = toastId;
+
     try {
       await onTriggerEID(instructionRef);
-      if (!isDemoInstruction) {
-        showToast({ type: 'success', message: 'Verification request sent' });
+      setEidProcessingState('complete');
+
+      // Update the toast to success
+      if (toastId) {
+        updateToast(toastId, { type: 'success', message: 'ID verification complete', persist: false });
+      }
+
+      // Auto-refresh data so the UI updates without a manual reload
+      if (onRefreshData) {
+        try { await onRefreshData(); } catch { /* silent */ }
       }
     } catch {
-      showToast({ type: 'error', message: 'Failed to start verification' });
+      setEidProcessingState('error');
+      if (toastId) {
+        updateToast(toastId, { type: 'error', message: 'ID verification failed — please retry', persist: false });
+      }
     } finally {
       setIsTriggerEidLoading(false);
+      eidProcessingToastRef.current = null;
     }
-  }, [onTriggerEID, instructionRef, showToast, isDemoInstruction]);
+  }, [onTriggerEID, instructionRef, showToast, updateToast, isDemoInstruction, onRefreshData]);
 
   useEffect(() => {
     if (activeTab !== 'identity') return;
@@ -1097,6 +1131,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   const riskScore = risk?.RiskScore;
   const riskComplete = !!risk?.RiskAssessmentResult;
   const isHighRisk = risk?.RiskAssessmentResult?.toLowerCase().includes('high');
+  const isMediumRisk = risk?.RiskAssessmentResult?.toLowerCase().includes('medium');
   const riskLevel = risk?.TransactionRiskLevel || '—';
   const riskAssessor = risk?.RiskAssessor || '—';
   const sourceOfFunds = risk?.SourceOfFunds || '—';
@@ -1190,12 +1225,12 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
   // Normalised identity stage status (prefer pipeline status when provided)
   const identityStatus: StageStatus = (stageStatuses?.id || (
-    eidStatus === 'verified' ? 'complete' : eidStatus === 'failed' ? 'review' : 'pending'
+    eidStatus === 'verified' ? 'complete' : (eidStatus === 'failed' || eidStatus === 'review') ? 'review' : 'pending'
   )) as StageStatus;
 
   // Normalised per-tab statuses (prefer pipeline stageStatuses)
   const paymentStatus: StageStatus = (stageStatuses?.payment || (hasSuccessfulPayment ? 'complete' : hasFailedPayment ? 'review' : 'pending')) as StageStatus;
-  const riskStatus: StageStatus = (stageStatuses?.risk || (riskComplete ? (isHighRisk ? 'review' : 'complete') : 'pending')) as StageStatus;
+  const riskStatus: StageStatus = (stageStatuses?.risk || (riskComplete ? ((isHighRisk || isMediumRisk) ? 'review' : 'complete') : 'pending')) as StageStatus;
   const matterStageStatus: StageStatus = (stageStatuses?.matter || (hasMatter ? 'complete' : 'pending')) as StageStatus;
   const documentStatus: StageStatus = (stageStatuses?.documents || (documents.length > 0 ? 'complete' : 'neutral')) as StageStatus;
 
@@ -1308,13 +1343,13 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
       },
       { 
         key: 'identity' as const,
-        label: 'ID', 
+        label: eidProcessingState === 'processing' ? 'ID Check' : 'ID', 
         icon: <FaIdCard size={10} />,
         date: null, // No specific date for ID
         dateRaw: null,
         isComplete: hasId || eidStatus === 'verified',
-        hasIssue: eidStatus === 'failed',
-        status: (stageStatuses?.id || (eidStatus === 'verified' ? 'complete' : eidStatus === 'failed' ? 'review' : 'pending')) as StageStatus,
+        hasIssue: eidStatus === 'failed' || eidStatus === 'review',
+        status: (eidProcessingState === 'processing' ? 'processing' : stageStatuses?.id || (eidStatus === 'verified' ? 'complete' : (eidStatus === 'failed' || eidStatus === 'review') ? 'review' : 'pending')) as StageStatus,
         navigatesTo: 'identity' as WorkbenchTab,
       },
       { 
@@ -1334,9 +1369,9 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         icon: <FaShieldAlt size={10} />,
         date: null,
         dateRaw: null,
-        isComplete: riskComplete,
-        hasIssue: isHighRisk,
-        status: (stageStatuses?.risk || (riskComplete ? (isHighRisk ? 'review' : 'complete') : 'pending')) as StageStatus,
+        isComplete: riskComplete && !isHighRisk && !isMediumRisk,
+        hasIssue: isHighRisk || isMediumRisk,
+        status: (showLocalRiskModal ? 'processing' : stageStatuses?.risk || (riskComplete ? ((isHighRisk || isMediumRisk) ? 'review' : 'complete') : 'pending')) as StageStatus,
         navigatesTo: 'risk' as WorkbenchTab,
       },
       { 
@@ -1347,7 +1382,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         dateRaw: matterOpenDateRaw,
         isComplete: hasMatter,
         hasIssue: false,
-        status: (stageStatuses?.matter || (hasMatter ? 'complete' : 'pending')) as StageStatus,
+        status: (showLocalMatterModal ? 'processing' : stageStatuses?.matter || (hasMatter ? 'complete' : 'pending')) as StageStatus,
         navigatesTo: 'matter' as WorkbenchTab,
       },
       { 
@@ -1363,7 +1398,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         navigatesTo: 'documents' as WorkbenchTab,
       },
     ];
-  }, [prospectId, hasId, eidStatus, hasSuccessfulPayment, hasFailedPayment, documents.length, riskComplete, isHighRisk, hasMatter, stageStatuses, pitchDate, pitchDateRaw, submissionDate, submissionDateRaw, paymentDate, paymentDateRaw, matterOpenDate, matterOpenDateRaw, firstDocUploadDate, firstDocUploadDateRaw, isInstructedComplete, instructedStatus]);
+  }, [prospectId, hasId, eidStatus, eidProcessingState, hasSuccessfulPayment, hasFailedPayment, documents.length, riskComplete, isHighRisk, isMediumRisk, showLocalRiskModal, showLocalMatterModal, hasMatter, stageStatuses, pitchDate, pitchDateRaw, submissionDate, submissionDateRaw, paymentDate, paymentDateRaw, matterOpenDate, matterOpenDateRaw, firstDocUploadDate, firstDocUploadDateRaw, isInstructedComplete, instructedStatus]);
 
   const contextStageKeyList = useMemo(() => {
     // If context stage chips disabled, don't show any context stages
@@ -2099,7 +2134,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         onClick={(e) => e.stopPropagation()}
         onMouseDown={(e) => e.stopPropagation()}
         style={{
-          padding: '8px 16px 8px 32px',
+          padding: '8px 16px',
           borderBottom: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
           background: isDarkMode ? 'rgba(11, 18, 32, 0.65)' : 'rgba(255, 255, 255, 0.8)',
           position: 'relative',
@@ -2194,81 +2229,61 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                     alignItems: 'center',
                     gap: 6,
                     padding: '6px 12px',
-                    // Pill Shape
                     borderRadius: '16px',
-                    // Active: Helix Blue (Highlight) solid. Inactive: Transparent/Subtle.
                     background: isActive 
-                      ? colours.highlight 
+                      ? 'rgba(125, 211, 252, 0.12)' 
                       : (isDarkMode ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)'),
-                    
-                    // Borders: None for active (clean), Subtle for inactive
                     border: isActive 
-                      ? '1px solid transparent' 
+                      ? '1px solid rgba(125, 211, 252, 0.45)' 
                       : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)'}`,
-                    
                     cursor: 'pointer',
                     transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                    
-                    // Shadows for active state to pop
-                    boxShadow: isActive 
-                      ? '0 2px 4px rgba(0, 0, 0, 0.15), 0 1px 2px rgba(0, 0, 0, 0.1)' 
-                      : 'none',
-                    
-                    // Text styles
-                    color: isActive ? '#FFFFFF' : (isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.8)'),
+                    boxShadow: 'none',
+                    color: statusColors.text,
+                    fontSize: 11,
+                    fontWeight: isActive ? 700 : 600,
                     fontFamily: 'inherit',
+                    whiteSpace: 'nowrap' as const,
                     position: 'relative',
-                    zIndex: isActive ? 10 : 1, // Active sits on top
+                    zIndex: isActive ? 10 : 1,
+                    opacity: stage.status === 'pending' || stage.status === 'neutral' ? 0.7 : 1,
                   }}
                   title={stage.date ? `${stage.label}: ${stage.date}` : stage.label}
                 >
                   <span style={{ 
                     display: 'flex',
                     alignItems: 'center',
-                    // Force white icon on active, else status color
-                    color: isActive ? '#FFFFFF' : statusColors.text, 
+                    color: statusColors.text, 
                     opacity: isActive ? 1 : 0.9,
                   }}>
                     {stage.icon}
                   </span>
                   
-                  <span style={{
-                    fontSize: 10,
-                    fontWeight: isActive ? 700 : 600,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.4px',
-                    whiteSpace: 'nowrap',
-                    color: isActive ? '#FFFFFF' : (isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.8)'),
-                  }}>
-                    {stage.label}
-                  </span>
+                  <span>{stage.label}</span>
 
                   {/* Status Badges / Checks */}
                   {(stage as any).count !== undefined && (stage as any).count > 0 ? (
                     <span style={{
-                      minWidth: 16,
-                      height: 16,
-                      borderRadius: 8,
-                      fontSize: 9,
+                      fontSize: 10,
                       fontWeight: 700,
+                      padding: '1px 6px',
                       display: 'flex',
                       alignItems: 'center',
-                      justifyContent: 'center',
-                      background: isActive ? 'rgba(255,255,255,0.2)' : (isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(0,0,0,0.06)'),
-                      color: isActive ? '#FFFFFF' : (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.8)'),
+                      borderRadius: 999,
+                      background: 'rgba(148, 163, 184, 0.18)',
+                      color: isDarkMode ? 'rgba(226, 232, 240, 0.8)' : 'rgba(15, 23, 42, 0.7)',
                       marginLeft: 2,
                     }}>
                       {(stage as any).count}
                     </span>
                   ) : stage.isComplete ? (
                     <FaCheck size={9} style={{ 
-                      color: isActive ? '#FFFFFF' : '#22c55e', 
+                      color: '#22c55e', 
                       marginLeft: 2,
-                      opacity: isActive ? 0.9 : 1
                     }} />
                   ) : stage.hasIssue ? (
                     <FaExclamationTriangle size={9} style={{ 
-                      color: isActive ? '#FFFFFF' : '#ef4444', 
+                      color: '#ef4444', 
                       marginLeft: 2 
                     }} />
                   ) : null}
@@ -2282,7 +2297,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
       {/* Tab content - expand as needed */}
       <div style={{
-        padding: '18px 20px 20px 32px',
+        padding: '18px 20px 20px 20px',
         minHeight: 96,
         border: `1px solid ${isTabbedContent ? activeTabPalette.border : (isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.12)')}`,
         borderTop: isTabbedContent ? `1px solid ${activeTabPalette.border}` : (isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.12)'),
@@ -3989,8 +4004,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                       </div>
                     )}
 
-                    {/* EID Action Picker Modal */}
-                    {showEidActionModal && (
+                    {/* EID Action Picker Modal — portalled to body */}
+                    {showEidActionModal && createPortal(
                       <div
                         style={{
                           position: 'fixed',
@@ -4106,11 +4121,12 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                             Cancel
                           </button>
                         </div>
-                      </div>
+                      </div>,
+                      document.body
                     )}
 
-                    {/* Approve Verification Modal */}
-                    {showApproveModal && (
+                    {/* Approve Verification Modal — portalled to body */}
+                    {showApproveModal && createPortal(
                       <div
                         style={{
                           position: 'fixed',
@@ -4195,6 +4211,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                   await approveVerification(verificationDetails.instructionRef);
                                   await loadVerificationDetails();
                                   setShowApproveModal(false);
+                                  showToast({ type: 'success', title: 'ID Approved', message: 'Verification manually approved' });
+                                  if (onRefreshData) { try { await onRefreshData(); } catch { /* silent */ } }
                                 } finally {
                                   setIsVerificationActionLoading(false);
                                 }
@@ -4215,11 +4233,12 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                             </button>
                           </div>
                         </div>
-                      </div>
+                      </div>,
+                      document.body
                     )}
 
-                    {/* Request Documents Modal */}
-                    {showRequestDocsModal && (
+                    {/* Request Documents Modal — portalled to body */}
+                    {showRequestDocsModal && createPortal(
                       <div
                         style={{
                           position: 'fixed',
@@ -4627,7 +4646,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                             </button>
                           </div>
                         </div>
-                      </div>
+                      </div>,
+                      document.body
                     )}
                       </>
                     )}
@@ -4635,62 +4655,156 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                 )}
                 </div>
                 ) : (
-                  /* EID not yet run - show CTA to start verification */
+                  /* EID not yet run - show readiness + CTA */
                   <div style={{ paddingTop: 10, borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : '#e2e8f0'}` }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 9, fontWeight: 600, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.3px' }}>
                         <FaShieldAlt size={10} style={{ opacity: 0.6 }} /> Electronic ID (EID)
                       </div>
                     </div>
-                    <div style={{
-                      padding: '16px 18px',
-                      background: isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.04)',
-                      border: `1px dashed ${isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)'}`,
-                      borderRadius: 6,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      gap: 12,
-                    }}>
-                      <div style={{ fontSize: 12, color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.6)', textAlign: 'center', lineHeight: 1.5 }}>
-                        No ID verification on record.<br />
-                        <span style={{ fontSize: 11, opacity: 0.8 }}>Run a check to verify identity and compliance.</span>
-                      </div>
-                      {onTriggerEID ? (
-                        <button
-                          type="button"
-                          disabled={isTriggerEidLoading}
-                          onClick={(e) => { e.stopPropagation(); openTriggerEidConfirm(); }}
-                          style={{
-                            padding: '10px 20px',
-                            background: colours.highlight,
-                            color: '#FFFFFF',
-                            border: 'none',
-                            borderRadius: 4,
-                            fontSize: 12,
-                            fontWeight: 600,
-                            cursor: isTriggerEidLoading ? 'default' : 'pointer',
-                            opacity: isTriggerEidLoading ? 0.7 : 1,
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 8,
-                          }}
-                        >
-                          <FaIdCard size={12} />
-                          {isTriggerEidLoading ? 'Starting verification…' : 'Run ID Verification'}
-                        </button>
-                      ) : (
-                        <div style={{ fontSize: 10, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)' }}>
-                          Verification not available
+
+                    {/* Processing overlay */}
+                    {eidProcessingState === 'processing' && (
+                      <div style={{
+                        padding: '20px 18px',
+                        background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.05)',
+                        border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.18)'}`,
+                        borderRadius: 6,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: 14,
+                        marginBottom: 12,
+                      }}>
+                        <div style={{
+                          width: 32, height: 32, borderRadius: '50%',
+                          border: `3px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)'}`,
+                          borderTopColor: colours.highlight,
+                          animation: 'spin 0.8s linear infinite',
+                        }} />
+                        <div style={{ textAlign: 'center' }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: colours.highlight, marginBottom: 4 }}>
+                            Verification in progress
+                          </div>
+                          <div style={{ fontSize: 11, color: isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(15, 23, 42, 0.55)', lineHeight: 1.5 }}>
+                            Checking identity, address and PEP/sanctions.<br />
+                            Results will appear here automatically.
+                          </div>
                         </div>
-                      )}
-                    </div>
+                        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+                      </div>
+                    )}
+
+                    {/* Readiness + CTA (hidden while processing) */}
+                    {eidProcessingState !== 'processing' && (
+                      <>
+                        {/* Data readiness checklist */}
+                        {(() => {
+                          const hasName = Boolean(firstName && lastName);
+                          const hasDob = dob !== '—';
+                          const hasAddr = Boolean(address);
+                          const hasIdDoc = hasId;
+                          const allReady = hasName && hasDob && hasAddr && hasIdDoc;
+                          const checks = [
+                            { label: 'Name', ready: hasName, value: hasName ? `${firstName} ${lastName}` : 'Missing' },
+                            { label: 'Date of birth', ready: hasDob, value: hasDob ? dob : 'Missing' },
+                            { label: 'Address', ready: hasAddr, value: hasAddr ? (displayPostcode || 'Provided') : 'Missing' },
+                            { label: 'ID document', ready: hasIdDoc, value: hasIdDoc ? (passport !== '—' ? 'Passport' : 'License') : 'Missing' },
+                          ];
+                          return (
+                            <div style={{
+                              padding: '12px 14px',
+                              background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : 'rgba(148, 163, 184, 0.03)',
+                              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)'}`,
+                              borderRadius: 4,
+                              marginBottom: 12,
+                            }}>
+                              <div style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.4px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8', marginBottom: 8 }}>
+                                Readiness
+                              </div>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 16px' }}>
+                                {checks.map(c => (
+                                  <div key={c.label} style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 120 }}>
+                                    <div style={{
+                                      width: 14, height: 14, borderRadius: '50%',
+                                      background: c.ready
+                                        ? (isDarkMode ? 'rgba(34, 197, 94, 0.15)' : 'rgba(34, 197, 94, 0.1)')
+                                        : (isDarkMode ? 'rgba(239, 68, 68, 0.12)' : 'rgba(239, 68, 68, 0.08)'),
+                                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    }}>
+                                      {c.ready
+                                        ? <FaCheck size={7} color="#22c55e" />
+                                        : <span style={{ width: 6, height: 1.5, background: '#ef4444', borderRadius: 1 }} />}
+                                    </div>
+                                    <span style={{ fontSize: 10, fontWeight: 600, color: c.ready ? (isDarkMode ? 'rgba(226, 232, 240, 0.8)' : 'rgba(15, 23, 42, 0.7)') : (isDarkMode ? 'rgba(239, 68, 68, 0.7)' : 'rgba(239, 68, 68, 0.6)') }}>
+                                      {c.label}
+                                    </span>
+                                    <span style={{ fontSize: 10, color: isDarkMode ? 'rgba(148, 163, 184, 0.45)' : 'rgba(100, 116, 139, 0.45)', fontFamily: c.ready ? 'inherit' : undefined }}>
+                                      {c.value}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                              {!allReady && (
+                                <div style={{ marginTop: 8, fontSize: 10, color: isDarkMode ? 'rgba(239, 68, 68, 0.6)' : 'rgba(239, 68, 68, 0.55)', lineHeight: 1.4 }}>
+                                  Some data is missing — the check may fail. Ensure the instruction data is complete before running.
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+
+                        <div style={{
+                          padding: '16px 18px',
+                          background: isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.04)',
+                          border: `1px dashed ${isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)'}`,
+                          borderRadius: 6,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          gap: 12,
+                        }}>
+                          <div style={{ fontSize: 12, color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.6)', textAlign: 'center', lineHeight: 1.5 }}>
+                            No ID verification on record.<br />
+                            <span style={{ fontSize: 11, opacity: 0.8 }}>Run a check to verify identity and compliance.</span>
+                          </div>
+                          {onTriggerEID ? (
+                            <button
+                              type="button"
+                              disabled={isTriggerEidLoading}
+                              onClick={(e) => { e.stopPropagation(); openTriggerEidConfirm(); }}
+                              style={{
+                                padding: '10px 20px',
+                                background: colours.highlight,
+                                color: '#FFFFFF',
+                                border: 'none',
+                                borderRadius: 4,
+                                fontSize: 12,
+                                fontWeight: 600,
+                                cursor: isTriggerEidLoading ? 'default' : 'pointer',
+                                opacity: isTriggerEidLoading ? 0.7 : 1,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 8,
+                              }}
+                            >
+                              <FaIdCard size={12} />
+                              {isTriggerEidLoading ? 'Starting verification…' : 'Run ID Verification'}
+                            </button>
+                          ) : (
+                            <div style={{ fontSize: 10, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)' }}>
+                              Verification not available
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
             </div>
 
             {/* Trigger EID Confirmation Modal - shown before starting verification */}
-            {showTriggerEidConfirmModal && (
+            {showTriggerEidConfirmModal && createPortal(
               <div
                 style={{
                   position: 'fixed',
@@ -4909,7 +5023,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                     </button>
                   </div>
                 </div>
-              </div>
+              </div>,
+              document.body
             )}
 
           </div>
@@ -5345,6 +5460,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         {/* Matter Tab */}
         {activeTab === 'matter' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {(() => { console.log('[MATTER-DEBUG] Matter tab rendering. activeTab =', activeTab, ', hasMatter =', hasMatter, ', inst =', !!inst, ', showLocalMatterModal =', showLocalMatterModal); return null; })()}
             {renderStatusBanner(
               matterStageStatus === 'complete' ? 'Matter opened' : 'Matter pending',
               matterStageStatus,
@@ -5359,28 +5475,26 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
               }}>
                 <FaFolder size={24} style={{ marginBottom: 8, opacity: 0.4 }} />
                 <div style={{ fontSize: 11, marginBottom: 12 }}>Matter not yet opened</div>
-                {onOpenMatter && (
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); onOpenMatter(inst); }}
-                    style={{
-                      padding: '8px 16px',
-                      background: colours.highlight,
-                      color: '#FFFFFF',
-                      border: 'none',
-                      borderRadius: 4,
-                      fontSize: 11,
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 6,
-                    }}
-                  >
-                    <FaFolder size={11} />
-                    Open Matter
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); console.log('[MATTER-DEBUG] Open Matter button clicked. inst =', !!inst, 'inst.InstructionRef =', inst?.InstructionRef, 'hasMatter =', hasMatter); setShowLocalMatterModal(true); }}
+                  style={{
+                    padding: '8px 16px',
+                    background: colours.highlight,
+                    color: '#FFFFFF',
+                    border: 'none',
+                    borderRadius: 4,
+                    fontSize: 11,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  <FaFolder size={11} />
+                  Open Matter
+                </button>
               </div>
             ) : (
               <>
@@ -6008,8 +6122,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         </div>
       )}
 
-      {/* Risk Assessment Modal */}
-      {showLocalRiskModal && inst && (
+      {/* Risk Assessment Modal — portalled to body to avoid transform/overflow clipping */}
+      {showLocalRiskModal && inst && createPortal(
         <div 
           style={{
             position: 'fixed',
@@ -6041,12 +6155,108 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
               riskAssessor={currentUser?.FullName || 'Unknown'}
               existingRisk={risk}
               onSave={(savedRisk) => {
-                setShowLocalRiskModal(false);
+                // Don't close modal here — RiskAssessmentPage shows its own
+                // success toast then calls onBack() after 1200ms to close
                 if (onRiskAssessmentSave) onRiskAssessmentSave(savedRisk);
+                // Refresh instruction data so risk tab updates without manual refresh
+                if (onRefreshData) onRefreshData();
+                // Show parent-level toast for confirmation outside the modal
+                showToast({ type: 'success', title: 'Risk Assessment Saved', message: `Result: ${savedRisk?.RiskAssessmentResult || 'Complete'}` });
               }}
             />
           </div>
-        </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Matter Opening Modal — portalled to body to avoid transform/overflow clipping */}
+      {(() => { if (showLocalMatterModal) console.log('[MATTER-DEBUG] Matter modal guard: showLocalMatterModal =', showLocalMatterModal, ', inst =', !!inst, ', inst?.InstructionRef =', inst?.InstructionRef, ', item?.prospectId =', item?.prospectId); return null; })()}
+      {showLocalMatterModal && (inst || item) && createPortal(
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 2000,
+            background: isDarkMode ? 'rgba(0,0,0,0.8)' : 'rgba(0,0,0,0.4)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px',
+          }}
+          onClick={(e) => { if (e.target === e.currentTarget) setShowLocalMatterModal(false); }}
+        >
+          <div style={{
+            background: isDarkMode ? colours.dark.background : '#ffffff',
+            borderRadius: '12px',
+            maxWidth: '1100px',
+            width: '100%',
+            maxHeight: '90vh',
+            overflowY: 'auto',
+            boxShadow: isDarkMode ? '0 20px 60px rgba(0,0,0,0.8)' : '0 20px 60px rgba(0,0,0,0.3)',
+          }}>
+            <FlatMatterOpening
+              key={`inline-matter-${inst?.InstructionRef || inst?.instructionRef || item?.prospectId || 'default'}`}
+              poidData={localPoidData}
+              setPoidData={setLocalPoidData}
+              teamData={teamData}
+              userInitials={(() => {
+                // Derive userInitials from currentUser email → teamData lookup, or feeEarner match
+                if (currentUser?.Email && teamData) {
+                  const match = teamData.find(t => t.Email?.toLowerCase() === currentUser.Email!.toLowerCase());
+                  if (match?.Initials) return match.Initials.toUpperCase();
+                }
+                if (feeEarner && feeEarner !== '—' && teamData) {
+                  const match = teamData.find(t =>
+                    t['Full Name']?.toLowerCase() === feeEarner.toLowerCase() ||
+                    t['Nickname']?.toLowerCase() === feeEarner.toLowerCase() ||
+                    t['Initials']?.toLowerCase() === feeEarner.toLowerCase()
+                  );
+                  if (match?.Initials) return match.Initials.toUpperCase();
+                }
+                return '';
+              })()}
+              userData={null}
+              instructionRef={inst?.InstructionRef || inst?.instructionRef || deal?.InstructionRef || ''}
+              stage={inst?.Stage || inst?.stage || 'New Matter'}
+              clientId={inst?.ProspectId?.toString() || inst?.prospectId?.toString() || inst?.ClientId?.toString() || item?.prospectId?.toString() || ''}
+              feeEarner={feeEarner !== '—' ? feeEarner : undefined}
+              hideClientSections={true}
+              initialClientType={inst?.ClientType || inst?.clientType || ''}
+              instructionPhone={inst?.Phone || inst?.phone || ''}
+              instructionRecords={[{
+                ...(inst || {}),
+                // Attach data from item so generateSampleJson can build instruction_summary
+                idVerifications: inst?.idVerifications || (eid ? [eid] : []),
+                riskAssessments: inst?.riskAssessments || (risk ? [risk] : []),
+                payments: inst?.payments || payments || [],
+                documents: inst?.documents || documents || [],
+                // Fallback fields from deal/item when inst is missing
+                ServiceDescription: inst?.ServiceDescription || deal?.ServiceDescription || '',
+                ProspectId: inst?.ProspectId || item?.prospectId || '',
+                InstructionRef: inst?.InstructionRef || deal?.InstructionRef || '',
+              }]}
+              onBack={() => setShowLocalMatterModal(false)}
+              onMatterSuccess={(matterId) => {
+                setShowLocalMatterModal(false);
+                if (onRefreshData) onRefreshData();
+                showToast({
+                  type: 'success',
+                  title: 'Matter Opened',
+                  message: `Matter ${matterId} created successfully`,
+                });
+              }}
+              onRunIdCheck={onTriggerEID ? () => {
+                setShowLocalMatterModal(false);
+                openTriggerEidConfirm();
+              } : undefined}
+              demoModeEnabled={demoModeEnabled}
+            />
+          </div>
+        </div>,
+        document.body
       )}
     </div>
   );

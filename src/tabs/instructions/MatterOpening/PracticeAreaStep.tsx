@@ -54,24 +54,42 @@ const PracticeAreaStep: React.FC<PracticeAreaStepProps> = ({ options, practiceAr
             boxSizing: 'border-box'
         }}>
             <Stack tokens={{ childrenGap: 16 }}>
-                {/* Professional header with icon */}
-                <div style={{ 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    gap: 8, 
-                    marginBottom: 4 
-                }}>
-                    <i className="ms-Icon ms-Icon--WorkItem" style={{ 
-                        fontSize: 16, 
-                        color: themeColours.iconColor 
-                    }} />
-                    <span style={{ 
-                        fontSize: 16, 
-                        fontWeight: 600, 
-                        color: themeColours.text 
+                {/* Section header with description */}
+                <div style={{ marginBottom: 4 }}>
+                    <div style={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: 10, 
+                        marginBottom: 4 
                     }}>
-                        Select Practice Area
-                    </span>
+                        <div style={{
+                            width: 32,
+                            height: 32,
+                            borderRadius: 0,
+                            background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.08)',
+                            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)'}`,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                        }}>
+                            <i className="ms-Icon ms-Icon--WorkItem" style={{ 
+                                fontSize: 14, 
+                                color: themeColours.iconColor 
+                            }} />
+                        </div>
+                        <div>
+                            <div style={{ 
+                                fontSize: 15, 
+                                fontWeight: 700, 
+                                color: themeColours.text 
+                            }}>
+                                Practice Area
+                            </div>
+                            <div style={{ fontSize: 12, color: isDarkMode ? '#9CA3AF' : '#64748B' }}>
+                                Specific area of expertise for this matter
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 
                 <div className="practice-area-selection">
@@ -106,8 +124,8 @@ const PracticeAreaStep: React.FC<PracticeAreaStepProps> = ({ options, practiceAr
                                         transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                                         minHeight: '36px',
                                         boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
-                                        fontSize: '12px',
-                                        fontWeight: 400,
+                                        fontSize: '13px',
+                                        fontWeight: 500,
                                         color: isActive ? color : themeColours.inactiveText,
                                         // CSS vars for hover/press
                                         ['--area-hover-bg' as any]: `linear-gradient(135deg, ${color}10 0%, ${color}05 100%)`,

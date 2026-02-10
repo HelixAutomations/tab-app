@@ -624,6 +624,48 @@ router.put('/deals/:dealId', async (req, res) => {
   }
 });
 
+// Single instruction lookup by InstructionRef — used for real-time refresh after EID checks, etc.
+router.get('/:instructionRef', async (req, res) => {
+  const requestId = generateRequestId();
+  const { instructionRef } = req.params;
+
+  // Guard against common non-instruction paths that shouldn't match this route
+  if (['test', 'test-db', 'test-route', 'matters'].includes(instructionRef)) {
+    return res.status(404).json({ error: 'Not found', requestId });
+  }
+
+  try {
+    const instResult = await instructionsQuery((request, s) =>
+      request
+        .input('ref', s.NVarChar, instructionRef)
+        .query('SELECT * FROM Instructions WHERE InstructionRef = @ref')
+    );
+    if (!instResult.recordset?.length) {
+      return res.status(404).json({ error: 'Instruction not found', requestId });
+    }
+    const instruction = instResult.recordset[0];
+
+    // Attach latest IDVerifications
+    const idResult = await instructionsQuery((request, s) =>
+      request
+        .input('ref', s.NVarChar, instructionRef)
+        .query('SELECT * FROM IDVerifications WHERE InstructionRef = @ref ORDER BY InternalId DESC')
+    );
+    instruction.idVerifications = idResult.recordset || [];
+
+    res.json(instruction);
+  } catch (error) {
+    const transient = isTransientSqlError(error);
+    console.error(`[${requestId}] ❌ Error fetching instruction ${instructionRef}${transient ? ' (transient)' : ''}`, error);
+    res.status(transient ? 503 : 500).json({
+      error: 'Failed to fetch instruction',
+      details: error.message,
+      transient,
+      requestId,
+    });
+  }
+});
+
 // Update instruction endpoint - for inline editing of identity fields
 router.patch('/:instructionRef', async (req, res) => {
   const requestId = generateRequestId();

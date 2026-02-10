@@ -1,5 +1,6 @@
-const { syncCollectedTime, logProgress } = require('../routes/dataOperations');
+const { syncCollectedTime, syncWip, logProgress } = require('../routes/dataOperations');
 const { createLogger } = require('./logger');
+const { trackEvent, trackException } = require('./appInsights');
 
 const schedulerLogger = createLogger('DataOpsScheduler');
 
@@ -23,58 +24,181 @@ function formatSlotKey(date) {
   return `${yyyy}-${mm}-${dd} ${hh}:${min}`;
 }
 
+/**
+ * Overlapping-window scheduler for collected time AND WIP.
+ *
+ * Tier     | Frequency              | Window          | Purpose
+ * ---------|------------------------|-----------------|------------------------------------------
+ * Hot      | Every 60 min at :03    | Today+yesterday | Catches entries finalised after last run
+ * Warm     | Every 6h (00/06/12/18) | Rolling 3 days  | Catches delayed Clio report appearances
+ * Cold     | Nightly at 23:03       | Rolling 14 days | Safety net for backdated entries
+ *
+ * ~29 API calls/day per operation (24 hot + 4 warm + 1 cold).
+ * Each tier has its own running guard + last-slot dedup.
+ * WIP runs at :08 offset to avoid overlapping Clio API calls with collected.
+ */
 function startDataOperationsScheduler() {
-  if (process.env.DATAOPS_SCHEDULER_ENABLED !== 'true') {
-    schedulerLogger.warn('Scheduler disabled (set DATAOPS_SCHEDULER_ENABLED=true to enable)');
-    return;
-  }
-
   const state = {
-    dailyLastSlot: null,
-    rollingLastDate: null,
-    dailyRunning: false,
-    rollingRunning: false,
+    // Collected
+    hotLastSlot: null,
+    hotRunning: false,
+    warmLastSlot: null,
+    warmRunning: false,
+    coldLastDate: null,
+    coldRunning: false,
+    // WIP
+    wipHotLastSlot: null,
+    wipHotRunning: false,
+    wipWarmLastSlot: null,
+    wipWarmRunning: false,
+    wipColdLastDate: null,
+    wipColdRunning: false,
   };
 
-  schedulerLogger.info('Data operations scheduler started (Europe/London)');
+  schedulerLogger.info('Data operations scheduler started — Hot/Warm/Cold tiers for Collected + WIP (Europe/London)');
+  trackEvent('Scheduler.Started', { tiers: 'Hot/Warm/Cold', operations: 'CollectedTime,Wip' });
 
   setInterval(async () => {
     const now = getLondonNow();
     const minute = now.getMinutes();
     const hour = now.getHours();
 
-    // 30-minute daily fill (today only)
-    // Offset by 3 minutes to avoid collision with legacy Azure Functions (run at :03 and :33)
-    if (minute % 30 === 3) {
+    // ═══════════════════════════════════════════════
+    // COLLECTED TIME — runs at :03
+    // ═══════════════════════════════════════════════
+
+    // ─── HOT: every 60 min at :03 — today + yesterday ───
+    if (minute === 3) {
       const slotKey = formatSlotKey(now);
-      if (!state.dailyRunning && state.dailyLastSlot !== slotKey) {
-        state.dailyRunning = true;
-        state.dailyLastSlot = slotKey;
-        logProgress('syncCollectedTimeDaily', `Scheduler triggered (${slotKey})`, { triggeredBy: 'scheduler' });
+      if (!state.hotRunning && state.hotLastSlot !== slotKey) {
+        state.hotRunning = true;
+        state.hotLastSlot = slotKey;
+        const opName = 'syncCollectedTimeHot';
+        logProgress(opName, `Hot sync triggered (${slotKey}) — today+yesterday`, { triggeredBy: 'scheduler' });
         try {
-          await syncCollectedTime({ daysBack: 0, triggeredBy: 'scheduler' });
+          await syncCollectedTime({ daysBack: 1, triggeredBy: 'scheduler' });
+          schedulerLogger.info(`Collected hot sync completed (${slotKey})`);
+          trackEvent('Scheduler.Collected.Hot.Completed', { slotKey });
         } catch (error) {
-          schedulerLogger.error('Daily collected time sync failed', error?.message || error);
+          schedulerLogger.error('Collected hot sync failed:', error?.message || error);
+          trackException(error instanceof Error ? error : new Error(String(error?.message || error)), { tier: 'hot', entity: 'CollectedTime', slotKey });
+          trackEvent('Scheduler.Collected.Hot.Failed', { slotKey, error: error?.message || String(error) });
         } finally {
-          state.dailyRunning = false;
+          state.hotRunning = false;
         }
       }
     }
 
-    // 11pm rolling 7-day reset
-    // Offset by 3 minutes (run at 23:03)
+    // ─── WARM: every 6h at :03 (00:03, 06:03, 12:03, 18:03) — rolling 3 days ───
+    if (hour % 6 === 0 && minute === 3) {
+      const slotKey = formatSlotKey(now);
+      if (!state.warmRunning && state.warmLastSlot !== slotKey) {
+        state.warmRunning = true;
+        state.warmLastSlot = slotKey;
+        const opName = 'syncCollectedTimeWarm';
+        logProgress(opName, `Warm sync triggered (${slotKey}) — rolling 3 days`, { triggeredBy: 'scheduler' });
+        try {
+          await syncCollectedTime({ daysBack: 3, triggeredBy: 'scheduler' });
+          schedulerLogger.info(`Collected warm sync completed (${slotKey})`);
+          trackEvent('Scheduler.Collected.Warm.Completed', { slotKey });
+        } catch (error) {
+          schedulerLogger.error('Collected warm sync failed:', error?.message || error);
+          trackException(error instanceof Error ? error : new Error(String(error?.message || error)), { tier: 'warm', entity: 'CollectedTime', slotKey });
+          trackEvent('Scheduler.Collected.Warm.Failed', { slotKey, error: error?.message || String(error) });
+        } finally {
+          state.warmRunning = false;
+        }
+      }
+    }
+
+    // ─── COLD: nightly at 23:03 — rolling 14 days ───
     if (hour === 23 && minute === 3) {
       const dateKey = formatDateKey(now);
-      if (!state.rollingRunning && state.rollingLastDate !== dateKey) {
-        state.rollingRunning = true;
-        state.rollingLastDate = dateKey;
-        logProgress('syncCollectedTimeRolling7d', `Scheduler triggered (${dateKey} 23:00)`, { triggeredBy: 'scheduler' });
+      if (!state.coldRunning && state.coldLastDate !== dateKey) {
+        state.coldRunning = true;
+        state.coldLastDate = dateKey;
+        const opName = 'syncCollectedTimeCold';
+        logProgress(opName, `Cold sync triggered (${dateKey} 23:03) — rolling 14 days`, { triggeredBy: 'scheduler' });
         try {
-          await syncCollectedTime({ daysBack: 7, triggeredBy: 'scheduler' });
+          await syncCollectedTime({ daysBack: 14, triggeredBy: 'scheduler' });
+          schedulerLogger.info(`Collected cold sync completed (${dateKey})`);
+          trackEvent('Scheduler.Collected.Cold.Completed', { dateKey });
         } catch (error) {
-          schedulerLogger.error('Rolling 7-day collected time sync failed', error?.message || error);
+          schedulerLogger.error('Collected cold sync failed:', error?.message || error);
+          trackException(error instanceof Error ? error : new Error(String(error?.message || error)), { tier: 'cold', entity: 'CollectedTime', dateKey });
+          trackEvent('Scheduler.Collected.Cold.Failed', { dateKey, error: error?.message || String(error) });
         } finally {
-          state.rollingRunning = false;
+          state.coldRunning = false;
+        }
+      }
+    }
+
+    // ═══════════════════════════════════════════════
+    // WIP — runs at :08 (5 min offset from collected)
+    // ═══════════════════════════════════════════════
+
+    // ─── HOT: every 60 min at :08 — today + yesterday ───
+    if (minute === 8) {
+      const slotKey = formatSlotKey(now);
+      if (!state.wipHotRunning && state.wipHotLastSlot !== slotKey) {
+        state.wipHotRunning = true;
+        state.wipHotLastSlot = slotKey;
+        const opName = 'syncWipHot';
+        logProgress(opName, `WIP hot sync triggered (${slotKey}) — today+yesterday`, { triggeredBy: 'scheduler' });
+        try {
+          await syncWip({ daysBack: 1, triggeredBy: 'scheduler' });
+          schedulerLogger.info(`WIP hot sync completed (${slotKey})`);
+          trackEvent('Scheduler.Wip.Hot.Completed', { slotKey });
+        } catch (error) {
+          schedulerLogger.error('WIP hot sync failed:', error?.message || error);
+          trackException(error instanceof Error ? error : new Error(String(error?.message || error)), { tier: 'hot', entity: 'Wip', slotKey });
+          trackEvent('Scheduler.Wip.Hot.Failed', { slotKey, error: error?.message || String(error) });
+        } finally {
+          state.wipHotRunning = false;
+        }
+      }
+    }
+
+    // ─── WARM: every 6h at :08 (00:08, 06:08, 12:08, 18:08) — rolling 3 days ───
+    if (hour % 6 === 0 && minute === 8) {
+      const slotKey = formatSlotKey(now);
+      if (!state.wipWarmRunning && state.wipWarmLastSlot !== slotKey) {
+        state.wipWarmRunning = true;
+        state.wipWarmLastSlot = slotKey;
+        const opName = 'syncWipWarm';
+        logProgress(opName, `WIP warm sync triggered (${slotKey}) — rolling 3 days`, { triggeredBy: 'scheduler' });
+        try {
+          await syncWip({ daysBack: 3, triggeredBy: 'scheduler' });
+          schedulerLogger.info(`WIP warm sync completed (${slotKey})`);
+          trackEvent('Scheduler.Wip.Warm.Completed', { slotKey });
+        } catch (error) {
+          schedulerLogger.error('WIP warm sync failed:', error?.message || error);
+          trackException(error instanceof Error ? error : new Error(String(error?.message || error)), { tier: 'warm', entity: 'Wip', slotKey });
+          trackEvent('Scheduler.Wip.Warm.Failed', { slotKey, error: error?.message || String(error) });
+        } finally {
+          state.wipWarmRunning = false;
+        }
+      }
+    }
+
+    // ─── COLD: nightly at 23:08 — rolling 14 days ───
+    if (hour === 23 && minute === 8) {
+      const dateKey = formatDateKey(now);
+      if (!state.wipColdRunning && state.wipColdLastDate !== dateKey) {
+        state.wipColdRunning = true;
+        state.wipColdLastDate = dateKey;
+        const opName = 'syncWipCold';
+        logProgress(opName, `WIP cold sync triggered (${dateKey} 23:08) — rolling 14 days`, { triggeredBy: 'scheduler' });
+        try {
+          await syncWip({ daysBack: 14, triggeredBy: 'scheduler' });
+          schedulerLogger.info(`WIP cold sync completed (${dateKey})`);
+          trackEvent('Scheduler.Wip.Cold.Completed', { dateKey });
+        } catch (error) {
+          schedulerLogger.error('WIP cold sync failed:', error?.message || error);
+          trackException(error instanceof Error ? error : new Error(String(error?.message || error)), { tier: 'cold', entity: 'Wip', dateKey });
+          trackEvent('Scheduler.Wip.Cold.Failed', { dateKey, error: error?.message || String(error) });
+        } finally {
+          state.wipColdRunning = false;
         }
       }
     }

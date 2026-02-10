@@ -13,10 +13,8 @@ import PreviewActionsStep from './ccl/PreviewActionsStep';
 import PresetPanel from './ccl/PresetPanel';
 import HoverTooltip from './ccl/HoverTooltip';
 import { injectPlaceholderStyles } from './ccl/placeholderStyles';
-import { DEFAULT_CCL_TEMPLATE } from './templates/cclTemplate';
-import { FIELD_DISPLAY_NAMES, FIELD_PRESETS } from './constants/fieldMetadata';
+import { DEFAULT_CCL_TEMPLATE, FIELD_DISPLAY_NAMES, FIELD_PRESETS, generateTemplateContent } from '../../shared/ccl';
 import CCLPreview from './ccl/CCLPreview';
-import { generateTemplateContent } from './ccl/utils/templateUtils';
 
 // Inject styles into document head
 injectPlaceholderStyles();
@@ -56,6 +54,19 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
     instructions = [] 
 }) => {
     const { isDarkMode } = useTheme();
+
+    // Theme-aware table colours
+    const tableBg = isDarkMode ? '#1e293b' : '#f8f9fa';
+    const tableBorder = isDarkMode ? '#334155' : '#ccc';
+    const tableBorderAlt = isDarkMode ? '#334155' : '#dee2e6';
+    const tableText = isDarkMode ? '#e2e8f0' : '#1e293b';
+    const tableTextMuted = isDarkMode ? '#94a3b8' : '#666';
+    const cellBg = isDarkMode ? '#0f172a' : 'white';
+    const btnBg = isDarkMode ? '#1e293b' : '#f8f9fa';
+    const btnBorder = isDarkMode ? '#475569' : '#dee2e6';
+    const btnText = isDarkMode ? '#94a3b8' : '#6c757d';
+    const btnHoverBg = isDarkMode ? '#334155' : '#e9ecef';
+    const btnHoverBorder = isDarkMode ? '#64748b' : '#adb5bd';
     
     // Step management - 3 distinct pages
     // If both instruction and template are provided, skip to editor
@@ -388,7 +399,7 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                     tableRows.push(
                         <tr key={`table-row-${i}`}>
                             <td style={{ 
-                                border: '1px solid #ccc',
+                                border: `1px solid ${tableBorder}`,
                                 padding: '12px',
                                 verticalAlign: 'top',
                                 lineHeight: '1.4',
@@ -399,7 +410,7 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                                     {renderTemplateVariables(actionPart)}
                                 </div>
                                 {documentLines.length > 0 && (
-                                    <div style={{ marginTop: '8px', fontSize: '13px', color: '#666' }}>
+                                    <div style={{ marginTop: '8px', fontSize: '13px', color: tableTextMuted }}>
                                         {documentLines.map((docLine, idx) => (
                                             <div key={idx} style={{ marginBottom: '4px', display: 'inline', wordWrap: 'break-word' }}>
                                                 • {renderTemplateVariables(docLine.trim())}
@@ -409,7 +420,7 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                                 )}
                             </td>
                             <td style={{ 
-                                border: '1px solid #ccc',
+                                border: `1px solid ${tableBorder}`,
                                 padding: '12px',
                                 verticalAlign: 'top',
                                 lineHeight: '1.4',
@@ -429,7 +440,7 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                     tableRows.push(
                         <tr key={`table-row-${i}`}>
                             <td style={{ 
-                                border: '1px solid #ccc',
+                                border: `1px solid ${tableBorder}`,
                                 padding: '12px',
                                 verticalAlign: 'top',
                                 lineHeight: '1.4',
@@ -441,7 +452,7 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                                 </div>
                             </td>
                             <td style={{ 
-                                border: '1px solid #ccc',
+                                border: `1px solid ${tableBorder}`,
                                 padding: '12px',
                                 verticalAlign: 'top',
                                 lineHeight: '1.4',
@@ -475,13 +486,14 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                         <table style={{ 
                             width: '100%', 
                             borderCollapse: 'collapse',
-                            border: '1px solid #ccc',
-                            fontSize: '14px'
+                            border: `1px solid ${tableBorder}`,
+                            fontSize: '14px',
+                            color: tableText
                         }}>
                             <thead>
-                                <tr style={{ backgroundColor: '#f8f9fa' }}>
+                                <tr style={{ backgroundColor: tableBg }}>
                                     <th style={{ 
-                                        border: '1px solid #ccc',
+                                        border: `1px solid ${tableBorder}`,
                                         padding: '12px',
                                         textAlign: 'left',
                                         fontWeight: 'bold',
@@ -490,7 +502,7 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                                         Action required by you
                                     </th>
                                     <th style={{ 
-                                        border: '1px solid #ccc',
+                                        border: `1px solid ${tableBorder}`,
                                         padding: '12px',
                                         textAlign: 'left',
                                         fontWeight: 'bold',
@@ -806,14 +818,14 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                                     tableRows.push(
                                         <tr key={lineKey}>
                                             <td style={{ 
-                                                border: '1px solid #ccc',
+                                                border: `1px solid ${tableBorder}`,
                                                 padding: '12px',
                                                 verticalAlign: 'top',
                                                 lineHeight: '1.4'
                                             }}>
                                                 <div>{actionPart}</div>
                                                 {additionalContent && (
-                                                    <div style={{ marginTop: '8px', fontSize: '13px', color: '#666' }}>
+                                                    <div style={{ marginTop: '8px', fontSize: '13px', color: tableTextMuted }}>
                                                         {additionalContent.split('\n\n').map((item, idx) => (
                                                             <div key={idx} style={{ marginBottom: '4px' }}>
                                                                 {item.trim()}
@@ -823,7 +835,7 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                                                 )}
                                             </td>
                                             <td style={{ 
-                                                border: '1px solid #ccc',
+                                                border: `1px solid ${tableBorder}`,
                                                 padding: '12px',
                                                 verticalAlign: 'top',
                                                 lineHeight: '1.4'
@@ -836,7 +848,7 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                                     tableRows.push(
                                         <tr key={lineKey}>
                                             <td style={{ 
-                                                border: '1px solid #ccc',
+                                                border: `1px solid ${tableBorder}`,
                                                 padding: '12px',
                                                 verticalAlign: 'top',
                                                 lineHeight: '1.4'
@@ -844,7 +856,7 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                                                 {actionPart}
                                             </td>
                                             <td style={{ 
-                                                border: '1px solid #ccc',
+                                                border: `1px solid ${tableBorder}`,
                                                 padding: '12px',
                                                 verticalAlign: 'top',
                                                 lineHeight: '1.4'
@@ -878,13 +890,14 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                                             <table style={{ 
                                                 width: '100%', 
                                                 borderCollapse: 'collapse',
-                                                border: '1px solid #ccc',
-                                                fontSize: '14px'
+                                                border: `1px solid ${tableBorder}`,
+                                                fontSize: '14px',
+                                                color: tableText
                                             }}>
                                                 <thead>
-                                                    <tr style={{ backgroundColor: '#f8f9fa' }}>
+                                                    <tr style={{ backgroundColor: tableBg }}>
                                                         <th style={{ 
-                                                            border: '1px solid #ccc',
+                                                            border: `1px solid ${tableBorder}`,
                                                             padding: '12px',
                                                             textAlign: 'left',
                                                             fontWeight: 'bold',
@@ -893,7 +906,7 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                                                             Action required by you
                                                         </th>
                                                         <th style={{ 
-                                                            border: '1px solid #ccc',
+                                                            border: `1px solid ${tableBorder}`,
                                                             padding: '12px',
                                                             textAlign: 'left',
                                                             fontWeight: 'bold',
@@ -959,7 +972,7 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                                                     <>
                                                         <span>{sectionRefMatch[1]}</span>
                                                         <span style={{ 
-                                                            color: '#6c757d', 
+                                                            color: btnText, 
                                                             fontSize: '13px', 
                                                             fontStyle: 'italic',
                                                             opacity: 0.8 
@@ -1046,7 +1059,7 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                                             <>
                                                 <span>{sectionRefMatch[1]}</span>
                                                 <span style={{ 
-                                                    color: '#6c757d', 
+                                                    color: btnText, 
                                                     fontSize: '13px', 
                                                     fontStyle: 'italic',
                                                     opacity: 0.8 
@@ -1109,13 +1122,14 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                                 <table style={{ 
                                     width: '100%', 
                                     borderCollapse: 'collapse',
-                                    border: '1px solid #ccc',
-                                    fontSize: '14px'
+                                    border: `1px solid ${tableBorder}`,
+                                    fontSize: '14px',
+                                    color: tableText
                                 }}>
                                     <thead>
-                                        <tr style={{ backgroundColor: '#f8f9fa' }}>
+                                        <tr style={{ backgroundColor: tableBg }}>
                                             <th style={{ 
-                                                border: '1px solid #ccc',
+                                                border: `1px solid ${tableBorder}`,
                                                 padding: '12px',
                                                 textAlign: 'left',
                                                 fontWeight: 'bold',
@@ -1124,7 +1138,7 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                                                 Action required by you
                                             </th>
                                             <th style={{ 
-                                                border: '1px solid #ccc',
+                                                border: `1px solid ${tableBorder}`,
                                                 padding: '12px',
                                                 textAlign: 'left',
                                                 fontWeight: 'bold',
@@ -1258,7 +1272,7 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                                 >
                                     <div style={{ fontSize: '14px', lineHeight: '1.4' }}>
                                         <strong>Hourly rate structure</strong><br />
-                                        <div style={{ fontSize: '12px', color: '#666', marginBottom: '4px' }}>
+                                        <div style={{ fontSize: '12px', color: tableTextMuted, marginBottom: '4px' }}>
                                             Use when you can provide detailed hourly rates and initial estimate
                                         </div>
                                     </div>
@@ -1280,7 +1294,7 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                                 >
                                     <div style={{ fontSize: '14px', lineHeight: '1.4' }}>
                                         <strong>No overall estimate</strong><br />
-                                        <div style={{ fontSize: '12px', color: '#666', marginBottom: '4px' }}>
+                                        <div style={{ fontSize: '12px', color: tableTextMuted, marginBottom: '4px' }}>
                                             Use when overall scope is unclear but you can estimate next stage
                                         </div>
                                     </div>
@@ -1459,7 +1473,7 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                                 >
                                     <div style={{ fontSize: '14px', lineHeight: '1.4' }}>
                                         <strong>No costs expected</strong><br />
-                                        <div style={{ fontSize: '12px', color: '#666', marginBottom: '4px' }}>
+                                        <div style={{ fontSize: '12px', color: tableTextMuted, marginBottom: '4px' }}>
                                             Use when matter is non-litigious
                                         </div>
                                     </div>
@@ -1481,7 +1495,7 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                                 >
                                     <div style={{ fontSize: '14px', lineHeight: '1.4' }}>
                                         <strong>Risk of costs</strong><br />
-                                        <div style={{ fontSize: '12px', color: '#666', marginBottom: '4px' }}>
+                                        <div style={{ fontSize: '12px', color: tableTextMuted, marginBottom: '4px' }}>
                                             Use when there's potential litigation or dispute
                                         </div>
                                     </div>
@@ -1588,7 +1602,7 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                                 >
                                     <div style={{ fontSize: '14px', lineHeight: '1.4' }}>
                                         <strong>Detailed table format</strong><br />
-                                        <div style={{ fontSize: '12px', color: '#666', marginBottom: '4px' }}>
+                                        <div style={{ fontSize: '12px', color: tableTextMuted, marginBottom: '4px' }}>
                                             Use when you can provide specific disbursement details
                                         </div>
                                     </div>
@@ -1610,7 +1624,7 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                                 >
                                     <div style={{ fontSize: '14px', lineHeight: '1.4' }}>
                                         <strong>Simple estimate</strong><br />
-                                        <div style={{ fontSize: '12px', color: '#666', marginBottom: '4px' }}>
+                                        <div style={{ fontSize: '12px', color: tableTextMuted, marginBottom: '4px' }}>
                                             Use when you only have an approximate estimate
                                         </div>
                                     </div>
@@ -1623,12 +1637,12 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                                     <div style={{ fontSize: '14px', lineHeight: '1.4' }}>
                                         Based on the information you have provided, we expect to incur the following disbursements:
                                         <br /><br />
-                                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+                                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px', color: tableText }}>
                                             <thead>
-                                                <tr style={{ backgroundColor: '#f8f9fa' }}>
-                                                    <th style={{ border: '1px solid #dee2e6', padding: '8px', textAlign: 'left', width: '50%' }}>Disbursement</th>
-                                                    <th style={{ border: '1px solid #dee2e6', padding: '8px', textAlign: 'left', width: '25%' }}>Amount (£)</th>
-                                                    <th style={{ border: '1px solid #dee2e6', padding: '8px', textAlign: 'left', width: '25%' }}>VAT</th>
+                                                <tr style={{ backgroundColor: tableBg }}>
+                                                    <th style={{ border: `1px solid ${tableBorderAlt}`, padding: '8px', textAlign: 'left', width: '50%' }}>Disbursement</th>
+                                                    <th style={{ border: `1px solid ${tableBorderAlt}`, padding: '8px', textAlign: 'left', width: '25%' }}>Amount (£)</th>
+                                                    <th style={{ border: `1px solid ${tableBorderAlt}`, padding: '8px', textAlign: 'left', width: '25%' }}>VAT</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
@@ -1636,11 +1650,11 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                                                     const rowNumber = index + 1;
                                                     return (
                                                         <tr key={rowNumber}>
-                                                            <td style={{ border: '1px solid #dee2e6', padding: '8px', backgroundColor: 'white' }}>
+                                                            <td style={{ border: `1px solid ${tableBorderAlt}`, padding: '8px', backgroundColor: cellBg, color: tableText }}>
                                                                 <select
                                                                     value={templateFields[`disbursement_${rowNumber}_description`] || ''}
                                                                     onChange={(e) => setTemplateFields(prev => ({ ...prev, [`disbursement_${rowNumber}_description`]: e.target.value }))}
-                                                                    style={{ border: 'none', outline: 'none', width: '100%', fontSize: '14px', backgroundColor: 'white' }}
+                                                                    style={{ border: 'none', outline: 'none', width: '100%', fontSize: '14px', backgroundColor: cellBg, color: tableText }}
                                                                 >
                                                                     <option value="">--</option>
                                                                     <option value="General Disbursement">General Disbursement</option>
@@ -1648,7 +1662,7 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                                                                     <option value="Accountants Report">Accountants Report</option>
                                                                 </select>
                                                             </td>
-                                                            <td style={{ border: '1px solid #dee2e6', padding: '8px', backgroundColor: 'white' }}>
+                                                            <td style={{ border: `1px solid ${tableBorderAlt}`, padding: '8px', backgroundColor: cellBg, color: tableText }}>
                                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                                                                     <input
                                                                         value={templateFields[`disbursement_${rowNumber}_amount`] || ''}
@@ -1669,7 +1683,7 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                                                                             setTemplateFields(prev => ({ ...prev, [`disbursement_${rowNumber}_amount`]: value }));
                                                                         }}
                                                                         placeholder="--"
-                                                                        style={{ border: 'none', outline: 'none', width: '100%', fontSize: '14px', backgroundColor: 'white' }}
+                                                                        style={{ border: 'none', outline: 'none', width: '100%', fontSize: '14px', backgroundColor: cellBg, color: tableText }}
                                                                     />
                                                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
                                                                         <button
@@ -1682,8 +1696,8 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                                                                             style={{
                                                                                 width: '18px',
                                                                                 height: '12px',
-                                                                                border: '1px solid #ccc',
-                                                                                backgroundColor: '#f8f9fa',
+                                                                                border: `1px solid ${tableBorder}`,
+                                                                                backgroundColor: tableBg,
                                                                                 fontSize: '10px',
                                                                                 cursor: 'pointer',
                                                                                 display: 'flex',
@@ -1704,8 +1718,8 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                                                                             style={{
                                                                                 width: '18px',
                                                                                 height: '12px',
-                                                                                border: '1px solid #ccc',
-                                                                                backgroundColor: '#f8f9fa',
+                                                                                border: `1px solid ${tableBorder}`,
+                                                                                backgroundColor: tableBg,
                                                                                 fontSize: '10px',
                                                                                 cursor: 'pointer',
                                                                                 display: 'flex',
@@ -1719,7 +1733,7 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                                                                     </div>
                                                                 </div>
                                                             </td>
-                                                            <td style={{ border: '1px solid #dee2e6', padding: '8px', backgroundColor: 'white' }}>
+                                                            <td style={{ border: `1px solid ${tableBorderAlt}`, padding: '8px', backgroundColor: cellBg, color: tableText }}>
                                                                 <input
                                                                     value={(() => {
                                                                         const amount = parseFloat((templateFields[`disbursement_${rowNumber}_amount`] || '').replace(/[£,]/g, ''));
@@ -1727,7 +1741,7 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                                                                     })()}
                                                                     readOnly
                                                                     placeholder="--"
-                                                                    style={{ border: 'none', outline: 'none', width: '100%', fontSize: '14px', backgroundColor: 'white', color: '#666' }}
+                                                                    style={{ border: 'none', outline: 'none', width: '100%', fontSize: '14px', backgroundColor: cellBg, color: tableTextMuted }}
                                                                 />
                                                             </td>
                                                         </tr>
@@ -1742,7 +1756,7 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                                                     padding: '4px 8px',
                                                     border: `1px solid ${colours.blue}`,
                                                     borderRadius: 0,
-                                                    backgroundColor: 'white',
+                                                    backgroundColor: cellBg,
                                                     color: colours.blue,
                                                     fontSize: '12px',
                                                     cursor: 'pointer',
@@ -1753,7 +1767,7 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                                                     e.currentTarget.style.color = 'white';
                                                 }}
                                                 onMouseOut={(e) => {
-                                                    e.currentTarget.style.backgroundColor = 'white';
+                                                    e.currentTarget.style.backgroundColor = cellBg;
                                                     e.currentTarget.style.color = colours.blue;
                                                 }}
                                             >
@@ -1777,7 +1791,7 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                                                         padding: '4px 8px',
                                                         border: `1px solid ${colours.blue}`,
                                                         borderRadius: 0,
-                                                        backgroundColor: 'white',
+                                                        backgroundColor: cellBg,
                                                         color: colours.blue,
                                                         fontSize: '12px',
                                                         cursor: 'pointer',
@@ -1788,7 +1802,7 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                                                         e.currentTarget.style.color = 'white';
                                                     }}
                                                     onMouseOut={(e) => {
-                                                        e.currentTarget.style.backgroundColor = 'white';
+                                                        e.currentTarget.style.backgroundColor = cellBg;
                                                         e.currentTarget.style.color = colours.blue;
                                                     }}
                                                 >
@@ -1906,7 +1920,7 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                                                             position: 'absolute',
                                                             top: '100%',
                                                             left: '0',
-                                                            backgroundColor: 'white',
+                                                            backgroundColor: cellBg,
                                                             border: '1px solid #0078d4',
                                                             borderRadius: '2px',
                                                             zIndex: 1000,
@@ -2010,9 +2024,9 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                                     <button
                                         onClick={() => setShowDisbursementsChoice(true)}
                                         style={{
-                                            backgroundColor: '#f8f9fa',
-                                            border: '1px solid #dee2e6',
-                                            color: '#6c757d',
+                                            backgroundColor: tableBg,
+                                            border: `1px solid ${tableBorderAlt}`,
+                                            color: btnText,
                                             padding: '4px 8px',
                                             fontSize: '12px',
                                             cursor: 'pointer',
@@ -2020,12 +2034,12 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                                             transition: 'all 0.2s ease'
                                         }}
                                         onMouseOver={(e) => {
-                                            e.currentTarget.style.backgroundColor = '#e9ecef';
-                                            e.currentTarget.style.borderColor = '#adb5bd';
+                                            e.currentTarget.style.backgroundColor = btnHoverBg;
+                                            e.currentTarget.style.borderColor = btnHoverBorder;
                                         }}
                                         onMouseOut={(e) => {
-                                            e.currentTarget.style.backgroundColor = '#f8f9fa';
-                                            e.currentTarget.style.borderColor = '#dee2e6';
+                                            e.currentTarget.style.backgroundColor = btnBg;
+                                            e.currentTarget.style.borderColor = btnBorder;
                                         }}
                                     >
                                         Change
@@ -2333,13 +2347,14 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                     <table style={{ 
                         width: '100%', 
                         borderCollapse: 'collapse',
-                        border: '1px solid #ccc',
-                        fontSize: '14px'
+                        border: `1px solid ${tableBorder}`,
+                        fontSize: '14px',
+                        color: tableText
                     }}>
                         <thead>
-                            <tr style={{ backgroundColor: '#f8f9fa' }}>
+                            <tr style={{ backgroundColor: tableBg }}>
                                 <th style={{ 
-                                    border: '1px solid #ccc',
+                                    border: `1px solid ${tableBorder}`,
                                     padding: '12px',
                                     textAlign: 'left',
                                     fontWeight: 'bold',
@@ -2348,7 +2363,7 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                                     Action required by you
                                 </th>
                                 <th style={{ 
-                                    border: '1px solid #ccc',
+                                    border: `1px solid ${tableBorder}`,
                                     padding: '12px',
                                     textAlign: 'left',
                                     fontWeight: 'bold',
@@ -2595,7 +2610,7 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                     </div>
                     <div style={{
                         fontSize: '13px',
-                        color: '#666',
+                        color: tableTextMuted,
                         marginBottom: '12px',
                         fontStyle: 'italic',
                         lineHeight: '1.4'
@@ -2665,7 +2680,7 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                     </div>
                     <div style={{
                         fontSize: '13px',
-                        color: '#666',
+                        color: tableTextMuted,
                         marginBottom: '12px',
                         fontStyle: 'italic',
                         lineHeight: '1.4'
@@ -2765,7 +2780,7 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                             {context && (
                                 <div style={{
                                     fontSize: '13px',
-                                    color: '#666',
+                                    color: tableTextMuted,
                                     marginBottom: '8px',
                                     fontStyle: 'italic',
                                     lineHeight: '1.4'

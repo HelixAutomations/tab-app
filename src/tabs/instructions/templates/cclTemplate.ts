@@ -48,17 +48,25 @@ There are three main elements to the legal costs of any matter:
 
 4.1 Our charges
 
-{{charges_section_choice}}
+Our fees are calculated on the basis of an hourly rate. My rate is £{{handler_hourly_rate}} per hour. Other Partners/senior solicitors are charged at £395, Associate solicitors at £325, Solicitors at £285 and trainees and paralegals are charged at £195. All hourly rates will be subject to the addition of VAT.
+
+Short incoming and outgoing letters, messages, emails and routine phone calls are charged at 1/10 of an hour. All other work is timed in six minute units and charged at the relevant hourly rate. Please note that lots of small emails or telephone calls may unnecessarily increase the costs to you.
+
+{{charges_estimate_paragraph}}
+
+We reserve the right to increase the hourly rates if the work done is particularly complex or urgent, or the nature of your instructions require us to work outside normal office hours. If this happens, we will notify you in advance and agree an appropriate rate.
+
+We will review our hourly rates on a periodic basis. This is usually done annually each January. We will give you advance notice of any change to our hourly rates.
 
 4.2 Disbursements (expenses)
 
 Disbursements are expenses we must pay on your behalf.
 
-{{disbursements_section_choice}}
+{{disbursements_paragraph}}
 
 4.3 Costs you may have to pay another party
 
-{{costs_section_choice}}
+{{costs_other_party_paragraph}}
 
 5 Funding and billing
 
@@ -94,7 +102,7 @@ If there is some fact that I have not been given or you disagree with my view on
 
 10 Data protection
 
-We take your privacy very seriously. Our Privacy policy contains important information on how and why we collect, process and store your personal data. It also explains your rights in relation to your personal data. The Privacy policy is available on our website at Helix Law Privacy Policy, but please contact us if you would like us to send a copy to you or if you would prefer us to explain our Privacy policy verbally.
+We take your privacy very seriously. Our Privacy policy contains important information on how and why we collect, process and store your personal data. It also explains your rights in relation to your personal data. The Privacy policy is available on our website at https://helix-law.co.uk/privacy-policy/, but please contact us if you would like us to send a copy to you or if you would prefer us to explain our Privacy policy verbally.
 
 We use outside counsel, experts, software providers and an external file auditors so your confidential information will be shared with them. Each will be bound to confidentiality by the particular contract with us and/or their professional obligations to you and to us.
 
@@ -106,7 +114,7 @@ We may use your personal data to send you updates (by email, text, telephone or 
 
 —using the 'unsubscribe' link in emails or 'STOP' number in texts;
 
-—updating your marketing preferences on our {{link_to_preference_centre}}.
+—updating your marketing preferences by emailing datacomplaints@helix-law.com.
 
 12 Prevention of money laundering, terrorist financing and proliferation financing
 
@@ -136,7 +144,7 @@ In all litigation and disputes all parties have a duty to preserve evidence that
 
 We want to give you the best possible service. However, if at any point you become unhappy or concerned about the service we have provided you should inform us immediately so we can do our best to resolve the problem.
 
-In the first instance it may be helpful to contact the person who is working on your case to discuss your concerns and we will do our best to resolve any issues. If you would like to make a formal complaint, you can read our full complaints procedure here. Making a complaint will not affect how we handle your matter.
+In the first instance it may be helpful to contact the person who is working on your case to discuss your concerns and we will do our best to resolve any issues. If you would like to make a formal complaint, you can read our full complaints procedure at https://helix-law.co.uk/transparency/ or by contacting Alex Cook on 01273 761 990, by email at complaints@helix-law.com. Making a complaint will not affect how we handle your matter.
 
 You may have a right to complain to the Legal Ombudsman. The time frame for doing so and full details of how to contact the Legal Ombudsman are in our Terms of Business.
 

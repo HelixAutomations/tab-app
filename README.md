@@ -11,7 +11,7 @@
 - ✅ **Connection Resilience**: Health checks, queue timeouts, and retry logic implemented
 - ✅ **Pill System**: Interactive status pills with expandable details implemented
 - ✅ **Risk Display**: Fixed color coding (green for low risk, not red)
-- ✅ **Email Updates**: Deal capture notifications sent to both lz@ and cb@helix-law.com
+- ✅ **Email Updates**: Deal capture notifications sent to lz@helix-law.com
 - ✅ **Unified API**: Instructions loading optimized via `/api/instructions` endpoint
 - ✅ **Architecture**: Documented and stable (see `/docs` folder)
 - ⚠️ **Database**: 45 records with 30 test noise records ready for cleanup

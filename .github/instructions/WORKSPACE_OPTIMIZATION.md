@@ -39,21 +39,13 @@ helix-hub-v1/
 
 ## Cleanup Priorities
 
-### High Priority (Technical Debt)
-- [ ] Consolidate duplicate SQL query patterns
-- [ ] Remove unused routes (check with grep)
-- [ ] Standardize error handling patterns
-- [ ] Clean up console.log → proper logging
+Actionable cleanup items are tracked in `ROADMAP.md` (same folder) to maintain a single source of truth. The items below are kept here only as pattern guidance — for the actual task list, see ROADMAP.
 
-### Medium Priority (Organization)
-- [ ] Keep reusable ops in `tools/`; keep scratch work outside git (ignored `scripts/`)
-- [ ] Consolidate similar utilities
-- [ ] Document undocumented env vars
-
-### Low Priority (Polish)
-- [ ] Consistent naming conventions
-- [ ] Remove commented-out code
-- [ ] Update stale documentation
+### Patterns to watch for
+- Duplicate SQL query patterns → standardise around `withRequest` from `server/utils/db.js`
+- Unused routes → grep registrations vs frontend `fetch()` calls
+- Inconsistent error handling → adopt try/catch with structured JSON responses
+- Stray `console.log` → replace with proper logging or remove
 
 ---
 
@@ -118,6 +110,33 @@ export const MyComponent: React.FC<MyComponentProps> = ({ prop1, prop2 }) => {
 
 ---
 
+## Prospects Component (`src/tabs/enquiries/Enquiries.tsx`)
+
+This is the largest and most complex frontend file. Key knowledge for agents:
+
+### Data flow
+1. **Props** → `enquiries` (array from parent) enters via prop
+2. **Normalisation** → `useEffect` maps raw props through `normalizeEnquiry()` into `allEnquiries` state
+3. **Team-wide fetch** → `fetchAllEnquiries` callback fetches full dataset into `teamWideEnquiries` state (for All/Claimed views)
+4. **Display derivation** → `useEffect` picks `allEnquiries` or `teamWideEnquiries` based on `showMineOnly` toggle → `displayEnquiries`
+5. **Filtering** → `filteredEnquiries` useMemo (~350 lines) applies area, search, pipeline, POC, person filters
+6. **Enrichment** → Progressive enrichment fetches Teams/pitch/instruction data per-record into `enrichmentMap`
+
+### Dual schema
+Two database sources feed this component. `normalizeEnquiry()` in `src/utils/normalizeEnquiry.ts` maps both to canonical PascalCase fields. The `__sourceType` tag (`'new'` | `'legacy'`) lets downstream code branch when needed.
+- **New schema** (instructions-db): lowercase keys — `id`, `datetime`, `aow`, `poc`, `claim`
+- **Legacy schema** (core-data-db): PascalCase — `ID`, `Area_of_Work`, `Point_of_Contact`, `Date_Created`
+
+### Pipeline filter buttons (header row)
+The header has 7 tri-state filter buttons: POC, Pitch, Instruction, EID Check, Payment, Risk, Matter. Each cycles: **no filter → has (green) → missing (red) → clear**. State lives in `enquiryPipelineFilters` Map. A carousel system shows/hides buttons based on available width via ResizeObserver.
+
+### Key patterns and traps
+- `displayEnquiries` is **stateful** (not derived) — 13 `setDisplayEnquiries` call sites, 3 of which update `displayEnquiries` without updating `teamWideEnquiries` (optimistic claim/area/rating handlers). Converting to `useMemo` requires adding `setTeamWideEnquiries` to those 3 handlers first.
+- Inline `InlineWorkbench` is rendered per-row when expanded — it handles the full instruct pipeline (pitch, EID, risk, matter opening, payments).
+- `recentUpdatesRef` overlays fresh server responses onto normalised data to avoid stale-cache flicker after mutations.
+
+---
+
 ## Files to Watch
 
 These files are frequently modified and may accumulate cruft:
@@ -147,6 +166,7 @@ Before ending a work session:
 | Date | Area | Issue | Priority |
 |------|------|-------|----------|
 | 2025-12-30 | database | Two team tables need sync | High |
-| | | | |
+| 2026-02-08 | frontend | Enquiries.tsx: 11k lines, 222+ hooks — see ROADMAP.md Prospects Optimisation Plan | High |
+| 2026-02-08 | server | 3+ route files duplicate `tokenCache` + `getAccessToken` — see ROADMAP.md auth broker item | Medium |
 
 *Add entries as you discover issues during work*

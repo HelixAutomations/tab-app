@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Enquiry } from '../../app/functionality/types';
+import { Enquiry, TeamData } from '../../app/functionality/types';
 import { colours } from '../../app/styles/colours';
 import SectionCard from '../home/SectionCard';
 import { useTheme } from '../../app/functionality/ThemeContext';
@@ -827,12 +827,15 @@ interface EnquiryTimelineProps {
   onSelectEnquiry?: (enquiry: Enquiry) => void;
   /** Pre-fetched instruction workbench item for this enquiry (from parent instructionData) */
   inlineWorkbenchItem?: any;
+  /** Team data for solicitor dropdowns in matter opening */
+  teamData?: TeamData[] | null;
   workbenchHandlers?: {
     onDocumentPreview?: (doc: any) => void;
     onOpenRiskAssessment?: (instruction: any) => void;
     onOpenMatter?: (instruction: any) => void;
     onTriggerEID?: (instructionRef: string) => void | Promise<void>;
     onOpenIdReview?: (instructionRef: string) => void;
+    onRefreshData?: (instructionRef?: string) => void | Promise<void>;
   };
   /** Pre-fetched pitch data from enrichment (email-based lookup fallback) */
   enrichmentPitchData?: {
@@ -862,9 +865,11 @@ interface EnquiryTimelineProps {
   };
   /** Initial filter to apply on mount (e.g. 'pitch' to show deals at top) */
   initialFilter?: 'pitch' | 'link-enabled' | 'email' | 'call' | 'instruction' | 'note' | 'document';
+  /** Initial workbench tab to open (e.g. 'matter' from pipeline chip click) */
+  initialWorkbenchTab?: string;
 }
 
-const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoadingStatus = true, userInitials, userEmail, featureToggles, demoModeEnabled = false, onOpenPitchBuilder, allEnquiries, onSelectEnquiry, inlineWorkbenchItem, workbenchHandlers, enrichmentPitchData, enrichmentTeamsData, initialFilter }) => {
+const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoadingStatus = true, userInitials, userEmail, featureToggles, demoModeEnabled = false, onOpenPitchBuilder, allEnquiries, onSelectEnquiry, inlineWorkbenchItem, teamData, workbenchHandlers, enrichmentPitchData, enrichmentTeamsData, initialFilter, initialWorkbenchTab }) => {
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
   const [stageItemsState, setStageItemsState] = useState<TimelineItem[]>([]);
   const [selectedItem, setSelectedItem] = useState<TimelineItem | null>(null);
@@ -949,9 +954,22 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
   });
   type WorkbenchTabKey = 'details' | 'identity' | 'payment' | 'risk' | 'matter' | 'documents';
   type ContextStageKey = 'enquiry' | 'pitch' | 'instructed';
-  const [selectedWorkbenchTab, setSelectedWorkbenchTab] = useState<WorkbenchTabKey>('details');
+  const [selectedWorkbenchTab, setSelectedWorkbenchTab] = useState<WorkbenchTabKey>(
+    (initialWorkbenchTab as WorkbenchTabKey) || 'details'
+  );
   const [selectedContextStage, setSelectedContextStage] = useState<ContextStageKey | null>(null);
   const [focusedTimelineIndex, setFocusedTimelineIndex] = useState<number>(-1);
+
+  // Sync workbench tab when parent changes it (e.g. pipeline chip click → matter)
+  useEffect(() => {
+    console.log('[MATTER-DEBUG] EnquiryTimeline useEffect initialWorkbenchTab =', initialWorkbenchTab);
+    if (initialWorkbenchTab) {
+      console.log('[MATTER-DEBUG] EnquiryTimeline syncing selectedWorkbenchTab →', initialWorkbenchTab);
+      setSelectedWorkbenchTab(initialWorkbenchTab as WorkbenchTabKey);
+      setSelectedContextStage(null);
+      setIsWorkbenchCollapsed(false);
+    }
+  }, [initialWorkbenchTab]);
   
   // Persist view preferences
   useEffect(() => {
@@ -5235,7 +5253,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 ? 'failed'
                 : eidResult.toLowerCase().includes('skip')
                 ? 'skipped'
-                : eidResult.toLowerCase().includes('refer') || eidResult.toLowerCase().includes('consider')
+                : eidResult.toLowerCase().includes('refer') || eidResult.toLowerCase().includes('consider') || eidResult.toLowerCase().includes('review')
                 ? 'review'
                 : eid && eidResult
                 ? 'completed'
@@ -5255,6 +5273,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
 
               const riskComplete = !!risk?.RiskAssessmentResult;
               const isHighRisk = risk?.RiskAssessmentResult?.toLowerCase().includes('high');
+              const isMediumRisk = risk?.RiskAssessmentResult?.toLowerCase().includes('medium');
               const riskLevel = risk?.RiskAssessmentResult?.toLowerCase().includes('high') ? 'High' 
                 : risk?.RiskAssessmentResult?.toLowerCase().includes('medium') ? 'Medium'
                 : risk?.RiskAssessmentResult?.toLowerCase().includes('low') ? 'Low'
@@ -5284,7 +5303,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   : 'pending'
               );
               const paymentStatus = stageStatuses?.payment || (hasSuccessfulPayment ? 'complete' : hasFailedPayment ? 'review' : 'pending');
-              const riskStatus = stageStatuses?.risk || (riskComplete ? (isHighRisk ? 'review' : 'complete') : 'pending');
+              const riskStatus = stageStatuses?.risk || (riskComplete ? ((isHighRisk || isMediumRisk) ? 'review' : 'complete') : 'pending');
               const matterStageStatus = stageStatuses?.matter || (hasMatter ? 'complete' : 'pending');
               const documentStatus = stageStatuses?.documents || (hasDocs ? 'complete' : 'neutral');
               
@@ -5533,6 +5552,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
           <InlineWorkbench
             item={{ ...(inlineWorkbenchItem ?? {}), enquiry, enrichmentTeamsData }}
             isDarkMode={isDarkMode}
+            teamData={teamData}
+            currentUser={userEmail ? { Email: userEmail } : null}
             initialTab={selectedWorkbenchTab}
             initialContextStage={selectedContextStage}
             enableContextStageChips={false}
@@ -5543,6 +5564,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             onOpenIdReview={workbenchHandlers?.onOpenIdReview}
             onOpenMatter={workbenchHandlers?.onOpenMatter}
             onOpenRiskAssessment={workbenchHandlers?.onOpenRiskAssessment}
+            onRefreshData={workbenchHandlers?.onRefreshData ? () => workbenchHandlers.onRefreshData!(inlineWorkbenchItem?.instruction?.InstructionRef || inlineWorkbenchItem?.instruction?.instructionRef) : undefined}
+            demoModeEnabled={demoModeEnabled}
           />
         </div>
       </div>

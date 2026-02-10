@@ -33,6 +33,8 @@ interface InstructionTableViewProps {
   onOpenIdReview?: (instructionRef: string) => void;
   onOpenMatter?: (instruction: any) => void;
   onOpenRiskAssessment?: (instruction: any) => void;
+  onRefreshData?: (instructionRef: string) => Promise<void>;
+  demoModeEnabled?: boolean;
 }
 
 const InstructionTableView: React.FC<InstructionTableViewProps> = ({
@@ -50,6 +52,8 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
   onOpenIdReview,
   onOpenMatter,
   onOpenRiskAssessment,
+  onRefreshData,
+  demoModeEnabled = false,
 }) => {
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set());
   const [collapsedDays, setCollapsedDays] = useState<Set<string>>(new Set());
@@ -2229,6 +2233,8 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
                                       onOpenIdReview={onOpenIdReview}
                                       onOpenMatter={onOpenMatter}
                                       onOpenRiskAssessment={onOpenRiskAssessment}
+                                      demoModeEnabled={demoModeEnabled}
+                                      onRefreshData={onRefreshData ? () => onRefreshData(rawData?.instruction?.InstructionRef || item.reference || '') : undefined}
                                       onClose={() => {
                                         const newSet = new Set(expandedNotes);
                                         newSet.delete(notesKey);
@@ -2342,6 +2348,8 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
                                 onOpenIdReview={onOpenIdReview}
                                 onOpenMatter={onOpenMatter}
                                 onOpenRiskAssessment={onOpenRiskAssessment}
+                                demoModeEnabled={demoModeEnabled}
+                                onRefreshData={onRefreshData ? () => onRefreshData(rawData?.instruction?.InstructionRef || item.reference || '') : undefined}
                                 onClose={() => {
                                   const newSet = new Set(expandedNotes);
                                   newSet.delete(notesKey);
@@ -2474,6 +2482,8 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
                             onOpenIdReview={onOpenIdReview}
                             onOpenMatter={onOpenMatter}
                             onOpenRiskAssessment={onOpenRiskAssessment}
+                            demoModeEnabled={demoModeEnabled}
+                            onRefreshData={onRefreshData ? () => onRefreshData(rawData?.instruction?.InstructionRef || item.reference || '') : undefined}
                             onClose={() => {
                               const newSet = new Set(expandedNotes);
                               newSet.delete(notesKey);

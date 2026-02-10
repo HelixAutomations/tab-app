@@ -58,20 +58,36 @@ const ValueAndSourceStep: React.FC<ValueAndSourceStepProps> = ({
                     <div style={{ 
                         display: 'flex', 
                         alignItems: 'center', 
-                        gap: 8, 
+                        gap: 10, 
                         marginBottom: 12 
                     }}>
-                        <i className="ms-Icon ms-Icon--Money" style={{ 
-                            fontSize: 16, 
-                            color: themeColours.iconColor 
-                        }} />
-                        <span style={{ 
-                            fontSize: 16, 
-                            fontWeight: 600, 
-                            color: themeColours.text 
+                        <div style={{
+                            width: 32,
+                            height: 32,
+                            borderRadius: 0,
+                            background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.08)',
+                            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)'}`,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
                         }}>
-                            Select Value of the Dispute
-                        </span>
+                            <i className="ms-Icon ms-Icon--Money" style={{ 
+                                fontSize: 14, 
+                                color: themeColours.iconColor 
+                            }} />
+                        </div>
+                        <div>
+                            <div style={{ 
+                                fontSize: 15, 
+                                fontWeight: 700, 
+                                color: themeColours.text 
+                            }}>
+                                Value of the Dispute
+                            </div>
+                            <div style={{ fontSize: 12, color: isDarkMode ? '#9CA3AF' : '#64748B' }}>
+                                Approximate value — used for risk assessment and reporting
+                            </div>
+                        </div>
                     </div>
                     <ModernMultiSelect
                         label=""
@@ -87,20 +103,36 @@ const ValueAndSourceStep: React.FC<ValueAndSourceStepProps> = ({
                     <div style={{ 
                         display: 'flex', 
                         alignItems: 'center', 
-                        gap: 8, 
+                        gap: 10, 
                         marginBottom: 12 
                     }}>
-                        <i className="ms-Icon ms-Icon--UserFollowed" style={{ 
-                            fontSize: 16, 
-                            color: themeColours.iconColor 
-                        }} />
-                        <span style={{ 
-                            fontSize: 16, 
-                            fontWeight: 600, 
-                            color: themeColours.text 
+                        <div style={{
+                            width: 32,
+                            height: 32,
+                            borderRadius: 0,
+                            background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.08)',
+                            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)'}`,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
                         }}>
-                            Select Source
-                        </span>
+                            <i className="ms-Icon ms-Icon--UserFollowed" style={{ 
+                                fontSize: 14, 
+                                color: themeColours.iconColor 
+                            }} />
+                        </div>
+                        <div>
+                            <div style={{ 
+                                fontSize: 15, 
+                                fontWeight: 700, 
+                                color: themeColours.text 
+                            }}>
+                                Source
+                            </div>
+                            <div style={{ fontSize: 12, color: isDarkMode ? '#9CA3AF' : '#64748B' }}>
+                                How the client found Helix Law
+                            </div>
+                        </div>
                     </div>
                     <ModernMultiSelect
                         label=""
@@ -139,6 +171,9 @@ const ValueAndSourceStep: React.FC<ValueAndSourceStepProps> = ({
                             }}>
                                 Referrer Name
                             </span>
+                        </div>
+                        <div style={{ fontSize: 12, color: isDarkMode ? '#9CA3AF' : '#64748B', marginBottom: 6, paddingLeft: 22 }}>
+                            The person who referred this client
                         </div>
                         <TextField
                             placeholder="Enter referrer's name"

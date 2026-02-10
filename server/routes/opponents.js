@@ -1,5 +1,6 @@
 const express = require('express');
 const sql = require('mssql');
+const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
 
 const router = express.Router();
 
@@ -78,9 +79,12 @@ router.post('/', async (req, res) => {
             solicitorId = solRes.recordset[0].OpponentID;
         }
 
+        trackEvent('MatterOpening.Opponents.Completed', { opponentId: opponentId || '', solicitorId: solicitorId || '', hasOpponent: String(!!body.opponent), hasSolicitor: String(!!body.solicitor) });
         res.json({ opponentId, solicitorId });
     } catch (err) {
         console.error('[opponents] Error:', err);
+        trackException(err, { component: 'MatterOpening', operation: 'Opponents', phase: 'insert' });
+        trackEvent('MatterOpening.Opponents.Failed', { error: err.message });
         res.status(500).json({ error: 'Failed to insert opponents', detail: err.message });
     } finally {
         if (pool) await pool.close();

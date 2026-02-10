@@ -3466,8 +3466,8 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
     };
   }, []);
 
-  const startDemoEidSimulation = useCallback(() => {
-    if (!demoModeEnabled) return;
+  const startDemoEidSimulation = useCallback((): Promise<void> => {
+    if (!demoModeEnabled) return Promise.resolve();
 
     if (demoEidTimerRef.current) {
       window.clearTimeout(demoEidTimerRef.current);
@@ -3477,25 +3477,16 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
     demoEidCompletedAtRef.current = null;
     setDemoEidState('processing');
     const config = readDemoEidSimConfig();
-    const toastId = showToast({ type: 'loading', message: 'Demo: running ID verification checks…' });
 
-    demoEidTimerRef.current = window.setTimeout(() => {
-      demoEidCompletedAtRef.current = new Date().toISOString();
-      setDemoEidState('complete');
-
-      const label =
-        config.outcome === 'manual-approved'
-          ? 'Manual approval'
-          : config.outcome === 'review'
-          ? 'Review'
-          : config.outcome === 'fail'
-          ? 'Fail'
-          : 'Pass';
-      const finalType = config.outcome === 'fail' ? 'error' : config.outcome === 'review' ? 'warning' : 'success';
-      updateToast(toastId, { type: finalType, message: `Demo: ID verification complete (${label})` });
-      demoEidTimerRef.current = null;
-    }, 1600);
-  }, [demoModeEnabled, showToast, updateToast]);
+    return new Promise<void>((resolve) => {
+      demoEidTimerRef.current = window.setTimeout(() => {
+        demoEidCompletedAtRef.current = new Date().toISOString();
+        setDemoEidState('complete');
+        demoEidTimerRef.current = null;
+        resolve();
+      }, 1600);
+    });
+  }, [demoModeEnabled]);
 
   const tableOverviewItems = useMemo(() => {
     if (!demoModeEnabled) return filteredOverviewItems;
@@ -3539,6 +3530,8 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
           }
         : null;
 
+    const demoCheckExpiry = new Date();
+    demoCheckExpiry.setFullYear(demoCheckExpiry.getFullYear() + 1);
     const demoItem: any = {
       instruction: {
         InstructionRef: DEMO_INSTRUCTION_REF,
@@ -3550,28 +3543,61 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
         Surname: 'Client',
         ClientEmail: 'test.client@example.com',
         Email: 'test.client@example.com',
+        Phone: '07700 900123',
         CompanyName: 'Demo Co Ltd',
         ClientType: 'Individual',
-        AreaOfWork: 'Demo',
+        AreaOfWork: 'Commercial',
+        PracticeArea: 'Contract Dispute',
+        Description: 'Demo matter for testing the full matter opening flow',
+        ServiceDescription: 'Contract review and dispute resolution',
         HelixContact: userInitials,
         EIDOverallResult: demoEidState === 'complete' ? overallResult : '',
         EIDStatus: demoEid?.EIDStatus || '',
+        Nationality: 'British',
+        DOB: '1985-06-15',
+        PassportNumber: 'DEMO12345678',
+        HouseNumber: '42',
+        Street: 'Demo Street',
+        City: 'Brighton',
+        County: 'East Sussex',
+        Postcode: 'BN1 1AA',
+        Country: 'United Kingdom',
       },
       deal: {
         DealId: 'DEMO',
         Passcode: '00000',
         PitchedDate: demoNow,
         Status: 'demo',
-        AreaOfWork: 'Demo',
-        Amount: 0,
+        AreaOfWork: 'Commercial',
+        Amount: 2500,
         PitchedBy: userInitials,
         LeadClientEmail: 'test.client@example.com',
+        ServiceDescription: 'Contract review and dispute resolution',
       },
       prospectId: 'DEMO',
-      documentCount: 0,
-      payments: [],
-      documents: [],
-      risk: null,
+      documentCount: 2,
+      payments: [{
+        payment_status: 'succeeded',
+        internal_status: 'completed',
+        amount: 250000,
+        created_at: demoNow,
+        payment_id: 'pi_demo_001',
+      }],
+      documents: [
+        { FileName: 'Passport_Scan.pdf', DocumentType: 'ID', FileSizeBytes: 245000, UploadedAt: demoNow },
+        { FileName: 'Engagement_Letter_Signed.pdf', DocumentType: 'Engagement', FileSizeBytes: 182000, UploadedAt: demoNow },
+      ],
+      risk: { RiskAssessmentResult: 'Standard', RiskScore: 12, RiskAssessor: userInitials, ComplianceDate: demoNow },
+      riskAssessments: [{ RiskAssessmentResult: 'Standard', RiskScore: 12, RiskAssessor: userInitials, ComplianceDate: demoNow, TransactionRiskLevel: 'Low' }],
+      idVerifications: [{
+        IsLeadClient: true,
+        EIDOverallResult: demoEidState === 'complete' ? overallResult : 'pending',
+        EIDCheckId: 'DEMO-CHK-001',
+        EIDStatus: demoEid?.EIDStatus || 'pending',
+        PEPAndSanctionsCheckResult: demoEid?.PEPAndSanctionsCheckResult || 'pending',
+        AddressVerificationResult: demoEid?.AddressVerificationResult || 'pending',
+        CheckExpiry: demoCheckExpiry.toISOString(),
+      }],
       eid: demoEid,
       eids: demoEid ? [demoEid] : [],
       nextAction: demoEidState === 'complete' ? 'Complete' : 'ID Verification',
@@ -3671,6 +3697,55 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
       });
     });
   }, [effectiveInstructionData]);
+
+  // Inject demo POID when demo mode is active so FlatMatterOpening can display full client data
+  const effectiveIdVerificationOptions = useMemo(() => {
+    if (!demoModeEnabled) return idVerificationOptions;
+    const hasDemoPoid = idVerificationOptions.some((p: any) => p.poid_id === 'DEMO-POID-001');
+    if (hasDemoPoid) return idVerificationOptions;
+    const demoCheckExpiry = new Date();
+    demoCheckExpiry.setFullYear(demoCheckExpiry.getFullYear() + 1);
+    const config = readDemoEidSimConfig();
+    const demoPoid: any = {
+      poid_id: 'DEMO-POID-001',
+      type: 'individual',
+      terms_acceptance: true,
+      id_docs_folder: 'Demo/ID_Documents/',
+      first: 'Test',
+      last: 'Client',
+      prefix: 'Mr',
+      email: 'test.client@example.com',
+      best_number: '07700 900123',
+      nationality: 'British',
+      nationality_iso: 'GB',
+      date_of_birth: '1985-06-15',
+      gender: 'Male',
+      passport_number: 'DEMO12345678',
+      house_building_number: '42',
+      street: 'Demo Street',
+      city: 'Brighton',
+      county: 'East Sussex',
+      post_code: 'BN1 1AA',
+      country: 'United Kingdom',
+      country_code: 'GB',
+      company_name: 'Demo Co Ltd',
+      company_number: '12345678',
+      company_house_building_number: '1',
+      company_street: 'Company Road',
+      company_city: 'London',
+      company_post_code: 'EC1A 1BB',
+      company_country: 'United Kingdom',
+      stage: demoEidState === 'complete' ? 'proof-of-id-complete' : 'proof-of-id',
+      check_result: demoEidState === 'complete' ? (config.outcome === 'pass' ? 'Passed' : config.outcome === 'fail' ? 'Failed' : 'Review') : 'Pending',
+      pep_sanctions_result: demoEidState === 'complete' ? config.pepResult : 'Pending',
+      address_verification_result: demoEidState === 'complete' ? config.addressResult : 'Pending',
+      check_expiry: demoCheckExpiry.toISOString(),
+      check_id: 'DEMO-CHK-001',
+      submission_date: new Date().toISOString(),
+      InstructionRef: DEMO_INSTRUCTION_REF,
+    };
+    return [demoPoid, ...idVerificationOptions];
+  }, [demoModeEnabled, idVerificationOptions, demoEidState, demoEidSimConfigNonce]);
 
   // Group risk compliance data by instruction reference
   const groupedRiskComplianceData = useMemo(() => {
@@ -4055,11 +4130,35 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
       
       if (result.success) {
         if (result.status === 'already_verified') {
-          // ID is already verified, show success message
+          // ID is already verified — update local state to reflect this
           setActionFeedback({
             type: 'info',
             message: 'ID verification already completed for this instruction.'
           });
+          // Ensure local state shows verified in case it was stale
+          setInstructionData(prev =>
+            prev.map(prospectData => {
+              const hasMatch = prospectData.instructions?.some(
+                (i: any) => i.InstructionRef === instructionRef
+              );
+              if (!hasMatch) return prospectData;
+              return {
+                ...prospectData,
+                instructions: prospectData.instructions.map((i: any) =>
+                  i.InstructionRef === instructionRef
+                    ? { ...i, EIDOverallResult: i.EIDOverallResult || 'Passed', EIDStatus: 'complete' }
+                    : i
+                ),
+              };
+            })
+          );
+          if (selectedInstruction?.InstructionRef === instructionRef) {
+            setSelectedInstruction((prev: any) => ({
+              ...prev,
+              EIDOverallResult: prev?.EIDOverallResult || 'Passed',
+              EIDStatus: 'complete',
+            }));
+          }
         } else {
           // Verification submitted successfully
           debugLog('ID verification submitted successfully');
@@ -4099,7 +4198,87 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
             });
           }
           
-          // Note: Card will update status on next data refresh
+          // Immediately refresh local state so UI updates in real-time
+          const eidOverall = result.overall || overallResult;
+          const eidParsed = result.parseResults || {};
+          const eidMapped = eidOverall === 'passed' ? 'Passed'
+            : eidOverall === 'review' ? 'Review'
+            : eidOverall === 'failed' ? 'Failed'
+            : eidOverall;
+          const pepMapped = (eidParsed.pep || '').toLowerCase() === 'passed' ? 'Passed'
+            : (eidParsed.pep || '').toLowerCase() === 'review' ? 'Review'
+            : (eidParsed.pep || '').toLowerCase() === 'failed' ? 'Failed'
+            : eidParsed.pep || null;
+          const addressMapped = (eidParsed.address || '').toLowerCase() === 'passed' ? 'Passed'
+            : (eidParsed.address || '').toLowerCase() === 'review' ? 'Review'
+            : (eidParsed.address || '').toLowerCase() === 'failed' ? 'Failed'
+            : eidParsed.address || null;
+
+          // Optimistically update instructionData state
+          setInstructionData(prev =>
+            prev.map(prospectData => {
+              const hasMatch = prospectData.instructions?.some(
+                (i: any) => i.InstructionRef === instructionRef
+              );
+              if (!hasMatch) return prospectData;
+              return {
+                ...prospectData,
+                instructions: prospectData.instructions.map((i: any) =>
+                  i.InstructionRef === instructionRef
+                    ? {
+                        ...i,
+                        EIDOverallResult: eidMapped,
+                        EIDStatus: 'complete',
+                        PEPAndSanctionsCheckResult: pepMapped,
+                        AddressVerificationResult: addressMapped,
+                        idVerifications: [{
+                          InstructionRef: instructionRef,
+                          EIDOverallResult: eidMapped,
+                          EIDStatus: 'complete',
+                          PEPAndSanctionsCheckResult: pepMapped,
+                          AddressVerificationResult: addressMapped,
+                          EIDCheckedDate: new Date().toISOString(),
+                        }, ...(i.idVerifications || [])],
+                      }
+                    : i
+                ),
+                idVerifications: [
+                  {
+                    InstructionRef: instructionRef,
+                    EIDOverallResult: eidMapped,
+                    EIDStatus: 'complete',
+                    PEPAndSanctionsCheckResult: pepMapped,
+                    AddressVerificationResult: addressMapped,
+                    EIDCheckedDate: new Date().toISOString(),
+                  },
+                  ...(prospectData.idVerifications || []).filter(
+                    (v: any) => v.InstructionRef !== instructionRef
+                  ),
+                ],
+              };
+            })
+          );
+
+          // Keep selectedInstruction in sync
+          if (selectedInstruction?.InstructionRef === instructionRef) {
+            setSelectedInstruction((prev: any) => ({
+              ...prev,
+              EIDOverallResult: eidMapped,
+              EIDStatus: 'complete',
+              PEPAndSanctionsCheckResult: pepMapped,
+              AddressVerificationResult: addressMapped,
+              idVerifications: [{
+                InstructionRef: instructionRef,
+                EIDOverallResult: eidMapped,
+                EIDStatus: 'complete',
+                PEPAndSanctionsCheckResult: pepMapped,
+                AddressVerificationResult: addressMapped,
+                EIDCheckedDate: new Date().toISOString(),
+              }, ...(prev?.idVerifications || [])],
+            }));
+          }
+
+          debugLog(`✅ Local state refreshed for ${instructionRef}: EID=${eidMapped}, PEP=${pepMapped}, Address=${addressMapped}`);
         }
       } else {
         throw new Error(result.message || 'Unknown error occurred');
@@ -4501,9 +4680,11 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
   if (showNewMatterPage) {
     // Preselect POIDs by matching InstructionRef
     let preselectedPoidIds: string[] = [];
+    // Mutable copy — may inject a synthesised POID when no match exists
+    let poidDataForMatterOpening = effectiveIdVerificationOptions;
     if (selectedInstruction && selectedInstruction.InstructionRef) {
       const unique = new Map<string, string>();
-      (idVerificationOptions || []).forEach((poid: any) => {
+      (effectiveIdVerificationOptions || []).forEach((poid: any) => {
         if (!poid || poid.InstructionRef !== selectedInstruction.InstructionRef) return;
         const key = (poid.email || '').toLowerCase();
         if (!unique.has(key)) {
@@ -4511,11 +4692,62 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
         }
       });
       preselectedPoidIds = Array.from(unique.values());
+
+      // If no POID matched, synthesise one from the instruction's own fields
+      // so the user always sees the client info and can proceed
+      if (preselectedPoidIds.length === 0) {
+        const instName = `${selectedInstruction.FirstName || selectedInstruction.Forename || ''} ${selectedInstruction.LastName || selectedInstruction.Surname || ''}`.trim();
+        const synthId = `synth-${selectedInstruction.InstructionRef}`;
+        const synthPoid: any = {
+          poid_id: synthId,
+          first: selectedInstruction.FirstName || selectedInstruction.Forename || '',
+          last: selectedInstruction.LastName || selectedInstruction.Surname || '',
+          email: selectedInstruction.Email || selectedInstruction.ClientEmail || '',
+          best_number: selectedInstruction.Phone || '',
+          company_name: selectedInstruction.CompanyName || '',
+          company_number: selectedInstruction.CompanyNumber || '',
+          InstructionRef: selectedInstruction.InstructionRef,
+          client_id: selectedInstruction.prospectId?.toString() || '',
+          // Personal details from instruction
+          date_of_birth: selectedInstruction.DOB || selectedInstruction.DateOfBirth || '',
+          nationality: selectedInstruction.Nationality || '',
+          passport_number: selectedInstruction.PassportNumber || '',
+          // Address fields from instruction
+          house_building_number: selectedInstruction.HouseNumber || selectedInstruction.HouseBuildingNumber || '',
+          street: selectedInstruction.Street || '',
+          city: selectedInstruction.City || '',
+          county: selectedInstruction.County || '',
+          post_code: selectedInstruction.Postcode || selectedInstruction.PostCode || '',
+          country: selectedInstruction.Country || '',
+          // Verification results from instruction
+          check_result: selectedInstruction.EIDOverallResult || '',
+          pep_sanctions_result: selectedInstruction.PEPAndSanctionsCheckResult || selectedInstruction.PEPResult || '',
+          address_verification_result: selectedInstruction.AddressVerificationResult || selectedInstruction.AddressVerification || '',
+          _synthesised: true,
+        };
+        if (instName || synthPoid.company_name) {
+          poidDataForMatterOpening = [synthPoid, ...effectiveIdVerificationOptions];
+          preselectedPoidIds = [synthId];
+        }
+      }
     }
     // Build instruction-sourced records for Select Client cards (new space only)
     const instructionRecords = (() => {
       if (selectedInstruction) {
         // Instruction entry: focus on the selected instruction only
+        // Enrich with sub-arrays (payments, documents, riskAssessments, idVerifications) from the overview item
+        const matchingOverviewItem = tableOverviewItems.find(
+          (oi: any) => oi?.instruction?.InstructionRef === selectedInstruction.InstructionRef
+        );
+        if (matchingOverviewItem) {
+          return [{
+            ...selectedInstruction,
+            payments: matchingOverviewItem.payments || [],
+            documents: matchingOverviewItem.documents || [],
+            riskAssessments: matchingOverviewItem.riskAssessments || [],
+            idVerifications: matchingOverviewItem.idVerifications || [],
+          }];
+        }
         return [selectedInstruction];
       }
       // Generic entry: flatten all instructions from effectiveInstructionData
@@ -4529,7 +4761,7 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
       <Stack tokens={dashboardTokens} className={newMatterContainerStyle}>
         <FlatMatterOpening
           key={forceNewMatter ? `new-${Date.now()}` : `matter-${selectedInstruction?.InstructionRef || 'default'}`}
-          poidData={idVerificationOptions}
+          poidData={poidDataForMatterOpening}
           instructionRecords={instructionRecords}
           setPoidData={setPoidData}
           teamData={teamData}
@@ -4539,10 +4771,14 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
           stage={selectedInstruction?.Stage}
           clientId={selectedInstruction?.prospectId?.toString()}
           hideClientSections={!!selectedInstruction}
-          initialClientType={selectedInstruction?.ClientType}
+          initialClientType={selectedInstruction?.ClientType || (selectedInstruction?.CompanyName ? 'Company' : 'Individual')}
           preselectedPoidIds={preselectedPoidIds}
           instructionPhone={selectedInstruction?.Phone}
           onDraftCclNow={handleDraftCclNow}
+          demoModeEnabled={demoModeEnabled}
+          onRunIdCheck={selectedInstruction?.InstructionRef ? async () => {
+            await handleEIDCheck(selectedInstruction);
+          } : undefined}
           onBack={() => setShowNewMatterPage(false)}
           onMatterSuccess={(matterId) => {
             // Show success feedback
@@ -4567,7 +4803,7 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
     return (
       <Stack tokens={dashboardTokens} className={containerStyle}>
         <EIDCheckPage
-          poidData={idVerificationOptions}
+          poidData={effectiveIdVerificationOptions}
           instruction={selectedInstruction}
           onBack={handleBack}
         />
@@ -5254,6 +5490,7 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
               teamData={teamData}
               onFeeEarnerReassign={handleFeeEarnerReassign}
               matters={matters}
+              demoModeEnabled={demoModeEnabled}
               onDocumentPreview={(doc: any) => {
                 const instructionRef = doc?.InstructionRef || selectedInstruction?.instruction?.InstructionRef;
                 setPreviewDocument({ ...doc, InstructionRef: instructionRef });
@@ -5261,7 +5498,7 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
               }}
               onTriggerEID={async (instructionRef: string) => {
                 if (demoModeEnabled && instructionRef === DEMO_INSTRUCTION_REF) {
-                  startDemoEidSimulation();
+                  await startDemoEidSimulation();
                   return;
                 }
                 // Find the instruction by ref and trigger EID check
@@ -5309,6 +5546,36 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                 setSelectedInstruction(instruction);
                 setPendingInstructionRef(instruction.InstructionRef || '');
                 setShowRiskPage(true);
+              }}
+              onRefreshData={async (instructionRef: string) => {
+                if (!instructionRef) return;
+                try {
+                  const response = await fetch(`/api/instructions/${instructionRef}`);
+                  if (response.ok) {
+                    const updatedData = await response.json();
+                    setInstructionData(prev =>
+                      prev.map(prospectData => {
+                        const hasMatch = prospectData.instructions?.some(
+                          (inst: any) => inst.InstructionRef === instructionRef
+                        );
+                        if (hasMatch) {
+                          return {
+                            ...prospectData,
+                            instructions: prospectData.instructions.map((inst: any) =>
+                              inst.InstructionRef === instructionRef ? { ...inst, ...updatedData } : inst
+                            )
+                          };
+                        }
+                        return prospectData;
+                      })
+                    );
+                    if (selectedInstruction?.InstructionRef === instructionRef) {
+                      setSelectedInstruction((prev: any) => ({ ...prev, ...updatedData }));
+                    }
+                  }
+                } catch (error) {
+                  console.error('Failed to refresh instruction data:', error);
+                }
               }}
             />
           )}

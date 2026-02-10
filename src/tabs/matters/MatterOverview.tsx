@@ -1,9 +1,24 @@
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 import { Text, Icon, Link, TooltipHost, mergeStyles } from '@fluentui/react';
+import { FaUser, FaCheckCircle, FaClipboard, FaIdCard, FaPoundSign, FaShieldAlt, FaFolderOpen, FaFileAlt, FaCheck, FaExclamationTriangle } from 'react-icons/fa';
 import type { Enquiry, NormalizedMatter, TeamData, Transaction } from '../../app/functionality/types';
 import { colours } from '../../app/styles/colours';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import InlineWorkbench from '../instructions/InlineWorkbench';
+import CCLEditor from './ccl/CCLEditor';
+import NextStepChip from './components/NextStepChip';
+import { normaliseId, resolveEnquiryKeys } from './utils/enquiryMatching';
+import { fmt, fmtDate, fmtCurrency, safeNumber, get, formatLongDate, formatAddress, parseInstructionRef } from './utils/formatters';
+import {
+  containerStyle, entryStyle, headerStyle, headerLeftStyle, headerTitleLineStyle,
+  headerClientStyle, headerSeparatorStyle, headerDescriptionStyle, matterBadgeStyle,
+  statusBadgeStyle, mainLayoutStyle, leftColumnStyle, rightColumnStyle, metricsGridStyle,
+  metricCardStyle, metricLabelStyle, metricValueStyle, sectionCardStyle, sectionTitleStyle,
+  fieldRowStyle, fieldLabelStyle, fieldValueStyle, clientFieldValueStyle, detailsGridStyle,
+  detailsTeamGridStyle, teamGridStyle, clientActionButtonStyle, contactRowStyle, copyChipStyle,
+  clientFieldStackStyle, progressBarStyle, progressFillStyle, metricSkeletonStyle,
+  metricSubSkeletonStyle, processingHintStyle, BADGE_RADIUS,
+} from './styles/matterOverview.styles';
 
 interface MatterOverviewProps {
   matter: NormalizedMatter;
@@ -25,394 +40,361 @@ interface MatterOverviewProps {
   workbenchItem?: any;
   enquiries?: Enquiry[] | null;
   teamData?: TeamData[] | null;
+  demoModeEnabled?: boolean;
 }
 
 /* ------------------------------------------------------------------
-   STYLES
+   PipelineSection — renders pill bar + InlineWorkbench (pills suppressed)
+   Mirrors the EnquiryTimeline pill bar exactly: same stage labels,
+   same status logic, same styling. This IS the prospects pipeline,
+   just reflected here read-only.
 ------------------------------------------------------------------ */
 
-const containerStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    backgroundColor: isDarkMode ? colours.dark.background : colours.light.background,
-    color: isDarkMode ? colours.dark.text : colours.light.text,
-    minHeight: '100%',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 0,
-  });
+type WorkbenchTabKeyType = 'details' | 'identity' | 'payment' | 'risk' | 'matter' | 'documents';
+type ContextStageKeyType = 'enquiry' | 'pitch' | 'instructed';
 
-const entryStyle = mergeStyles({
-  animation: 'skeletonCascadeIn 220ms ease-out both',
-  willChange: 'opacity, transform',
-  '@media (prefers-reduced-motion: reduce)': {
-    animation: 'none',
-  },
-});
+interface PipelineSectionProps {
+  derivedWorkbenchItem: any;
+  isDarkMode: boolean;
+  teamData?: TeamData[] | null;
+  demoModeEnabled: boolean;
+  matchedEnquiry: Enquiry | null;
+  selectedWorkbenchTab: WorkbenchTabKeyType;
+  setSelectedWorkbenchTab: (tab: WorkbenchTabKeyType) => void;
+  selectedContextStage: ContextStageKeyType | null;
+  setSelectedContextStage: (stage: ContextStageKeyType | null) => void;
+}
 
-const SURFACE_RADIUS = 3;
-const BADGE_RADIUS = 2;
+const PipelineSection: React.FC<PipelineSectionProps> = ({
+  derivedWorkbenchItem,
+  isDarkMode,
+  teamData,
+  demoModeEnabled,
+  matchedEnquiry,
+  selectedWorkbenchTab,
+  setSelectedWorkbenchTab,
+  selectedContextStage,
+  setSelectedContextStage,
+}) => {
+  const item = derivedWorkbenchItem;
+  const instruction = item?.instruction;
+  const instructionRef = instruction?.InstructionRef || instruction?.instructionRef || '';
+  const instructionStage = (instruction?.Stage || instruction?.stage || '').toLowerCase();
+  const instructedDate = instruction?.instructedDate || instruction?.InstructedDate || instruction?.SubmissionDate || instruction?.submissionDate || instruction?.SubmittedAt || instruction?.submittedAt || instruction?.CreatedAt || instruction?.createdAt || instruction?.InstructionDateTime || instruction?.instructionDateTime;
+  const isShellInstruction = Boolean(instructionRef) && (instructionStage === 'initialised' || instructionStage === 'opened' || instructionStage === 'pitched' || instructionStage === '');
+  const hasInstruction = Boolean(instructionRef) && (Boolean(instructedDate) || !isShellInstruction);
+  const hasInstructionActivity = Boolean(instructionRef);
+  const stageStatuses = item?.stageStatuses;
+  const payments = Array.isArray(item?.payments) ? item.payments : [];
+  const risk = item?.risk;
+  const eid = item?.eid;
+  const matters = Array.isArray(item?.matters) ? item.matters : [];
+  const documents = Array.isArray(item?.documents) ? item.documents : [];
 
-const headerStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-    borderBottom: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-    padding: '16px 24px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 16,
-  });
+  const eidResult = eid?.EIDOverallResult || instruction?.EIDOverallResult || '';
+  const eidStatusValue = (eid?.EIDStatus || instruction?.EIDStatus || '').toLowerCase();
+  const eidStatus = eidStatusValue.includes('pending') || eidStatusValue.includes('processing')
+    ? 'pending'
+    : eidResult.toLowerCase().includes('pass') || eidResult.toLowerCase().includes('verified')
+    ? 'verified'
+    : eidResult.toLowerCase().includes('fail')
+    ? 'failed'
+    : eidResult.toLowerCase().includes('skip')
+    ? 'skipped'
+    : eidResult.toLowerCase().includes('refer') || eidResult.toLowerCase().includes('consider') || eidResult.toLowerCase().includes('review')
+    ? 'review'
+    : eid && eidResult
+    ? 'completed'
+    : 'pending';
 
-const headerLeftStyle = mergeStyles({
-  display: 'flex',
-  alignItems: 'center',
-  gap: 12,
-  flex: 1,
-  minWidth: 0,
-});
+  const eidDisplayResult = eidResult
+    ? eidResult.charAt(0).toUpperCase() + eidResult.slice(1).toLowerCase()
+    : null;
 
-const headerTitleLineStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    display: 'flex',
-    alignItems: 'center',
-    minWidth: 0,
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-    fontFamily: 'Raleway, sans-serif',
-    fontSize: 16,
-    lineHeight: '20px',
-    paddingTop: 1,
-    paddingBottom: 1,
-    color: isDarkMode ? colours.dark.text : colours.light.text,
-  });
+  const hasSuccessfulPayment = payments.some((p: any) =>
+    p.payment_status === 'succeeded' || p.payment_status === 'confirmed'
+  );
+  const hasFailedPayment = payments.some((p: any) =>
+    p.payment_status === 'failed' || p.internal_status === 'failed'
+  );
 
-const headerClientStyle = mergeStyles({
-  fontWeight: 600,
-});
+  const riskComplete = !!risk?.RiskAssessmentResult;
+  const isHighRisk = risk?.RiskAssessmentResult?.toLowerCase().includes('high');
+  const isMediumRisk = risk?.RiskAssessmentResult?.toLowerCase().includes('medium');
+  const riskLevel = isHighRisk ? 'High' : isMediumRisk ? 'Medium'
+    : risk?.RiskAssessmentResult?.toLowerCase().includes('low') ? 'Low' : null;
 
-const headerSeparatorStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    padding: '0 8px',
-    opacity: isDarkMode ? 0.35 : 0.45,
-  });
+  const hasMatter = !!(instruction?.MatterId || instruction?.MatterRef || matters.length > 0);
+  const matterDisplayId = instruction?.MatterRef || instruction?.MatterId
+    || (matters.length > 0 ? (matters[0]?.['Display Number'] || matters[0]?.displayNumber || matters[0]?.id) : null);
+  const hasDocs = documents.length > 0;
+  const docCount = documents.length;
 
-const headerDescriptionStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    fontWeight: 500,
-    color: isDarkMode ? colours.dark.subText : colours.greyText,
-  });
+  const hasEnquiry = !!matchedEnquiry;
+  const hasPitch = Boolean(instructedDate); // If instructed, pitch happened
 
-const matterBadgeStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.03)',
-    border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-    borderRadius: BADGE_RADIUS,
-    padding: '6px 10px',
-    fontWeight: 600,
-    color: colours.highlight,
-    fontSize: 14,
-  });
+  const identityStatus = stageStatuses?.id || (
+    eidStatus === 'verified' || eidStatus === 'completed' || eidStatus === 'skipped'
+      ? 'complete'
+      : eidStatus === 'failed' || eidStatus === 'review'
+      ? 'review'
+      : 'pending'
+  );
+  const paymentStatus = stageStatuses?.payment || (hasSuccessfulPayment ? 'complete' : hasFailedPayment ? 'review' : 'pending');
+  const riskStatus = stageStatuses?.risk || (riskComplete ? ((isHighRisk || isMediumRisk) ? 'review' : 'complete') : 'pending');
+  const matterStageStatus = stageStatuses?.matter || (hasMatter ? 'complete' : 'pending');
+  const documentStatus = stageStatuses?.documents || (hasDocs ? 'complete' : 'neutral');
 
-const statusBadgeStyle = (status: 'active' | 'closed', isDarkMode: boolean) =>
-  mergeStyles({
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 4,
-    padding: '4px 10px',
-    borderRadius: BADGE_RADIUS,
-    fontSize: 12,
-    fontWeight: 600,
-    backgroundColor: 'transparent',
-    border: `1px solid ${
-      status === 'active'
-        ? (isDarkMode ? 'rgba(34, 197, 94, 0.45)' : 'rgba(34, 197, 94, 0.35)')
-        : (isDarkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(148, 163, 184, 0.3)')
-    }`,
-    color:
-      status === 'active'
-        ? isDarkMode
-          ? '#86efac'
-          : '#15803d'
-        : isDarkMode
-        ? '#94a3b8'
-        : '#64748b',
-  });
+  const instructionDate = instructedDate ? new Date(instructedDate) : null;
 
-const mainLayoutStyle = mergeStyles({
-  display: 'grid',
-  gridTemplateColumns: '1fr 320px',
-  gap: 0,
-  flex: 1,
-  '@media (max-width: 1024px)': {
-    gridTemplateColumns: '1fr',
-  },
-});
-
-const leftColumnStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    padding: 24,
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 20,
-    backgroundColor: isDarkMode ? colours.dark.background : colours.light.background,
-  });
-
-const rightColumnStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    padding: 24,
-    borderLeft: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-    backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 20,
-    '@media (max-width: 1024px)': {
-      borderLeft: 'none',
-      borderTop: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+  // Full 8-stage pipeline — exact same shape as EnquiryTimeline
+  const stages: Array<{
+    key: string;
+    label: string;
+    shortLabel: string;
+    icon: React.ReactNode;
+    status: 'complete' | 'current' | 'review' | 'pending' | 'processing' | 'neutral' | 'disabled';
+    date: Date | null;
+    detail?: string;
+  }> = [
+    {
+      key: 'enquiry',
+      label: 'Enquiry',
+      shortLabel: 'Enquiry',
+      icon: <FaUser size={10} />,
+      status: hasEnquiry ? 'complete' : 'pending',
+      date: null,
     },
-  });
-
-const metricsGridStyle = mergeStyles({
-  display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-  gap: 16,
-});
-
-const metricCardStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-    border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-    borderRadius: SURFACE_RADIUS,
-    padding: 14,
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 8,
-    transition: 'background-color 0.15s, border-color 0.15s',
-    ':hover': {
-      backgroundColor: isDarkMode ? colours.dark.cardHover : colours.light.cardHover,
+    {
+      key: 'pitch',
+      label: 'Pitched',
+      shortLabel: 'Pitched',
+      icon: <FaCheckCircle size={10} />,
+      status: hasPitch ? 'complete' : 'current',
+      date: null,
     },
-  });
-
-const metricLabelStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    fontSize: 12,
-    fontWeight: 500,
-    color: isDarkMode ? colours.dark.subText : colours.greyText,
-    textTransform: 'uppercase',
-    letterSpacing: '0.5px',
-  });
-
-const metricValueStyle = (isDarkMode: boolean, accent?: boolean) =>
-  mergeStyles({
-    fontSize: 24,
-    fontWeight: 700,
-    color: accent ? colours.highlight : isDarkMode ? colours.dark.text : colours.light.text,
-    fontFamily: 'Raleway, sans-serif',
-  });
-
-const sectionCardStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-    border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-    borderRadius: SURFACE_RADIUS,
-    padding: 16,
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 16,
-  });
-
-const sectionTitleStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    fontSize: 16,
-    fontWeight: 700,
-    color: isDarkMode ? colours.dark.text : colours.light.text,
-    fontFamily: 'Raleway, sans-serif',
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    paddingBottom: 12,
-    borderBottom: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-  });
-
-const fieldRowStyle = mergeStyles({
-  display: 'grid',
-  gridTemplateColumns: '140px 1fr',
-  gap: 12,
-  alignItems: 'baseline',
-});
-
-const fieldLabelStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    fontSize: 13,
-    fontWeight: 500,
-    color: isDarkMode ? colours.dark.subText : colours.greyText,
-  });
-
-const fieldValueStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    fontSize: 14,
-    fontWeight: 500,
-    color: isDarkMode ? colours.dark.text : colours.light.text,
-    wordBreak: 'break-word',
-  });
-
-const clientFieldValueStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    fontSize: 12,
-    fontWeight: 500,
-    color: isDarkMode ? 'rgba(243, 244, 246, 0.78)' : 'rgba(15, 23, 42, 0.72)',
-    wordBreak: 'break-word',
-  });
-
-const detailsGridStyle = mergeStyles({
-  display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-  gap: 12,
-});
-
-const detailsTeamGridStyle = mergeStyles({
-  display: 'grid',
-  gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)',
-  gap: 20,
-  alignItems: 'start',
-  '@media (max-width: 1024px)': {
-    gridTemplateColumns: '1fr',
-  },
-});
-
-const avatarStyle = (bgColor: string) =>
-  mergeStyles({
-    width: 36,
-    height: 36,
-    borderRadius: '50%',
-    backgroundColor: bgColor,
-    color: 'white',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontWeight: 700,
-    fontSize: 13,
-    flexShrink: 0,
-  });
-
-const teamRowStyle = mergeStyles({
-  display: 'flex',
-  alignItems: 'center',
-  gap: 12,
-});
-
-const teamGridStyle = mergeStyles({
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 10,
-});
-
-const clientActionButtonStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    width: 32,
-    height: 32,
-    borderRadius: BADGE_RADIUS,
-    backgroundColor: isDarkMode ? colours.dark.cardBackground : colours.light.grey,
-    border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    cursor: 'pointer',
-    transition: 'background-color 0.15s, border-color 0.15s',
-    textDecoration: 'none',
-    ':hover': {
-      backgroundColor: isDarkMode ? colours.dark.cardHover : colours.light.cardHover,
+    {
+      key: 'instructed',
+      label: hasInstructionActivity ? 'Instructed' : 'Instruction',
+      shortLabel: hasInstructionActivity ? 'Instructed' : 'Instruction',
+      icon: <FaClipboard size={10} />,
+      status: hasInstruction ? 'complete' : (hasInstructionActivity ? 'current' : 'disabled'),
+      date: instructionDate,
     },
-  });
-
-const contactRowStyle = mergeStyles({
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  gap: 8,
-});
-
-const copyChipStyle = (isCopied: boolean, isDarkMode: boolean) =>
-  mergeStyles({
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: 18,
-    height: 18,
-    flexShrink: 0,
-    borderRadius: 5,
-    border: isCopied
-      ? `1px solid ${isDarkMode ? 'rgba(16, 185, 129, 0.5)' : 'rgba(16, 185, 129, 0.38)'}`
-      : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(100, 116, 139, 0.12)'}`,
-    background: isCopied
-      ? (isDarkMode ? 'rgba(16, 185, 129, 0.16)' : 'rgba(16, 185, 129, 0.12)')
-      : 'transparent',
-    color: isCopied
-      ? '#10B981'
-      : (isDarkMode ? 'rgba(203, 213, 225, 0.5)' : 'rgba(71, 85, 105, 0.55)'),
-    cursor: 'pointer',
-    padding: 0,
-    opacity: isCopied ? 1 : 0.6,
-    transition: 'opacity 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 160ms ease, background 160ms ease',
-    ':hover': {
-      opacity: isCopied ? 1 : 0.9,
-      borderColor: isCopied
-        ? (isDarkMode ? 'rgba(16, 185, 129, 0.6)' : 'rgba(16, 185, 129, 0.5)')
-        : (isDarkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(100, 116, 139, 0.3)'),
+    {
+      key: 'id',
+      label: eidDisplayResult ? `ID: ${eidDisplayResult}` : 'ID Check',
+      shortLabel: eidDisplayResult ? `ID: ${eidDisplayResult}` : 'ID Check',
+      icon: <FaIdCard size={10} />,
+      status: !hasInstruction ? 'disabled' : identityStatus as any,
+      date: null,
     },
+    {
+      key: 'payment',
+      label: hasSuccessfulPayment ? 'Paid' : 'Payment',
+      shortLabel: hasSuccessfulPayment ? 'Paid' : 'Payment',
+      icon: <FaPoundSign size={10} />,
+      status: !hasInstruction ? 'disabled' : paymentStatus as any,
+      date: null,
+    },
+    {
+      key: 'risk',
+      label: riskLevel ? `Risk: ${riskLevel}` : 'Risk',
+      shortLabel: riskLevel ? `Risk: ${riskLevel}` : 'Risk',
+      icon: <FaShieldAlt size={10} />,
+      status: !hasInstruction ? 'disabled' : riskStatus as any,
+      date: null,
+    },
+    {
+      key: 'matter',
+      label: matterDisplayId ? String(matterDisplayId) : 'Matter',
+      shortLabel: matterDisplayId ? String(matterDisplayId) : 'Matter',
+      icon: <FaFolderOpen size={10} />,
+      status: !hasInstruction ? 'disabled' : matterStageStatus as any,
+      date: null,
+    },
+    {
+      key: 'documents',
+      label: 'Docs',
+      shortLabel: 'Docs',
+      icon: <FaFileAlt size={10} />,
+      status: !hasInstruction ? 'disabled' : documentStatus as any,
+      date: null,
+      detail: docCount > 0 ? String(docCount) : undefined,
+    },
+  ];
+
+  const stageTabs = stages.map((stage) => {
+    const isCompleted = stage.status === 'complete';
+    const isCurrent = stage.status === 'current';
+    const hasIssue = stage.status === 'review';
+
+    const statusColor = isCompleted ? '#22c55e'
+      : hasIssue ? '#ef4444'
+      : isCurrent ? colours.highlight
+      : (isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.8)');
+
+    const workbenchTab: WorkbenchTabKeyType = stage.key === 'id' ? 'identity'
+      : stage.key === 'payment' ? 'payment'
+      : stage.key === 'risk' ? 'risk'
+      : stage.key === 'matter' ? 'matter'
+      : stage.key === 'documents' ? 'documents'
+      : 'details';
+
+    const contextStage: ContextStageKeyType = stage.key === 'pitch' ? 'pitch'
+      : stage.key === 'enquiry' ? 'enquiry'
+      : 'instructed';
+
+    const isContextStage = ['enquiry', 'pitch', 'instructed'].includes(stage.key);
+
+    const isActive = selectedContextStage
+      ? (selectedContextStage === contextStage && (isContextStage || selectedWorkbenchTab === workbenchTab))
+      : (selectedWorkbenchTab === workbenchTab && !isContextStage);
+
+    return {
+      ...stage,
+      workbenchTab,
+      contextStage,
+      isActive,
+      statusColor,
+      hasIssue,
+    };
   });
 
-const clientFieldStackStyle = mergeStyles({
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 4,
-});
+  return (
+    <div style={{
+      background: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+      border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+      borderRadius: 4,
+      overflow: 'hidden',
+      fontFamily: 'Raleway, sans-serif',
+      boxShadow: isDarkMode ? '0 12px 28px rgba(0,0,0,0.35)' : '0 10px 24px rgba(15,23,42,0.08)',
+    }}>
+      {/* Pipeline pill bar — identical to EnquiryTimeline TIER 3 */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '0',
+        padding: '12px 24px',
+        background: isDarkMode ? 'rgba(0, 0, 0, 0.15)' : 'rgba(0, 0, 0, 0.02)',
+        borderBottom: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+        overflowX: 'auto',
+        scrollbarWidth: 'none' as const,
+      }}>
+        {stageTabs.map((stage, idx) => {
+          const prevStage = idx > 0 ? stageTabs[idx - 1] : null;
+          const isConnectorLit = prevStage?.status === 'complete' && stage.status === 'complete';
 
-const progressBarStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    height: 8,
-    borderRadius: 2,
-    backgroundColor: isDarkMode ? colours.dark.border : '#e5e7eb',
-    overflow: 'hidden',
-    position: 'relative',
-  });
+          return (
+            <React.Fragment key={stage.key}>
+              {idx > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  <div style={{
+                    height: 1.5,
+                    width: 10,
+                    background: isConnectorLit
+                      ? 'rgba(34, 197, 94, 0.7)'
+                      : (isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.25)'),
+                    borderRadius: 1,
+                    margin: '0 2px',
+                  }} />
+                </div>
+              )}
 
-const progressFillStyle = (percentage: number) =>
-  mergeStyles({
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    width: `${percentage}%`,
-    backgroundColor: '#16a34a',
-    borderRadius: 2,
-    transition: 'width 0.3s ease',
-  });
+              <button
+                type="button"
+                title={stage.label}
+                onClick={() => {
+                  if (['enquiry', 'pitch', 'instructed'].includes(stage.key)) {
+                    setSelectedWorkbenchTab('details');
+                    if (stage.key === 'enquiry' || stage.key === 'pitch') {
+                      setSelectedContextStage(stage.contextStage);
+                    } else {
+                      setSelectedContextStage('instructed');
+                    }
+                  } else {
+                    setSelectedContextStage(null);
+                    setSelectedWorkbenchTab(stage.workbenchTab);
+                  }
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '6px 12px',
+                  borderRadius: '16px',
+                  background: stage.isActive
+                    ? 'rgba(125, 211, 252, 0.12)'
+                    : (isDarkMode ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)'),
+                  border: stage.isActive
+                    ? '1px solid rgba(125, 211, 252, 0.45)'
+                    : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)'}`,
+                  cursor: 'pointer',
+                  color: stage.statusColor,
+                  fontSize: 11,
+                  fontWeight: stage.isActive ? 700 : 600,
+                  opacity: stage.status === 'disabled' ? 0.7 : 1,
+                  transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                  whiteSpace: 'nowrap',
+                  boxShadow: 'none',
+                  position: 'relative',
+                  zIndex: stage.isActive ? 10 : 1,
+                  fontFamily: 'inherit',
+                }}
+              >
+                <span style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  color: stage.statusColor,
+                  opacity: stage.isActive ? 1 : 0.9,
+                }}>
+                  {stage.icon}
+                </span>
 
-const metricSkeletonStyle = (isDarkMode: boolean, width = '72%') =>
-  mergeStyles({
-    height: 26,
-    width,
-    borderRadius: 6,
-    backgroundColor: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
-  });
+                <span>{stage.shortLabel}</span>
 
-const metricSubSkeletonStyle = (isDarkMode: boolean, width = '60%') =>
-  mergeStyles({
-    height: 12,
-    width,
-    borderRadius: 4,
-    backgroundColor: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
-  });
+                {stage.detail && stage.key === 'documents' && stage.detail !== '0' && (
+                  <span style={{
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    padding: '1px 6px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    borderRadius: '999px',
+                    background: 'rgba(148, 163, 184, 0.18)',
+                    color: 'rgba(226, 232, 240, 0.8)',
+                    marginLeft: 2,
+                  }}>
+                    {stage.detail}
+                  </span>
+                )}
+                {stage.status === 'complete' && stage.key !== 'documents' && (
+                  <FaCheck size={9} style={{ color: '#22c55e', marginLeft: 2 }} />
+                )}
+                {stage.hasIssue && (
+                  <FaExclamationTriangle size={9} style={{ color: '#ef4444', marginLeft: 2 }} />
+                )}
+              </button>
+            </React.Fragment>
+          );
+        })}
+      </div>
 
-const processingHintStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    fontSize: 11,
-    color: isDarkMode ? colours.dark.subText : colours.greyText,
-  });
+      {/* InlineWorkbench — pills suppressed, controlled externally */}
+      <InlineWorkbench
+        item={{ ...derivedWorkbenchItem, enquiry: matchedEnquiry }}
+        isDarkMode={isDarkMode}
+        teamData={teamData}
+        initialTab={selectedWorkbenchTab}
+        initialContextStage={selectedContextStage}
+        enableContextStageChips={false}
+        enableTabStages={false}
+        contextStageKeys={['enquiry', 'pitch', 'instructed']}
+        demoModeEnabled={demoModeEnabled}
+      />
+    </div>
+  );
+};
 
 /* ------------------------------------------------------------------
    COMPONENT
@@ -434,11 +416,19 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
   workbenchItem,
   enquiries,
   teamData,
+  demoModeEnabled = false,
 }) => {
   const { isDarkMode } = useTheme();
   const [copiedContact, setCopiedContact] = React.useState<'email' | 'phone' | null>(null);
   const [clioClientStatus, setClioClientStatus] = React.useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [clioClient, setClioClient] = React.useState<any | null>(null);
+  const [showCCLEditor, setShowCCLEditor] = React.useState(false);
+
+  // ─── Pipeline pill bar state (mirrors EnquiryTimeline) ───
+  type WorkbenchTabKey = 'details' | 'identity' | 'payment' | 'risk' | 'matter' | 'documents';
+  type ContextStageKey = 'enquiry' | 'pitch' | 'instructed';
+  const [selectedWorkbenchTab, setSelectedWorkbenchTab] = useState<WorkbenchTabKey>('details');
+  const [selectedContextStage, setSelectedContextStage] = useState<ContextStageKey | null>(null);
 
   const isLocalhost =
     typeof window !== 'undefined' &&
@@ -449,13 +439,7 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
   const isWipLoading = wipStatus === 'loading';
   const isWipReady = wipStatus === 'ready';
   const isFundsLoading = fundsStatus === 'loading';
-  const isFundsReady = fundsStatus === 'ready';
   const isOutstandingLoading = outstandingStatus === 'loading';
-  const isOutstandingReady = outstandingStatus === 'ready';
-
-  // Helpers
-  const fmt = (v?: string | null): string =>
-    v && String(v).trim().length > 0 ? String(v) : '—';
 
   const handleCopy = React.useCallback(async (value: string, key: 'email' | 'phone') => {
     if (!value) return;
@@ -482,31 +466,6 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
     }
   }, []);
 
-  const fmtDate = (v?: string | null): string => {
-    if (!v) return '—';
-    const d = new Date(v);
-    return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('en-GB');
-  };
-
-  const fmtCurrency = (n?: number | null): string => {
-    try {
-      const val = typeof n === 'number' && isFinite(n) ? n : 0;
-      return new Intl.NumberFormat('en-GB', {
-        style: 'currency',
-        currency: 'GBP',
-        maximumFractionDigits: 0,
-      }).format(val);
-    } catch {
-      return '£0';
-    }
-  };
-
-  const safeNumber = (v: unknown, fallback = 0): number =>
-    typeof v === 'number' && isFinite(v) ? v : fallback;
-
-  const get = (obj: unknown, key: string): unknown =>
-    obj && typeof obj === 'object' ? (obj as Record<string, unknown>)[key] : undefined;
-
   const getPipelineValue = (fields: string[], fallback = ''): string => {
     const sources = [pipelineInstruction, pipelinePrimaryClient, pipelineDeal];
     for (const field of fields) {
@@ -518,44 +477,6 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
       }
     }
     return fallback;
-  };
-
-  const formatLongDate = (raw?: string | null): string => {
-    if (!raw) return '—';
-    const parsed = new Date(raw);
-    if (Number.isNaN(parsed.getTime())) return '—';
-    return parsed.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-  };
-
-  const formatAddress = (parts: Array<string | null | undefined>): string => {
-    const cleaned = parts
-      .map((part) => (typeof part === 'string' ? part.trim() : ''))
-      .filter((part) => part.length > 0);
-    return cleaned.length > 0 ? cleaned.join(', ') : '—';
-  };
-
-  const getInitials = (full?: string): string => {
-    const s = (full || '').trim();
-    if (!s) return '—';
-    const parts = s.split(/\s+/).filter(Boolean);
-    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-  };
-
-  const parseInstructionRef = (ref?: string) => {
-    const raw = (ref || '').trim();
-    if (!raw) return { instructionRef: undefined, prospectId: undefined, passcode: undefined };
-    const match = raw.match(/^(?:[A-Z]+-?)?(\d+)-(\d+)/i);
-    const prospectId = match ? match[1] : undefined;
-    const passcode = match ? match[2] : undefined;
-    const canonicalRef = raw.toUpperCase().startsWith('HLX') && prospectId && passcode
-      ? `HLX-${prospectId}-${passcode}`
-      : raw;
-    return {
-      instructionRef: canonicalRef,
-      prospectId,
-      passcode,
-    };
   };
 
   const pipelineLink = parseInstructionRef(matter.instructionRef);
@@ -647,29 +568,6 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
     : [];
   const pipelinePrimaryClient = pipelineClients[0] || null;
 
-  const normaliseId = (value: any): string | null => {
-    if (value === null || value === undefined) return null;
-    const raw = String(value).trim();
-    if (!raw) return null;
-    const numeric = Number(raw);
-    if (Number.isFinite(numeric)) return String(numeric);
-    return raw.toLowerCase();
-  };
-
-  const resolveEnquiryKeys = (enquiry: any): string[] => {
-    // Schema-based matching:
-    // - legacy enquiries: ID
-    // - new enquiries: acid (prospectId from Deals)
-    const rawKeys = [
-      enquiry?.ID,
-      enquiry?.id,
-      enquiry?.acid,
-      enquiry?.ACID,
-      enquiry?.Acid,
-    ];
-    return rawKeys.map(normaliseId).filter(Boolean) as string[];
-  };
-
   const enquiryProspectId = React.useMemo(() => {
     return (
       baseWorkbenchItem?.deal?.ProspectId ||
@@ -737,16 +635,6 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
     };
   }, [enquiries, enquiryProspectId, isPipelineLinked]);
 
-  // DEBUG: Log enquiries matching
-  React.useEffect(() => {
-    console.log('[MatterOverview] enquiries prop:', enquiries?.length, 'items');
-    console.log('[MatterOverview] matter.clientEmail:', matter.clientEmail);
-    if (enquiries && enquiries.length > 0) {
-      const sample = enquiries.slice(0, 3).map(e => ({ id: e.ID, email: e.Email || (e as any).email, notes: (e as any).notes?.substring?.(0, 50) || (e as any).Initial_first_call_notes?.substring?.(0, 50) }));
-      console.log('[MatterOverview] sample enquiries:', sample);
-    }
-  }, [enquiries, matter.clientEmail]);
-
   const matchedEnquiry = React.useMemo<Enquiry | null>(() => {
     const enquiryList = enquiries ?? [];
     if (enquiryList.length === 0 && !directEnquiry) return null;
@@ -813,15 +701,6 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
 
     return null;
   }, [baseWorkbenchItem, directEnquiry, enquiries, enquiryProspectId, matter.clientEmail, matter.clientName, pipelineInstruction, pipelineLink.instructionRef, pipelineLink.prospectId, pipelinePrimaryClient]);
-
-  // DEBUG: Log matched enquiry result
-  React.useEffect(() => {
-    console.log('[MatterOverview] matchedEnquiry:', matchedEnquiry);
-    if (matchedEnquiry) {
-      console.log('[MatterOverview] matchedEnquiry.notes:', (matchedEnquiry as any).notes);
-      console.log('[MatterOverview] matchedEnquiry.Initial_first_call_notes:', matchedEnquiry.Initial_first_call_notes);
-    }
-  }, [matchedEnquiry]);
 
   const derivedWorkbenchItem = React.useMemo<any | null>(() => {
     if (!baseWorkbenchItem) return null;
@@ -1016,10 +895,12 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
     },
   ].filter((m) => m.name && m.name.trim());
 
+  const showNextSteps = matter.status === 'active' && !matter.cclDate && !showCCLEditor;
+
   return (
     <div className={`${containerStyle(isDarkMode)} ${entryStyle}`}>
       {/* Header */}
-      <div className={headerStyle(isDarkMode)}>
+      <div className={headerStyle(isDarkMode, showNextSteps)}>
         <div className={headerLeftStyle}>
           <div className={matterBadgeStyle(isDarkMode)}>
             <Icon iconName="OpenFolderHorizontal" styles={{ root: { fontSize: 16 } }} />
@@ -1071,7 +952,50 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
 
       {/* Tab Navigation moved into the sticky navigator banner (Matters.tsx). */}
 
-      {/* Main Content */}
+      {/* Next Steps — extension of the header bar (matches ImmediateActionsBar pattern) */}
+      {showNextSteps && (
+        <section style={{
+          padding: '8px 24px 10px',
+          backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+          borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.15)'}`,
+          borderBottom: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+        }}>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6,
+            fontSize: 11, fontWeight: 700, textTransform: 'uppercase' as const,
+            letterSpacing: '0.05em',
+            color: isDarkMode ? '#94a3b8' : '#64748b',
+          }}>
+            Next Steps
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 6 }}>
+            <NextStepChip
+              title="Prepare Client Care Letter"
+              subtitle="Draft engagement letter from matter data"
+              icon="TextDocument"
+              isDarkMode={isDarkMode}
+              onClick={() => setShowCCLEditor(true)}
+              category="standard"
+            />
+          </div>
+        </section>
+      )}
+
+      {/* CCL Editor — replaces main content when open */}
+      {showCCLEditor && (
+        <div style={{ padding: '0 24px', flex: 1, display: 'flex', flexDirection: 'column' as const, minHeight: 0 }}>
+        <CCLEditor
+          matter={matter}
+          teamData={teamData}
+          demoModeEnabled={demoModeEnabled}
+          onClose={() => setShowCCLEditor(false)}
+        />
+        </div>
+      )}
+
+      {/* Main Content — hidden when CCL editor is open */}
+      {!showCCLEditor && (
+      <>
       <div className={mainLayoutStyle}>
         {/* Left Column - Main Content */}
         <div className={leftColumnStyle(isDarkMode)}>
@@ -1370,35 +1294,6 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
               </div>
             </div>
           </div>
-
-          {/* Origin & Pipeline (new matters only) */}
-          {isPipelineLinked && (
-            <div className={sectionCardStyle(isDarkMode)}>
-              <div className={sectionTitleStyle(isDarkMode)}>
-                <Icon iconName="Timeline" styles={{ root: { color: colours.highlight } }} />
-                Origin & Pipeline
-              </div>
-              {derivedWorkbenchItem ? (
-                <div style={{ marginTop: 4 }}>
-                  <InlineWorkbench
-                    item={derivedWorkbenchItem}
-                    isDarkMode={isDarkMode}
-                    enableContextStageChips={true}
-                    teamData={teamData}
-                  />
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <span className={fieldValueStyle(isDarkMode)}>
-                    Pipeline details will appear once an Instruction is linked to this Matter.
-                  </span>
-                  <span style={{ fontSize: 11, color: isDarkMode ? colours.dark.subText : colours.greyText }}>
-                    This area will mirror risk, ID checks, payments, and documents from the existing workbench.
-                  </span>
-                </div>
-              )}
-            </div>
-          )}
         </div>
 
         {/* Right Column - Client Sidebar */}
@@ -1888,6 +1783,42 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
           </div>
         </div>
       </div>
+
+      {/* ─── Origin & Pipeline (full-width, pill bar + InlineWorkbench — matches EnquiryTimeline exactly) ─── */}
+      {isPipelineLinked && (
+        <div style={{ padding: '0 24px 24px' }}>
+          {derivedWorkbenchItem ? (
+            <PipelineSection
+              derivedWorkbenchItem={derivedWorkbenchItem}
+              isDarkMode={isDarkMode}
+              teamData={teamData}
+              demoModeEnabled={demoModeEnabled}
+              matchedEnquiry={matchedEnquiry}
+              selectedWorkbenchTab={selectedWorkbenchTab}
+              setSelectedWorkbenchTab={setSelectedWorkbenchTab}
+              selectedContextStage={selectedContextStage}
+              setSelectedContextStage={setSelectedContextStage}
+            />
+          ) : (
+            <div style={{
+              padding: 16,
+              backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+              border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+              borderRadius: 3,
+              display: 'flex', flexDirection: 'column', gap: 8,
+            }}>
+              <span className={fieldValueStyle(isDarkMode)}>
+                Pipeline details will appear once an Instruction is linked to this Matter.
+              </span>
+              <span style={{ fontSize: 11, color: isDarkMode ? colours.dark.subText : colours.greyText }}>
+                This area will mirror risk, ID checks, payments, and documents from the existing workbench.
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+      </>
+      )}
     </div>
   );
 };

@@ -32,18 +32,14 @@ const ModernMultiSelect: React.FC<ModernMultiSelectProps> = ({
 }) => {
     const { isDarkMode } = useTheme();
     
-    // Use consistent theming
+    // Flat design tokens — no gradients, no shadows
     const themeColours = {
-        bg: isDarkMode 
-            ? 'linear-gradient(135deg, #111827 0%, #1F2937 100%)'
-            : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
-        border: isDarkMode ? '#334155' : '#E2E8F0',
+        bg: isDarkMode ? '#111827' : '#F8FAFC',
+        border: isDarkMode ? '#334155' : '#CBD5E1',
         text: isDarkMode ? '#E5E7EB' : '#0F172A',
-        inactiveText: isDarkMode ? '#9CA3AF' : '#64748B',
+        inactiveText: isDarkMode ? '#9CA3AF' : '#475569',
         selectedBg: isDarkMode ? '#1F2937' : `${colours.highlight}15`,
-        hoverBg: isDarkMode 
-            ? 'linear-gradient(135deg, #1F2937 0%, #374151 100%)'
-            : 'linear-gradient(135deg, #F1F5F9 0%, #E2E8F0 100%)'
+        hoverBg: isDarkMode ? '#1F2937' : '#F1F5F9',
     };
     const getGridColumns = () => {
         if (variant === 'binary' && options.length === 2) {
@@ -62,10 +58,10 @@ const ModernMultiSelect: React.FC<ModernMultiSelectProps> = ({
         gap: variant === 'binary' ? '0' : '6px',
         width: '100%',
         border: variant === 'binary' ? `1px solid ${selectedValue ? colours.highlight : themeColours.border}` : 'none',
-        borderRadius: '6px', // Slightly rounded for modern look
+        borderRadius: 0,
         overflow: 'hidden',
         background: variant === 'binary' ? themeColours.bg : 'transparent',
-        boxShadow: variant === 'binary' ? '0 1px 2px rgba(0,0,0,0.03)' : 'none',
+        boxShadow: 'none',
     };
 
     const getOptionStyle = (option: ModernMultiSelectOption, index: number): React.CSSProperties => {
@@ -80,7 +76,7 @@ const ModernMultiSelect: React.FC<ModernMultiSelectProps> = ({
             fontSize: '12px',
             fontWeight: '500',
             transition: 'all 0.2s ease',
-            border: variant === 'binary' ? 'none' : `1px solid #e0e0e0`,
+            border: variant === 'binary' ? 'none' : `1px solid ${themeColours.border}`,
             background: 'transparent',
             display: 'flex',
             alignItems: 'center',
@@ -107,16 +103,14 @@ const ModernMultiSelect: React.FC<ModernMultiSelectProps> = ({
             background: isSelected ? themeColours.selectedBg : themeColours.bg,
             borderColor: isSelected ? colours.highlight : themeColours.border,
             opacity: isDisabled ? 0.5 : 1,
-            boxShadow: isSelected ? `0 1px 3px ${colours.highlight}20` : '0 1px 2px rgba(0,0,0,0.03)',
-            borderRadius: '6px',
+            boxShadow: 'none',
+            borderRadius: 0,
         };
     };
 
     const questionBannerStyle: React.CSSProperties = {
-        background: isDarkMode 
-            ? 'linear-gradient(to right, #1F2937, #374151)' 
-            : `linear-gradient(to right, #ffffff, ${colours.light.grey})`,
-        borderLeft: `3px solid ${colours.cta}`,
+        background: isDarkMode ? '#1F2937' : '#F8FAFC',
+        borderLeft: `3px solid ${colours.highlight}`,
         padding: '4px 8px',
         fontWeight: '600',
         color: isDarkMode ? '#E5E7EB' : '#061733',
@@ -150,7 +144,6 @@ const ModernMultiSelect: React.FC<ModernMultiSelectProps> = ({
                                 } else {
                                     e.currentTarget.style.background = themeColours.hoverBg;
                                     e.currentTarget.style.borderColor = colours.highlight;
-                                    e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.06)';
                                 }
                             }
                         }}
@@ -162,7 +155,6 @@ const ModernMultiSelect: React.FC<ModernMultiSelectProps> = ({
                                 } else {
                                     e.currentTarget.style.background = themeColours.bg;
                                     e.currentTarget.style.borderColor = themeColours.border;
-                                    e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.03)';
                                 }
                             }
                         }}

@@ -201,14 +201,13 @@ async function sendDealCapturedEmail(context: InvocationContext, dealInfo: any) 
         <pre style="background:#f6f6f6;padding:8px;border-radius:4px;max-height:220px;overflow:auto">${JSON.stringify(dealInfo, null, 2)}</pre>
         
         <p style="margin-top:12px;color:#666;font-size:12px">
-          📧 Delivered to: lz@helix-law.com, cb@helix-law.com${feeEarnerEmail ? ` | CC: ${feeEarnerEmail}` : ''} — this message is for monitoring only.
+          📧 Delivered to: lz@helix-law.com${feeEarnerEmail ? ` | CC: ${feeEarnerEmail}` : ''} — this message is for monitoring only.
         </p>
       </div>`;
 
     // Build recipients list
     const toRecipients = [
-      { emailAddress: { address: 'lz@helix-law.com' } },
-      { emailAddress: { address: 'cb@helix-law.com' } }
+      { emailAddress: { address: 'lz@helix-law.com' } }
     ];
     const ccRecipients = feeEarnerEmail ? [{ emailAddress: { address: feeEarnerEmail } }] : [];
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 // invisible change removed
 import { Stack, Text, Spinner, MessageBar, MessageBarType, DefaultButton, IButtonStyles, TextField, ITextFieldStyles } from '@fluentui/react';
 import { getProxyBaseUrl } from '../../utils/getProxyBaseUrl';

@@ -1,6 +1,7 @@
 const express = require('express');
 const sql = require('mssql');
 const { v4: uuidv4 } = require('uuid');
+const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
 
 const router = express.Router();
 
@@ -10,13 +11,17 @@ const router = express.Router();
  * Writes to instructions database (direct SQL, no Azure Function proxy)
  */
 router.post('/', async (req, res) => {
+    const mrStartTime = Date.now();
     const body = req.body || {};
+    const instructionRef = body.instructionRef || 'unknown';
 
     const connectionString = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
     if (!connectionString) {
+        trackEvent('MatterOpening.MatterRequest.ConfigError', { instructionRef, reason: 'INSTRUCTIONS_SQL_CONNECTION_STRING not configured' });
         return res.status(500).json({ error: 'INSTRUCTIONS_SQL_CONNECTION_STRING not configured' });
     }
 
+    trackEvent('MatterOpening.MatterRequest.Started', { instructionRef, clientType: body.clientType || '', responsibleSolicitor: body.responsibleSolicitor || '' });
     let pool;
     try {
         pool = await sql.connect(connectionString);
@@ -115,9 +120,15 @@ router.post('/', async (req, res) => {
                     @OpponentID, @OpponentSolicitorID, @Status, @OpenDate, @OpenTime)
             `);
 
+        const mrDurationMs = Date.now() - mrStartTime;
+        trackEvent('MatterOpening.MatterRequest.Completed', { instructionRef, matterId, durationMs: String(mrDurationMs) });
+        trackMetric('MatterOpening.MatterRequest.Duration', mrDurationMs, { instructionRef });
         res.status(201).json({ ok: true, matterId });
     } catch (err) {
+        const mrDurationMs = Date.now() - mrStartTime;
         console.error('[matter-requests] Error:', err);
+        trackException(err, { component: 'MatterOpening', operation: 'MatterRequest', phase: 'insert', instructionRef });
+        trackEvent('MatterOpening.MatterRequest.Failed', { instructionRef, error: err.message, durationMs: String(mrDurationMs) });
         res.status(500).json({ error: 'Failed to insert matter request', detail: err.message });
     } finally {
         if (pool) await pool.close();

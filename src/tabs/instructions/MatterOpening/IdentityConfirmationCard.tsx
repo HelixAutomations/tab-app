@@ -7,7 +7,7 @@
 import React, { useState } from 'react';
 import { useTheme } from '../../../app/functionality/ThemeContext';
 import { colours } from '../../../app/styles/colours';
-import { FaIdCard, FaShieldAlt, FaCheck, FaExclamationTriangle, FaCheckCircle, FaMapMarkerAlt, FaUserShield } from 'react-icons/fa';
+import { Icon } from '@fluentui/react/lib/Icon';
 
 type VerificationStatus = 'passed' | 'review' | 'failed' | 'pending' | '';
 
@@ -53,6 +53,12 @@ interface IdentityConfirmationCardProps {
   showConfirmation?: boolean;
   /** Optional instruction ref for context */
   instructionRef?: string;
+  /** Optional callback to trigger ID verification check when pending */
+  onRunIdCheck?: () => void;
+  /** Demo mode — show inline outcome selector instead of real EID */
+  demoModeEnabled?: boolean;
+  /** Callback when user picks a demo EID result */
+  onDemoEidResult?: (result: { id: VerificationStatus; pep: VerificationStatus; address: VerificationStatus }) => void;
 }
 
 // Status palette helper (from InlineWorkbench pattern)
@@ -62,28 +68,28 @@ const getStatusColors = (status: VerificationStatus, isDarkMode: boolean) => {
     border: isDarkMode ? 'rgba(34, 197, 94, 0.4)' : 'rgba(34, 197, 94, 0.3)',
     text: '#22c55e',
     label: 'Passed',
-    icon: <FaCheckCircle size={12} />,
+    icon: <Icon iconName="SkypeCheck" style={{ fontSize: 12 }} />,
   };
   if (status === 'review') return {
     bg: isDarkMode ? 'rgba(251, 191, 36, 0.12)' : 'rgba(251, 191, 36, 0.08)',
     border: isDarkMode ? 'rgba(251, 191, 36, 0.4)' : 'rgba(251, 191, 36, 0.3)',
     text: '#f59e0b',
     label: 'Review',
-    icon: <FaExclamationTriangle size={12} />,
+    icon: <Icon iconName="Warning" style={{ fontSize: 12 }} />,
   };
   if (status === 'failed') return {
     bg: isDarkMode ? 'rgba(239, 68, 68, 0.12)' : 'rgba(239, 68, 68, 0.08)',
     border: isDarkMode ? 'rgba(239, 68, 68, 0.4)' : 'rgba(239, 68, 68, 0.3)',
     text: '#ef4444',
     label: 'Failed',
-    icon: <FaExclamationTriangle size={12} />,
+    icon: <Icon iconName="Warning" style={{ fontSize: 12 }} />,
   };
   if (status === 'pending') return {
     bg: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)',
     border: isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)',
     text: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)',
     label: 'Pending',
-    icon: <FaIdCard size={12} />,
+    icon: <Icon iconName="ContactCard" style={{ fontSize: 12 }} />,
   };
   return {
     bg: isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(148, 163, 184, 0.04)',
@@ -101,7 +107,7 @@ const StatusPill: React.FC<{ status: VerificationStatus; label: string; isDarkMo
     <span style={{
       fontSize: 9,
       padding: '4px 10px',
-      borderRadius: 4,
+      borderRadius: 0,
       background: colors.bg,
       border: `1px solid ${colors.border}`,
       color: colors.text,
@@ -130,6 +136,9 @@ const IdentityConfirmationCard: React.FC<IdentityConfirmationCardProps> = ({
   idConfirmed = false,
   showConfirmation = true,
   instructionRef,
+  onRunIdCheck,
+  demoModeEnabled = false,
+  onDemoEidResult,
 }) => {
   const { isDarkMode } = useTheme();
   const [showConfirmModal, setShowConfirmModal] = useState(false);
@@ -208,7 +217,7 @@ const IdentityConfirmationCard: React.FC<IdentityConfirmationCardProps> = ({
             justifyContent: 'center',
             color: colors.text,
           }}>
-            {isVerified ? <FaCheckCircle size={16} /> : needsReview ? <FaExclamationTriangle size={16} /> : <FaIdCard size={16} />}
+            {isVerified ? <Icon iconName="SkypeCheck" style={{ fontSize: 16 }} /> : needsReview ? <Icon iconName="Warning" style={{ fontSize: 16 }} /> : <Icon iconName="ContactCard" style={{ fontSize: 16 }} />}
           </div>
           <div>
             <div style={{
@@ -245,8 +254,66 @@ const IdentityConfirmationCard: React.FC<IdentityConfirmationCardProps> = ({
               gap: 5,
             }}
           >
-            <FaExclamationTriangle size={10} />
+            <Icon iconName="Warning" style={{ fontSize: 10 }} />
             Review & Confirm
+          </button>
+        )}
+        {!needsReview && !isVerified && demoModeEnabled && onDemoEidResult && (
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <span style={{ fontSize: 9, fontWeight: 600, color: isDarkMode ? '#9CA3AF' : '#64748B', marginRight: 4 }}>DEMO:</span>
+            {[
+              { label: 'Pass', id: 'passed' as VerificationStatus, color: '#22c55e', icon: 'SkypeCheck' },
+              { label: 'Review', id: 'review' as VerificationStatus, color: '#f59e0b', icon: 'Warning' },
+              { label: 'Fail', id: 'failed' as VerificationStatus, color: '#ef4444', icon: 'StatusErrorFull' },
+            ].map(opt => (
+              <button
+                key={opt.label}
+                type="button"
+                onClick={() => onDemoEidResult({
+                  id: opt.id,
+                  pep: opt.id === 'failed' ? 'failed' : 'passed',
+                  address: opt.id === 'failed' ? 'failed' : 'passed',
+                })}
+                style={{
+                  padding: '6px 12px',
+                  background: isDarkMode ? `${opt.color}15` : `${opt.color}10`,
+                  color: opt.color,
+                  border: `1px solid ${opt.color}`,
+                  borderRadius: 0,
+                  fontSize: 10,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+              >
+                <Icon iconName={opt.icon} style={{ fontSize: 10 }} />
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        )}
+        {!needsReview && !isVerified && !demoModeEnabled && onRunIdCheck && (
+          <button
+            type="button"
+            onClick={onRunIdCheck}
+            style={{
+              padding: '8px 14px',
+              background: colours.highlight,
+              color: '#FFFFFF',
+              border: 'none',
+              borderRadius: 0,
+              fontSize: 10,
+              fontWeight: 600,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 5,
+            }}
+          >
+            <Icon iconName="ContactCard" style={{ fontSize: 10 }} />
+            Run ID Verification
           </button>
         )}
       </div>
@@ -320,7 +387,7 @@ const IdentityConfirmationCard: React.FC<IdentityConfirmationCardProps> = ({
         flex: 1,
         padding: '10px 12px',
         minHeight: 54,
-        borderRadius: 4,
+        borderRadius: 0,
         border: `1px solid ${isSelected ? colours.green : isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(0, 0, 0, 0.06)'}`,
         background: isSelected
           ? (isDarkMode ? 'rgba(34, 197, 94, 0.15)' : 'rgba(34, 197, 94, 0.1)')
@@ -407,7 +474,7 @@ const IdentityConfirmationCard: React.FC<IdentityConfirmationCardProps> = ({
             textTransform: 'uppercase',
             letterSpacing: '0.5px',
           }}>
-            <FaIdCard size={11} /> ID Verification
+            <Icon iconName="ContactCard" style={{ fontSize: 11 }} /> ID Verification
           </div>
         </div>
         {instructionRef && (
@@ -448,20 +515,20 @@ const IdentityConfirmationCard: React.FC<IdentityConfirmationCardProps> = ({
             letterSpacing: '0.5px',
             marginBottom: 10,
           }}>
-            <FaIdCard size={11} /> Document Provided
+            <Icon iconName="ContactCard" style={{ fontSize: 11 }} /> Document Provided
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <div style={{ display: 'flex', gap: 8 }}>
               <OptionButton
                 label="Passport"
-                icon={<FaIdCard size={12} />}
+                icon={<Icon iconName="ContactCard" style={{ fontSize: 12 }} />}
                 value={normaliseDocValue(documentProvided?.passportNumber)}
                 isSelected={selectedDoc === 'passport'}
                 isDisabled={!!selectedDoc && selectedDoc !== 'passport'}
               />
               <OptionButton
                 label="Driving licence"
-                icon={<FaIdCard size={12} />}
+                icon={<Icon iconName="ContactCard" style={{ fontSize: 12 }} />}
                 value={normaliseDocValue(documentProvided?.drivingLicenceNumber)}
                 isSelected={selectedDoc === 'licence'}
                 isDisabled={!!selectedDoc && selectedDoc !== 'licence'}
@@ -479,14 +546,14 @@ const IdentityConfirmationCard: React.FC<IdentityConfirmationCardProps> = ({
         <div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 9, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.65)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-              <FaShieldAlt size={11} /> Electronic ID (EID)
+              <Icon iconName="Shield" style={{ fontSize: 11 }} /> Electronic ID (EID)
             </div>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
-            {renderVerificationTile('Overall', verification.id, <FaShieldAlt size={12} />)}
-            {renderVerificationTile('PEP/Sanctions', verification.pep, <FaUserShield size={12} />)}
-            {renderVerificationTile('Address', verification.address, <FaMapMarkerAlt size={12} />)}
+            {renderVerificationTile('Overall', verification.id, <Icon iconName="Shield" style={{ fontSize: 12 }} />)}
+            {renderVerificationTile('PEP/Sanctions', verification.pep, <Icon iconName="LockSolid" style={{ fontSize: 12 }} />)}
+            {renderVerificationTile('Address', verification.address, <Icon iconName="MapPin" style={{ fontSize: 12 }} />)}
           </div>
 
           {!!metaRowItems?.length && (
@@ -539,8 +606,8 @@ const IdentityConfirmationCard: React.FC<IdentityConfirmationCardProps> = ({
             width: 520,
             maxWidth: '90vw',
             background: isDarkMode ? '#111827' : '#FFFFFF',
-            borderRadius: 12,
-            border: `1px solid ${isDarkMode ? '#374151' : '#E2E8F0'}`,
+            borderRadius: 2,
+            border: `1px solid ${isDarkMode ? '#374151' : '#CBD5E1'}`,
             padding: 20,
             boxShadow: '0 10px 30px rgba(0,0,0,0.25)',
           }}>
@@ -555,7 +622,7 @@ const IdentityConfirmationCard: React.FC<IdentityConfirmationCardProps> = ({
                 alignItems: 'center',
                 gap: 8,
               }}>
-                <FaExclamationTriangle size={16} color="#ef4444" />
+                <Icon iconName="Warning" style={{ fontSize: 16, color: '#ef4444' }} />
                 <div style={{
                   fontSize: 14,
                   fontWeight: 700,
@@ -573,10 +640,10 @@ const IdentityConfirmationCard: React.FC<IdentityConfirmationCardProps> = ({
                   background: 'transparent',
                   border: 'none',
                   cursor: 'pointer',
-                  color: isDarkMode ? '#9CA3AF' : '#64748B',
+                  color: isDarkMode ? '#9CA3AF' : '#475569',
                 }}
               >
-                <FaCheck size={16} />
+                <Icon iconName="Cancel" style={{ fontSize: 16 }} />
               </button>
             </div>
 
@@ -599,10 +666,12 @@ const IdentityConfirmationCard: React.FC<IdentityConfirmationCardProps> = ({
                   background: 'transparent',
                   color: isDarkMode ? 'rgba(148, 163, 184, 0.8)' : 'rgba(100, 116, 139, 0.8)',
                   border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.25)'}`,
-                  borderRadius: 4,
+                  borderRadius: 0,
                   fontSize: 11,
                   fontWeight: 600,
                   cursor: 'pointer',
+                  textTransform: 'uppercase' as any,
+                  letterSpacing: '0.5px',
                 }}
               >
                 Cancel
@@ -618,16 +687,18 @@ const IdentityConfirmationCard: React.FC<IdentityConfirmationCardProps> = ({
                   background: colours.highlight,
                   color: '#ffffff',
                   border: 'none',
-                  borderRadius: 4,
+                  borderRadius: 0,
                   fontSize: 11,
                   fontWeight: 700,
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   gap: 6,
+                  textTransform: 'uppercase' as any,
+                  letterSpacing: '0.5px',
                 }}
               >
-                <FaCheckCircle size={10} />
+                <Icon iconName="SkypeCheck" style={{ fontSize: 10 }} />
                 Confirm & Proceed
               </button>
             </div>

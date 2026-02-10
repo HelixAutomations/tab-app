@@ -683,14 +683,7 @@ const AVAILABLE_REPORTS: AvailableReport[] = [
     action: 'ppcReport',
     requiredDatasets: ['googleAds', 'enquiries', 'allMatters', 'recoveredFees'],
   },
-  {
-    key: 'logMonitor',
-    name: 'Log Monitor',
-    status: 'Developer tool',
-    action: 'logMonitor',
-    requiredDatasets: [],
-    description: 'Real-time application logs',
-  },
+  // logMonitor is not a report — rendered separately as a utility strip below the reports grid
 ];
 
 const REPORT_DATASET_REQUIREMENTS = AVAILABLE_REPORTS.reduce<Record<string, DatasetKey[]>>((acc, report) => {
@@ -2906,27 +2899,10 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     demoModeEnabled,
   ]);
 
-  // Auto-trigger refresh on first load if no data has been fetched yet
-  useEffect(() => {
-    // Wait for resumeSession to run first (it sets setRefreshStartedAt)
-    const timeoutId = setTimeout(() => {
-      // If hasFetchedOnce is false, we try to fetch.
-      // We also check if enquiries, matters, and teamData are empty.
-      // This covers the case where hasFetchedOnce might be true from a previous session but cache was cleared or minimal.
-      const hasEnquiries = (datasetData.enquiries?.length ?? 0) > 0;
-      const hasMatters = (datasetData.allMatters?.length ?? 0) > 0;
-      const hasWip = (datasetData.wip?.length ?? 0) > 0;
-
-      const isActuallyEmpty = !hasEnquiries && !hasMatters && !hasWip;
-
-      if ((!hasFetchedOnce || isActuallyEmpty) && !isFetchingRef.current && !isStreamingConnectedRef.current && !refreshStartedAtRef.current && !demoModeEnabled) {
-        debugLog('ReportingHome: Auto-triggering initial data refresh (no data/cache detected)');
-        performStreamingRefresh(false);
-      }
-    }, 800);
-
-    return () => clearTimeout(timeoutId);
-  }, [hasFetchedOnce, performStreamingRefresh, demoModeEnabled, datasetData.enquiries, datasetData.allMatters, datasetData.wip]);
+  // Data is NOT auto-fetched on entry. Users trigger loads via:
+  // 1. Clicking a report card → handleReportCardClick lazy-loads that report's datasets
+  // 2. Clicking "Refresh all" → refreshDatasetsWithStreaming
+  // This avoids unnecessary compute and network traffic on every tab visit.
 
 
   // Enhanced throttling to prevent excessive refresh triggers
@@ -2942,7 +2918,6 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       });
       return;
     }
-    setActiveView('dataCentre');
     const now = Date.now();
     const timeSinceLastRefresh = now - lastRefreshRef.current;
     const timeSinceGlobalRefresh = now - globalLastRefresh;
@@ -3522,17 +3497,6 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     const clioState = streamingDatasets['wipClioCurrentWeek'];
     const dbCurrentState = streamingDatasets['wipDbCurrentWeek'];
 
-    // Debug: Always log what we have
-    console.log('📊 WIP Merge Check:', {
-      wipStatus: wipState?.status,
-      wipCount: Array.isArray(wipState?.data) ? wipState?.data.length : 0,
-      clioStatus: clioState?.status,
-      clioActivities: clioState?.data?.current_week?.activities?.length ?? 0,
-      clioDataShape: clioState?.data ? Object.keys(clioState.data) : 'no data',
-      dbCurrentStatus: dbCurrentState?.status,
-      dbCurrentCount: Array.isArray(dbCurrentState?.data) ? dbCurrentState?.data.length : 0,
-    });
-
     const hasWip = wipState && wipState.status === 'ready' && Array.isArray(wipState.data);
     const clioActivities: WIP[] | undefined = clioState && clioState.status === 'ready'
       ? (clioState.data?.current_week?.activities as WIP[] | undefined)
@@ -3547,7 +3511,6 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       : (dbCurrentActivities && dbCurrentActivities.length > 0 ? dbCurrentActivities : undefined);
 
     if (!activitiesToMerge || activitiesToMerge.length === 0) {
-      console.log('📊 WIP Merge: No activities to merge (clio:', clioActivities?.length ?? 0, 'db:', dbCurrentActivities?.length ?? 0, ')');
       return;
     }
 
@@ -4074,10 +4037,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     [isFetching, isStreamingConnected, refreshStartedAt, isStreamingComplete]
   );
   
-  const canUseReports = useMemo(() => 
-    hasFetchedOnce && readyCount > 0, 
-    [hasFetchedOnce, readyCount]
-  );
+  // Reports are always clickable — handleReportCardClick lazy-loads datasets on demand
+  const canUseReports = true;
 
   // Function to handle report card clicks with loading feedback
   const handleReportCardClick = async (reportKey: string, action: () => void | Promise<void>, dependencies: string[]) => {
@@ -4304,41 +4265,85 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   }, [datasetData.userData]);
 
   const renderAvailableReportCards = () => {
-    // Separate primary reports from secondary ones
-    const primaryKeys = ['dashboard', 'enquiries', 'matters'];
-    const primaryCards = reportCards.filter(card => primaryKeys.includes(card.key));
-    const secondaryCards = reportCards.filter(card => !primaryKeys.includes(card.key));
+    // Hero: dashboard stands alone
+    const heroCard = reportCards.find(card => card.key === 'dashboard');
+    // Everything else groups into the rework zone
+    const otherCards = reportCards.filter(card => card.key !== 'dashboard');
     
     return (
       <>
-        {/* Primary reports - 3 across */}
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(3, 1fr)',
-            gap: 14,
-            marginBottom: 20,
-          }}
-        >
-          {primaryCards.map((card, index) => renderReportCard(card, true, index))}
-        </div>
+        {/* ── Hero: Management Dashboard ── */}
+        {heroCard && (
+          <div style={{ marginBottom: 22 }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                marginBottom: 10,
+              }}
+            >
+              <span style={{
+                fontSize: 9,
+                fontWeight: 700,
+                textTransform: 'uppercase' as const,
+                letterSpacing: '0.5px',
+                color: isDarkMode ? 'rgba(56, 189, 248, 0.85)' : colours.highlight,
+              }}>
+                Production
+              </span>
+              <span style={{
+                width: 6,
+                height: 6,
+                borderRadius: '50%',
+                background: '#22c55e',
+                display: 'inline-block',
+              }} />
+            </div>
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr',
+            }}>
+              {renderReportCard(heroCard, true, 0)}
+            </div>
+          </div>
+        )}
 
-        {/* Separator */}
+        {/* ── Other reports — rework zone ── */}
         <div style={{
-          height: 1,
-          background: isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)',
-          marginBottom: 20,
-        }} />
+          position: 'relative' as const,
+          padding: '16px 16px 14px',
+          borderRadius: 0,
+          border: `1px dashed ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.3)'}`,
+          background: isDarkMode ? 'rgba(15, 23, 42, 0.3)' : 'rgba(241, 245, 249, 0.5)',
+        }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: 12,
+          }}>
+            <span style={{
+              fontSize: 9,
+              fontWeight: 700,
+              textTransform: 'uppercase' as const,
+              letterSpacing: '0.5px',
+              color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(71, 85, 105, 0.7)',
+            }}>
+              Reports
+            </span>
+          </div>
 
-        {/* Secondary reports - flexible layout */}
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(max(260px, calc(33.333% - 10px)), 1fr))',
-            gap: 14,
-          }}
-        >
-          {secondaryCards.map((card, index) => renderReportCard(card, false, index + primaryCards.length))}
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(max(260px, calc(33.333% - 10px)), 1fr))',
+              gap: 14,
+              opacity: 0.85,
+            }}
+          >
+            {otherCards.map((card, index) => renderReportCard(card, false, index + 1))}
+          </div>
         </div>
       </>
     );
@@ -5291,16 +5296,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   };
 
   const handleLaunchDashboard = useCallback(() => {
-    if (!canUseReports) {
-      showToast({
-        message: 'Refresh data to continue. We need at least one ready dataset before opening the management dashboard.',
-        type: 'info',
-        duration: 5000,
-      });
-      return;
-    }
-    setActiveView('dashboard');
-  }, [canUseReports, setActiveView, showToast]);
+    handleOpenDashboard();
+  }, [handleOpenDashboard]);
 
   const handleEnquiriesRangeChange = useCallback((nextKey: ReportRangeKey) => {
     if (nextKey === enquiriesRangeKey) {
@@ -5781,6 +5778,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
           phaseLabel={refreshPhaseLabel}
           elapsedLabel={formatDurationMs(refreshElapsedMs)}
           datasets={datasetSummariesSorted}
+          userName={propUserData?.[0]?.FullName || propUserData?.[0]?.Initials}
         />
       </div>
     );
@@ -5806,102 +5804,18 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                 Reporting workspace
               </h1>
               <p style={{ margin: 0, fontSize: 13, color: isDarkMode ? colours.dark.subText : colours.greyText }}>
-                {isActivelyLoading ? 'Refreshing data feeds...' : 'All systems ready'}
+                {isActivelyLoading ? 'Refreshing data feeds...' : (readyCount > 0 ? 'All systems ready' : 'Click a report or refresh to load data')}
               </p>
             </div>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <DefaultButton
-                  text="Data Hub"
-                  iconProps={{ iconName: 'Database' }}
-                  onClick={() => navigateToReport('dataCentre')}
-                  styles={{
-                    root: {
-                      borderRadius: 0,
-                      padding: '0 16px',
-                      height: 36,
-                      border: `1px solid ${isDarkMode ? 'rgba(56, 189, 248, 0.4)' : 'rgba(59, 130, 246, 0.3)'}`,
-                      background: isDarkMode ? 'rgba(56, 189, 248, 0.15)' : 'rgba(59, 130, 246, 0.1)',
-                      color: isDarkMode ? '#e0f2fe' : '#1d4ed8',
-                      fontWeight: 600,
-                      fontSize: 13,
-                      fontFamily: 'Raleway, sans-serif',
-                      transition: 'all 0.15s ease',
-                      marginRight: 8,
-                    },
-                    rootHovered: {
-                      background: isDarkMode ? 'rgba(56, 189, 248, 0.25)' : 'rgba(59, 130, 246, 0.2)',
-                      borderColor: isDarkMode ? 'rgba(56, 189, 248, 0.5)' : 'rgba(59, 130, 246, 0.4)',
-                    },
-                    icon: {
-                      color: isDarkMode ? '#38bdf8' : '#2563eb',
-                      fontSize: 14,
-                    },
-                  }}
-                />
-                <DefaultButton
-                  text={isActivelyLoading ? 'Refreshing…' : 'Refresh All Datasets'}
-                  onClick={refreshDatasetsWithStreaming}
-                  styles={{
-                    root: {
-                      borderRadius: 0,
-                      padding: '0 16px',
-                      height: 36,
-                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)'}`,
-                      background: isDarkMode ? 'rgba(30, 41, 59, 0.6)' : 'transparent',
-                      color: isDarkMode ? '#e2e8f0' : '#475569',
-                      fontWeight: 500,
-                      fontSize: 13,
-                      fontFamily: 'Raleway, sans-serif',
-                      transition: 'all 0.15s ease',
-                    },
-                    rootHovered: {
-                      background: isDarkMode ? 'rgba(30, 41, 59, 0.8)' : 'rgba(148, 163, 184, 0.08)',
-                      borderColor: isDarkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(148, 163, 184, 0.3)',
-                    },
-                    icon: {
-                      color: isDarkMode ? '#94a3b8' : '#64748b',
-                      fontSize: 14,
-                    },
-                  }}
-                  disabled={isActivelyLoading}
-                  iconProps={{ iconName: 'Sync' }}
-                />
-                <TooltipHost content="Adjust global data window">
-                  <span ref={refreshRangeButtonRef}>
-                    <IconButton
-                      ariaLabel="Adjust data window"
-                      iconProps={{ iconName: 'Settings' }}
-                      onClick={handleToggleRefreshRangeCallout}
-                      styles={{
-                        root: {
-                          width: 36,
-                          height: 36,
-                          borderRadius: 0,
-                          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)'}`,
-                          background: isDarkMode ? 'rgba(30, 41, 59, 0.6)' : 'transparent',
-                          color: isDarkMode ? '#94a3b8' : '#64748b',
-                          transition: 'all 0.15s ease',
-                        },
-                        rootHovered: {
-                          background: isDarkMode ? 'rgba(30, 41, 59, 0.8)' : 'rgba(148, 163, 184, 0.08)',
-                          color: isDarkMode ? '#e2e8f0' : '#475569',
-                        },
-                        icon: {
-                          fontSize: 14,
-                        },
-                      }}
-                    />
-                  </span>
-                </TooltipHost>
-              </div>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              {/* Primary CTA */}
               <PrimaryButton
                 text='Open dashboard'
                 onClick={handleLaunchDashboard}
                 styles={{
                   root: {
                     borderRadius: 0,
-                    padding: '0 18px',
+                    padding: '0 20px',
                     height: 36,
                     background: colours.highlight,
                     border: 'none',
@@ -5909,6 +5823,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                     fontSize: 13,
                     fontFamily: 'Raleway, sans-serif',
                     transition: 'all 0.15s ease',
+                    marginRight: 6,
                   },
                   rootHovered: {
                     background: '#2d7ab8',
@@ -5922,9 +5837,69 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                     fontSize: 14,
                   },
                 }}
-                disabled={isActivelyLoading || !canUseReports}
+                disabled={isActivelyLoading}
                 iconProps={{ iconName: 'Forward' }}
               />
+
+              {/* Utility toolbar — icon-only with tooltips */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 2,
+                borderLeft: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)'}`,
+                paddingLeft: 8,
+              }}>
+                <TooltipHost content={isActivelyLoading ? 'Refreshing…' : 'Refresh all datasets'}>
+                  <IconButton
+                    ariaLabel="Refresh all datasets"
+                    iconProps={{ iconName: 'Sync' }}
+                    onClick={refreshDatasetsWithStreaming}
+                    disabled={isActivelyLoading}
+                    styles={{
+                      root: {
+                        width: 34,
+                        height: 34,
+                        borderRadius: 0,
+                        border: 'none',
+                        background: 'transparent',
+                        color: isDarkMode ? '#94a3b8' : '#64748b',
+                        transition: 'all 0.15s ease',
+                        animation: isActivelyLoading ? 'spin 1s linear infinite' : 'none',
+                      },
+                      rootHovered: {
+                        background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.08)',
+                        color: isDarkMode ? '#e2e8f0' : '#475569',
+                      },
+                      icon: { fontSize: 15 },
+                    }}
+                  />
+                </TooltipHost>
+                <TooltipHost content="Data window settings">
+                  <span ref={refreshRangeButtonRef}>
+                    <IconButton
+                      ariaLabel="Adjust data window"
+                      iconProps={{ iconName: 'Settings' }}
+                      onClick={handleToggleRefreshRangeCallout}
+                      styles={{
+                        root: {
+                          width: 34,
+                          height: 34,
+                          borderRadius: 0,
+                          border: 'none',
+                          background: 'transparent',
+                          color: isDarkMode ? '#94a3b8' : '#64748b',
+                          transition: 'all 0.15s ease',
+                        },
+                        rootHovered: {
+                          background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.08)',
+                          color: isDarkMode ? '#e2e8f0' : '#475569',
+                        },
+                        icon: { fontSize: 15 },
+                      }}
+                    />
+                  </span>
+                </TooltipHost>
+              </div>
             </div>
           </div>
 
@@ -6142,6 +6117,152 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
             </div>
           )}
 
+          {/* ── Data Hub status strip ── */}
+          <div
+            onClick={() => navigateToReport('dataCentre')}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigateToReport('dataCentre'); }}
+            style={{
+              marginBottom: 20,
+              padding: '12px 18px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              cursor: 'pointer',
+              borderRadius: 0,
+              border: `1px solid ${
+                isActivelyLoading
+                  ? (isDarkMode ? 'rgba(59, 130, 246, 0.4)' : 'rgba(59, 130, 246, 0.3)')
+                  : (isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)')
+              }`,
+              background: isActivelyLoading
+                ? (isDarkMode ? 'rgba(30, 64, 175, 0.15)' : 'rgba(219, 234, 254, 0.5)')
+                : (isDarkMode ? 'rgba(15, 23, 42, 0.3)' : 'rgba(241, 245, 249, 0.5)'),
+              transition: 'all 0.2s ease',
+              position: 'relative',
+              overflow: 'hidden',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = isDarkMode ? 'rgba(59, 130, 246, 0.5)' : 'rgba(59, 130, 246, 0.35)';
+              e.currentTarget.style.background = isDarkMode ? 'rgba(30, 64, 175, 0.2)' : 'rgba(219, 234, 254, 0.6)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = isActivelyLoading
+                ? (isDarkMode ? 'rgba(59, 130, 246, 0.4)' : 'rgba(59, 130, 246, 0.3)')
+                : (isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)');
+              e.currentTarget.style.background = isActivelyLoading
+                ? (isDarkMode ? 'rgba(30, 64, 175, 0.15)' : 'rgba(219, 234, 254, 0.5)')
+                : (isDarkMode ? 'rgba(15, 23, 42, 0.3)' : 'rgba(241, 245, 249, 0.5)');
+            }}
+          >
+            {/* Progress bar overlay */}
+            {isActivelyLoading && (
+              <div style={{
+                position: 'absolute',
+                left: 0,
+                bottom: 0,
+                height: 2,
+                width: `${streamingProgress.percentage}%`,
+                background: `linear-gradient(90deg, ${colours.highlight}, #3b82f6)`,
+                transition: 'width 0.4s ease',
+                borderRadius: '0 1px 1px 0',
+              }} />
+            )}
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14, flex: 1, minWidth: 0 }}>
+              {/* Status indicator */}
+              <div style={{
+                width: 32,
+                height: 32,
+                borderRadius: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: isActivelyLoading
+                  ? (isDarkMode ? 'rgba(59, 130, 246, 0.2)' : 'rgba(59, 130, 246, 0.12)')
+                  : (readyCount > 0
+                    ? (isDarkMode ? 'rgba(34, 197, 94, 0.15)' : 'rgba(34, 197, 94, 0.1)')
+                    : (isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.08)')),
+                flexShrink: 0,
+              }}>
+                <FontIcon
+                  iconName={isActivelyLoading ? 'Sync' : 'Database'}
+                  style={{
+                    fontSize: 15,
+                    color: isActivelyLoading
+                      ? (isDarkMode ? '#93c5fd' : '#3b82f6')
+                      : (readyCount > 0
+                        ? (isDarkMode ? '#4ade80' : '#16a34a')
+                        : (isDarkMode ? '#94a3b8' : '#64748b')),
+                    animation: isActivelyLoading ? 'spin 1.5s linear infinite' : 'none',
+                  }}
+                />
+              </div>
+
+              {/* Text content */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: isDarkMode ? '#e2e8f0' : '#1e293b',
+                    fontFamily: 'Raleway, sans-serif',
+                  }}>
+                    Data Hub
+                  </span>
+                  <span style={{
+                    fontSize: 10,
+                    fontWeight: 600,
+                    padding: '1px 6px',
+                    borderRadius: 0,
+                    background: isActivelyLoading
+                      ? (isDarkMode ? 'rgba(59, 130, 246, 0.2)' : 'rgba(59, 130, 246, 0.12)')
+                      : (readyCount > 0
+                        ? (isDarkMode ? 'rgba(34, 197, 94, 0.15)' : 'rgba(34, 197, 94, 0.1)')
+                        : (isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.08)')),
+                    color: isActivelyLoading
+                      ? (isDarkMode ? '#93c5fd' : '#3b82f6')
+                      : (readyCount > 0
+                        ? (isDarkMode ? '#4ade80' : '#16a34a')
+                        : (isDarkMode ? '#94a3b8' : '#64748b')),
+                    border: `1px solid ${
+                      isActivelyLoading
+                        ? (isDarkMode ? 'rgba(59, 130, 246, 0.3)' : 'rgba(59, 130, 246, 0.2)')
+                        : (readyCount > 0
+                          ? (isDarkMode ? 'rgba(34, 197, 94, 0.25)' : 'rgba(34, 197, 94, 0.2)')
+                          : (isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)'))
+                    }`,
+                  }}>
+                    {isActivelyLoading ? 'Syncing' : (readyCount > 0 ? 'Connected' : 'Idle')}
+                  </span>
+                </div>
+                <span style={{
+                  fontSize: 11,
+                  color: isDarkMode ? 'rgba(148, 163, 184, 0.85)' : 'rgba(100, 116, 139, 0.9)',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}>
+                  {isActivelyLoading
+                    ? `${refreshPhaseLabel ?? 'Streaming'} · ${Math.round(streamingProgress.percentage)}% · ${formatDurationMs(refreshElapsedMs)}`
+                    : (lastRefreshTimestamp
+                      ? `${readyCount}/${datasetSummaries.length} feeds · Updated ${formatRelativeTime(lastRefreshTimestamp)}`
+                      : `${readyCount}/${datasetSummaries.length} feeds · Not refreshed yet`)}
+                </span>
+              </div>
+            </div>
+
+            <FontIcon
+              iconName="ChevronRight"
+              style={{
+                fontSize: 10,
+                color: isDarkMode ? '#64748b' : '#94a3b8',
+                flexShrink: 0,
+              }}
+            />
+          </div>
+
           <div
             style={{
               display: 'flex',
@@ -6162,7 +6283,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                 color: isDarkMode ? 'rgba(148, 163, 184, 0.8)' : 'rgba(71, 85, 105, 0.85)',
               }}
             >
-              Available reports
+              Reporting suite
             </h3>
             <span
               style={{
@@ -6180,6 +6301,67 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
           </div>
 
           {renderAvailableReportCards()}
+
+          {/* ── Activity Monitor — not a report, a utility tool ── */}
+          <div
+            onClick={() => navigateToReport('logMonitor')}
+            style={{
+              marginTop: 20,
+              padding: '10px 16px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              cursor: 'pointer',
+              borderRadius: 0,
+              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)'}`,
+              background: isDarkMode ? 'rgba(15, 23, 42, 0.25)' : 'rgba(241, 245, 249, 0.4)',
+              transition: 'all 0.15s ease',
+              opacity: 0.7,
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.opacity = '1';
+              e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.opacity = '0.7';
+              e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)';
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{
+                fontSize: 14,
+                color: isDarkMode ? '#94a3b8' : '#64748b',
+                display: 'flex',
+                alignItems: 'center',
+              }}>
+                <FontIcon iconName="Health" style={{ fontSize: 14 }} />
+              </span>
+              <div>
+                <span style={{
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: isDarkMode ? '#cbd5e1' : '#475569',
+                  fontFamily: 'Raleway, sans-serif',
+                }}>
+                  Activity monitor
+                </span>
+                <span style={{
+                  fontSize: 10,
+                  color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.8)',
+                  marginLeft: 10,
+                }}>
+                  Real-time hub logs · Application Insights level
+                </span>
+              </div>
+            </div>
+            <FontIcon
+              iconName="ChevronRight"
+              style={{
+                fontSize: 10,
+                color: isDarkMode ? '#64748b' : '#94a3b8',
+              }}
+            />
+          </div>
         </section>
 
       {/* Notes & Suggestions Box - only show in development */}

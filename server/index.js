@@ -1,5 +1,9 @@
 const path = require('path');
 
+// ── Application Insights (must init BEFORE express so HTTP is auto-instrumented) ──
+const appInsights = require('./utils/appInsights');
+appInsights.init();
+
 //
 // 🟢 THIS IS THE MAIN SERVER FILE - server/index.js 🟢
 //
@@ -159,6 +163,7 @@ const clearCacheRouter = require('./routes/clearCache');
 const teamsActivityTrackingRouter = require('./routes/teamsActivityTracking');
 const pitchTrackingRouter = require('./routes/pitchTracking');
 const enquiryEnrichmentRouter = require('./routes/enquiryEnrichment');
+const peopleSearchRouter = require('./routes/people-search');
 const claimEnquiryRouter = require('./routes/claimEnquiry');
 const rateChangesRouter = require('./routes/rate-changes');
 const cclDateRouter = require('./routes/ccl-date');
@@ -322,6 +327,7 @@ app.use('/api/cache', clearCacheRouter);
 app.use('/api/teams-activity-tracking', teamsActivityTrackingRouter);
 app.use('/api/pitch-tracking', pitchTrackingRouter);
 app.use('/api/enquiry-enrichment', enquiryEnrichmentRouter);
+app.use('/api/people-search', peopleSearchRouter);
 app.use('/api/logs', logsStreamRouter);
 app.use('/api/release-notes', releaseNotesRouter);
 
@@ -468,4 +474,14 @@ app.use((error, req, res, next) => {
 app.listen(PORT, () => {
     // Server started
     startDataOperationsScheduler();
+});
+
+// Flush App Insights telemetry on graceful shutdown
+process.on('SIGTERM', async () => {
+    await appInsights.flush();
+    process.exit(0);
+});
+process.on('SIGINT', async () => {
+    await appInsights.flush();
+    process.exit(0);
 });

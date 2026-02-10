@@ -1,12 +1,12 @@
 //
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react'; // invisible change
 // invisible change 2.2
-import { Stack, PrimaryButton, Dialog, DialogType, DialogFooter, DefaultButton, IconButton } from '@fluentui/react';
+import { PrimaryButton, Dialog, DialogType, DialogFooter, DefaultButton, IconButton } from '@fluentui/react';
 import MinimalSearchBox from './MinimalSearchBox';
 import { POID, TeamData, UserData, InstructionData } from '../../../app/functionality/types';
 import ClientDetails from '../ClientDetails';
 import ClientHub from '../ClientHub';
-import StepWrapper from './StepWrapper';
+// StepWrapper removed - Step 2 is now inline
 import '../../../app/styles/NewMatters.css';
 import '../../../app/styles/MatterOpeningCard.css';
 import './MatterOpeningResponsive.css';
@@ -21,18 +21,12 @@ import {
 } from './config';
 import localUserData from '../../../localData/localUserData.json';
 
-import ClientInfoStep from './ClientInfoStep';
 import PoidSelectionStep from './PoidSelectionStep';
-import AreaOfWorkStep from './AreaOfWorkStep';
-import PracticeAreaStep from './PracticeAreaStep';
-import DescriptionStep from './DescriptionStep';
-import FolderStructureStep from './FolderStructureStep';
-import ValueAndSourceStep from './ValueAndSourceStep';
-import SourceStep from './SourceStep';
 import OpponentDetailsStep from './OpponentDetailsStep';
 import ModernMultiSelect from './ModernMultiSelect';
-import BudgetStep from './BudgetStep';
+// BudgetStep removed - inlined into Step 2
 
+import { useToast } from '../../../components/feedback/ToastProvider';
 import { CompletionProvider } from './CompletionContext';
 import ProcessingSection, { ProcessingStep } from './ProcessingSection';
 import { processingActions, initialSteps, registerClientIdCallback, registerMatterIdCallback, registerOperationObserver, setCurrentActionIndex } from './processingActions';
@@ -110,6 +104,10 @@ interface FlatMatterOpeningProps {
      * Returns the opened matter ID for parent component feedback.
      */
     onMatterSuccess?: (matterId: string) => void;
+    /** Optional callback to trigger ID verification when pending */
+    onRunIdCheck?: () => void;
+    /** Whether the app is in demo mode — enables fake processing outcomes */
+    demoModeEnabled?: boolean;
 }
 
 const FlatMatterOpening: React.FC<FlatMatterOpeningProps> = ({
@@ -132,9 +130,14 @@ const FlatMatterOpening: React.FC<FlatMatterOpeningProps> = ({
     onDraftCclNow,
     onBack,
     onMatterSuccess,
+    onRunIdCheck,
+    demoModeEnabled = false,
 }) => {
     // Dark mode support
     const { isDarkMode } = useTheme();
+    
+    // Toast notifications
+    const { showToast, hideToast } = useToast();
     
     // Navigator context for setting custom header content
     const { setContent } = useNavigatorActions();
@@ -167,6 +170,7 @@ const FlatMatterOpening: React.FC<FlatMatterOpeningProps> = ({
     }, [onMatterSuccess]);
 
     const showPoidSelection = !instructionRef;
+
     const defaultPoidData: POID[] = useMemo(() => {
         // Step A: Build a robust POID list from provided poidData (preferred) or legacy idVerifications
         const basePoids = ((poidData && poidData.length > 0)
@@ -234,6 +238,9 @@ const FlatMatterOpening: React.FC<FlatMatterOpeningProps> = ({
             (instructionRecords as any[]).forEach((inst) => {
                 const instRef = String(inst.InstructionRef || '');
                 const emailKey = String(inst.Email || '').toLowerCase();
+                // Extract lead verification from idVerifications array for field fallbacks
+                const idVerifs = Array.isArray(inst.idVerifications) ? inst.idVerifications : [];
+                const leadVerif = idVerifs.find((v: any) => v.IsLeadClient) || idVerifs[0] || null;
                 // Prefer match by InstructionRef, fall back to email
                 let match: POID | undefined = undefined;
                 if (instRef && byInstRef.has(instRef)) {
@@ -249,29 +256,60 @@ const FlatMatterOpening: React.FC<FlatMatterOpeningProps> = ({
                     merged.push({
                         ...match,
                         InstructionRef: instRef || (match as any).InstructionRef,
-                        best_number: match.best_number || inst.Phone,
+                        first: match.first || inst.FirstName || inst.Forename,
+                        last: match.last || inst.LastName || inst.Surname,
+                        best_number: match.best_number || inst.Phone || inst.phone,
                         company_name: match.company_name || inst.CompanyName,
                         company_number: match.company_number || inst.CompanyNumber,
+                        // Personal details from instruction if not already on POID
+                        date_of_birth: match.date_of_birth || inst.DOB || inst.DateOfBirth,
+                        nationality: (match as any).nationality || inst.Nationality,
+                        passport_number: match.passport_number || inst.PassportNumber,
+                        // Address fields from instruction if not already on POID
+                        house_building_number: match.house_building_number || inst.HouseNumber,
+                        street: match.street || inst.Street,
+                        city: match.city || inst.City,
+                        county: match.county || inst.County,
+                        post_code: match.post_code || inst.Postcode || inst.PostCode,
+                        country: match.country || inst.Country,
                         // Include verification fields from instruction if not present in matched POID
-                        check_result: match.check_result || inst.EIDOverallResult,
-                        pep_sanctions_result: match.pep_sanctions_result || inst.PEPAndSanctionsCheckResult,
-                        address_verification_result: match.address_verification_result || inst.AddressVerificationResult,
+                        check_result: match.check_result || inst.EIDOverallResult || leadVerif?.EIDOverallResult,
+                        pep_sanctions_result: match.pep_sanctions_result || inst.PEPAndSanctionsCheckResult || inst.PEPResult || leadVerif?.PEPAndSanctionsCheckResult || leadVerif?.PEPResult,
+                        address_verification_result: match.address_verification_result || inst.AddressVerificationResult || inst.AddressVerification || leadVerif?.AddressVerificationResult || leadVerif?.AddressVerification,
                     } as POID);
                 } else {
-                    // No match in basePoids – include a minimal record for UI visibility (won't be preselected)
+                    // No match in basePoids - include a minimal record for UI visibility (won't be preselected)
                     merged.push({
-                        poid_id: String(instRef || inst.id || emailKey || `${inst.FirstName || ''}|${inst.LastName || ''}`),
-                        first: inst.FirstName,
-                        last: inst.LastName,
-                        email: inst.Email,
-                        best_number: inst.Phone,
+                        poid_id: String(instRef || inst.id || emailKey || `${inst.FirstName || inst.Forename || ''}|${inst.LastName || inst.Surname || ''}`),
+                        first: inst.FirstName || inst.Forename || leadVerif?.FirstName,
+                        last: inst.LastName || inst.Surname || leadVerif?.LastName,
+                        email: inst.Email || inst.ClientEmail || leadVerif?.Email,
+                        best_number: inst.Phone || inst.phone || inst.Phone_Number,
                         company_name: inst.CompanyName,
                         company_number: inst.CompanyNumber,
                         InstructionRef: instRef,
-                        // Include verification fields from instruction record
-                        check_result: inst.EIDOverallResult,
-                        pep_sanctions_result: inst.PEPAndSanctionsCheckResult,
-                        address_verification_result: inst.AddressVerificationResult,
+                        // Personal details from instruction record
+                        date_of_birth: inst.DOB || inst.DateOfBirth || inst.date_of_birth,
+                        nationality: inst.Nationality || inst.nationality,
+                        passport_number: inst.PassportNumber || inst.passport_number,
+                        // Address fields from instruction record
+                        house_building_number: inst.HouseNumber || inst.house_building_number || inst.HouseBuildingNumber,
+                        street: inst.Street || inst.street,
+                        city: inst.City || inst.city,
+                        county: inst.County || inst.county,
+                        post_code: inst.Postcode || inst.PostCode || inst.post_code,
+                        country: inst.Country || inst.country,
+                        country_code: inst.CountryCode || inst.country_code,
+                        // Company address from instruction record
+                        company_house_building_number: inst.CompanyHouseNumber || inst.company_house_building_number,
+                        company_street: inst.CompanyStreet || inst.company_street,
+                        company_city: inst.CompanyCity || inst.company_city,
+                        company_post_code: inst.CompanyPostcode || inst.company_post_code,
+                        company_country: inst.CompanyCountry || inst.company_country,
+                        // Include verification fields from instruction record + idVerifications fallback
+                        check_result: inst.EIDOverallResult || leadVerif?.EIDOverallResult,
+                        pep_sanctions_result: inst.PEPAndSanctionsCheckResult || inst.PEPResult || leadVerif?.PEPAndSanctionsCheckResult || leadVerif?.PEPResult,
+                        address_verification_result: inst.AddressVerificationResult || inst.AddressVerification || leadVerif?.AddressVerificationResult || leadVerif?.AddressVerification,
                     } as POID);
                 }
             });
@@ -292,7 +330,7 @@ const FlatMatterOpening: React.FC<FlatMatterOpeningProps> = ({
             return Array.from(byKey.values());
         }
 
-        // No instructionRecords – just return basePoids with email de-duplication
+        // No instructionRecords - just return basePoids with email de-duplication
         const uniqueMap = new Map<string, POID>();
         basePoids.forEach((p) => {
             const key = (p.email || '').toLowerCase() || `${p.first?.toLowerCase() || ''}|${p.last?.toLowerCase() || ''}`;
@@ -350,6 +388,8 @@ const FlatMatterOpening: React.FC<FlatMatterOpeningProps> = ({
     const [debugActiveTab, setDebugActiveTab] = useState<'json' | 'details' | 'advanced'>('json');
     const [debugAdvancedOpen, setDebugAdvancedOpen] = useState(false);
     const [debugManualJson, setDebugManualJson] = useState('');
+    // Demo processing outcome selector: 'success' | 'fail-early' | 'fail-mid' | 'fail-late'
+    const [demoProcessingOutcome, setDemoProcessingOutcome] = useState<'success' | 'fail-early' | 'fail-mid' | 'fail-late'>('success');
     // Ensure client type states exist (some logic references pendingClientType)
     // Re-initialize only if not already declared above (TypeScript will error if duplicate, but patch inserts once)
     // Client type selection
@@ -407,6 +447,24 @@ const FlatMatterOpening: React.FC<FlatMatterOpeningProps> = ({
     const [clientAsOnFile, setClientAsOnFile] = useDraftedState<string>('clientAsOnFile', '');
     const [isDateCalloutOpen, setIsDateCalloutOpen] = useState(false);
     const dateButtonRef = useRef<HTMLDivElement | null>(null);
+
+    // Demo EID override — stores temp verification result picked inline during demo
+    const [demoEidOverride, setDemoEidOverride] = useState<{ id: string; pep: string; address: string } | null>(null);
+
+    const handleDemoEidResult = React.useCallback((result: { id: string; pep: string; address: string }) => {
+        setDemoEidOverride(result);
+    }, []);
+
+    // Apply demo EID override to effective POID data so the card reflects the chosen result
+    const displayPoidData = React.useMemo(() => {
+        if (!demoEidOverride || !demoModeEnabled) return effectivePoidData;
+        return effectivePoidData.map(p => ({
+            ...p,
+            check_result: demoEidOverride.id,
+            pep_sanctions_result: demoEidOverride.pep,
+            address_verification_result: demoEidOverride.address,
+        } as typeof p));
+    }, [effectivePoidData, demoEidOverride, demoModeEnabled]);
     
     // Auto-select client when entering via instruction card
     useEffect(() => {
@@ -436,6 +494,45 @@ const FlatMatterOpening: React.FC<FlatMatterOpeningProps> = ({
             }
         }
     }, [instructionRef, effectivePoidData, selectedPoidIds.length, setSelectedPoidIds, setPendingClientType]);
+
+    // Pre-populate description + demo mode full prefill
+    useEffect(() => {
+        if (!instructionRef || !Array.isArray(instructionRecords)) return;
+
+        // Description prefill (works for all modes)
+        if (!description) {
+            const inst = (instructionRecords as any[]).find(r => r?.InstructionRef === instructionRef);
+            const svcDesc = inst?.ServiceDescription || inst?.service_description;
+            if (svcDesc && typeof svcDesc === 'string' && svcDesc.trim()) {
+                setDescription(svcDesc.trim());
+            }
+        }
+
+        // Demo mode full prefill — set every form field for zero-friction demo
+        if (demoModeEnabled) {
+            // Matter details
+            if (!areaOfWork) setAreaOfWork('Commercial');
+            if (!practiceArea) setPracticeArea('Business Contract Dispute');
+            if (!folderStructure) setFolderStructure('Default / Commercial');
+            if (!disputeValue) setDisputeValue('Less than £10k');
+            if (!source) setSource('search');
+            if (!selectedDate) setSelectedDate(new Date());
+
+            // Opponent — realistic demo data
+            if (!opponentName) setOpponentName('Acme Industries Ltd');
+            if (!opponentFirst) setOpponentFirst('James');
+            if (!opponentLast) setOpponentLast('Crawford');
+            if (!opponentEmail) setOpponentEmail('j.crawford@acme-industries.co.uk');
+            if (!opponentChoiceMade) setOpponentChoiceMade(true);
+            if (!noConflict) setNoConflict(true);
+
+            // Team — auto-defaults handle teamMember + originatingSolicitor from logged-in user
+            // Supervising partner uses first names only (from partnerOptionsList)
+            if (!supervisingPartner) setSupervisingPartner('Luke');
+            if (!clientAsOnFile) setClientAsOnFile('Test Client');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [instructionRef, demoModeEnabled]);
     
     // --- Restored original team option sourcing logic (full active team) ---
     const defaultPartnerOptions = defaultPartners; // fallback partner list
@@ -480,8 +577,16 @@ const FlatMatterOpening: React.FC<FlatMatterOpeningProps> = ({
     }, [activeTeam]);
 
     const solicitorOptions = useMemo(() => {
-        return activeTeam.map(getFullName).filter(Boolean);
-    }, [activeTeam]);
+        const opts = activeTeam.map(getFullName).filter(Boolean);
+        if (opts.length === 0) {
+            console.warn('[FlatMatterOpening] solicitorOptions empty -- teamData:', teamData ? `${teamData.length} items` : 'null', '| activeTeam:', activeTeam.length);
+        }
+        return opts;
+    }, [activeTeam, teamData]);
+
+    // Area of work  - „¢ colour map (shared by AOW buttons and practice area select)
+    const aowColorMap: Record<string, string> = { Commercial: colours.blue, Property: colours.green, Construction: colours.orange, Employment: colours.yellow };
+    const aowColor = aowColorMap[areaOfWork] || colours.highlight;
 
     const defaultTeamMember = useMemo(() => {
         if (activeTeam && activeTeam.length > 0) {
@@ -517,6 +622,7 @@ const FlatMatterOpening: React.FC<FlatMatterOpeningProps> = ({
     const [supportMessage, setSupportMessage] = useState('');
     const [supportCategory, setSupportCategory] = useState<'technical' | 'process' | 'data'>('technical');
     const [supportSending, setSupportSending] = useState(false);
+    const [reportDelivered, setReportDelivered] = useState(false);
     
     // Debug states shared by unified inspector
     const [debugJsonInput, setDebugJsonInput] = useState('');
@@ -1053,7 +1159,7 @@ const handleClearAll = () => {
             .join('');
         
         // Check if derived initials conflict with an existing team member
-        const conflict = teamData.find(t => t.Initials === derivedInitials);
+        const conflict = teamData?.find(t => t.Initials === derivedInitials);
         if (conflict) {
             console.warn(`[getInitialsFromName] Derived initials "${derivedInitials}" for "${name}" conflict with ${conflict['Full Name']}. Please verify team data.`);
         }
@@ -1069,6 +1175,9 @@ const handleClearAll = () => {
 
     // Determine requesting user Clio ID based on environment
     const requestingUserClioId = teamData ? getClioId(userInitials, teamData) : '';
+
+    // Profile readiness gate — blocks submission until user data is resolvable
+    const profileReady = !!(teamData && Array.isArray(teamData) && teamData.length > 0 && requestingUserNickname);
 
     // Environment/admin flags for gated backend details
     const isLocalDev = process.env.NODE_ENV !== 'production';
@@ -1086,6 +1195,25 @@ const handleClearAll = () => {
 
     // Horizontal sliding carousel approach
     const [currentStep, setCurrentStep] = useDraftedState<number>('currentStep', 0); // 0: select, 1: form, 2: review
+    const carouselRef = useRef<HTMLDivElement>(null);
+
+    // Scroll the modal container to top when step changes
+    useEffect(() => {
+        if (carouselRef.current) {
+            const scrollParent = carouselRef.current.closest('[style*="overflow"]') as HTMLElement
+                || carouselRef.current.closest('div[style]');
+            // Walk up to find the scrollable parent (the modal's overflowY: auto container)
+            let el: HTMLElement | null = carouselRef.current.parentElement;
+            while (el) {
+                const style = window.getComputedStyle(el);
+                if (style.overflowY === 'auto' || style.overflowY === 'scroll') {
+                    el.scrollTo({ top: 0, behavior: 'smooth' });
+                    break;
+                }
+                el = el.parentElement;
+            }
+        }
+    }, [currentStep]);
     
     // Guarantee a date when entering the Matter or Review steps
     useEffect(() => {
@@ -1283,34 +1411,24 @@ const handleClearAll = () => {
 
     const handleContinueToForm = () => {
         if (clientsStepComplete) {
-            // Persist the actively chosen client type if available
             setClientType(pendingClientType || clientType);
             setCurrentStep(1);
-            // Scroll to top when changing steps
-            // Removed smooth scroll to avoid transition jolt
-            // window.scrollTo({ top: 0 });
         }
     };
 
     const handleGoToReview = () => {
         setCurrentStep(2);
-        // Scroll to top when changing steps
-    // window.scrollTo({ top: 0 });
     };
 
     const handleBackToClients = () => {
         setCurrentStep(0);
-        // Scroll to top when changing steps
-    // window.scrollTo({ top: 0 });
     };
 
     const handleBackToForm = () => {
         setCurrentStep(1);
-        setSummaryConfirmed(false); // Reset confirmation when going back to edit
-        setConfirmAcknowledge(false); // Reset acknowledgement checkbox
-        setEditsAfterConfirmation(false); // Reset edits flag when explicitly going back
-        // Scroll to top when changing steps
-    // window.scrollTo({ top: 0 });
+        setSummaryConfirmed(false);
+        setConfirmAcknowledge(false);
+        setEditsAfterConfirmation(false);
     };
 
     // Back navigation handler - must be after currentStep and handlers are defined
@@ -1322,10 +1440,7 @@ const handleClearAll = () => {
             return;
         }
         if (currentStep === 1) {
-            // From Matter Details -> back to Select Parties
             setCurrentStep(0);
-            // Scroll to top when changing steps
-            // window.scrollTo({ top: 0 });
             return;
         }
         if (currentStep === 0) {
@@ -1438,6 +1553,15 @@ const handleClearAll = () => {
                 originating_solicitor: originatingSolicitor,
                 requesting_user: requestingUserNickname,
                 fee_earner_initials: teamData ? getInitialsFromName(teamMember, teamData) : '',
+                fee_earner_email: (() => {
+                    if (!teamData) return '';
+                    const initials = getInitialsFromName(teamMember, teamData);
+                    if (!initials) return '';
+                    const match = teamData.find((t: any) =>
+                        (t?.Initials || '').toUpperCase() === initials.toUpperCase()
+                    );
+                    return match?.Email || '';
+                })(),
                 originating_solicitor_initials: teamData ? getInitialsFromName(originatingSolicitor, teamData) : ''
             },
             client_information: selectedClients,
@@ -1550,8 +1674,8 @@ const handleClearAll = () => {
                     eid_overall_result: leadVerif?.EIDOverallResult || inst.EIDOverallResult || null,
                     eid_check_id: leadVerif?.EIDCheckId || inst.EIDCheckId || null,
                     eid_status: leadVerif?.EIDStatus || inst.EIDStatus || null,
-                    pep_sanctions_result: leadVerif?.PEPAndSanctionsCheckResult || inst.PEPAndSanctionsCheckResult || null,
-                    address_verification_result: leadVerif?.AddressVerificationResult || inst.AddressVerificationResult || null,
+                    pep_sanctions_result: leadVerif?.PEPAndSanctionsCheckResult || leadVerif?.PEPResult || inst.PEPAndSanctionsCheckResult || inst.PEPResult || null,
+                    address_verification_result: leadVerif?.AddressVerificationResult || leadVerif?.AddressVerification || inst.AddressVerificationResult || inst.AddressVerification || null,
                     // Risk assessment - pull from riskAssessments array
                     risk_assessment: latestRisk ? {
                         result: latestRisk.RiskAssessmentResult || null,
@@ -1789,10 +1913,68 @@ const handleClearAll = () => {
 
     // Track failing step for summary display
     const [failureSummary, setFailureSummary] = useState<string>('');
+    const autoReportSentRef = React.useRef<string | null>(null);
+
+    // Auto-send diagnostic report to dev team on failure (includes full form shell)
+    React.useEffect(() => {
+        if (!failureSummary || autoReportSentRef.current === failureSummary) return;
+        autoReportSentRef.current = failureSummary;
+        setReportDelivered(false);
+        
+        // Brief delay for animated feedback sequencing
+        const timer = setTimeout(async () => {
+            try {
+                const report = {
+                    issue: failureSummary,
+                    user: userInitials, instruction: instructionRef || 'N/A',
+                    timestamp: new Date().toLocaleString(),
+                    formData: generateSampleJson(),
+                    processingSteps: processingSteps.map(s => ({ label: s.label, status: s.status, message: s.message })),
+                    url: window.location.href,
+                    autoSent: true
+                };
+                const html = `<h2>Matter Opening Issue (Auto-Report)</h2><pre>${JSON.stringify(report, null, 2)}</pre>`;
+                const resp = await fetch('/api/sendEmail', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ to: 'lz@helix-law.com', subject: `Matter Opening Issue (Auto) - ${userInitials}`, html, from_email: 'automations@helix-law.com' })
+                });
+                if (resp.ok) {
+                    setReportDelivered(true);
+                } else {
+                    showToast({ type: 'error', title: 'Report Failed', message: 'Could not deliver report. Use the manual Report button.' });
+                }
+            } catch {
+                showToast({ type: 'error', title: 'Report Failed', message: 'Network error sending report.' });
+            }
+        }, 1200);
+        return () => clearTimeout(timer);
+    }, [failureSummary]);
     
     // Local userData state for fallback when prop is missing
     const [fallbackUserData, setFallbackUserData] = useState<UserData[] | null>(null);
     const [userDataLoading, setUserDataLoading] = useState(false);
+
+    // Report telemetry event to server (App Insights-backed)
+    const reportMatterTelemetry = (type: string, data: Record<string, unknown>) => {
+        try {
+            fetch('/api/telemetry', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    source: 'MatterOpening',
+                    event: {
+                        type,
+                        timestamp: new Date().toISOString(),
+                        sessionId: `${userInitials}-${Date.now()}`,
+                        enquiryId: instructionRef || '',
+                        feeEarner: userInitials || '',
+                        data: { ...data, instructionRef: instructionRef || '', userInitials: userInitials || '' },
+                        error: data.error ? String(data.error) : undefined,
+                    }
+                })
+            }).catch(() => { /* non-blocking */ });
+        } catch { /* non-blocking */ }
+    };
     
     // Fallback function to fetch userData if not provided via props
     const fetchUserDataFallback = async (entraId: string): Promise<UserData[] | null> => {
@@ -1830,12 +2012,66 @@ const handleClearAll = () => {
     const effectiveUserData = userData || fallbackUserData;
 
     // Process matter opening steps defined in processingActions
+    // --- Demo mode processing simulator ---
+    const simulateDemoProcessing = async () => {
+        setIsProcessing(true);
+        setProcessingOpen(true);
+        setProcessingLogs([]);
+        setProcessingSteps(initialSteps);
+        setFailureSummary('');
+        setReportDelivered(false);
+        autoReportSentRef.current = null;
+
+        showToast({ type: 'loading', title: 'Opening Matter (Demo)', message: 'Simulating matter opening process...', persist: true, id: 'matter-processing' });
+
+        const total = initialSteps.length;
+        // Determine which step to fail on based on outcome
+        const failAt = demoProcessingOutcome === 'fail-early' ? 1
+            : demoProcessingOutcome === 'fail-mid' ? Math.floor(total / 2)
+            : demoProcessingOutcome === 'fail-late' ? total - 2
+            : -1; // success = no failure
+
+        for (let i = 0; i < total; i++) {
+            setCurrentActionIndex(i);
+            // Simulate step delay (100-300ms per step)
+            await new Promise(r => setTimeout(r, 120 + Math.random() * 180));
+
+            if (i === failAt) {
+                // Simulate failure
+                const failMsg = `Demo simulated failure at step ${i + 1}`;
+                setProcessingSteps(prev => prev.map((s, idx) => idx === i ? { ...s, status: 'error', message: failMsg } : s));
+                setProcessingLogs(prev => [...prev, `[x] ${initialSteps[i].label}: ${failMsg}`]);
+                setFailureSummary(`Failed at: ${initialSteps[i].label} - ${failMsg}`);
+                showToast({ type: 'error', title: 'Processing Failed (Demo)', message: `Failed at: ${initialSteps[i].label}` });
+                setDebugInspectorOpen(true);
+                break;
+            }
+
+            // Simulate success
+            setProcessingSteps(prev => prev.map((s, idx) => idx === i ? { ...s, status: 'success', message: 'OK' } : s));
+            setProcessingLogs(prev => [...prev, `[ok] ${initialSteps[i].label}: Done`]);
+        }
+
+        if (failAt === -1) {
+            // Full success
+            setProcessingLogs(prev => [...prev, '[ok] Matter opening completed successfully! (Demo)']);
+            showToast({ type: 'success', title: 'Matter Opened (Demo)', message: 'Demo processing completed.' });
+            setOpenedMatterId('DEMO-MATTER-001');
+            completeMatterOpening();
+        }
+
+        hideToast('matter-processing');
+        setTimeout(() => setIsProcessing(false), 1500);
+        setProcessingOpen(false);
+        return { url: '' };
+    };
+
     const simulateProcessing = async () => {
         let workingUserData = effectiveUserData;
         
         // CRITICAL: Validate userData is loaded before processing - try fallback if missing
         if (!workingUserData || !Array.isArray(workingUserData) || workingUserData.length === 0) {
-            console.warn('⚠️ [simulateProcessing] userData missing, attempting fallback fetch...');
+            console.warn('[!] [simulateProcessing] userData missing, attempting fallback fetch...');
             
             // Try to get Entra ID from teamData by matching userInitials
             let entraId: string | null = null;
@@ -1851,21 +2087,41 @@ const handleClearAll = () => {
                 if (fallbackData && fallbackData.length > 0) {
                     workingUserData = fallbackData;
                 } else {
-                    const errorMsg = 'User profile data could not be loaded. Please refresh the page and try again.';
-                    setFailureSummary(`Failed at: Pre-validation – ${errorMsg}`);
-                    setProcessingLogs([`❌ Pre-validation: ${errorMsg}`]);
-                    setProcessingSteps(prev => prev.map((s, idx) => idx === 0 ? { ...s, status: 'error', message: errorMsg } : s));
-                    setDebugInspectorOpen(true);
-                    console.error('❌ [simulateProcessing] userData validation failed after fallback:', { userData, fallbackUserData, userInitials });
-                    return { url: '' };
+                    console.warn('[FlatMatterOpening] API fallback returned empty, constructing from teamData...');
                 }
-            } else {
-                const errorMsg = 'User profile data not loaded and Entra ID not found. Please refresh the page and try again.';
-                setFailureSummary(`Failed at: Pre-validation – ${errorMsg}`);
-                setProcessingLogs([`❌ Pre-validation: ${errorMsg}`]);
+            }
+            
+            // If still missing, construct minimal userData from teamData
+            if (!workingUserData || !Array.isArray(workingUserData) || workingUserData.length === 0) {
+                if (teamData && Array.isArray(teamData) && userInitials) {
+                    const teamMember = teamData.find((t: any) => 
+                        (t.Initials || t.initials || '').toLowerCase() === userInitials.toLowerCase()
+                    );
+                    if (teamMember) {
+                        console.warn('[FlatMatterOpening] Constructing userData from teamData for:', userInitials);
+                        const tm = teamMember as any;
+                        workingUserData = [{
+                            Initials: teamMember.Initials || tm.initials || userInitials,
+                            ASANASecret: tm.ASANASecret || tm.ASANA_Secret || '',
+                            ASANA_Secret: tm.ASANA_Secret || tm.ASANASecret || '',
+                            'Entra ID': teamMember['Entra ID'] || tm.EntraID || '',
+                            Email: teamMember.Email || tm.email || '',
+                            Name: teamMember['Full Name'] || tm.Name || tm.name || `${teamMember.First || ''} ${teamMember.Last || ''}`.trim(),
+                            ClioID: teamMember['Clio ID'] || tm.ClioID || tm.Clio_ID || '',
+                        } as any];
+                    }
+                }
+            }
+            
+            // Final check - if still no userData, show error
+            if (!workingUserData || !Array.isArray(workingUserData) || workingUserData.length === 0) {
+                const errorMsg = 'User profile data not loaded. Please refresh the page and try again.';
+                setFailureSummary(`Failed at: Pre-validation - ${errorMsg}`);
+                setProcessingLogs([`[x] Pre-validation: ${errorMsg}`]);
                 setProcessingSteps(prev => prev.map((s, idx) => idx === 0 ? { ...s, status: 'error', message: errorMsg } : s));
                 setDebugInspectorOpen(true);
-                console.error('❌ [simulateProcessing] userData validation failed - no Entra ID available:', { userData, fallbackUserData, userInitials, hasTeamData: !!teamData });
+                console.error('[x] [simulateProcessing] userData validation failed - no data source available:', { userData, fallbackUserData, userInitials, hasTeamData: !!teamData });
+                reportMatterTelemetry('PreValidation.Failed', { error: errorMsg, phase: 'userDataCheck', hasUserData: !!userData, hasFallback: !!fallbackUserData, hasTeamData: !!teamData });
                 return { url: '' };
             }
         }
@@ -1874,11 +2130,12 @@ const handleClearAll = () => {
         const user = workingUserData[0];
         if (!user.ASANASecret && !user.ASANA_Secret) {
             const errorMsg = 'Asana credentials missing from user profile. Please contact support.';
-            setFailureSummary(`Failed at: Pre-validation – ${errorMsg}`);
-            setProcessingLogs([`❌ Pre-validation: ${errorMsg}`]);
+            setFailureSummary(`Failed at: Pre-validation - ${errorMsg}`);
+            setProcessingLogs([`[x] Pre-validation: ${errorMsg}`]);
             setProcessingSteps(prev => prev.map((s, idx) => idx === 0 ? { ...s, status: 'error', message: errorMsg } : s));
             setDebugInspectorOpen(true);
             console.error('[FlatMatterOpening] Asana credentials validation failed:', { user });
+            reportMatterTelemetry('PreValidation.Failed', { error: errorMsg, phase: 'asanaCredentials' });
             return { url: '' };
         }
 
@@ -1887,9 +2144,14 @@ const handleClearAll = () => {
         setProcessingLogs([]);
         setProcessingSteps(initialSteps);
         setFailureSummary('');
+        setReportDelivered(false);
+        autoReportSentRef.current = null;
+
+        // Reassuring processing toast
+        showToast({ type: 'loading', title: 'Opening Matter', message: 'Processing your matter request - this may take a moment.', persist: true, id: 'matter-processing' });
         
         // Activate workbench mode immediately on submission
-        // setTimeout(() => setWorkbenchMode(true), 300); // Disabled - keep processing in main section
+        // setTimeout(() => setWorkbenchMode(true), 300; // Disabled - keep processing in main section
         
         let url = '';
 
@@ -1905,13 +2167,15 @@ const handleClearAll = () => {
                 const result = await action.run(generateSampleJson(), userInitials, workingUserData);
                 const message = typeof result === 'string' ? result : result.message;
                 setProcessingSteps(prev => prev.map((s, idx) => idx === i ? { ...s, status: 'success', message } : s));
-                setProcessingLogs(prev => [...prev, `✓ ${message}`]);
+                setProcessingLogs(prev => [...prev, `[x] ${message}`]);
                 if (typeof result === 'object' && result.url) {
                     url = result.url;
                 }
             }
 
-            setProcessingLogs(prev => [...prev, '🎉 Matter opening completed successfully!']);
+            setProcessingLogs(prev => [...prev, '[ok] Matter opening completed successfully!']);
+            showToast({ type: 'success', title: 'Matter Opened', message: 'The matter has been opened successfully.' });
+            reportMatterTelemetry('Processing.Completed', { stepsCompleted: processingActions.length });
             completeMatterOpening();
         } catch (error) {
             console.error('Error during processing:', error);
@@ -1924,12 +2188,15 @@ const handleClearAll = () => {
                 return prev.map((s, i) => i === failingIndex ? { ...s, status: 'error', message: msg } : s);
             });
             const failingLabel = processingActions[failingIndex]?.label || 'Unknown step';
-            setFailureSummary(`Failed at: ${failingLabel} – ${msg}`);
-            setProcessingLogs(prev => [...prev, `❌ ${failingLabel}: ${msg}`]);
+            setFailureSummary(`Failed at: ${failingLabel} - ${msg}`);
+            setProcessingLogs(prev => [...prev, `[x] ${failingLabel}: ${msg}`]);
+            showToast({ type: 'error', title: 'Processing Failed', message: `Failed at: ${failingLabel}` });
             // Auto-open debug inspector
             setDebugInspectorOpen(true);
+            reportMatterTelemetry('Processing.StepFailed', { error: msg, failingStep: failingLabel, stepIndex: failingIndex });
         } finally {
             registerOperationObserver(null);
+            hideToast('matter-processing');
             setTimeout(() => setIsProcessing(false), 2000);
             setProcessingOpen(false);
         }
@@ -1937,45 +2204,7 @@ const handleClearAll = () => {
         return { url };
     };
 
-    // Manual JSON validation functions for advanced debugging
-    const validateManualJson = () => {
-        if (!debugManualJson.trim()) {
-            setDebugValidation({ 
-                isValid: false, 
-                suggestions: ['Please paste JSON content first'],
-                warnings: [],
-                predictions: []
-            });
-            return;
-        }
-        try {
-            JSON.parse(debugManualJson);
-            setDebugValidation({ 
-                isValid: true, 
-                suggestions: [], 
-                warnings: [],
-                predictions: []
-            });
-        } catch (error) {
-            setDebugValidation({ 
-                isValid: false, 
-                suggestions: [`Invalid JSON: ${error instanceof Error ? error.message : 'Unknown error'}`],
-                warnings: [],
-                predictions: []
-            });
-        }
-    };
 
-    const processManualJson = async () => {
-        if (!debugValidation?.isValid) return;
-        try {
-            const parsed = JSON.parse(debugManualJson);
-            // This would trigger the same processing pipeline with manual data
-            alert('Manual JSON processing is for development use only.');
-        } catch (error) {
-            console.error('[FlatMatterOpening] Manual JSON processing failed:', error);
-        }
-    };
 
     // Support email functionality (adapted from PitchBuilder)
     const sendSupportRequest = async () => {
@@ -2024,7 +2253,7 @@ ${JSON.stringify(debugInfo, null, 2)}
                 body: JSON.stringify({
                     email_contents: emailBody,
                     // Primary recipients now include lz and cb plus support
-                    user_email: 'support@helix-law.com,lz@helix-law.com,cb@helix-law.com',
+                    user_email: 'support@helix-law.com,lz@helix-law.com',
                     subject: `Matter Opening Support: ${supportCategory} - ${instructionRef || 'Generic'}`,
                     from_email: userEmailAddress,
                     bcc_emails: 'automations@helix-law.com'
@@ -2035,13 +2264,13 @@ ${JSON.stringify(debugInfo, null, 2)}
                 setSupportMessage('');
                 setSupportPanelOpen(false);
                 // Show success notification
-                alert('Support request sent successfully!');
+                showToast({ type: 'success', title: 'Request Sent', message: 'Your support request has been sent successfully.' });
             } else {
                 throw new Error('Failed to send support request');
             }
         } catch (error) {
             console.error('Support request failed:', error);
-            alert('Failed to send support request. Please try again.');
+            showToast({ type: 'error', title: 'Request Failed', message: 'Unable to send support request. Please try again.' });
         } finally {
             setSupportSending(false);
         }
@@ -2051,10 +2280,6 @@ ${JSON.stringify(debugInfo, null, 2)}
 
     // Entry choice: New vs Existing/Carry On
     // Entry mode simplified: always start a fresh matter (no resume flow)
-    const [entryMode, setEntryMode] = useState<'new'>('new');
-    const shouldShowEntryModal = false; // permanently false
-    const handleChooseNew = () => { /* retained for compatibility; no action needed */ };
-    const handleChooseExisting = () => { /* existing mode removed */ };
 
     // Clear all selections and inputs
     const doClearAll = () => {
@@ -2130,21 +2355,7 @@ ${JSON.stringify(debugInfo, null, 2)}
     // Determine if all processing steps completed successfully
     const allProcessingSucceeded = processingSteps.length > 0 && processingSteps.every(s => s.status === 'success');
 
-    // Show CCL prompt only once processing has finished with success
-    const showCclPrompt = currentStep === 2 && summaryConfirmed && allProcessingSucceeded;
 
-    // State for CCL draft choice and generating status
-    const [draftChoice, setDraftChoice] = useState<'yes' | 'no' | undefined>(undefined);
-    const [cclGenerating, setCclGenerating] = useState(false);
-
-    const handleDraftChoice = (choice: 'yes' | 'no') => {
-        setDraftChoice(choice);
-        if (choice === 'yes' && openedMatterId && onDraftCclNow) {
-            onDraftCclNow(openedMatterId);
-        }
-    };
-
-    const showProcessingSection = processingSteps.some(s => s.status !== 'pending');
 
     // Set navigator content with breadcrumb stepper (matching FilterBanner aesthetic)
     useEffect(() => {
@@ -2171,11 +2382,11 @@ ${JSON.stringify(debugInfo, null, 2)}
                     />
                 }
                 primaryFilter={
-                    <div style={{ 
+                    <div className="stepper-breadcrumb" style={{ 
                         display: 'flex', 
                         alignItems: 'center', 
                         gap: 6,
-                        fontSize: 13,
+                        fontSize: 14,
                         fontFamily: 'Raleway, sans-serif'
                     }}>
                         <button
@@ -2189,12 +2400,12 @@ ${JSON.stringify(debugInfo, null, 2)}
                                 minHeight: '28px',
                                 border: 'none',
                                 padding: '4px 10px',
-                                borderRadius: '6px',
+                                borderRadius: 0,
                                 cursor: 'pointer',
                                 display: 'flex',
                                 alignItems: 'center',
                                 gap: 6,
-                                fontSize: '13px',
+                                fontSize: '14px',
                                 transition: 'all 0.15s ease'
                             }}
                             onMouseEnter={(e) => {
@@ -2226,7 +2437,7 @@ ${JSON.stringify(debugInfo, null, 2)}
                             ) : (
                                 <i className="ms-Icon ms-Icon--People" style={{ fontSize: 13 }} />
                             )}
-                            Select Parties
+                            <span className="step-label">Select Parties</span>
                         </button>
                         
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0, opacity: 0.35 }}>
@@ -2245,9 +2456,9 @@ ${JSON.stringify(debugInfo, null, 2)}
                                 alignItems: 'center',
                                 gap: 6,
                                 padding: '4px 10px',
-                                borderRadius: '6px',
+                                borderRadius: 0,
                                 fontWeight: currentStep === 1 ? 600 : 500,
-                                fontSize: '13px',
+                                fontSize: '14px',
                                 whiteSpace: 'nowrap',
                                 flexShrink: 0,
                                 minHeight: '28px',
@@ -2282,7 +2493,7 @@ ${JSON.stringify(debugInfo, null, 2)}
                             ) : (
                                 <i className="ms-Icon ms-Icon--OpenFolderHorizontal" style={{ fontSize: 13 }} />
                             )}
-                            Build Matter
+                            <span className="step-label">Build Matter</span>
                         </button>
                         
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0, opacity: 0.35 }}>
@@ -2301,9 +2512,9 @@ ${JSON.stringify(debugInfo, null, 2)}
                                 alignItems: 'center',
                                 gap: 6,
                                 padding: '4px 10px',
-                                borderRadius: '6px',
+                                borderRadius: 0,
                                 fontWeight: currentStep === 2 ? 600 : 500,
-                                fontSize: '13px',
+                                fontSize: '14px',
                                 whiteSpace: 'nowrap',
                                 flexShrink: 0,
                                 minHeight: '28px',
@@ -2338,7 +2549,7 @@ ${JSON.stringify(debugInfo, null, 2)}
                             ) : (
                                 <i className="ms-Icon ms-Icon--CheckList" style={{ fontSize: 13 }} />
                             )}
-                            Review and Confirm
+                            <span className="step-label">Review and Confirm</span>
                         </button>
                     </div>
                 }
@@ -2350,7 +2561,7 @@ ${JSON.stringify(debugInfo, null, 2)}
                             style={{
                                 background: 'none',
                                 border: '1px solid #e5e7eb',
-                                borderRadius: 6,
+                                borderRadius: 0,
                                 padding: '4px 10px',
                                 fontSize: 12,
                                 fontWeight: 600,
@@ -2478,6 +2689,50 @@ ${JSON.stringify(debugInfo, null, 2)}
                                 font-size: 12px !important;
                             }
                         }
+
+                        /* Mobile responsiveness foundations */
+                        @media (max-width: 640px) {
+                            /* Step panels: tighter padding on mobile */
+                            .matter-step-panel {
+                                padding: 10px !important;
+                            }
+                            
+                            /* Step 2 card: tighter padding */
+                            .matter-step-panel > div {
+                                padding: 16px !important;
+                            }
+                            
+                            /* Stepper breadcrumb: smaller text, tighter gaps */
+                            .stepper-breadcrumb {
+                                gap: 4px !important;
+                                font-size: 12px !important;
+                            }
+                            .stepper-breadcrumb button {
+                                padding: 3px 6px !important;
+                                font-size: 12px !important;
+                            }
+                            .stepper-breadcrumb svg {
+                                width: 12px !important;
+                                height: 12px !important;
+                            }
+                            
+                            /* Budget grid: stack on mobile */
+                            .matter-step-panel div[style*="gridTemplateColumns"] {
+                                grid-template-columns: 1fr !important;
+                            }
+                        }
+                        
+                        @media (max-width: 480px) {
+                            /* Stepper breadcrumb: hide label text, show icons only */
+                            .stepper-breadcrumb button span.step-label {
+                                display: none;
+                            }
+                            
+                            /* Even tighter step panel padding */
+                            .matter-step-panel {
+                                padding: 6px !important;
+                            }
+                        }
                     `}</style>
 
                     {/* Generic entry choice modal removed: client type question handles this selection */}
@@ -2506,11 +2761,11 @@ ${JSON.stringify(debugInfo, null, 2)}
                     `}</style>
 
                     {/* Sliding Container */}
-                    <div style={{ 
-                        overflow: 'hidden',
+                    <div ref={carouselRef} style={{ 
+                        overflowX: 'hidden',
+                        overflowY: 'visible',
                         position: 'relative',
                         width: '100%',
-                        // Reduced from 500px to shrink excessive white space after moving processing section
                         minHeight: '320px'
                     }}>
                         <div style={{ 
@@ -2518,11 +2773,11 @@ ${JSON.stringify(debugInfo, null, 2)}
                             width: '300%', // 3 panels * 100% each
                             transform: `translateX(-${currentStep * 33.333}%)`,
                             transition: 'transform 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
-                            height: '100%'
+                            alignItems: 'flex-start',
                         }}>
                             
                             {/* Step 1: Client Selection */}
-                            <div style={{ 
+                            <div className="matter-step-panel" style={{ 
                                 width: '33.333%', 
                                 padding: '16px', 
                                 boxSizing: 'border-box' 
@@ -2534,7 +2789,7 @@ ${JSON.stringify(debugInfo, null, 2)}
                                 }}>
                                     {/** Hide the selection UI entirely for instruction-driven entry */}
                                     <PoidSelectionStep
-                                        poidData={effectivePoidData}
+                                        poidData={displayPoidData}
                                         teamData={teamData}
                                         filteredPoidData={filteredPoidData}
                                         visiblePoidCount={visiblePoidCount}
@@ -2552,11 +2807,14 @@ ${JSON.stringify(debugInfo, null, 2)}
                                         hideClientSections={hideClientSections || !!instructionRef}
                                         instructionRef={instructionRef}
                                         matterRef={matterIdState || matterRef || ''}
+                                        onRunIdCheck={onRunIdCheck}
+                                        demoModeEnabled={demoModeEnabled}
+                                        onDemoEidResult={handleDemoEidResult}
                                     />
                                 </div>
                                 
                                 {/* Opponent Details Step - appears after POID selection OR when in instruction mode */}
-                                {((selectedPoidIds.length > 0 && pendingClientType) || (hideClientSections && initialClientType)) && (
+                                {((selectedPoidIds.length > 0 && pendingClientType) || (hideClientSections && (initialClientType || pendingClientType || 'Individual'))) && (
                                     <div style={{ 
                                         width: '100%', 
                                         maxWidth: 1080, 
@@ -2633,6 +2891,7 @@ ${JSON.stringify(debugInfo, null, 2)}
                                             setOpponentChoiceMade={setOpponentChoiceMade}
                                             clientName={clientDisplayName}
                                             matterDescription={description}
+                                            demoModeEnabled={demoModeEnabled}
                                         />
                                     </div>
                                 )}
@@ -2641,9 +2900,15 @@ ${JSON.stringify(debugInfo, null, 2)}
                                 <div style={{ 
                                     marginTop: 24, 
                                     display: 'flex', 
-                                    justifyContent: 'flex-end',
+                                    flexDirection: 'column',
+                                    alignItems: 'flex-end',
                                     padding: '16px 0'
                                 }}>
+                                    {!clientsStepComplete && (
+                                        <div style={{ fontSize: 12, color: isDarkMode ? '#6B7280' : '#94A3B8', marginBottom: 8 }}>
+                                            Complete the fields above to continue
+                                        </div>
+                                    )}
                                     <button
                                         onClick={clientsStepComplete ? handleContinueToForm : undefined}
                                         disabled={!clientsStepComplete}
@@ -2653,812 +2918,629 @@ ${JSON.stringify(debugInfo, null, 2)}
                                             backgroundColor: clientsStepComplete ? colours.highlight : (isDarkMode ? colours.dark.disabledBackground : '#f3f2f1'),
                                             color: clientsStepComplete ? 'white' : (isDarkMode ? colours.dark.text : '#323130'),
                                             border: clientsStepComplete ? 'none' : `1px solid ${isDarkMode ? colours.dark.borderColor : '#d2d0ce'}`,
-                                            borderRadius: '6px',
+                                            borderRadius: 0,
                                             cursor: clientsStepComplete ? 'pointer' : 'not-allowed',
                                             display: 'flex',
                                             alignItems: 'center',
                                             justifyContent: 'center',
                                             gap: 10,
-                                            fontSize: 14,
-                                            fontWeight: 500,
-                                            transition: 'all 0.2s ease',
-                                            boxShadow: clientsStepComplete ? '0 2px 4px rgba(54, 144, 206, 0.2)' : 'none'
+                                            fontSize: 13,
+                                            fontWeight: 700,
+                                            textTransform: 'uppercase' as any,
+                                            letterSpacing: '0.5px',
+                                            transition: 'background-color 0.15s',
+                                            boxShadow: 'none'
                                         }}
                                         onMouseEnter={(e) => {
                                             if (clientsStepComplete) {
-                                                e.currentTarget.style.backgroundColor = '#2a7bb8';
-                                                e.currentTarget.style.transform = 'translateY(-1px)';
-                                                e.currentTarget.style.boxShadow = '0 4px 8px rgba(54, 144, 206, 0.3)';
+                                                e.currentTarget.style.backgroundColor = '#2563EB';
                                             }
                                         }}
                                         onMouseLeave={(e) => {
                                             if (clientsStepComplete) {
                                                 e.currentTarget.style.backgroundColor = colours.highlight;
-                                                e.currentTarget.style.transform = 'translateY(0)';
-                                                e.currentTarget.style.boxShadow = '0 2px 4px rgba(54, 144, 206, 0.2)';
                                             }
                                         }}
                                     >
                                         Continue to Matter Details
-                                        <svg width={16} height={16} viewBox="0 0 24 24" fill="none">
-                                            <path d="M5 12h14m-7-7l7 7-7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                                        </svg>
+                                        <i className="ms-Icon ms-Icon--ChevronRight" style={{ fontSize: 11 }} />
                                     </button>
                                 </div>
                             </div>
 
-                            {/* Step 2: Matter Form */}
-                            <div style={{ 
+                            {/* Step 2: Build Matter */}
+                            <div className="matter-step-panel" style={{ 
                                 width: '33.333%', 
                                 padding: '16px', 
                                 boxSizing: 'border-box' 
                             }}>
-                                <ClientInfoStep
-                                    selectedDate={selectedDate}
-                                    setSelectedDate={setSelectedDate}
-                                    teamMember={teamMember}
-                                    setTeamMember={setTeamMember}
-                                    teamMemberOptions={teamMemberOptions}
-                                    supervisingPartner={supervisingPartner}
-                                    setSupervisingPartner={setSupervisingPartner}
-                                    originatingSolicitor={originatingSolicitor}
-                                    setOriginatingSolicitor={setOriginatingSolicitor}
-                                    isDateCalloutOpen={isDateCalloutOpen}
-                                    setIsDateCalloutOpen={setIsDateCalloutOpen}
-                                    dateButtonRef={dateButtonRef}
-                                    partnerOptions={partnerOptionsList}
-                                    solicitorOptions={solicitorOptions}
-                                    requestingUser={requestingUserNickname}
-                                    requestingUserClioId={requestingUserClioId}
-                                />
-                                <Stack tokens={{ childrenGap: 24 }} style={{ marginTop: 24 }}>
-                                    {/* Move NetDocuments Folder Structure above Area of Work */}
-                                    <DescriptionStep
-                                        description={description}
-                                        setDescription={setDescriptionWithReset}
-                                        matterRefPreview={(() => {
-                                            // Prefer selected POID; then activePoid; then POID matched by InstructionRef; then first available
-                                            const selected = selectedPoidIds[0];
-                                            let poid = (selected ? effectivePoidData.find(p => p.poid_id === selected) : undefined) as POID | undefined;
-                                            if (!poid) poid = activePoid as POID | undefined;
-                                            if (!poid && instructionRef) {
-                                                poid = effectivePoidData.find(p => (p as any).InstructionRef === instructionRef || (p as any).instruction_ref === instructionRef) as POID | undefined;
-                                            }
+                                {/* Single unified card */}
+                                <div style={{
+                                    width: '100%', maxWidth: 1080, margin: '0 auto',
+                                    background: isDarkMode ? '#0F172A' : '#FFFFFF',
+                                    border: isDarkMode ? '1px solid #374151' : '1px solid #CBD5E1',
+                                    borderRadius: 2, padding: 24, boxShadow: isDarkMode ? 'none' : '0 1px 3px rgba(0,0,0,0.04)', boxSizing: 'border-box',
+                                }}>
+                                    {/* Page header */}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                                        <div style={{
+                                            width: 32, height: 32, borderRadius: 0,
+                                            background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.08)',
+                                            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)'}`,
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        }}>
+                                            <i className="ms-Icon ms-Icon--Suitcase" style={{ fontSize: 14, color: colours.highlight }} />
+                                        </div>
+                                        <div>
+                                            <div style={{ fontSize: 14, fontWeight: 700, color: isDarkMode ? '#E5E7EB' : '#0F172A' }}>Build Matter</div>
+                                            <div style={{ fontSize: 10, color: isDarkMode ? '#9CA3AF' : '#475569' }}>Configure the Clio matter record, team, and classification</div>
+                                        </div>
+                                    </div>
+                                    <div style={{ height: 1, background: isDarkMode ? '#334155' : '#CBD5E1', margin: '14px 0 20px' }} />
 
-        							// If we still don't have a POID, try to derive from the instruction record itself
-                                            const instFromRecords = (() => {
-                                                if (!instructionRef || !Array.isArray(instructionRecords)) return undefined as any;
-                                                return (instructionRecords as any[]).find(r => r && (r.InstructionRef === instructionRef));
-                                            })();
+                                    {/* ...-- TEAM ...-- */}
+                                    <div style={{ fontSize: 9, fontWeight: 700, color: isDarkMode ? '#9CA3AF' : '#475569', textTransform: 'uppercase' as const, letterSpacing: '0.8px', marginBottom: 10 }}>Team</div>
+                                    {solicitorOptions.length === 0 && (
+                                        <div style={{ fontSize: 11, color: isDarkMode ? '#F59E0B' : '#D97706', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                            <i className="ms-Icon ms-Icon--Warning" style={{ fontSize: 12 }} />
+                                            {!teamData ? 'Loading team data...' : 'No active team members found'}
+                                        </div>
+                                    )}
+                                    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+                                        {[
+                                            { label: 'Responsible Solicitor', value: teamMember, onChange: (v: string) => setTeamMember(v) },
+                                            { label: 'Originating Solicitor', value: originatingSolicitor, onChange: (v: string) => setOriginatingSolicitor(v) },
+                                        ].map(({ label, value, onChange }) => (
+                                            <div key={label} style={{ flex: '1 1 0%', minWidth: 180 }}>
+                                                <div style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? '#CBD5E1' : '#374151', marginBottom: 4 }}>{label}</div>
+                                                <div style={{ position: 'relative' }}>
+                                                    <select value={value} onChange={(e) => onChange(e.target.value)} style={{
+                                                        width: '100%', height: 36,
+                                                        border: `1px solid ${value ? colours.highlight : (isDarkMode ? '#334155' : '#CBD5E1')}`,
+                                                        borderRadius: 0,
+                                                        backgroundColor: value ? (isDarkMode ? '#1F2937' : `${colours.highlight}08`) : (isDarkMode ? '#111827' : '#F8FAFC'),
+                                                        padding: '0 28px 0 10px', fontSize: 12, fontWeight: value ? 600 : 400,
+                                                        color: value ? (isDarkMode ? '#E5E7EB' : '#0F172A') : (isDarkMode ? '#6B7280' : '#94A3B8'),
+                                                        cursor: 'pointer', outline: 'none', fontFamily: 'inherit',
+                                                        WebkitAppearance: 'none' as any, MozAppearance: 'none' as any,
+                                                        backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%239CA3AF' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")`,
+                                                        backgroundRepeat: 'no-repeat',
+                                                        backgroundPosition: 'right 10px center',
+                                                        backgroundSize: '10px 6px',
+                                                    }}>
+                                                        <option value="" disabled>{solicitorOptions.length === 0 ? (teamData ? 'No team members' : 'Loading-') : 'Select...'}</option>
+                                                        {solicitorOptions.map((name: string) => (<option key={name} value={name}>{name}</option>))}
+                                                    </select>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <div style={{ marginBottom: 0 }}>
+                                        <div style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? '#CBD5E1' : '#374151', marginBottom: 4 }}>Supervising Partner</div>
+                                        <ModernMultiSelect
+                                            label=""
+                                            options={partnerOptionsList.map((name: string) => ({ key: name, text: name }))}
+                                            selectedValue={supervisingPartner}
+                                            onSelectionChange={setSupervisingPartner}
+                                            variant="grid"
+                                        />
+                                    </div>
 
-                                            if (!poid && !instFromRecords) {
-                                                const typeGuess = pendingClientType || 'Individual';
-                                                let base = (clientAsOnFile || '').toUpperCase();
-                                                if (typeGuess === 'Multiple Individuals') {
-                                                    const digits = Math.floor(10000 + Math.random() * 90000);
-                                                    return (base.slice(0, 5).padEnd(5, 'X') || 'HLXXX') + digits + '-0001';
-                                                }
-                                                if (!base) base = 'HLX';
-                                                return base.slice(0, 5).padEnd(5, 'X') + '-0001';
-                                            }
+                                    <div style={{ height: 1, background: isDarkMode ? '#334155' : '#CBD5E1', margin: '20px 0' }} />
 
-                                            // Build from either POID or instruction record details
-                                            const type = (() => {
-                                                if (pendingClientType) return pendingClientType;
-                                                if (poid) return poid.company_name ? 'Company' : 'Individual';
-                                                const t = (instFromRecords as any)?.ClientType as string | undefined;
-                                                return t || 'Individual';
-                                            })();
+                                    {/* ...-- MATTER DETAILS ...-- */}
+                                    <div style={{ fontSize: 9, fontWeight: 700, color: isDarkMode ? '#9CA3AF' : '#475569', textTransform: 'uppercase' as const, letterSpacing: '0.8px', marginBottom: 10 }}>Matter Details</div>
+                                    <div style={{ marginBottom: 12 }}>
+                                        <div style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? '#CBD5E1' : '#374151', marginBottom: 4 }}>Description</div>
+                                        <input
+                                            type="text" value={description} onChange={(e) => setDescriptionWithReset(e.target.value)}
+                                            placeholder="e.g. Lease Renewal, Contract Dispute, Debt Recovery"
+                                            style={{
+                                                width: '100%', height: 36,
+                                                border: `1px solid ${description ? colours.highlight : (isDarkMode ? '#334155' : '#CBD5E1')}`,
+                                                borderRadius: 0,
+                                                background: description ? (isDarkMode ? '#1F2937' : `${colours.highlight}08`) : (isDarkMode ? '#111827' : '#F8FAFC'),
+                                                padding: '0 10px', fontSize: 12, fontWeight: description ? 600 : 400,
+                                                color: isDarkMode ? '#E5E7EB' : '#0F172A',
+                                                outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box',
+                                            }}
+                                        />
+                                    </div>
+                                    <div>
+                                        <div style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? '#CBD5E1' : '#374151', marginBottom: 6 }}>Folder Template</div>
+                                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                            {['Default / Commercial', 'Residential Possession', 'Adjudication', 'Employment'].map((opt) => {
+                                                const isActive = folderStructure === opt;
+                                                return (
+                                                    <button key={opt} onClick={() => {
+                                                        setFolderStructureWithReset(opt);
+                                                        if (opt === 'Default / Commercial') setAreaOfWorkWithReset('Commercial');
+                                                        else if (opt === 'Residential Possession') setAreaOfWorkWithReset('Property');
+                                                        else if (opt === 'Adjudication') setAreaOfWorkWithReset('Construction');
+                                                        else if (opt === 'Employment') setAreaOfWorkWithReset('Employment');
+                                                    }} style={{
+                                                        padding: '6px 12px', fontSize: 11, fontWeight: isActive ? 700 : 500,
+                                                        border: `1px solid ${isActive ? colours.highlight : (isDarkMode ? '#334155' : '#CBD5E1')}`,
+                                                        borderRadius: 0,
+                                                        background: isActive ? (isDarkMode ? `${colours.highlight}18` : `${colours.highlight}10`) : (isDarkMode ? '#111827' : '#F8FAFC'),
+                                                        color: isActive ? colours.highlight : (isDarkMode ? '#9CA3AF' : '#475569'),
+                                                        cursor: 'pointer', transition: 'border-color 0.15s, background 0.15s',
+                                                    }}>
+                                                        {opt}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
 
-                                            const buildFromBase = (raw: string): string => {
-                                                const base = (raw || '').toUpperCase() || 'HLX';
-                                                return base.slice(0, 5).padEnd(5, 'X') + '-0001';
-                                            };
+                                    <div style={{ height: 1, background: isDarkMode ? '#334155' : '#CBD5E1', margin: '20px 0' }} />
 
-                                            if (type === 'Multiple Individuals') {
-                                                const raw = (clientAsOnFile || (poid?.last || poid?.first) || (instFromRecords?.LastName || instFromRecords?.FirstName) || '').toUpperCase();
-                                                const digits = Math.floor(10000 + Math.random() * 90000);
-                                                return (raw.slice(0, 5).padEnd(5, 'X') || 'HLXXX') + digits + '-0001';
-                                            }
+                                    {/* ...-- CLASSIFICATION ...-- */}
+                                    <div style={{ fontSize: 9, fontWeight: 700, color: isDarkMode ? '#9CA3AF' : '#475569', textTransform: 'uppercase' as const, letterSpacing: '0.8px', marginBottom: 10 }}>Classification</div>
+                                    <div style={{ marginBottom: 12 }}>
+                                        <div style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? '#CBD5E1' : '#374151', marginBottom: 6 }}>Area of Work</div>
+                                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                            {([
+                                                { type: 'Commercial', color: colours.blue },
+                                                { type: 'Property', color: colours.green },
+                                                { type: 'Construction', color: colours.orange },
+                                                { type: 'Employment', color: colours.yellow },
+                                            ] as const).map(({ type, color }) => {
+                                                const isActive = areaOfWork === type;
+                                                return (
+                                                    <button key={type} onClick={() => setAreaOfWorkWithReset(type)} style={{
+                                                        padding: '6px 14px', fontSize: 11, fontWeight: isActive ? 700 : 500,
+                                                        border: `1px solid ${isActive ? color : (isDarkMode ? '#334155' : '#CBD5E1')}`,
+                                                        borderRadius: 0,
+                                                        background: isActive ? (isDarkMode ? `${color}18` : `${color}10`) : (isDarkMode ? '#111827' : '#F8FAFC'),
+                                                        color: isActive ? color : (isDarkMode ? '#9CA3AF' : '#475569'),
+                                                        cursor: 'pointer', textTransform: 'uppercase' as const, letterSpacing: '0.3px',
+                                                        transition: 'border-color 0.15s, background 0.15s',
+                                                    }}>
+                                                        {type}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? '#CBD5E1' : '#374151', marginBottom: 4 }}>Practice Area</div>
+                                        {areaOfWork ? (
+                                            <div style={{ position: 'relative' }}>
+                                                {/* Use area-of-work colour cue for practice area select */}
+                                                <select value={practiceArea} onChange={(e) => setPracticeAreaWithReset(e.target.value)} style={{
+                                                    width: '100%', height: 36,
+                                                    border: `1px solid ${practiceArea ? aowColor : (isDarkMode ? '#334155' : '#CBD5E1')}`,
+                                                    borderRadius: 0,
+                                                    background: practiceArea ? (isDarkMode ? `${aowColor}18` : `${aowColor}08`) : (isDarkMode ? '#111827' : '#F8FAFC'),
+                                                    padding: '0 28px 0 10px', fontSize: 12, fontWeight: practiceArea ? 600 : 400,
+                                                    color: practiceArea ? (isDarkMode ? '#E5E7EB' : '#0F172A') : (isDarkMode ? '#6B7280' : '#94A3B8'),
+                                                    appearance: 'none' as const, cursor: 'pointer', outline: 'none', fontFamily: 'inherit',
+                                                }}>
+                                                    <option value="" disabled>Select practice area...</option>
+                                                    {(practiceAreasByArea[areaOfWork] || []).filter((pa: string) => pa !== areaOfWork).map((pa: string) => (
+                                                        <option key={pa} value={pa}>{pa}</option>
+                                                    ))}
+                                                </select>
+                                                <i className="ms-Icon ms-Icon--ChevronDown" style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 10, color: isDarkMode ? '#6B7280' : '#94A3B8', pointerEvents: 'none' }} />
+                                            </div>
+                                        ) : (
+                                            <div style={{ fontSize: 11, color: isDarkMode ? '#6B7280' : '#94A3B8', fontStyle: 'italic', padding: '8px 0' }}>
+                                                Select area of work first
+                                            </div>
+                                        )}
+                                    </div>
 
-                                            if (poid) {
-                                                if (type === 'Company') {
-                                                    return buildFromBase(poid.company_name || clientAsOnFile || poid.last || '');
-                                                }
-                                                // Individual
-                                                return buildFromBase(poid.last || poid.first || clientAsOnFile || '');
-                                            }
+                                    <div style={{ height: 1, background: isDarkMode ? '#334155' : '#CBD5E1', margin: '20px 0' }} />
 
-                                            // No POID, derive from instruction record
-                                            if (instFromRecords) {
-                                                const rec: any = instFromRecords;
-                                                if (type === 'Company') {
-                                                    return buildFromBase(rec.CompanyName || clientAsOnFile || rec.LastName || rec.FirstName || '');
-                                                }
-                                                return buildFromBase(rec.LastName || rec.FirstName || clientAsOnFile || '');
-                                            }
+                                    {/* ...-- VALUE & SOURCE ...-- */}
+                                    <div style={{ fontSize: 9, fontWeight: 700, color: isDarkMode ? '#9CA3AF' : '#475569', textTransform: 'uppercase' as const, letterSpacing: '0.8px', marginBottom: 10 }}>Value & Source</div>
+                                    <div style={{ marginBottom: 12 }}>
+                                        <div style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? '#CBD5E1' : '#374151', marginBottom: 6 }}>Dispute Value</div>
+                                        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                                            {[
+                                                { label: 'Under £10k', value: 'Less than £10k' },
+                                                { label: '£10k - £500k', value: '£10k - £500k' },
+                                                { label: '£500k - £1m', value: '£500k - £1m' },
+                                                { label: '£1m - £5m', value: '£1m - £5m' },
+                                                { label: '£5m - £20m', value: '£5 - £20m' },
+                                                { label: '£20m+', value: '£20m+' },
+                                            ].map(({ label, value }) => {
+                                                const isActive = disputeValue === value;
+                                                return (
+                                                    <button key={value} onClick={() => setDisputeValueWithReset(value)} style={{
+                                                        padding: '6px 12px', fontSize: 11, fontWeight: isActive ? 700 : 500,
+                                                        border: `1px solid ${isActive ? colours.highlight : (isDarkMode ? '#334155' : '#CBD5E1')}`,
+                                                        borderRadius: 0,
+                                                        background: isActive ? (isDarkMode ? `${colours.highlight}18` : `${colours.highlight}10`) : (isDarkMode ? '#111827' : '#F8FAFC'),
+                                                        color: isActive ? colours.highlight : (isDarkMode ? '#9CA3AF' : '#475569'),
+                                                        cursor: 'pointer', whiteSpace: 'nowrap',
+                                                        transition: 'border-color 0.15s, background 0.15s',
+                                                    }}>
+                                                        {label}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? '#CBD5E1' : '#374151', marginBottom: 6 }}>Source</div>
+                                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                            {[
+                                                { key: 'search', label: 'Search' },
+                                                { key: 'referral', label: 'Referral' },
+                                                { key: 'your following', label: 'Following' },
+                                                { key: 'uncertain', label: 'Uncertain' },
+                                            ].map(({ key, label }) => {
+                                                const isActive = source === key;
+                                                return (
+                                                    <button key={key} onClick={() => { setSource(key); if (key !== 'referral') setReferrerName(''); }} style={{
+                                                        padding: '6px 12px', fontSize: 11, fontWeight: isActive ? 700 : 500,
+                                                        border: `1px solid ${isActive ? colours.highlight : (isDarkMode ? '#334155' : '#CBD5E1')}`,
+                                                        borderRadius: 0,
+                                                        background: isActive ? (isDarkMode ? `${colours.highlight}18` : `${colours.highlight}10`) : (isDarkMode ? '#111827' : '#F8FAFC'),
+                                                        color: isActive ? colours.highlight : (isDarkMode ? '#9CA3AF' : '#475569'),
+                                                        cursor: 'pointer', textTransform: 'uppercase' as const, letterSpacing: '0.3px',
+                                                        transition: 'border-color 0.15s, background 0.15s',
+                                                    }}>
+                                                        {label}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                        {source === 'referral' && (
+                                            <input type="text" value={referrerName} onChange={(e) => setReferrerName(e.target.value)} placeholder="Referrer name"
+                                                style={{
+                                                    marginTop: 8, width: '100%', height: 36,
+                                                    border: `1px solid ${referrerName ? colours.highlight : (isDarkMode ? '#334155' : '#CBD5E1')}`,
+                                                    borderRadius: 0, background: isDarkMode ? '#111827' : '#F8FAFC',
+                                                    padding: '0 10px', fontSize: 12, color: isDarkMode ? '#E5E7EB' : '#0F172A',
+                                                    outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box',
+                                                }}
+                                            />
+                                        )}
+                                    </div>
 
-                                            // Final fallback
-                                            return buildFromBase(clientAsOnFile || 'HLX');
-                                        })()}
-                                    />
-                                    <FolderStructureStep
-                                        folderStructure={folderStructure}
-                                        setFolderStructure={(value) => {
-                                            setFolderStructureWithReset(value);
-                                            // Auto-select Area of Work based on folder structure
-                                            if (value === 'Default / Commercial') setAreaOfWorkWithReset('Commercial');
-                                            else if (value === 'Residential Possession') setAreaOfWorkWithReset('Property');
-                                            else if (value === 'Adjudication') setAreaOfWorkWithReset('Construction');
-                                            else if (value === 'Employment') setAreaOfWorkWithReset('Employment');
+                                    {/* ...-- BUDGET (local only) ...-- */}
+                                    {(typeof window !== 'undefined') && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') && (
+                                        <>
+                                            <div style={{ height: 1, background: isDarkMode ? '#334155' : '#CBD5E1', margin: '20px 0' }} />
+                                            <div style={{ position: 'relative' }}>
+                                                <div style={{ position: 'absolute', top: -10, right: 0, background: '#DB2777', color: '#FFF', fontSize: 8, fontWeight: 700, padding: '1px 5px', letterSpacing: '0.5px' }}>LOCAL</div>
+                                                <div style={{ fontSize: 9, fontWeight: 700, color: isDarkMode ? '#9CA3AF' : '#475569', textTransform: 'uppercase' as const, letterSpacing: '0.8px', marginBottom: 8 }}>Budget</div>
+                                                <div style={{ display: 'flex', gap: 6, marginBottom: budgetRequired === 'Yes' ? 10 : 0 }}>
+                                                    {['Yes', 'No'].map((opt) => (
+                                                        <button key={opt} onClick={() => setBudgetRequired(opt)} style={{
+                                                            padding: '6px 12px', fontSize: 11, fontWeight: budgetRequired === opt ? 700 : 500,
+                                                            border: `1px solid ${budgetRequired === opt ? colours.highlight : (isDarkMode ? '#334155' : '#CBD5E1')}`,
+                                                            borderRadius: 0, background: budgetRequired === opt ? `${colours.highlight}18` : 'transparent',
+                                                            color: budgetRequired === opt ? colours.highlight : (isDarkMode ? '#9CA3AF' : '#475569'),
+                                                            cursor: 'pointer', transition: 'border-color 0.15s',
+                                                        }}>{opt}</button>
+                                                    ))}
+                                                </div>
+                                                {budgetRequired === 'Yes' && (
+                                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 2fr', gap: 8 }}>
+                                                        {[
+                                                            { label: 'Amount', value: budgetAmount, onChange: setBudgetAmount, placeholder: '£' },
+                                                            { label: 'Notify %', value: budgetThreshold, onChange: setBudgetThreshold, placeholder: '%' },
+                                                            { label: 'Notify', value: budgetNotifyUsers, onChange: setBudgetNotifyUsers, placeholder: 'emails' },
+                                                        ].map(({ label, value, onChange, placeholder }) => (
+                                                            <div key={label}>
+                                                                <div style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? '#CBD5E1' : '#374151', marginBottom: 2 }}>{label}</div>
+                                                                <input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} style={{ width: '100%', height: 32, border: `1px solid ${isDarkMode ? '#334155' : '#CBD5E1'}`, borderRadius: 0, background: isDarkMode ? '#111827' : '#F8FAFC', padding: '0 8px', fontSize: 12, color: isDarkMode ? '#E5E7EB' : '#0F172A', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} />
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </>
+                                    )}
+
+                                    {/* ...-- Navigation ...-- */}
+                                    <div style={{ marginTop: 24, paddingTop: 16, borderTop: `1px solid ${isDarkMode ? '#334155' : '#CBD5E1'}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <button onClick={handleBackToClients} style={{
+                                            background: 'transparent', border: `1px solid ${isDarkMode ? '#334155' : '#CBD5E1'}`, borderRadius: 0,
+                                            padding: '8px 16px', fontSize: 11, fontWeight: 700, color: isDarkMode ? '#CBD5E1' : '#374151',
+                                            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+                                            textTransform: 'uppercase' as const, letterSpacing: '0.5px', transition: 'border-color 0.15s',
                                         }}
-                                        folderOptions={['Default / Commercial', 'Residential Possession', 'Adjudication', 'Employment']}
-                                        onContinue={function (): void {} }
-                                    />
-                                    <AreaOfWorkStep
-                                        areaOfWork={areaOfWork}
-                                        setAreaOfWork={setAreaOfWorkWithReset}
-                                        getGroupColor={getGroupColor}
-                                        onContinue={function (): void {} }
-                                    />
-                                    <PracticeAreaStep
-                                        options={areaOfWork && practiceAreasByArea[areaOfWork] ? practiceAreasByArea[areaOfWork] : ['Please select an Area of Work']}
-                                        practiceArea={practiceArea}
-                                        setPracticeArea={setPracticeAreaWithReset}
-                                        areaOfWork={areaOfWork}
-                                        onContinue={function (): void {} }
-                                    />
-                                    <ValueAndSourceStep
-                                        disputeValue={disputeValue}
-                                        setDisputeValue={setDisputeValueWithReset}
-                                        source={source}
-                                        setSource={setSource}
-                                        referrerName={referrerName}
-                                        setReferrerName={setReferrerName}
-                                        onContinue={() => {}}
-                                    />
-                                    <BudgetStep
-                                        budgetRequired={budgetRequired}
-                                        setBudgetRequired={setBudgetRequired}
-                                        budgetAmount={budgetAmount}
-                                        setBudgetAmount={setBudgetAmount}
-                                        threshold={budgetThreshold}
-                                        setThreshold={setBudgetThreshold}
-                                        notifyUsers={budgetNotifyUsers}
-                                        setNotifyUsers={setBudgetNotifyUsers}
-                                    />
-
-                                </Stack>
-                                {/* Navigation buttons for form step */}
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 24 }}>
-                                    {/* Back button */}
-                                    <button
-                                        onClick={handleBackToClients}
-                                        style={{
-                                            background: 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
-                                            border: '1px solid #e5e7eb',
-                                            borderRadius: 8,
-                                            padding: '12px 20px',
-                                            fontSize: 14,
-                                            fontWeight: 600,
-                                            color: '#374151',
-                                            cursor: 'pointer',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: 8,
-                                            transition: 'all 0.2s ease',
-                                            boxShadow: '0 2px 4px rgba(0, 0, 0, 0.05)'
+                                            onMouseEnter={(e) => { e.currentTarget.style.borderColor = colours.highlight; }}
+                                            onMouseLeave={(e) => { e.currentTarget.style.borderColor = isDarkMode ? '#334155' : '#CBD5E1'; }}
+                                        >
+                                            <i className="ms-Icon ms-Icon--ChevronLeft" style={{ fontSize: 10 }} />
+                                            Back
+                                        </button>
+                                        <button onClick={handleGoToReview} style={{
+                                            background: colours.highlight, border: 'none', borderRadius: 0,
+                                            padding: '8px 16px', fontSize: 11, fontWeight: 700, color: '#FFFFFF',
+                                            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+                                            textTransform: 'uppercase' as const, letterSpacing: '0.5px', transition: 'background-color 0.15s', boxShadow: 'none',
                                         }}
-                                        onMouseEnter={(e) => {
-                                            e.currentTarget.style.background = 'linear-gradient(135deg, #F8FAFC 0%, #F1F5F9 100%)';
-                                            e.currentTarget.style.borderColor = '#3690CE';
-                                            e.currentTarget.style.transform = 'translateY(-1px)';
-                                            e.currentTarget.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.1)';
-                                        }}
-                                        onMouseLeave={(e) => {
-                                            e.currentTarget.style.background = 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)';
-                                            e.currentTarget.style.borderColor = '#e5e7eb';
-                                            e.currentTarget.style.transform = 'translateY(0)';
-                                            e.currentTarget.style.boxShadow = '0 2px 4px rgba(0, 0, 0, 0.05)';
-                                        }}
-                                    >
-                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                                            <path d="M19 12H5M12 19l-7-7 7-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                                        </svg>
-                                        Back to Party Details
-                                    </button>
-
-                                    {/* Forward button */}
-                                    <button
-                                        onClick={handleGoToReview}
-                                        style={{
-                                            background: 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
-                                            border: '1px solid #e5e7eb',
-                                            borderRadius: 8,
-                                            padding: '12px 20px',
-                                            fontSize: 14,
-                                            fontWeight: 600,
-                                            color: '#374151',
-                                            cursor: 'pointer',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: 8,
-                                            transition: 'all 0.2s ease',
-                                            boxShadow: '0 2px 4px rgba(0, 0, 0, 0.05)'
-                                        }}
-                                        onMouseEnter={(e) => {
-                                            e.currentTarget.style.background = 'linear-gradient(135deg, #F8FAFC 0%, #F1F5F9 100%)';
-                                            e.currentTarget.style.borderColor = '#3690CE';
-                                            e.currentTarget.style.transform = 'translateY(-1px)';
-                                            e.currentTarget.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.1)';
-                                        }}
-                                        onMouseLeave={(e) => {
-                                            e.currentTarget.style.background = 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)';
-                                            e.currentTarget.style.borderColor = '#e5e7eb';
-                                            e.currentTarget.style.transform = 'translateY(0)';
-                                            e.currentTarget.style.boxShadow = '0 2px 4px rgba(0, 0, 0, 0.05)';
-                                        }}
-                                    >
-                                        Review Summary
-                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                                            <path d="M5 12h14m-7-7l7 7-7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                                        </svg>
-                                    </button>
+                                            onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#2563EB'; }}
+                                            onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = colours.highlight; }}
+                                        >
+                                            Review
+                                            <i className="ms-Icon ms-Icon--ChevronRight" style={{ fontSize: 10 }} />
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
 
                             {/* Step 3: Review Summary */}
-                            <div style={{ width: '33.333%', padding: '16px', boxSizing: 'border-box' }}>
-                                    {/* Diagnostic Assistant - Bridge between fee earner and dev team */}
+                            <div className="matter-step-panel" style={{ width: '33.333%', padding: '16px', boxSizing: 'border-box' }}>
+                                    {/* Diagnostic Assistant - compact inline bar */}
                                     {debugInspectorOpen && (
                                         <div style={{
-                                            marginBottom: 24,
-                                            border: '2px solid #D65541',
-                                            borderRadius: 8,
-                                            background: 'linear-gradient(135deg, #FFFFFF 0%, #FEF2F2 100%)',
-                                            overflow: 'hidden'
+                                            marginBottom: 16,
+                                            borderRadius: 10,
+                                            overflow: 'hidden',
+                                            border: isDarkMode ? '1px solid rgba(214,85,65,0.3)' : '1px solid rgba(214,85,65,0.2)',
+                                            background: isDarkMode ? 'rgba(214,85,65,0.06)' : 'rgba(254,242,242,0.8)',
                                         }}>
+                                            {/* Header bar */}
                                             <div style={{
-                                                padding: '12px 16px',
-                                                background: 'linear-gradient(135deg, #D65541 0%, #B83C2B 100%)',
-                                                color: '#fff',
-                                                fontSize: 12,
-                                                fontWeight: 600,
-                                                display: 'flex',
-                                                justifyContent: 'space-between',
-                                                alignItems: 'center'
+                                                padding: '8px 14px',
+                                                display: 'flex', alignItems: 'center', gap: 10,
+                                                background: isDarkMode ? 'rgba(214,85,65,0.1)' : 'rgba(214,85,65,0.06)',
+                                                borderBottom: debugAdvancedOpen ? (isDarkMode ? '1px solid rgba(214,85,65,0.2)' : '1px solid rgba(214,85,65,0.12)') : 'none',
                                             }}>
-                                                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                    <i className="ms-Icon ms-Icon--Medical" style={{ fontSize: 12 }} />
-                                                    Diagnostic Assistant
+                                                <i className="ms-Icon ms-Icon--Medical" style={{ fontSize: 12, color: failureSummary ? '#ef4444' : '#10b981' }} />
+                                                <span style={{
+                                                    fontSize: 11, fontWeight: 600, flex: 1,
+                                                    color: failureSummary ? (isDarkMode ? '#FCA5A5' : '#b91c1c') : (isDarkMode ? '#86EFAC' : '#166534'),
+                                                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const
+                                                }}>
+                                                    {failureSummary || 'No issues detected'}
                                                 </span>
+                                                {/* One-click report email */}
+                                                <button
+                                                    onClick={async () => {
+                                                        if (reportDelivered) return;
+                                                        try {
+                                                            setSupportSending(true);
+                                                            const report = {
+                                                                issue: failureSummary || 'General diagnostic report',
+                                                                user: userInitials, instruction: instructionRef || 'N/A',
+                                                                timestamp: new Date().toLocaleString(),
+                                                                formData: generateSampleJson(),
+                                                                processingSteps: processingSteps.map(s => ({ label: s.label, status: s.status, message: s.message })),
+                                                                url: window.location.href
+                                                            };
+                                                            const html = `<h2>Matter Opening ${failureSummary ? 'Issue' : 'Feedback'}</h2><pre>${JSON.stringify(report, null, 2)}</pre>`;
+                                                            const resp = await fetch('/api/sendEmail', {
+                                                                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                                                body: JSON.stringify({ to: 'lz@helix-law.com', subject: `Matter Opening ${failureSummary ? 'Issue' : 'Feedback'} - ${userInitials}`, html, from_email: 'automations@helix-law.com' })
+                                                            });
+                                                            if (resp.ok) {
+                                                                setReportDelivered(true);
+                                                            } else {
+                                                                showToast({ type: 'error', title: 'Failed', message: 'Could not send report.' });
+                                                            }
+                                                        } catch { showToast({ type: 'error', title: 'Failed', message: 'Network error.' }); }
+                                                        finally { setSupportSending(false); }
+                                                    }}
+                                                    disabled={supportSending || reportDelivered}
+                                                    style={{
+                                                        padding: '3px 10px', borderRadius: 4, fontSize: 10, fontWeight: 600,
+                                                        background: reportDelivered
+                                                            ? (isDarkMode ? 'rgba(16,185,129,0.15)' : 'rgba(16,185,129,0.08)')
+                                                            : (isDarkMode ? 'rgba(214,85,65,0.15)' : 'rgba(214,85,65,0.08)'),
+                                                        border: reportDelivered
+                                                            ? (isDarkMode ? '1px solid rgba(16,185,129,0.3)' : '1px solid rgba(16,185,129,0.2)')
+                                                            : (isDarkMode ? '1px solid rgba(214,85,65,0.3)' : '1px solid rgba(214,85,65,0.2)'),
+                                                        color: reportDelivered
+                                                            ? '#10b981'
+                                                            : (isDarkMode ? '#FCA5A5' : '#b91c1c'),
+                                                        cursor: reportDelivered ? 'default' : (supportSending ? 'wait' : 'pointer'),
+                                                        display: 'flex', alignItems: 'center', gap: 4,
+                                                        transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
+                                                    }}
+                                                >
+                                                    <i className={`ms-Icon ${reportDelivered ? 'ms-Icon--Accept' : (supportSending ? 'ms-Icon--Clock' : 'ms-Icon--Mail')}`} style={{ fontSize: 9 }} />
+                                                    {reportDelivered ? 'Sent' : (supportSending ? 'Sending' : 'Report')}
+                                                </button>
+                                                {/* Expand/collapse advanced */}
+                                                <button
+                                                    onClick={() => setDebugAdvancedOpen(!debugAdvancedOpen)}
+                                                    style={{
+                                                        padding: '3px 8px', borderRadius: 4, fontSize: 10, fontWeight: 600,
+                                                        background: 'transparent',
+                                                        border: isDarkMode ? '1px solid rgba(75,85,99,0.3)' : '1px solid #E2E8F0',
+                                                        color: isDarkMode ? '#6B7280' : '#94A3B8',
+                                                        cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3
+                                                    }}
+                                                >
+                                                    <i className="ms-Icon ms-Icon--DeveloperTools" style={{ fontSize: 9 }} />
+                                                    <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ transform: debugAdvancedOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>
+                                                        <polyline points="6,9 12,15 18,9"/>
+                                                    </svg>
+                                                </button>
+                                                {/* Close */}
                                                 <button
                                                     onClick={() => setDebugInspectorOpen(false)}
                                                     style={{
-                                                        background: 'rgba(255,255,255,0.1)',
-                                                        border: '1px solid rgba(255,255,255,0.2)',
-                                                        borderRadius: 4,
-                                                        padding: '4px 8px',
-                                                        fontSize: 10,
-                                                        color: '#fff',
-                                                        cursor: 'pointer',
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        gap: 4
+                                                        padding: 2, background: 'transparent', border: 'none',
+                                                        color: isDarkMode ? '#6B7280' : '#94A3B8', cursor: 'pointer', fontSize: 11
                                                     }}
                                                 >
-                                                    <i className="ms-Icon ms-Icon--Cancel" style={{ fontSize: 10 }} />
-                                                    Close
+                                                    <i className="ms-Icon ms-Icon--Cancel" />
                                                 </button>
                                             </div>
-                                            <div style={{ padding: 16, display: 'grid', gap: 16 }}>
-                                                {/* Issue Summary */}
-                                                {failureSummary ? (
-                                                    <div style={{
-                                                        padding: '12px',
-                                                        background: 'linear-gradient(135deg, #FFF5F5 0%, #FDE8E8 100%)',
-                                                        border: '1px solid #fecaca',
-                                                        borderRadius: 6,
-                                                        fontSize: 12
-                                                    }}>
-                                                        <div style={{ fontWeight: 700, color: '#b91c1c', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b91c1c" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="13"/><line x1="12" y1="16" x2="12" y2="16"/></svg>
-                                                            Issue Detected
-                                                        </div>
-                                                        <div style={{ color: '#7c2d12', lineHeight: 1.4 }}>{failureSummary}</div>
-                                                        <button
-                                                            onClick={async () => {
-                                                                try {
-                                                                    setSupportSending(true);
-                                                                    
-                                                                    // Prepare detailed report
-                                                                    const reportDetails = {
-                                                                        issue: failureSummary,
-                                                                        user: userInitials,
-                                                                        instruction: instructionRef || 'N/A',
-                                                                        timestamp: new Date().toLocaleString(),
-                                                                        formData: {
-                                                                            client_type: clientType,
-                                                                            area_of_work: areaOfWork,
-                                                                            practice_area: practiceArea,
-                                                                            description: description,
-                                                                            fee_earner: teamMember,
-                                                                            supervising_partner: supervisingPartner
-                                                                        },
-                                                                        processingSteps: processingSteps.map(step => ({
-                                                                            label: step.label,
-                                                                            status: step.status,
-                                                                            message: step.message
-                                                                        })),
-                                                                        userAgent: navigator.userAgent,
-                                                                        url: window.location.href
-                                                                    };
 
-                                                                    const emailBody = `
-                                                                        <h2>Matter Opening Issue Report</h2>
-                                                                        <p><strong>Issue:</strong> ${failureSummary}</p>
-                                                                        <p><strong>User:</strong> ${userInitials}</p>
-                                                                        <p><strong>Instruction Reference:</strong> ${instructionRef || 'N/A'}</p>
-                                                                        <p><strong>Time:</strong> ${new Date().toLocaleString()}</p>
-                                                                        
-                                                                        <h3>Form Data</h3>
-                                                                        <ul>
-                                                                            <li><strong>Client Type:</strong> ${clientType}</li>
-                                                                            <li><strong>Area of Work:</strong> ${areaOfWork}</li>
-                                                                            <li><strong>Practice Area:</strong> ${practiceArea}</li>
-                                                                            <li><strong>Description:</strong> ${description}</li>
-                                                                            <li><strong>Fee Earner:</strong> ${teamMember}</li>
-                                                                            <li><strong>Supervising Partner:</strong> ${supervisingPartner}</li>
-                                                                        </ul>
-
-                                                                        <h3>Processing Steps Status</h3>
-                                                                        <table border="1" style="border-collapse: collapse;">
-                                                                            <tr><th>Step</th><th>Status</th><th>Message</th></tr>
-                                                                            ${processingSteps.map(step => 
-                                                                                `<tr>
-                                                                                    <td>${step.label}</td>
-                                                                                    <td>${step.status}</td>
-                                                                                    <td>${step.message || ''}</td>
-                                                                                </tr>`
-                                                                            ).join('')}
-                                                                        </table>
-
-                                                                        <h3>Technical Details</h3>
-                                                                        <p><strong>User Agent:</strong> ${navigator.userAgent}</p>
-                                                                        <p><strong>URL:</strong> ${window.location.href}</p>
-                                                                        
-                                                                        <pre>${JSON.stringify(reportDetails, null, 2)}</pre>
-                                                                    `;
-
-                                                                    const response = await fetch('/api/sendEmail', {
-                                                                        method: 'POST',
-                                                                        headers: {
-                                                                            'Content-Type': 'application/json',
-                                                                        },
-                                                                        body: JSON.stringify({
-                                                                            to: 'lz@helix-law.com',
-                                                                            subject: `Matter Opening Issue - ${userInitials} - ${instructionRef || 'Unknown'}`,
-                                                                            html: emailBody,
-                                                                            from_email: 'automations@helix-law.com'
-                                                                        })
-                                                                    });
-
-                                                                    if (response.ok) {
-                                                                        alert('Issue report sent successfully to development team!');
-                                                                    } else {
-                                                                        const error = await response.text();
-                                                                        alert(`Failed to send report: ${error}`);
-                                                                    }
-                                                                } catch (error) {
-                                                                    console.error('Failed to send report:', error);
-                                                                    const errorMessage = error instanceof Error ? error.message : String(error);
-                                                                    alert(`Failed to send report: ${errorMessage}`);
-                                                                } finally {
-                                                                    setSupportSending(false);
-                                                                }
-                                                            }}
-                                                            style={{
-                                                                marginTop: 10,
-                                                                background: supportSending 
-                                                                    ? 'linear-gradient(135deg, #9CA3AF 0%, #6B7280 100%)' 
-                                                                    : 'linear-gradient(135deg, #D65541 0%, #B83C2B 100%)',
-                                                                border: 'none',
-                                                                borderRadius: 4,
-                                                                padding: '6px 12px',
-                                                                fontSize: 11,
-                                                                fontWeight: 600,
-                                                                color: '#fff',
-                                                                cursor: supportSending ? 'not-allowed' : 'pointer',
-                                                                display: 'flex',
-                                                                alignItems: 'center',
-                                                                gap: 4
-                                                            }}
-                                                            disabled={supportSending}
-                                                        >
-                                                            <i className={`ms-Icon ${supportSending ? 'ms-Icon--Clock' : 'ms-Icon--Mail'}`} style={{ fontSize: 10 }} />
-                                                            {supportSending ? 'Sending...' : 'Report to Development Team'}
-                                                        </button>
-                                                    </div>
-                                                ) : (
-                                                    <div style={{
-                                                        padding: '12px',
-                                                        background: 'linear-gradient(135deg, #F0FDF4 0%, #DCFCE7 100%)',
-                                                        border: '1px solid #bbf7d0',
-                                                        borderRadius: 6,
-                                                        fontSize: 12,
-                                                        color: '#166534'
-                                                    }}>
-                                                        <div style={{ fontWeight: 700, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
-                                                            No Issues Detected
-                                                        </div>
-                                                        System is running normally. This panel opened for diagnostic purposes.
-                                                        
-                                                        <button
-                                                            onClick={async () => {
-                                                                try {
-                                                                    setSupportSending(true);
-                                                                    
-                                                                    // Prepare general feedback report
-                                                                    const reportDetails = {
-                                                                        type: 'general_feedback',
-                                                                        user: userInitials,
-                                                                        instruction: instructionRef || 'N/A',
-                                                                        timestamp: new Date().toLocaleString(),
-                                                                        formData: {
-                                                                            client_type: clientType,
-                                                                            area_of_work: areaOfWork,
-                                                                            practice_area: practiceArea,
-                                                                            description: description,
-                                                                            fee_earner: teamMember,
-                                                                            supervising_partner: supervisingPartner
-                                                                        },
-                                                                        processingSteps: processingSteps.map(step => ({
-                                                                            label: step.label,
-                                                                            status: step.status,
-                                                                            message: step.message
-                                                                        })),
-                                                                        userAgent: navigator.userAgent,
-                                                                        url: window.location.href
-                                                                    };
-
-                                                                    const emailBody = `
-                                                                        <h2>Matter Opening General Feedback</h2>
-                                                                        <p><strong>User:</strong> ${userInitials}</p>
-                                                                        <p><strong>Instruction Reference:</strong> ${instructionRef || 'N/A'}</p>
-                                                                        <p><strong>Time:</strong> ${new Date().toLocaleString()}</p>
-                                                                        <p><strong>Type:</strong> General feedback/diagnostic report</p>
-                                                                        
-                                                                        <h3>Form Data</h3>
-                                                                        <ul>
-                                                                            <li><strong>Client Type:</strong> ${clientType}</li>
-                                                                            <li><strong>Area of Work:</strong> ${areaOfWork}</li>
-                                                                            <li><strong>Practice Area:</strong> ${practiceArea}</li>
-                                                                            <li><strong>Description:</strong> ${description}</li>
-                                                                            <li><strong>Fee Earner:</strong> ${teamMember}</li>
-                                                                            <li><strong>Supervising Partner:</strong> ${supervisingPartner}</li>
-                                                                        </ul>
-
-                                                                        <h3>Processing Steps Status</h3>
-                                                                        <table border="1" style="border-collapse: collapse;">
-                                                                            <tr><th>Step</th><th>Status</th><th>Message</th></tr>
-                                                                            ${processingSteps.map(step => 
-                                                                                `<tr>
-                                                                                    <td>${step.label}</td>
-                                                                                    <td>${step.status}</td>
-                                                                                    <td>${step.message || ''}</td>
-                                                                                </tr>`
-                                                                            ).join('')}
-                                                                        </table>
-
-                                                                        <h3>Technical Details</h3>
-                                                                        <p><strong>User Agent:</strong> ${navigator.userAgent}</p>
-                                                                        <p><strong>URL:</strong> ${window.location.href}</p>
-                                                                        
-                                                                        <pre>${JSON.stringify(reportDetails, null, 2)}</pre>
-                                                                    `;
-
-                                                                    const response = await fetch('/api/sendEmail', {
-                                                                        method: 'POST',
-                                                                        headers: {
-                                                                            'Content-Type': 'application/json',
-                                                                        },
-                                                                        body: JSON.stringify({
-                                                                            to: 'lz@helix-law.com',
-                                                                            subject: `Matter Opening Feedback - ${userInitials} - ${instructionRef || 'Unknown'}`,
-                                                                            html: emailBody,
-                                                                            from_email: 'automations@helix-law.com'
-                                                                        })
-                                                                    });
-
-                                                                    if (response.ok) {
-                                                                        alert('Feedback sent successfully to development team!');
-                                                                    } else {
-                                                                        const error = await response.text();
-                                                                        alert(`Failed to send feedback: ${error}`);
-                                                                    }
-                                                                } catch (error) {
-                                                                    console.error('Failed to send feedback:', error);
-                                                                    const errorMessage = error instanceof Error ? error.message : String(error);
-                                                                    alert(`Failed to send feedback: ${errorMessage}`);
-                                                                } finally {
-                                                                    setSupportSending(false);
-                                                                }
-                                                            }}
-                                                            style={{
-                                                                marginTop: 8,
-                                                                background: supportSending 
-                                                                    ? 'linear-gradient(135deg, #9CA3AF 0%, #6B7280 100%)' 
-                                                                    : 'linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%)',
-                                                                border: 'none',
-                                                                borderRadius: 4,
-                                                                padding: '4px 8px',
-                                                                fontSize: 10,
-                                                                fontWeight: 600,
-                                                                color: '#fff',
-                                                                cursor: supportSending ? 'not-allowed' : 'pointer',
-                                                                display: 'flex',
-                                                                alignItems: 'center',
-                                                                gap: 3
-                                                            }}
-                                                            disabled={supportSending}
-                                                        >
-                                                            <i className={`ms-Icon ${supportSending ? 'ms-Icon--Clock' : 'ms-Icon--Feedback'}`} style={{ fontSize: 9 }} />
-                                                            {supportSending ? 'Sending...' : 'Send Feedback'}
-                                                        </button>
-                                                    </div>
-                                                )}
-
-                                                {/* Processing Step Status */}
-                                                {processingSteps.length > 0 && (
-                                                    <div>
-                                                        <div style={{ fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 8 }}>Step Status</div>
+                                            {/* Collapsible detail */}
+                                            {debugAdvancedOpen && (
+                                                <div style={{ padding: '10px 14px', display: 'grid', gap: 8, fontSize: 11 }}>
+                                                    {/* Step status compact 2-col grid */}
+                                                    {processingSteps.length > 0 && (
                                                         <div style={{
-                                                            border: '1px solid #e5e7eb',
-                                                            borderRadius: 6,
-                                                            overflow: 'hidden',
-                                                            background: isDarkMode ? '#1F2937' : '#fff'
+                                                            display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2px 12px',
                                                         }}>
-                                                            {processingSteps.slice(0, 6).map((step, idx) => (
-                                                                <div key={`step-${idx}`} style={{
-                                                                    padding: '8px 12px',
-                                                                    borderBottom: idx < 5 ? '1px solid #f1f5f9' : 'none',
-                                                                    display: 'flex',
-                                                                    justifyContent: 'space-between',
-                                                                    alignItems: 'center'
-                                                                }}>
-                                                                    <span style={{ fontSize: 11, color: '#6b7280' }}>{step.label}</span>
+                                                            {processingSteps.map((step, idx) => (
+                                                                <div key={`diag-${idx}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '2px 0' }}>
+                                                                    <span style={{ fontSize: 10, color: isDarkMode ? '#6B7280' : '#94A3B8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const, maxWidth: '70%' }}>{step.label}</span>
                                                                     <span style={{
-                                                                        fontSize: 10,
-                                                                        fontWeight: 700,
-                                                                        padding: '2px 6px',
-                                                                        borderRadius: 3,
-                                                                        background: step.status === 'success' ? '#dcfce7' : step.status === 'error' ? '#fecaca' : '#f1f5f9',
-                                                                        color: step.status === 'success' ? '#166534' : step.status === 'error' ? '#dc2626' : '#6b7280'
+                                                                        fontSize: 8, fontWeight: 700, padding: '1px 4px', borderRadius: 2,
+                                                                        background: step.status === 'success' ? 'rgba(16,185,129,0.12)' : step.status === 'error' ? 'rgba(239,68,68,0.12)' : 'rgba(148,163,184,0.1)',
+                                                                        color: step.status === 'success' ? '#10b981' : step.status === 'error' ? '#ef4444' : '#9CA3AF'
                                                                     }}>
-                                                                        {step.status === 'success' ? '✓' : step.status === 'error' ? '✗' : '⋯'}
+                                                                        {step.status === 'success' ? 'OK' : step.status === 'error' ? 'ERR' : '\u2014'}
                                                                     </span>
                                                                 </div>
                                                             ))}
-                                                            {processingSteps.length > 6 && (
-                                                                <div style={{ padding: '6px 12px', fontSize: 10, color: '#9ca3af', textAlign: 'center' }}>
-                                                                    ...and {processingSteps.length - 6} more steps
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                )}
-
-                                                {/* Last Operation Details */}
-                                                {operationEvents.length > 0 && (
-                                                    <div>
-                                                        <div style={{ fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 8 }}>Last Operation</div>
-                                                        <div style={{
-                                                            padding: '10px 12px',
-                                                            background: '#f8fafc',
-                                                            border: '1px solid #e5e7eb',
-                                                            borderRadius: 6,
-                                                            fontSize: 11
-                                                        }}>
-                                                            {(() => {
-                                                                const lastOp = operationEvents[operationEvents.length - 1];
-                                                                const isError = lastOp?.phase === 'error';
-                                                                return (
-                                                                    <div>
-                                                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                                                                            <span style={{ fontWeight: 600, color: '#374151' }}>{lastOp?.label || 'Unknown'}</span>
-                                                                            <span style={{ color: isError ? '#dc2626' : '#16a34a', fontWeight: 600 }}>
-                                                                                {lastOp?.phase?.toUpperCase() || 'N/A'}
-                                                                            </span>
-                                                                        </div>
-                                                                        {lastOp?.method && (
-                                                                            <div style={{ color: '#6b7280' }}>Method: {lastOp.method}</div>
-                                                                        )}
-                                                                        {lastOp?.status && (
-                                                                            <div style={{ color: '#6b7280' }}>Status: {lastOp.status}</div>
-                                                                        )}
-                                                                        {isError && lastOp?.responseSummary && (
-                                                                            <div style={{ marginTop: 8, padding: 8, background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 4 }}>
-                                                                                <div style={{ fontSize: 10, color: '#dc2626', fontWeight: 600, marginBottom: 4 }}>Error Response:</div>
-                                                                                <div style={{ fontFamily: 'monospace', fontSize: 10, color: '#7c2d12' }}>{lastOp.responseSummary}</div>
-                                                                            </div>
-                                                                        )}
-                                                                    </div>
-                                                                );
-                                                            })()}
-                                                        </div>
-                                                    </div>
-                                                )}
-
-                                                {/* Advanced Section Toggle */}
-                                                <div>
-                                                    <button
-                                                        onClick={() => setDebugAdvancedOpen(!debugAdvancedOpen)}
-                                                        style={{
-                                                            width: '100%',
-                                                            padding: '8px 12px',
-                                                            background: 'linear-gradient(135deg, #F8FAFC 0%, #F1F5F9 100%)',
-                                                            border: '1px solid #e5e7eb',
-                                                            borderRadius: 6,
-                                                            fontSize: 11,
-                                                            fontWeight: 600,
-                                                            color: '#374151',
-                                                            cursor: 'pointer',
-                                                            display: 'flex',
-                                                            justifyContent: 'space-between',
-                                                            alignItems: 'center'
-                                                        }}
-                                                    >
-                                                        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                            <i className="ms-Icon ms-Icon--DeveloperTools" style={{ fontSize: 12 }} />
-                                                            Advanced Technical Data
-                                                        </span>
-                                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ transform: debugAdvancedOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>
-                                                            <polyline points="6,9 12,15 18,9"/>
-                                                        </svg>
-                                                    </button>
-
-                                                    {debugAdvancedOpen && (
-                                                        <div style={{ marginTop: 12, display: 'grid', gap: 12 }}>
-                                                            {/* Manual JSON Testing */}
-                                                            <div>
-                                                                <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', marginBottom: 6 }}>Manual JSON Override (Dev Use)</div>
-                                                                <textarea
-                                                                    value={debugManualJson}
-                                                                    onChange={(e) => setDebugManualJson(e.target.value)}
-                                                                    placeholder="Paste JSON for manual testing..."
-                                                                    style={{
-                                                                        width: '100%',
-                                                                        height: 100,
-                                                                        padding: 8,
-                                                                        border: '1px solid #e5e7eb',
-                                                                        borderRadius: 4,
-                                                                        fontSize: 10,
-                                                                        fontFamily: 'Monaco, Consolas, "Courier New", monospace',
-                                                                        resize: 'vertical',
-                                                                        background: '#f8fafc'
-                                                                    }}
-                                                                />
-                                                                <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
-                                                                    <button
-                                                                        onClick={validateManualJson}
-                                                                        style={{
-                                                                            background: 'linear-gradient(135deg, #6b7280 0%, #4b5563 100%)',
-                                                                            border: 'none',
-                                                                            borderRadius: 3,
-                                                                            padding: '4px 8px',
-                                                                            fontSize: 10,
-                                                                            fontWeight: 600,
-                                                                            color: '#fff',
-                                                                            cursor: 'pointer'
-                                                                        }}
-                                                                    >
-                                                                        Validate
-                                                                    </button>
-                                                                    <button
-                                                                        onClick={processManualJson}
-                                                                        disabled={!debugValidation?.isValid}
-                                                                        style={{
-                                                                            background: debugValidation?.isValid 
-                                                                                ? 'linear-gradient(135deg, #16a34a 0%, #15803d 100%)'
-                                                                                : '#9ca3af',
-                                                                            border: 'none',
-                                                                            borderRadius: 3,
-                                                                            padding: '4px 8px',
-                                                                            fontSize: 10,
-                                                                            fontWeight: 600,
-                                                                            color: '#fff',
-                                                                            cursor: debugValidation?.isValid ? 'pointer' : 'not-allowed'
-                                                                        }}
-                                                                    >
-                                                                        Process
-                                                                    </button>
-                                                                </div>
-                                                            </div>
-
-                                                            {/* Current Form Data */}
-                                                            <div>
-                                                                <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', marginBottom: 6 }}>Current Form JSON</div>
-                                                                <div style={{
-                                                                    padding: 8,
-                                                                    background: '#f8fafc',
-                                                                    border: '1px solid #e5e7eb',
-                                                                    borderRadius: 4,
-                                                                    fontFamily: 'Monaco, Consolas, "Courier New", monospace',
-                                                                    fontSize: 9,
-                                                                    maxHeight: 150,
-                                                                    overflow: 'auto'
-                                                                }}>
-                                                                    <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                                                                        {JSON.stringify(generateSampleJson(), null, 2)}
-                                                                    </pre>
-                                                                </div>
-                                                            </div>
                                                         </div>
                                                     )}
+                                                    {/* JSON dump */}
+                                                    <details style={{ marginTop: 4 }}>
+                                                        <summary style={{ fontSize: 10, color: isDarkMode ? '#6B7280' : '#94A3B8', cursor: 'pointer', fontWeight: 600 }}>Form JSON</summary>
+                                                        <pre style={{
+                                                            margin: '4px 0 0', padding: 6, fontSize: 8, lineHeight: 1.3,
+                                                            background: isDarkMode ? 'rgba(0,0,0,0.2)' : '#F8FAFC',
+                                                            border: isDarkMode ? '1px solid rgba(75,85,99,0.2)' : '1px solid #E2E8F0',
+                                                            borderRadius: 4, maxHeight: 120, overflow: 'auto',
+                                                            whiteSpace: 'pre-wrap' as const, wordBreak: 'break-all' as const,
+                                                            color: isDarkMode ? '#6B7280' : '#64748B'
+                                                        }}>{JSON.stringify(generateSampleJson(), null, 2)}</pre>
+                                                    </details>
                                                 </div>
-                                            </div>
+                                            )}
                                         </div>
                                     )}
 
+                                    {/* Review header - breadcrumb + heading */}
+                                    <div style={{ marginBottom: 20 }}>
+                                        {/* Progress breadcrumb */}
+                                        <div style={{
+                                            display: 'flex', alignItems: 'center', gap: 8,
+                                            marginBottom: 14,
+                                        }}>
+                                            {['Parties', 'Matter', 'Review'].map((step, i) => (
+                                                <React.Fragment key={step}>
+                                                    {i > 0 && (
+                                                        <div style={{
+                                                            width: 20, height: 1,
+                                                            background: isDarkMode ? '#374151' : '#D1D5DB'
+                                                        }} />
+                                                    )}
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                                                        <div style={{
+                                                            width: 18, height: 18, borderRadius: '50%',
+                                                            background: i < 2
+                                                                ? (isDarkMode ? 'rgba(32,178,108,0.15)' : 'rgba(32,178,108,0.1)')
+                                                                : `${aowColor}20`,
+                                                            border: i < 2
+                                                                ? '1.5px solid #20b26c'
+                                                                : `1.5px solid ${aowColor}`,
+                                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                            transition: 'all 0.3s ease'
+                                                        }}>
+                                                            {i < 2 ? (
+                                                                <svg width="9" height="9" viewBox="0 0 24 24" fill="none">
+                                                                    <polyline points="20,6 9,17 4,12" stroke="#20b26c" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
+                                                                </svg>
+                                                            ) : (
+                                                                <div style={{
+                                                                    width: 5, height: 5, borderRadius: '50%',
+                                                                    background: aowColor
+                                                                }} />
+                                                            )}
+                                                        </div>
+                                                        <span style={{
+                                                            fontSize: 11, fontWeight: i === 2 ? 700 : 500,
+                                                            color: i === 2
+                                                                ? (isDarkMode ? '#F3F4F6' : '#1F2937')
+                                                                : (isDarkMode ? '#6B7280' : '#9CA3AF'),
+                                                            letterSpacing: '0.02em'
+                                                        }}>
+                                                            {step}
+                                                        </span>
+                                                    </div>
+                                                </React.Fragment>
+                                            ))}
+                                            <div style={{ flex: 1 }} />
+                                            {/* AOW pill */}
+                                            <div style={{
+                                                padding: '3px 10px', borderRadius: 4,
+                                                background: isDarkMode ? `${aowColor}15` : `${aowColor}10`,
+                                                border: `1px solid ${aowColor}30`,
+                                                fontSize: 10, fontWeight: 700, color: aowColor,
+                                                textTransform: 'uppercase' as const,
+                                                letterSpacing: '0.05em'
+                                            }}>
+                                                {areaOfWork || 'General'}
+                                            </div>
+                                        </div>
+                                        {/* Heading */}
+                                        <div style={{
+                                            fontSize: 18, fontWeight: 800,
+                                            color: isDarkMode ? '#F3F4F6' : '#0F172A',
+                                            letterSpacing: '-0.02em', lineHeight: 1.2,
+                                            marginBottom: 3
+                                        }}>
+                                            Review &amp; Confirm
+                                        </div>
+                                        <div style={{
+                                            fontSize: 13, color: isDarkMode ? '#6B7280' : '#94A3B8',
+                                            lineHeight: 1.4
+                                        }}>
+                                            Everything below will be sent to Clio, Asana, and your matter folder. Check it&apos;s right.
+                                        </div>
+                                    </div>
 
-
-                                    {/* Formal confirmation control moved near submission buttons */}
-                                    
-                                    {/* Two-column layout */}
-                                    <div style={{
-                                        display: 'grid',
-                                        gridTemplateColumns: '1fr 1fr',
-                                        gap: 20,
-                                        marginBottom: 8
-                                    }}>
-                                        {/* Client Information Card (locks subtly on confirmation) */}
-                                        <div style={lockCardStyle({
-                                            border: '1px solid #e1e5ea',
-                                            borderRadius: 8,
-                                            background: 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
-                                            padding: 14,
-                                            position: 'relative'
-                                        })}>
-                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                    <i className="ms-Icon ms-Icon--People" style={{ fontSize: 12, color: '#6b7280' }} />
-                                                    <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>Client Information</span>
+                                    {/* Review content - single column flow */}
+                                    <div style={{ display: 'grid', gap: 16 }}>
+                                        {/* ---- SECTION: CLIENT ---- */}
+                                        <div>
+                                            {/* Section header */}
+                                            <div style={{
+                                                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                                marginBottom: 8
+                                            }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                                                    <div style={{
+                                                        width: 6, height: 6, borderRadius: '50%',
+                                                        background: (selectedPoidIds && selectedPoidIds.length > 0) ? '#20b26c' : '#f59e0b'
+                                                    }} />
+                                                    <span style={{
+                                                        fontSize: 10, fontWeight: 700,
+                                                        color: isDarkMode ? '#9CA3AF' : '#64748B',
+                                                        textTransform: 'uppercase' as const,
+                                                        letterSpacing: '0.08em'
+                                                    }}>
+                                                        Parties
+                                                    </span>
                                                 </div>
-                                                {currentStep === 2 && (
+                                                {currentStep === 2 && !summaryConfirmed && (
                                                     <button
                                                         onClick={() => setCurrentStep(0)}
                                                         style={{
-                                                            background: 'none',
-                                                            border: '1px solid #e5e7eb',
-                                                            borderRadius: 4,
-                                                            padding: '4px 8px',
-                                                            fontSize: 11,
-                                                            fontWeight: 500,
-                                                            color: '#6b7280',
-                                                            cursor: 'pointer',
-                                                            display: 'flex',
-                                                            alignItems: 'center',
-                                                            gap: 4,
-                                                            transition: 'all 0.2s ease'
+                                                            background: 'transparent', border: 'none',
+                                                            padding: '2px 6px', fontSize: 11, fontWeight: 500,
+                                                            color: isDarkMode ? '#6B7280' : '#94A3B8',
+                                                            cursor: 'pointer', textDecoration: 'underline',
+                                                            textUnderlineOffset: '2px'
                                                         }}
-                                                        onMouseEnter={(e) => {
-                                                            e.currentTarget.style.borderColor = '#3690CE';
-                                                            e.currentTarget.style.color = '#3690CE';
-                                                        }}
-                                                        onMouseLeave={(e) => {
-                                                            e.currentTarget.style.borderColor = '#e5e7eb';
-                                                            e.currentTarget.style.color = '#6b7280';
-                                                        }}
+                                                        onMouseEnter={(e) => { e.currentTarget.style.color = aowColor; }}
+                                                        onMouseLeave={(e) => { e.currentTarget.style.color = isDarkMode ? '#6B7280' : '#94A3B8'; }}
                                                     >
-                                                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
-                                                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                                                            <path d="m18.5 2.5 3 3L12 15l-4 1 1-4 9.5-9.5z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                                                        </svg>
                                                         Edit
                                                     </button>
                                                 )}
                                             </div>
+                                        {/* Client card */}
+                                        <div style={lockCardStyle({
+                                            borderRadius: 10,
+                                            background: isDarkMode
+                                                ? 'linear-gradient(135deg, #0F172A 0%, #1E293B 100%)'
+                                                : '#FFFFFF',
+                                            border: isDarkMode ? '1px solid rgba(75,85,99,0.3)' : '1px solid #E2E8F0',
+                                            padding: '14px 16px',
+                                            position: 'relative',
+                                            transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                                            boxShadow: isDarkMode
+                                                ? '0 1px 3px rgba(0,0,0,0.3)'
+                                                : '0 1px 3px rgba(0,0,0,0.04)'
+                                        })}>
                                             {(() => {
                                                 // Unique selection list
                                                 const uniqueSelectedIds = Array.from(new Set(selectedPoidIds || []));
@@ -3478,10 +3560,7 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                     const line1 = [p.house_building_number, p.street].filter(Boolean).join(' ').trim();
                                                     return [line1 || undefined, p.city, p.county, p.post_code, p.country].filter(Boolean).join(', ');
                                                 };
-                                                const formatCompanyAddress = (p: POID) => {
-                                                    const line1 = [p.company_house_building_number, p.company_street].filter(Boolean).join(' ').trim();
-                                                    return [line1 || undefined, p.company_city, p.company_county, p.company_post_code, p.company_country].filter(Boolean).join(', ');
-                                                };
+
                                                 const getPersonAddressLines = (p: POID): string[] => {
                                                     const l1 = [p.house_building_number, p.street].filter(Boolean).join(' ').trim();
                                                     const l2 = [p.city, p.county].filter(Boolean).join(', ').trim();
@@ -3549,230 +3628,160 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                     .map(p => (p as any).nationality as string | undefined)
                                                     .filter(Boolean) as string[];
                                                 const uniqueNationalities = Array.from(new Set(allNationalities.map(n => n.trim())));
-                                                const nationalitySummary = uniqueNationalities.length === 1 ? uniqueNationalities[0] : undefined;
+                                                // nationalitySummary removed (unused)
+
+                                                // Shared styles for the unified card layout
+                                                const mutedColor = isDarkMode ? '#6B7280' : '#9CA3AF';
+                                                const valueColor = isDarkMode ? '#D1D5DB' : '#334155';
+                                                const headingColor = isDarkMode ? '#E5E7EB' : '#0F172A';
+                                                const dividerStyle = { borderTop: isDarkMode ? '1px solid rgba(75,85,99,0.2)' : '1px solid #F1F5F9', margin: '8px 0' };
+
+                                                // Simple inline detail: icon + value, no label box
+                                                const InfoLine = ({ value, icon, mono }: { value?: string | null; icon?: string; mono?: boolean }) => {
+                                                    if (!value) return null;
+                                                    return (
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '2px 0' }}>
+                                                            {icon && <i className={`ms-Icon ms-Icon--${icon}`} style={{ fontSize: 11, color: mutedColor, flexShrink: 0, width: 14, textAlign: 'center' }} />}
+                                                            <span style={{ fontSize: 12, color: valueColor, fontWeight: 500, wordBreak: 'break-word' as const, lineHeight: 1.4, ...(mono ? { fontFamily: 'monospace', letterSpacing: '0.3px' } : {}) }}>{value}</span>
+                                                        </div>
+                                                    );
+                                                };
+
+                                                // Compact verification status — small inline dots instead of loud pills
+                                                const renderVerificationStatus = (p: POID) => {
+                                                    const checks: Array<{ label: string; value?: string; passWords: string[] }> = [
+                                                        { label: 'EID', value: p.check_result, passWords: ['pass', 'passed', 'manual-approved'] },
+                                                        { label: 'PEP', value: p.pep_sanctions_result, passWords: ['passed', 'pass', 'clear', 'no matches'] },
+                                                        { label: 'Addr', value: p.address_verification_result, passWords: ['passed', 'pass', 'verified'] },
+                                                    ].filter(c => c.value);
+                                                    if (checks.length === 0) return null;
+                                                    return (
+                                                        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 4 }}>
+                                                            {checks.map(c => {
+                                                                const lc = (c.value || '').toLowerCase();
+                                                                const pass = c.passWords.includes(lc);
+                                                                const fail = lc === 'fail' || lc === 'failed';
+                                                                const dotColor = pass ? '#10b981' : fail ? '#ef4444' : '#f59e0b';
+                                                                return (
+                                                                    <span key={c.label} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, color: mutedColor, fontWeight: 600 }}>
+                                                                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: dotColor, flexShrink: 0 }} />
+                                                                        {c.label}
+                                                                    </span>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    );
+                                                };
+
+                                                // Resolve instruction ref for display
+                                                const displayRef = instructionRef || (clients[0] as any)?.InstructionRef || (clients[0] as any)?.instruction_ref || '';
+
+                                                // Unified person renderer — one flowing block, no boxes
+                                                const renderPerson = (p: POID, opts?: { typeLabel?: string; showRef?: boolean; compact?: boolean }) => {
+                                                    const name = formatPersonName(p);
+                                                    const phone = getBestPhone(p);
+                                                    const dob = p.date_of_birth ? formatDob(p.date_of_birth) : undefined;
+                                                    const addressStr = getPersonAddressLines(p).join(', ');
+                                                    const nat = (p as any).nationality as string | undefined;
+                                                    const passport = p.passport_number;
+                                                    const dl = (p as any).drivers_license_number as string | undefined;
+                                                    const hasDetails = p.email || phone || dob || nat || addressStr || passport || dl;
+
+                                                    return (
+                                                        <div>
+                                                            {/* Name row */}
+                                                            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, marginBottom: hasDetails ? 6 : 0 }}>
+                                                                <span style={{ fontSize: opts?.compact ? 13 : 14, fontWeight: 700, color: headingColor, lineHeight: 1.3 }}>
+                                                                    {name || p.email || '—'}
+                                                                </span>
+                                                                {(opts?.showRef || opts?.typeLabel) && (
+                                                                    <span style={{ fontSize: 10, color: mutedColor, fontWeight: 600, flexShrink: 0, whiteSpace: 'nowrap' as const }}>
+                                                                        {opts?.typeLabel}{opts?.typeLabel && opts?.showRef && displayRef ? ' · ' : ''}{opts?.showRef && displayRef ? displayRef : ''}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            {/* Verification dots */}
+                                                            {renderVerificationStatus(p)}
+                                                            {/* Detail rows — flat list, no grouping */}
+                                                            {hasDetails && (
+                                                                <div style={{ marginTop: 6, display: 'grid', gap: 1 }}>
+                                                                    <InfoLine value={p.email} icon="Mail" />
+                                                                    <InfoLine value={phone} icon="Phone" />
+                                                                    {(dob || nat) && (
+                                                                        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                                                                            {dob && <InfoLine value={dob} icon="Calendar" />}
+                                                                            {nat && <InfoLine value={nat} icon="Globe" />}
+                                                                        </div>
+                                                                    )}
+                                                                    <InfoLine value={addressStr} icon="MapPin" />
+                                                                    <InfoLine value={passport} icon="ContactCard" mono />
+                                                                    <InfoLine value={dl} icon="Car" mono />
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                };
 
                                                 return (
-                                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 6 }}>
-                                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                            <span style={{ color: '#6B6B6B', fontSize: 12 }}>Type</span>
-                                                            <span style={{ fontWeight: 600, fontSize: 12 }}>{clientType || '-'}</span>
-                                                        </div>
-                                                        {nationalitySummary && (
-                                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                                <span style={{ color: '#6B6B6B', fontSize: 12 }}>Nationality</span>
-                                                                <span style={{ fontWeight: 600, fontSize: 12 }}>{nationalitySummary}</span>
+                                                    <div>
+                                                        {/* Company flow */}
+                                                        {isCompanyType && company && (
+                                                            <div>
+                                                                {/* Company heading */}
+                                                                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, marginBottom: 6 }}>
+                                                                    <span style={{ fontSize: 14, fontWeight: 700, color: headingColor, lineHeight: 1.3 }}>
+                                                                        {company.company_name || 'Unnamed Company'}
+                                                                    </span>
+                                                                    <span style={{ fontSize: 10, color: mutedColor, fontWeight: 600, flexShrink: 0, whiteSpace: 'nowrap' as const }}>
+                                                                        Company{displayRef ? ` · ${displayRef}` : ''}
+                                                                    </span>
+                                                                </div>
+                                                                {/* Company details — flat */}
+                                                                <div style={{ display: 'grid', gap: 1 }}>
+                                                                    <InfoLine value={company.email} icon="Mail" />
+                                                                    <InfoLine value={getBestPhone(company)} icon="Phone" />
+                                                                    <InfoLine value={(company as any).company_number} icon="CityNext" mono />
+                                                                    <InfoLine value={getCompanyAddressLines(company).join(', ')} icon="MapPin" />
+                                                                    {!company.email && !getBestPhone(company) && (
+                                                                        <div style={{ fontSize: 11, color: isDarkMode ? '#4B5563' : '#CBD5E1', fontStyle: 'italic', padding: '2px 0' }}>No contact on file</div>
+                                                                    )}
+                                                                </div>
+                                                                {/* Directors */}
+                                                                {directors.length > 0 && (
+                                                                    <div style={{ marginTop: 10, paddingTop: 8, borderTop: isDarkMode ? '1px solid rgba(75,85,99,0.25)' : '1px solid #F1F5F9' }}>
+                                                                        <div style={{ fontSize: 9, fontWeight: 700, color: mutedColor, textTransform: 'uppercase' as const, letterSpacing: '0.05em', marginBottom: 6 }}>
+                                                                            Directors
+                                                                        </div>
+                                                                        {directors.map((d, idx) => (
+                                                                            <div key={`dir-${d.poid_id}-${idx}`}>
+                                                                                {idx > 0 && <div style={dividerStyle} />}
+                                                                                {renderPerson(d, { compact: true })}
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                )}
                                                             </div>
                                                         )}
 
-                                                        {/* Company flow: render company + directors */}
-                                                        {isCompanyType && company && (
-                                                            <>
-                                                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                                    <span style={{ color: '#6B6B6B', fontSize: 12 }}>Company</span>
-                                                                    <span style={{ fontWeight: 600, fontSize: 12, textAlign: 'right' }}>{company.company_name || '-'}</span>
-                                                                </div>
-                                                                {(company as any).company_number && (
-                                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                                        <span style={{ color: '#6B6B6B', fontSize: 12 }}>Company No.</span>
-                                                                        <span style={{ fontWeight: 600, fontSize: 12, textAlign: 'right' }}>{(company as any).company_number}</span>
-                                                                    </div>
-                                                                )}
-                                                                {(() => {
-                                                                    const lines = getCompanyAddressLines(company);
-                                                                    return lines.length > 0 ? (
-                                                                        <>
-                                                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                                                <span style={{ color: '#6B6B6B', fontSize: 12 }}>Address</span>
-                                                                                <span style={{ fontWeight: 600, fontSize: 12, textAlign: 'right', lineHeight: '1.3' }}>{lines[0]}</span>
-                                                                            </div>
-                                                                            {lines[1] && (
-                                                                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                                                    <span style={{ color: '#6B6B6B', fontSize: 12 }}></span>
-                                                                                    <span style={{ fontWeight: 600, fontSize: 12, textAlign: 'right', lineHeight: '1.3' }}>{lines[1]}</span>
-                                                                                </div>
-                                                                            )}
-                                                                            {lines[2] && (
-                                                                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                                                    <span style={{ color: '#6B6B6B', fontSize: 12 }}></span>
-                                                                                    <span style={{ fontWeight: 600, fontSize: 12, textAlign: 'right', lineHeight: '1.3' }}>{lines[2]}</span>
-                                                                                </div>
-                                                                            )}
-                                                                        </>
-                                                                    ) : (
-                                                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                                            <span style={{ color: '#6B6B6B', fontSize: 12 }}>Address</span>
-                                                                            <span style={{ fontWeight: 600, fontSize: 12 }}>-</span>
-                                                                        </div>
-                                                                    );
-                                                                })()}
-                                                                {company.address_verification_result && (
-                                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                                        <span style={{ color: '#6B6B6B', fontSize: 12 }}>Check Result</span>
-                                                                        <span style={{ fontWeight: 600, fontSize: 12, textAlign: 'right' }}>{company.address_verification_result}</span>
-                                                                    </div>
-                                                                )}
-                                                                {directors.length > 0 && (
-                                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
-                                                                        <span style={{ color: '#6B6B6B', fontSize: 12 }}>Directors</span>
-                                                                        <div style={{ textAlign: 'right', display: 'grid', gap: 8, maxWidth: '55%' }}>
-                                                                            {directors.map((d, idx) => {
-                                                                                const lines = getPersonAddressLines(d);
-                                                                                return (
-                                                                                    <div key={`dir-${d.poid_id}-${idx}`} style={{ display: 'grid', gap: 4 }}>
-                                                                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                                                            <span style={{ color: '#6B6B6B', fontSize: 12 }}>Name</span>
-                                                                                            <span style={{ fontWeight: 600, fontSize: 12 }}>{formatPersonName(d) || '-'}</span>
-                                                                                        </div>
-                                                                                        {lines.length > 0 && (
-                                                                                            <>
-                                                                                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                                                                    <span style={{ color: '#6B6B6B', fontSize: 12 }}>Address</span>
-                                                                                                    <span style={{ fontWeight: 600, fontSize: 12, textAlign: 'right', lineHeight: '1.3' }}>{lines[0]}</span>
-                                                                                                </div>
-                                                                                                {lines[1] && (
-                                                                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                                                                        <span style={{ color: '#6B6B6B', fontSize: 12 }}></span>
-                                                                                                        <span style={{ fontWeight: 600, fontSize: 12, textAlign: 'right', lineHeight: '1.3' }}>{lines[1]}</span>
-                                                                                                    </div>
-                                                                                                )}
-                                                                                                {lines[2] && (
-                                                                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                                                                        <span style={{ color: '#6B6B6B', fontSize: 12 }}></span>
-                                                                                                        <span style={{ fontWeight: 600, fontSize: 12, textAlign: 'right', lineHeight: '1.3' }}>{lines[2]}</span>
-                                                                                                    </div>
-                                                                                                )}
-                                                                                            </>
-                                                                                        )}
-                                                                                        {d.email && (
-                                                                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                                                                <span style={{ color: '#6B6B6B', fontSize: 12 }}>Email</span>
-                                                                                                <span style={{ fontWeight: 600, fontSize: 12 }}>{d.email}</span>
-                                                                                            </div>
-                                                                                        )}
-                                                                                        {getBestPhone(d) && (
-                                                                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                                                                <span style={{ color: '#6B6B6B', fontSize: 12 }}>Phone</span>
-                                                                                                <span style={{ fontWeight: 600, fontSize: 12 }}>{getBestPhone(d)}</span>
-                                                                                            </div>
-                                                                                        )}
-                                                                                        {d.date_of_birth && (
-                                                                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                                                                <span style={{ color: '#6B6B6B', fontSize: 12 }}>DOB</span>
-                                                                                                <span style={{ fontWeight: 600, fontSize: 12 }}>{formatDob(d.date_of_birth)}</span>
-                                                                                            </div>
-                                                                                        )}
-                                                                                        {(d as any).nationality && (
-                                                                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                                                                <span style={{ color: '#6B6B6B', fontSize: 12 }}>Nationality</span>
-                                                                                                <span style={{ fontWeight: 600, fontSize: 12 }}>{(d as any).nationality}</span>
-                                                                                            </div>
-                                                                                        )}
-                                                                                        {((d as any).passport_number || (d as any).drivers_license_number) && (
-                                                                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                                                                                <span style={{ color: '#6B6B6B', fontSize: 12 }}>ID Docs</span>
-                                                                                                <span style={{ fontWeight: 600, fontSize: 12, textAlign: 'right', lineHeight: '1.3' }}>
-                                                                                                    {(d as any).passport_number && <span>Passport: {(d as any).passport_number}</span>}
-                                                                                                    {((d as any).passport_number && (d as any).drivers_license_number) && <br />}
-                                                                                                    {(d as any).drivers_license_number && <span>DL: {(d as any).drivers_license_number}</span>}
-                                                                                                </span>
-                                                                                            </div>
-                                                                                        )}
-                                                                                        {d.address_verification_result && (
-                                                                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                                                                <span style={{ color: '#6B6B6B', fontSize: 12 }}>Check</span>
-                                                                                                <span style={{ fontWeight: 600, fontSize: 12 }}>{d.address_verification_result}</span>
-                                                                                            </div>
-                                                                                        )}
-                                                                                        {idx < directors.length - 1 && (
-                                                                                            <div style={{ height: 1, background: '#eee', marginTop: 6 }} />
-                                                                                        )}
-                                                                                    </div>
-                                                                                );
-                                                                            })}
-                                                                        </div>
-                                                                    </div>
-                                                                )}
-                                                            </>
-                                                        )}
-
-                                                        {/* Individuals flow: render list */}
+                                                        {/* Individual / Multiple flow */}
                                                         {!isCompanyType && individualItems.length > 0 && (
-                                                            <div style={{ display: 'grid', gap: 8 }}>
-                                                                {individualItems.map((i, idx) => {
-                                                                    // Find backing POID to surface additional details
-                                                                    const backing = clients.find(p => (formatPersonName(p) || (p.email || '')).toLowerCase() === i.name.toLowerCase());
-                                                                    const lines = backing ? getPersonAddressLines(backing) : [];
-                                                                    const check = backing && backing.address_verification_result ? backing.address_verification_result : undefined;
-                                                                    const phone = backing ? getBestPhone(backing) : undefined;
-                                                                    const dob = backing && backing.date_of_birth ? formatDob(backing.date_of_birth) : undefined;
+                                                            <div>
+                                                                {individualItems.map((item, idx) => {
+                                                                    const backing = clients.find(p => (formatPersonName(p) || (p.email || '')).toLowerCase() === item.name.toLowerCase());
                                                                     return (
-                                                                        <div key={`ind-${idx}`} style={{ display: 'grid', gap: 4 }}>
-                                                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                                                <span style={{ color: '#6B6B6B', fontSize: 12 }}>Name</span>
-                                                                                <span style={{ fontWeight: 600, fontSize: 12 }}>{i.name}</span>
-                                                                            </div>
-                                                                            {lines.length > 0 && (
-                                                                                <>
-                                                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                                                        <span style={{ color: '#6B6B6B', fontSize: 12 }}>Address</span>
-                                                                                        <span style={{ fontWeight: 600, fontSize: 12, textAlign: 'right', lineHeight: '1.3' }}>{lines[0]}</span>
+                                                                        <div key={`ind-${idx}`}>
+                                                                            {idx > 0 && <div style={dividerStyle} />}
+                                                                            {backing ? renderPerson(backing, { typeLabel: idx === 0 ? (clientType || 'Individual') : undefined, showRef: idx === 0 }) : (
+                                                                                <div>
+                                                                                    <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, marginBottom: 4 }}>
+                                                                                        <span style={{ fontSize: 14, fontWeight: 700, color: headingColor }}>{item.name || 'Unnamed'}</span>
+                                                                                        {idx === 0 && <span style={{ fontSize: 10, color: mutedColor, fontWeight: 600, flexShrink: 0 }}>{clientType || 'Individual'}{displayRef ? ` · ${displayRef}` : ''}</span>}
                                                                                     </div>
-                                                                                    {lines[1] && (
-                                                                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                                                            <span style={{ color: '#6B6B6B', fontSize: 12 }}></span>
-                                                                                            <span style={{ fontWeight: 600, fontSize: 12, textAlign: 'right', lineHeight: '1.3' }}>{lines[1]}</span>
-                                                                                        </div>
-                                                                                    )}
-                                                                                    {lines[2] && (
-                                                                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                                                            <span style={{ color: '#6B6B6B', fontSize: 12 }}></span>
-                                                                                            <span style={{ fontWeight: 600, fontSize: 12, textAlign: 'right', lineHeight: '1.3' }}>{lines[2]}</span>
-                                                                                        </div>
-                                                                                    )}
-                                                                                </>
-                                                                            )}
-                                                                            {i.email && (
-                                                                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                                                    <span style={{ color: '#6B6B6B', fontSize: 12 }}>Email</span>
-                                                                                    <span style={{ fontWeight: 600, fontSize: 12 }}>{i.email}</span>
+                                                                                    <div style={{ display: 'grid', gap: 1 }}>
+                                                                                        <InfoLine value={item.email} icon="Mail" />
+                                                                                        <InfoLine value={item.address} icon="MapPin" />
+                                                                                    </div>
                                                                                 </div>
-                                                                            )}
-                                                                            {phone && (
-                                                                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                                                    <span style={{ color: '#6B6B6B', fontSize: 12 }}>Phone</span>
-                                                                                    <span style={{ fontWeight: 600, fontSize: 12 }}>{phone}</span>
-                                                                                </div>
-                                                                            )}
-                                                                            {dob && (
-                                                                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                                                    <span style={{ color: '#6B6B6B', fontSize: 12 }}>DOB</span>
-                                                                                    <span style={{ fontWeight: 600, fontSize: 12 }}>{dob}</span>
-                                                                                </div>
-                                                                            )}
-                                                                            {backing && (backing as any).nationality && (
-                                                                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                                                    <span style={{ color: '#6B6B6B', fontSize: 12 }}>Nationality</span>
-                                                                                    <span style={{ fontWeight: 600, fontSize: 12 }}>{(backing as any).nationality}</span>
-                                                                                </div>
-                                                                            )}
-                                                                            {backing && (((backing as any).passport_number) || ((backing as any).drivers_license_number)) && (
-                                                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                                                                    <span style={{ color: '#6B6B6B', fontSize: 12 }}>ID Docs</span>
-                                                                                    <span style={{ fontWeight: 600, fontSize: 12, textAlign: 'right', lineHeight: '1.3' }}>
-                                                                                        {(backing as any).passport_number && <span>Passport: {(backing as any).passport_number}</span>}
-                                                                                        {((backing as any).passport_number && (backing as any).drivers_license_number) && <br />}
-                                                                                        {(backing as any).drivers_license_number && <span>DL: {(backing as any).drivers_license_number}</span>}
-                                                                                    </span>
-                                                                                </div>
-                                                                            )}
-                                                                            {check && (
-                                                                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                                                    <span style={{ color: '#6B6B6B', fontSize: 12 }}>Check</span>
-                                                                                    <span style={{ fontWeight: 600, fontSize: 12 }}>{check}</span>
-                                                                                </div>
-                                                                            )}
-                                                                            {idx < individualItems.length - 1 && (
-                                                                                <div style={{ height: 1, background: '#eee', marginTop: 6 }} />
                                                                             )}
                                                                         </div>
                                                                     );
@@ -3780,888 +3789,1353 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                             </div>
                                                         )}
 
-                                                        {/* Fallback when nothing selected */}
-                                                        {(!company && individualItems.length === 0) && (
-                                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                                <span style={{ color: '#6B6B6B', fontSize: 12 }}>Selected</span>
-                                                                <span style={{ fontWeight: 600, fontSize: 12 }}>-</span>
+                                                        {/* Fallback */}
+                                                        {(!company || !isCompanyType) && individualItems.length === 0 && !isCompanyType && (
+                                                            <div style={{ fontSize: 12, color: mutedColor, fontStyle: 'italic' }}>
+                                                                No client selected
                                                             </div>
                                                         )}
                                                     </div>
                                                 );
                                             })()}
                                         </div>
+                                        </div> {/* End PARTIES section */}
 
-                                        {/* Combined Matter Overview Card (locks subtly, no badge) */}
-                                        <div style={lockCardStyle({
-                                            border: '1px solid #e1e5ea',
-                                            borderRadius: 8,
-                                            background: isDarkMode
-                                                ? 'linear-gradient(135deg, #111827 0%, #1F2937 100%)'
-                                                : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
-                                            padding: 14
-                                        })}>
-                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                    <i className="ms-Icon ms-Icon--OpenFolderHorizontal" style={{ fontSize: 12, color: isDarkMode ? '#9CA3AF' : '#6b7280' }} />
-                                                    <span style={{ fontSize: 13, fontWeight: 600, color: isDarkMode ? '#E5E7EB' : '#374151' }}>Matter Overview</span>
+                                        {/* ---- SECTION: MATTER ---- */}
+                                        <div>
+                                            {/* Section header */}
+                                            <div style={{
+                                                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                                marginBottom: 8
+                                            }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                                                    <div style={{
+                                                        width: 6, height: 6, borderRadius: '50%',
+                                                        background: (areaOfWork && teamMember) ? '#20b26c' : '#f59e0b'
+                                                    }} />
+                                                    <span style={{
+                                                        fontSize: 10, fontWeight: 700,
+                                                        color: isDarkMode ? '#9CA3AF' : '#64748B',
+                                                        textTransform: 'uppercase' as const,
+                                                        letterSpacing: '0.08em'
+                                                    }}>
+                                                        Matter
+                                                    </span>
                                                 </div>
-                                                {currentStep === 2 && (
+                                                {currentStep === 2 && !summaryConfirmed && (
                                                     <button
                                                         onClick={() => setCurrentStep(1)}
                                                         style={{
-                                                            background: 'none',
-                                                            border: '1px solid #e5e7eb',
-                                                            borderRadius: 4,
-                                                            padding: '4px 8px',
-                                                            fontSize: 11,
-                                                            fontWeight: 500,
-                                                            color: '#6b7280',
-                                                            cursor: 'pointer',
-                                                            display: 'flex',
-                                                            alignItems: 'center',
-                                                            gap: 4,
-                                                            transition: 'all 0.2s ease'
+                                                            background: 'transparent', border: 'none',
+                                                            padding: '2px 6px', fontSize: 11, fontWeight: 500,
+                                                            color: isDarkMode ? '#6B7280' : '#94A3B8',
+                                                            cursor: 'pointer', textDecoration: 'underline',
+                                                            textUnderlineOffset: '2px'
                                                         }}
-                                                        onMouseEnter={(e) => {
-                                                            e.currentTarget.style.borderColor = '#3690CE';
-                                                            e.currentTarget.style.color = '#3690CE';
-                                                        }}
-                                                        onMouseLeave={(e) => {
-                                                            e.currentTarget.style.borderColor = '#e5e7eb';
-                                                            e.currentTarget.style.color = '#6b7280';
-                                                        }}
+                                                        onMouseEnter={(e) => { e.currentTarget.style.color = aowColor; }}
+                                                        onMouseLeave={(e) => { e.currentTarget.style.color = isDarkMode ? '#6B7280' : '#94A3B8'; }}
                                                     >
-                                                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
-                                                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                                                            <path d="m18.5 2.5 3 3L12 15l-4 1 1-4 9.5-9.5z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                                                        </svg>
                                                         Edit
                                                     </button>
                                                 )}
                                             </div>
-                                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
-                                                {/* Left cluster: Core Matter */}
-                                                <div style={{ display: 'grid', gap: 6 }}>
-                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                        <span style={{ color: '#6B6B6B', fontSize: 12 }}>Area of Work</span>
-                                                        <span style={{ fontWeight: 600, fontSize: 12, textAlign: 'right' }}>{areaOfWork || '-'}</span>
-                                                    </div>
-                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                        <span style={{ color: '#6B6B6B', fontSize: 12 }}>Practice Area</span>
-                                                        <span style={{ fontWeight: 600, fontSize: 12, textAlign: 'right' }}>{practiceArea || '-'}</span>
-                                                    </div>
-                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                        <span style={{ color: '#6B6B6B', fontSize: 12 }}>Dispute Value</span>
-                                                        <span style={{ fontWeight: 600, fontSize: 12 }}>{disputeValue || '-'}</span>
-                                                    </div>
-                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                                        <span style={{ color: '#6B6B6B', fontSize: 12 }}>Description</span>
-                                                        <span style={{ fontWeight: 600, fontSize: 12, maxWidth: 160, textAlign: 'right', lineHeight: '1.3' }}>
-                                                            {description ? (description.length > 60 ? `${description.substring(0, 60)}…` : description) : '-'}
-                                                        </span>
-                                                    </div>
+
+                                        {/* Matter card - structured with title bar */}
+                                        <div style={lockCardStyle({
+                                            borderRadius: 10,
+                                            background: isDarkMode
+                                                ? 'linear-gradient(135deg, #0F172A 0%, #1E293B 100%)'
+                                                : '#FFFFFF',
+                                            border: isDarkMode ? '1px solid rgba(75,85,99,0.3)' : '1px solid #E2E8F0',
+                                            padding: 0,
+                                            overflow: 'hidden',
+                                            transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                                            boxShadow: isDarkMode
+                                                ? '0 1px 3px rgba(0,0,0,0.3)'
+                                                : '0 1px 3px rgba(0,0,0,0.04)'
+                                        })}>
+                                            {/* Matter title bar */}
+                                            <div style={{
+                                                padding: '10px 16px',
+                                                background: isDarkMode ? `${aowColor}08` : `${aowColor}06`,
+                                                borderBottom: isDarkMode ? '1px solid rgba(75,85,99,0.2)' : '1px solid #F1F5F9',
+                                                display: 'flex', alignItems: 'center', gap: 10
+                                            }}>
+                                                <span style={{
+                                                    fontSize: 14, fontWeight: 700,
+                                                    color: isDarkMode ? '#F3F4F6' : '#0F172A'
+                                                }}>
+                                                    {areaOfWork || 'Area of Work'} &mdash; {practiceArea || 'Practice Area'}
+                                                </span>
+                                            </div>
+
+                                            {/* Description row */}
+                                            {description && (
+                                                <div style={{
+                                                    padding: '8px 16px',
+                                                    borderBottom: isDarkMode ? '1px solid rgba(75,85,99,0.2)' : '1px solid #F1F5F9',
+                                                    fontSize: 12, lineHeight: 1.5,
+                                                    color: isDarkMode ? '#9CA3AF' : '#64748B'
+                                                }}>
+                                                    {description}
                                                 </div>
-                                                {/* Middle cluster: Team */}
-                                                <div style={{ display: 'grid', gap: 6 }}>
-                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                        <span style={{ color: '#6B6B6B', fontSize: 12 }}>Opening Date</span>
-                                                        <span style={{ fontWeight: 600, fontSize: 12 }}>{selectedDate ? selectedDate.toLocaleDateString('en-GB') : '-'}</span>
-                                                    </div>
-                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                        <span style={{ color: '#6B6B6B', fontSize: 12 }}>Solicitor</span>
-                                                        <span style={{ fontWeight: 600, fontSize: 12, textAlign: 'right' }}>{teamMember || '-'}</span>
-                                                    </div>
-                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                        <span style={{ color: '#6B6B6B', fontSize: 12 }}>Supervising Partner</span>
-                                                        <span style={{ fontWeight: 600, fontSize: 12, textAlign: 'right' }}>{supervisingPartner || '-'}</span>
-                                                    </div>
-                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                        <span style={{ color: '#6B6B6B', fontSize: 12 }}>Originating Solicitor</span>
-                                                        <span style={{ fontWeight: 600, fontSize: 12, textAlign: 'right' }}>{originatingSolicitor || '-'}</span>
-                                                    </div>
+                                            )}
+
+                                            {/* Two-column detail grid */}
+                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
+                                                {/* Left: Team */}
+                                                <div style={{
+                                                    padding: '12px 16px',
+                                                    borderRight: isDarkMode ? '1px solid rgba(75,85,99,0.2)' : '1px solid #F1F5F9'
+                                                }}>
+                                                    {[
+                                                        { label: 'Solicitor', value: teamMember },
+                                                        { label: 'Supervising Partner', value: supervisingPartner },
+                                                        { label: 'Originating Solicitor', value: originatingSolicitor },
+                                                        { label: 'Opening Date', value: selectedDate ? selectedDate.toLocaleDateString('en-GB') : undefined },
+                                                        { label: 'Client Type', value: clientType || undefined },
+                                                        ...(instructionRef ? [{ label: 'Instruction Ref', value: instructionRef }] : []),
+                                                    ].map(({ label, value }) => (
+                                                        <div key={label} style={{
+                                                            display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+                                                            padding: '4px 0',
+                                                        }}>
+                                                            <span style={{ fontSize: 11, color: isDarkMode ? '#6B7280' : '#94A3B8' }}>{label}</span>
+                                                            <span style={{
+                                                                fontSize: 12, fontWeight: 600,
+                                                                color: value ? (isDarkMode ? '#E5E7EB' : '#1E293B') : (isDarkMode ? '#4B5563' : '#CBD5E1'),
+                                                                textAlign: 'right' as const
+                                                            }}>
+                                                                {value || '-'}
+                                                            </span>
+                                                        </div>
+                                                    ))}
                                                 </div>
-                                                {/* Right cluster: Additional */}
-                                                <div style={{ display: 'grid', gap: 6 }}>
-                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                        <span style={{ color: '#6B6B6B', fontSize: 12 }}>Source</span>
-                                                        <span style={{ fontWeight: 600, fontSize: 12, textAlign: 'right' }}>
-                                                            {source}{source === 'referral' && referrerName ? ` - ${referrerName}` : ''}
-                                                        </span>
-                                                    </div>
-                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                        <span style={{ color: '#6B6B6B', fontSize: 12 }}>Folder Structure</span>
-                                                        <span style={{ fontWeight: 600, fontSize: 12, textAlign: 'right' }}>{folderStructure || '-'}</span>
-                                                    </div>
-                                                    {budgetRequired === 'Yes' && (
-                                                        <>
-                                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                                <span style={{ color: '#6B6B6B', fontSize: 12 }}>Budget Amount</span>
-                                                                <span style={{ fontWeight: 600, fontSize: 12 }}>{budgetAmount ? `£${budgetAmount}` : '-'}</span>
-                                                            </div>
-                                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                                <span style={{ color: '#6B6B6B', fontSize: 12 }}>Notify Threshold</span>
-                                                                <span style={{ fontWeight: 600, fontSize: 12 }}>{budgetThreshold ? `${budgetThreshold}%` : '-'}</span>
-                                                            </div>
-                                                        </>
-                                                    )}
+                                                {/* Right: Details */}
+                                                <div style={{ padding: '12px 16px' }}>
+                                                    {[
+                                                        { label: 'Dispute Value', value: disputeValue },
+                                                        { label: 'Source', value: source ? `${source}${source === 'referral' && referrerName ? ` - ${referrerName}` : ''}` : undefined },
+                                                        { label: 'Folder Structure', value: folderStructure },
+                                                        ...(budgetRequired === 'Yes' ? [
+                                                            { label: 'Budget', value: budgetAmount ? `\u00a3${budgetAmount}` : undefined },
+                                                            ...(budgetThreshold ? [{ label: 'Notify Threshold', value: `${budgetThreshold}%` }] : []),
+                                                        ] : []),
+                                                    ].map(({ label, value }) => (
+                                                        <div key={label} style={{
+                                                            display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+                                                            padding: '4px 0',
+                                                        }}>
+                                                            <span style={{ fontSize: 11, color: isDarkMode ? '#6B7280' : '#94A3B8' }}>{label}</span>
+                                                            <span style={{
+                                                                fontSize: 12, fontWeight: 600,
+                                                                color: value ? (isDarkMode ? '#E5E7EB' : '#1E293B') : (isDarkMode ? '#4B5563' : '#CBD5E1'),
+                                                                textAlign: 'right' as const
+                                                            }}>
+                                                                {value || '-'}
+                                                            </span>
+                                                        </div>
+                                                    ))}
                                                 </div>
                                             </div>
                                         </div>
+                                        </div> {/* End MATTER section */}
 
-                                        {/* Opponent Details Card */}
+                                        {/* ---- SECTION: OPPONENTS ---- */}
                                         {(() => {
                                             const realOpponentKeys = getRealOpponentFieldKeys();
                                             const hasRealOpponentData = realOpponentKeys.length > 0;
 
-                                            if (!hasRealOpponentData) {
-                                                // Collapsed state - show placeholder confirmation
-                                                return (
-                                                    <div style={{
-                                                        border: '1px solid #e5e7eb',
-                                                        borderRadius: 8,
-                                                        background: '#f9fafb',
-                                                        padding: 12
-                                                    }}>
-                                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                                                            <i className="ms-Icon ms-Icon--Contact" style={{ fontSize: 12, color: '#9ca3af' }} />
-                                                            <span style={{ fontSize: 13, fontWeight: 500, color: '#6b7280' }}>Opponent Details</span>
-                                                        </div>
-                                                        <div style={{ 
-                                                            fontSize: 11, 
-                                                            color: '#9ca3af',
-                                                            fontStyle: 'italic',
-                                                            display: 'flex',
-                                                            alignItems: 'center',
-                                                            gap: 4
-                                                        }}>
-                                                            <i className="ms-Icon ms-Icon--InfoSolid" style={{ fontSize: 10 }} />
-                                                            No opponent details provided
-                                                        </div>
-                                                    </div>
-                                                );
-                                            }
-
-                                            // Expanded state - show actual data
-                                            return (
-                                                <div style={lockCardStyle({
-                                                    border: '1px solid #e1e5ea',
-                                                    borderRadius: 8,
-                                                    background: isDarkMode
-                                                        ? 'linear-gradient(135deg, #111827 0%, #1F2937 100%)'
-                                                        : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
-                                                    padding: 14
-                                                })}>
-                                                    {renderLockOverlay()}
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
-                                                        <i className="ms-Icon ms-Icon--Contact" style={{ fontSize: 12, color: isDarkMode ? '#9CA3AF' : '#6b7280' }} />
-                                                        <span style={{ fontSize: 13, fontWeight: 600, color: isDarkMode ? '#E5E7EB' : '#374151' }}>Opponent Details</span>
-                                                    </div>
-                                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 6 }}>
-                                                        {realOpponentKeys.includes('opponentCompanyName') && opponentType === 'Company' && (
-                                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                                <span style={{ color: '#6B6B6B', fontSize: 12 }}>Company Name</span>
-                                                                <span style={getFieldStyle(opponentCompanyName, 'opponentCompanyName')}>{opponentCompanyName}</span>
-                                                            </div>
-                                                        )}
-                                                        {(realOpponentKeys.includes('opponentTitle') || realOpponentKeys.includes('opponentFirst') || realOpponentKeys.includes('opponentLast')) && (
-                                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                                <span style={{ color: '#6B6B6B', fontSize: 12 }}>Name</span>
-                                                                <span style={getFieldStyle(
-                                                                    `${opponentTitle ? opponentTitle + ' ' : ''}${opponentFirst || ''} ${opponentLast || ''}`.trim(),
-                                                                    `${originalValues.opponentTitle ? originalValues.opponentTitle + ' ' : ''}${originalValues.opponentFirst || ''} ${originalValues.opponentLast || ''}`.trim()
-                                                                )}>
-                                                                    {`${opponentTitle ? opponentTitle + ' ' : ''}${opponentFirst || ''} ${opponentLast || ''}`.trim()}
-                                                                </span>
-                                                            </div>
-                                                        )}
-                                                        {realOpponentKeys.includes('opponentEmail') && (
-                                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                                <span style={{ color: '#6B6B6B', fontSize: 12 }}>Email</span>
-                                                                <span style={getFieldStyle(opponentEmail, 'opponentEmail')}>{opponentEmail}</span>
-                                                            </div>
-                                                        )}
-                                                        {realOpponentKeys.includes('opponentPhone') && (
-                                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                                <span style={{ color: '#6B6B6B', fontSize: 12 }}>Phone</span>
-                                                                <span style={getFieldStyle(opponentPhone, 'opponentPhone')}>{opponentPhone}</span>
-                                                            </div>
-                                                        )}
-                                                        {/* Address display (only if at least one real, non-placeholder part) */}
-                                                        {(() => {
-                                                            const addrKeys: OppFieldKey[] = ['opponentHouseNumber','opponentStreet','opponentCity','opponentCounty','opponentPostcode','opponentCountry'];
-                                                            const currentValues: Record<string,string> = {
-                                                                opponentHouseNumber: opponentHouseNumber || '',
-                                                                opponentStreet: opponentStreet || '',
-                                                                opponentCity: opponentCity || '',
-                                                                opponentCounty: opponentCounty || '',
-                                                                opponentPostcode: opponentPostcode || '',
-                                                                opponentCountry: opponentCountry || ''
-                                                            };
-                                                            const anyReal = addrKeys.some(k => {
-                                                                const v = currentValues[k].trim();
-                                                                if (!v) return false;
-                                                                if (v === (opponentPlaceholderTemplate as any)[k]) return false;
-                                                                if (isPlaceholderData(v)) return false;
-                                                                return true;
-                                                            });
-                                                            if (!anyReal) return null;
-                                                            const addressLine1 = [opponentHouseNumber, opponentStreet].filter(Boolean).join(' ');
-                                                            const addressLine2 = [opponentCity, opponentCounty].filter(Boolean).join(', ');
-                                                            const addressLine3 = [opponentPostcode, opponentCountry].filter(Boolean).join(' ');
-                                                            const originalAddressLine1 = [originalValues.opponentHouseNumber, originalValues.opponentStreet].filter(Boolean).join(' ');
-                                                            const originalAddressLine2 = [originalValues.opponentCity, originalValues.opponentCounty].filter(Boolean).join(', ');
-                                                            const originalAddressLine3 = [originalValues.opponentPostcode, originalValues.opponentCountry].filter(Boolean).join(' ');
-                                                            const addressStyle = (currentLine: string, originalLine: string) => {
-                                                                const isModified = hasUserModified(currentLine, originalLine);
-                                                                return {
-                                                                    fontWeight: isModified ? 600 : 400,
-                                                                    fontSize: 12,
-                                                                    textAlign: 'right' as const,
-                                                                    lineHeight: '1.3',
-                                                                    color: isModified ? '#111827' : '#9ca3af',
-                                                                    fontStyle: isModified ? 'normal' : 'italic'
-                                                                };
-                                                            };
-                                                            return (
-                                                                <>
-                                                                    {addressLine1 && !isPlaceholderData(addressLine1) && addressLine1 !== opponentPlaceholderTemplate.opponentHouseNumber + ' ' + opponentPlaceholderTemplate.opponentStreet && (
-                                                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                                            <span style={{ color: '#6B6B6B', fontSize: 12 }}>Address</span>
-                                                                            <span style={addressStyle(addressLine1, originalAddressLine1)}>{addressLine1}</span>
-                                                                        </div>
-                                                                    )}
-                                                                    {addressLine2 && !isPlaceholderData(addressLine2) && addressLine2 !== opponentPlaceholderTemplate.opponentCity + ', ' + opponentPlaceholderTemplate.opponentCounty && (
-                                                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                                            <span style={{ color: '#6B6B6B', fontSize: 12 }}></span>
-                                                                            <span style={addressStyle(addressLine2, originalAddressLine2)}>{addressLine2}</span>
-                                                                        </div>
-                                                                    )}
-                                                                    {addressLine3 && !isPlaceholderData(addressLine3) && addressLine3 !== opponentPlaceholderTemplate.opponentPostcode + ' ' + opponentPlaceholderTemplate.opponentCountry && (
-                                                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                                            <span style={{ color: '#6B6B6B', fontSize: 12 }}></span>
-                                                                            <span style={addressStyle(addressLine3, originalAddressLine3)}>{addressLine3}</span>
-                                                                        </div>
-                                                                    )}
-                                                                </>
-                                                            );
-                                                        })()}
-                                                    </div>
-                                                </div>
-                                            );
-                                        })()}
-
-                                        {/* Opponent Solicitor Details Card */}
-                                        {(() => {
                                             // Collect solicitor field values
-                                            const solicitorFields = {
+                                            const solFields = {
                                                 opponentSolicitorCompany, solicitorFirst, solicitorLast,
                                                 opponentSolicitorEmail, solicitorPhone, solicitorHouseNumber,
                                                 solicitorStreet, solicitorCity, solicitorCounty,
                                                 solicitorPostcode, solicitorCountry
                                             } as const;
-
-                                            // Determine which fields are REAL (non-empty & not placeholder-like)
-                                            const realKeys = Object.entries(solicitorFields)
+                                            const realSolKeys = Object.entries(solFields)
                                                 .filter(([_, val]) => {
                                                     const v = (val || '').trim();
-                                                    if (!v) return false; // empty
-                                                    if (isPlaceholderData(v)) return false; // generic placeholder pattern
+                                                    if (!v) return false;
+                                                    if (isPlaceholderData(v)) return false;
                                                     const low = v.toLowerCase();
-                                                    // Explicit placeholder terms to ignore
-                                                    if (
-                                                        low === 'helix law ltd' ||
-                                                        low === 'helix law' ||
-                                                        low === 'invent solicitor name' ||
-                                                        low === 'invent name' ||
-                                                        low === 'brighton' ||
-                                                        low === 'bn1 4de' ||
-                                                        low === 'mr' || low === 'mrs' || low === 'ms' || low === 'dr' ||
-                                                        low === 'second floor' ||
-                                                        low.includes('station street') ||
-                                                        low.includes('britannia house') ||
-                                                        low === '0345 314 2044' || low.includes('0345 314 2044')
-                                                    ) return false;
+                                                    if (['helix law ltd','helix law','invent solicitor name','invent name','brighton','bn1 4de','mr','mrs','ms','dr','second floor'].includes(low)) return false;
+                                                    if (low.includes('station street') || low.includes('britannia house')) return false;
+                                                    if (low === '0345 314 2044' || low.includes('0345 314 2044')) return false;
                                                     if (low.includes('opponentsolicitor@helix-law.com')) return false;
                                                     return true;
                                                 })
                                                 .map(([k]) => k);
+                                            const hasRealSolData = realSolKeys.length > 0;
 
-                                            if (realKeys.length === 0) {
-                                                // Show collapsed placeholder card
+                                            if (!hasRealOpponentData && !hasRealSolData) {
                                                 return (
                                                     <div style={{
-                                                        border: '1px solid #e5e7eb',
-                                                        borderRadius: 8,
-                                                        background: '#f9fafb',
-                                                        padding: 12
+                                                        padding: '10px 16px', borderRadius: 10,
+                                                        background: isDarkMode ? 'rgba(75,85,99,0.08)' : '#F8FAFC',
+                                                        border: isDarkMode ? '1px solid rgba(75,85,99,0.2)' : '1px solid #E2E8F0',
+                                                        display: 'flex', alignItems: 'center', gap: 8,
+                                                        fontSize: 12, color: isDarkMode ? '#6B7280' : '#94A3B8'
                                                     }}>
-                                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                                                            <i className="ms-Icon ms-Icon--ContactInfo" style={{ fontSize: 12, color: '#9ca3af' }} />
-                                                            <span style={{ fontSize: 13, fontWeight: 500, color: '#6b7280' }}>Opponent Solicitor</span>
-                                                        </div>
-                                                        <div style={{ fontSize: 11, color: '#9ca3af', fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: 4 }}>
-                                                            <i className="ms-Icon ms-Icon--InfoSolid" style={{ fontSize: 10 }} />
-                                                            No solicitor details provided
-                                                        </div>
+                                                        <i className="ms-Icon ms-Icon--Contact" style={{ fontSize: 12, opacity: 0.5 }} />
+                                                        <span>No opponent or solicitor details provided</span>
                                                     </div>
                                                 );
                                             }
 
-                                            // Build address lines only if any address fields are real
-                                            const addressLine1 = [solicitorHouseNumber, solicitorStreet].filter(Boolean).join(' ');
-                                            const addressLine2 = [solicitorCity, solicitorCounty].filter(Boolean).join(', ');
-                                            const addressLine3 = [solicitorPostcode, solicitorCountry].filter(Boolean).join(' ');
-                                            const realAddressLines = [addressLine1, addressLine2, addressLine3].filter(l => l && !isPlaceholderData(l));
+                                            // Build opponent display name
+                                            const oppName = hasRealOpponentData
+                                                ? (opponentType === 'Company' && opponentCompanyName
+                                                    ? opponentCompanyName
+                                                    : `${opponentTitle ? opponentTitle + ' ' : ''}${opponentFirst || ''} ${opponentLast || ''}`.trim())
+                                                : '';
+
+                                            // Build opponent address
+                                            const oppAddr = (() => {
+                                                const a1 = [opponentHouseNumber, opponentStreet].filter(Boolean).join(' ');
+                                                const a2 = [opponentCity, opponentCounty].filter(Boolean).join(', ');
+                                                const a3 = [opponentPostcode, opponentCountry].filter(Boolean).join(' ');
+                                                return [a1, a2, a3].filter(l => l && !isPlaceholderData(l));
+                                            })();
+
+                                            // Build solicitor display
+                                            const solName = `${solicitorFirst || ''} ${solicitorLast || ''}`.trim();
+                                            const solAddr = (() => {
+                                                const a1 = [solicitorHouseNumber, solicitorStreet].filter(Boolean).join(' ');
+                                                const a2 = [solicitorCity, solicitorCounty].filter(Boolean).join(', ');
+                                                const a3 = [solicitorPostcode, solicitorCountry].filter(Boolean).join(' ');
+                                                return [a1, a2, a3].filter(l => l && !isPlaceholderData(l));
+                                            })();
 
                                             return (
-                                                <div style={{
-                                                    border: '1px solid #e1e5ea',
-                                                    borderRadius: 8,
-                                                    background: isDarkMode
-                                                        ? 'linear-gradient(135deg, #111827 0%, #1F2937 100%)'
-                                                        : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
-                                                    padding: 14
-                                                }}>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
-                                                        <i className="ms-Icon ms-Icon--ContactInfo" style={{ fontSize: 12, color: isDarkMode ? '#9CA3AF' : '#6b7280' }} />
-                                                        <span style={{ fontSize: 13, fontWeight: 600, color: isDarkMode ? '#E5E7EB' : '#374151' }}>Opponent Solicitor</span>
+                                                <div>
+                                                    <div style={{
+                                                        display: 'flex', alignItems: 'center', gap: 7,
+                                                        marginBottom: 8
+                                                    }}>
+                                                        <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#20b26c' }} />
+                                                        <span style={{
+                                                            fontSize: 10, fontWeight: 700,
+                                                            color: isDarkMode ? '#9CA3AF' : '#64748B',
+                                                            textTransform: 'uppercase' as const,
+                                                            letterSpacing: '0.08em'
+                                                        }}>
+                                                            Opponents
+                                                        </span>
                                                     </div>
-                                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 6 }}>
-                                                        {realKeys.includes('opponentSolicitorCompany') && (
-                                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                                <span style={{ color: '#6B6B6B', fontSize: 12 }}>Company Name</span>
-                                                                <span style={getFieldStyle(opponentSolicitorCompany || '', 'opponentSolicitorCompany')}>{opponentSolicitorCompany}</span>
-                                                            </div>
-                                                        )}
-                                                        {(realKeys.includes('solicitorFirst') || realKeys.includes('solicitorLast')) && (
-                                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                                <span style={{ color: '#6B6B6B', fontSize: 12 }}>Name</span>
-                                                                <span style={getFieldStyle(`${solicitorFirst || ''} ${solicitorLast || ''}`.trim(), `${originalValues.solicitorFirst || ''} ${originalValues.solicitorLast || ''}`.trim())}>{`${solicitorFirst || ''} ${solicitorLast || ''}`.trim()}</span>
-                                                            </div>
-                                                        )}
-                                                        {realKeys.includes('opponentSolicitorEmail') && (
-                                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                                <span style={{ color: '#6B6B6B', fontSize: 12 }}>Email</span>
-                                                                <span style={getFieldStyle(opponentSolicitorEmail || '', 'opponentSolicitorEmail')}>{opponentSolicitorEmail}</span>
-                                                            </div>
-                                                        )}
-                                                        {realKeys.includes('solicitorPhone') && (
-                                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                                <span style={{ color: '#6B6B6B', fontSize: 12 }}>Phone</span>
-                                                                <span style={getFieldStyle(solicitorPhone || '', 'solicitorPhone')}>{solicitorPhone}</span>
-                                                            </div>
-                                                        )}
-                                                        {realAddressLines.length > 0 && (
-                                                            <>
-                                                                {addressLine1 && !isPlaceholderData(addressLine1) && (
-                                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                                        <span style={{ color: '#6B6B6B', fontSize: 12 }}>Address</span>
-                                                                        <span style={getFieldStyle(addressLine1, `${originalValues.solicitorHouseNumber || ''} ${originalValues.solicitorStreet || ''}`.trim())}>{addressLine1}</span>
+
+                                                    <div style={{
+                                                        display: 'grid',
+                                                        gridTemplateColumns: hasRealOpponentData && hasRealSolData ? '1fr 1fr' : '1fr',
+                                                        gap: 12
+                                                    }}>
+                                                        {/* Opponent card */}
+                                                        {hasRealOpponentData && (
+                                                            <div style={{
+                                                                borderRadius: 10,
+                                                                background: isDarkMode ? 'linear-gradient(135deg, #0F172A 0%, #1E293B 100%)' : '#FFFFFF',
+                                                                border: isDarkMode ? '1px solid rgba(75,85,99,0.3)' : '1px solid #E2E8F0',
+                                                                padding: '14px 16px',
+                                                                boxShadow: isDarkMode ? '0 1px 3px rgba(0,0,0,0.3)' : '0 1px 3px rgba(0,0,0,0.04)',
+                                                            }}>
+                                                                <div style={{
+                                                                    fontSize: 10, fontWeight: 600,
+                                                                    color: isDarkMode ? '#6B7280' : '#94A3B8',
+                                                                    textTransform: 'uppercase' as const,
+                                                                    letterSpacing: '0.05em', marginBottom: 8
+                                                                }}>
+                                                                    Opponent
+                                                                </div>
+                                                                {oppName && (
+                                                                    <div style={{ fontSize: 13, fontWeight: 600, color: isDarkMode ? '#E5E7EB' : '#1E293B', marginBottom: 4 }}>
+                                                                        {oppName}
                                                                     </div>
                                                                 )}
-                                                                {addressLine2 && !isPlaceholderData(addressLine2) && (
-                                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                                        <span style={{ color: '#6B6B6B', fontSize: 12 }}></span>
-                                                                        <span style={getFieldStyle(addressLine2, `${originalValues.solicitorCity || ''}, ${originalValues.solicitorCounty || ''}`.replace(/^,\s*/, ''))}>{addressLine2}</span>
+                                                                <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 12, color: isDarkMode ? '#9CA3AF' : '#64748B' }}>
+                                                                    {opponentEmail && !isPlaceholderData(opponentEmail) && <span>{opponentEmail}</span>}
+                                                                    {opponentPhone && !isPlaceholderData(opponentPhone) && <span>{opponentPhone}</span>}
+                                                                </div>
+                                                                {oppAddr.length > 0 && (
+                                                                    <div style={{ fontSize: 12, color: isDarkMode ? '#6B7280' : '#94A3B8', marginTop: 4 }}>
+                                                                        {oppAddr.join(', ')}
                                                                     </div>
                                                                 )}
-                                                                {addressLine3 && !isPlaceholderData(addressLine3) && (
-                                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                                        <span style={{ color: '#6B6B6B', fontSize: 12 }}></span>
-                                                                        <span style={getFieldStyle(addressLine3, `${originalValues.solicitorPostcode || ''} ${originalValues.solicitorCountry || ''}`.trim())}>{addressLine3}</span>
+                                                            </div>
+                                                        )}
+
+                                                        {/* Solicitor card */}
+                                                        {hasRealSolData && (
+                                                            <div style={{
+                                                                borderRadius: 10,
+                                                                background: isDarkMode ? 'linear-gradient(135deg, #0F172A 0%, #1E293B 100%)' : '#FFFFFF',
+                                                                border: isDarkMode ? '1px solid rgba(75,85,99,0.3)' : '1px solid #E2E8F0',
+                                                                padding: '14px 16px',
+                                                                boxShadow: isDarkMode ? '0 1px 3px rgba(0,0,0,0.3)' : '0 1px 3px rgba(0,0,0,0.04)',
+                                                            }}>
+                                                                <div style={{
+                                                                    fontSize: 10, fontWeight: 600,
+                                                                    color: isDarkMode ? '#6B7280' : '#94A3B8',
+                                                                    textTransform: 'uppercase' as const,
+                                                                    letterSpacing: '0.05em', marginBottom: 8
+                                                                }}>
+                                                                    Opponent Solicitor
+                                                                </div>
+                                                                {solName && (
+                                                                    <div style={{ fontSize: 13, fontWeight: 600, color: isDarkMode ? '#E5E7EB' : '#1E293B', marginBottom: 2 }}>
+                                                                        {solName}
                                                                     </div>
                                                                 )}
-                                                            </>
+                                                                {opponentSolicitorCompany && realSolKeys.includes('opponentSolicitorCompany') && (
+                                                                    <div style={{ fontSize: 12, color: isDarkMode ? '#9CA3AF' : '#64748B', marginBottom: 4 }}>
+                                                                        {opponentSolicitorCompany}
+                                                                    </div>
+                                                                )}
+                                                                <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 12, color: isDarkMode ? '#9CA3AF' : '#64748B' }}>
+                                                                    {opponentSolicitorEmail && realSolKeys.includes('opponentSolicitorEmail') && <span>{opponentSolicitorEmail}</span>}
+                                                                    {solicitorPhone && realSolKeys.includes('solicitorPhone') && <span>{solicitorPhone}</span>}
+                                                                </div>
+                                                                {solAddr.length > 0 && (
+                                                                    <div style={{ fontSize: 12, color: isDarkMode ? '#6B7280' : '#94A3B8', marginTop: 4 }}>
+                                                                        {solAddr.join(', ')}
+                                                                    </div>
+                                                                )}
+                                                            </div>
                                                         )}
                                                     </div>
                                                 </div>
                                             );
                                         })()}
-                                    </div>
 
-                                    {/* Integrated confirmation and conflicts check */}
+                                        {/* ---- SECTION: COMPLIANCE & VERIFICATION ---- */}
+                                        {(() => {
+                                            const inst = Array.isArray(instructionRecords)
+                                                ? (instructionRecords as any[]).find(r => r?.InstructionRef === instructionRef)
+                                                : null;
+                                            const idVerifs = inst?.idVerifications || [];
+                                            const leadVerif = idVerifs.find((v: any) => v.IsLeadClient) || idVerifs[0] || null;
+                                            const riskArr = inst?.riskAssessments || [];
+                                            const latestRisk = riskArr[0] || null;
+                                            const payments = inst?.payments || [];
+                                            const successfulPay = payments.find((p: any) => p.payment_status === 'succeeded' || p.internal_status === 'completed') || payments[0] || null;
+
+                                            // Also build from POID-level data as fallback
+                                            const uniqueSelectedIds = Array.from(new Set(selectedPoidIds || []));
+                                            const selectedClients = uniqueSelectedIds.map((id: string) => effectivePoidData.find(p => p.poid_id === id)).filter(Boolean) as POID[];
+                                            const leadClient = selectedClients[0];
+
+                                            const eidResult = leadVerif?.EIDOverallResult || leadClient?.check_result || null;
+                                            const pepResult = leadVerif?.PEPAndSanctionsCheckResult || leadVerif?.PEPResult || leadClient?.pep_sanctions_result || null;
+                                            const addressResult = leadVerif?.AddressVerificationResult || leadClient?.address_verification_result || null;
+                                            const checkExpiry = leadVerif?.CheckExpiry || leadClient?.check_expiry || null;
+                                            const riskResult = latestRisk?.RiskAssessmentResult || null;
+                                            const riskScore = latestRisk?.RiskScore || null;
+                                            const riskAssessor = latestRisk?.RiskAssessor || null;
+                                            const paymentStatus = successfulPay?.payment_status === 'succeeded' ? 'Paid' : (successfulPay?.internal_status === 'completed' ? 'Paid' : (inst?.InternalStatus === 'paid' ? 'Paid' : null));
+                                            const paymentAmount = successfulPay ? (successfulPay.amount >= 100 ? `\u00a3${(successfulPay.amount / 100).toFixed(2)}` : `\u00a3${successfulPay.amount}`) : (inst?.PaymentAmount ? `\u00a3${inst.PaymentAmount}` : null);
+
+                                            const hasAny = eidResult || pepResult || addressResult || riskResult || paymentStatus || noConflict;
+                                            if (!hasAny) return null;
+
+                                            const statusDot = (val: string | null, passValues: string[]) => {
+                                                if (!val) return '#6B7280';
+                                                const low = String(val).toLowerCase();
+                                                return passValues.some(p => low.includes(p)) ? '#10b981' : '#f59e0b';
+                                            };
+
+                                            return (
+                                                <div>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8 }}>
+                                                        <div style={{
+                                                            width: 6, height: 6, borderRadius: '50%',
+                                                            background: (noConflict && eidResult) ? '#20b26c' : '#f59e0b'
+                                                        }} />
+                                                        <span style={{
+                                                            fontSize: 10, fontWeight: 700,
+                                                            color: isDarkMode ? '#9CA3AF' : '#64748B',
+                                                            textTransform: 'uppercase' as const,
+                                                            letterSpacing: '0.08em'
+                                                        }}>
+                                                            Compliance &amp; Verification
+                                                        </span>
+                                                    </div>
+                                                    <div style={{
+                                                        borderRadius: 10,
+                                                        background: isDarkMode ? 'linear-gradient(135deg, #0F172A 0%, #1E293B 100%)' : '#FFFFFF',
+                                                        border: isDarkMode ? '1px solid rgba(75,85,99,0.3)' : '1px solid #E2E8F0',
+                                                        overflow: 'hidden',
+                                                        boxShadow: isDarkMode ? '0 1px 3px rgba(0,0,0,0.3)' : '0 1px 3px rgba(0,0,0,0.04)',
+                                                    }}>
+                                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
+                                                            {/* Left: Conflict & Risk */}
+                                                            <div style={{
+                                                                padding: '12px 16px',
+                                                                borderRight: isDarkMode ? '1px solid rgba(75,85,99,0.2)' : '1px solid #F1F5F9'
+                                                            }}>
+                                                                {/* Conflict check */}
+                                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0' }}>
+                                                                    <span style={{ fontSize: 11, color: isDarkMode ? '#6B7280' : '#94A3B8' }}>Conflict Check</span>
+                                                                    <span style={{
+                                                                        padding: '1px 8px', borderRadius: 3, fontSize: 9, fontWeight: 700,
+                                                                        background: noConflict ? 'rgba(16,185,129,0.12)' : 'rgba(245,158,11,0.12)',
+                                                                        color: noConflict ? '#10b981' : '#f59e0b',
+                                                                        border: noConflict ? '1px solid rgba(16,185,129,0.3)' : '1px solid rgba(245,158,11,0.3)',
+                                                                        letterSpacing: '0.04em'
+                                                                    }}>
+                                                                        {noConflict ? 'CLEARED' : 'NOT CONFIRMED'}
+                                                                    </span>
+                                                                </div>
+                                                                {/* Risk assessment */}
+                                                                {riskResult && (
+                                                                    <div style={{ padding: '4px 0' }}>
+                                                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                                                                            <span style={{ fontSize: 11, color: isDarkMode ? '#6B7280' : '#94A3B8' }}>Risk Assessment</span>
+                                                                            <span style={{
+                                                                                fontSize: 12, fontWeight: 600,
+                                                                                color: String(riskResult).toLowerCase() === 'standard' || String(riskResult).toLowerCase() === 'low'
+                                                                                    ? '#10b981' : '#f59e0b'
+                                                                            }}>
+                                                                                {riskResult}
+                                                                            </span>
+                                                                        </div>
+                                                                        <div style={{ display: 'flex', gap: 12, marginTop: 2 }}>
+                                                                            {riskScore && <span style={{ fontSize: 10, color: isDarkMode ? '#4B5563' : '#CBD5E1' }}>Score: {riskScore}</span>}
+                                                                            {riskAssessor && <span style={{ fontSize: 10, color: isDarkMode ? '#4B5563' : '#CBD5E1' }}>{riskAssessor}</span>}
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                            {/* Right: Payment & EID */}
+                                                            <div style={{ padding: '12px 16px' }}>
+                                                                {/* Payment */}
+                                                                {(paymentStatus || paymentAmount) && (
+                                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0' }}>
+                                                                        <span style={{ fontSize: 11, color: isDarkMode ? '#6B7280' : '#94A3B8' }}>Payment</span>
+                                                                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                                                                            {paymentAmount && <span style={{ fontSize: 12, fontWeight: 600, color: isDarkMode ? '#E5E7EB' : '#1E293B' }}>{paymentAmount}</span>}
+                                                                            {paymentStatus && (
+                                                                                <span style={{
+                                                                                    padding: '1px 6px', borderRadius: 3, fontSize: 9, fontWeight: 700,
+                                                                                    background: 'rgba(16,185,129,0.12)', color: '#10b981',
+                                                                                    border: '1px solid rgba(16,185,129,0.3)', letterSpacing: '0.04em'
+                                                                                }}>
+                                                                                    {paymentStatus.toUpperCase()}
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+                                                                {/* EID overall */}
+                                                                {eidResult && (
+                                                                    <div style={{ padding: '4px 0' }}>
+                                                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                                            <span style={{ fontSize: 11, color: isDarkMode ? '#6B7280' : '#94A3B8' }}>EID Result</span>
+                                                                            <span style={{
+                                                                                padding: '1px 8px', borderRadius: 3, fontSize: 9, fontWeight: 700,
+                                                                                background: `${statusDot(eidResult, ['pass', 'manual-approved'])}18`,
+                                                                                color: statusDot(eidResult, ['pass', 'manual-approved']),
+                                                                                border: `1px solid ${statusDot(eidResult, ['pass', 'manual-approved'])}30`,
+                                                                                letterSpacing: '0.04em'
+                                                                            }}>
+                                                                                {String(eidResult).toUpperCase()}
+                                                                            </span>
+                                                                        </div>
+                                                                        {checkExpiry && (
+                                                                            <span style={{ fontSize: 10, color: isDarkMode ? '#4B5563' : '#CBD5E1', marginTop: 2, display: 'block' }}>
+                                                                                Expires: {new Date(checkExpiry).toLocaleDateString('en-GB')}
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })()}
+
+                                        {/* ---- SECTION: DOCUMENTS & TERMS ---- */}
+                                        {(() => {
+                                            const inst = Array.isArray(instructionRecords)
+                                                ? (instructionRecords as any[]).find(r => r?.InstructionRef === instructionRef)
+                                                : null;
+                                            const docs = Array.isArray(inst?.documents) ? inst.documents : [];
+                                            const uniqueSelectedIds = Array.from(new Set(selectedPoidIds || []));
+                                            const leadPoid = uniqueSelectedIds.length > 0
+                                                ? effectivePoidData.find(p => p.poid_id === uniqueSelectedIds[0])
+                                                : null;
+                                            const termsAccepted = leadPoid?.terms_acceptance || false;
+                                            const idDocsFolder = leadPoid?.id_docs_folder || null;
+
+                                            if (docs.length === 0 && !termsAccepted && !idDocsFolder) return null;
+
+                                            const formatSize = (bytes: number) => {
+                                                if (!bytes || bytes <= 0) return '';
+                                                if (bytes < 1024) return `${bytes} B`;
+                                                if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+                                                return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+                                            };
+
+                                            return (
+                                                <div>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8 }}>
+                                                        <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#20b26c' }} />
+                                                        <span style={{
+                                                            fontSize: 10, fontWeight: 700,
+                                                            color: isDarkMode ? '#9CA3AF' : '#64748B',
+                                                            textTransform: 'uppercase' as const,
+                                                            letterSpacing: '0.08em'
+                                                        }}>
+                                                            Documents &amp; Terms
+                                                        </span>
+                                                        {docs.length > 0 && (
+                                                            <span style={{
+                                                                padding: '1px 6px', borderRadius: 8,
+                                                                background: isDarkMode ? 'rgba(148,163,184,0.12)' : '#F1F5F9',
+                                                                fontSize: 9, fontWeight: 700,
+                                                                color: isDarkMode ? '#9CA3AF' : '#64748B'
+                                                            }}>
+                                                                {docs.length}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <div style={{
+                                                        borderRadius: 10,
+                                                        background: isDarkMode ? 'linear-gradient(135deg, #0F172A 0%, #1E293B 100%)' : '#FFFFFF',
+                                                        border: isDarkMode ? '1px solid rgba(75,85,99,0.3)' : '1px solid #E2E8F0',
+                                                        padding: '12px 16px',
+                                                        boxShadow: isDarkMode ? '0 1px 3px rgba(0,0,0,0.3)' : '0 1px 3px rgba(0,0,0,0.04)',
+                                                    }}>
+                                                        {/* Document list */}
+                                                        {docs.length > 0 && (
+                                                            <div style={{ marginBottom: (termsAccepted || idDocsFolder) ? 10 : 0 }}>
+                                                                {docs.map((doc: any, idx: number) => {
+                                                                    const name = doc.FileName || doc.filename || doc.name || `Document ${idx + 1}`;
+                                                                    const type = doc.DocumentType || doc.type || '';
+                                                                    const size = doc.FileSizeBytes || doc.filesize || doc.size || 0;
+                                                                    return (
+                                                                        <div key={`doc-${idx}`} style={{
+                                                                            display: 'flex', alignItems: 'center', gap: 10,
+                                                                            padding: '5px 0',
+                                                                            ...(idx < docs.length - 1 ? { borderBottom: isDarkMode ? '1px solid rgba(75,85,99,0.15)' : '1px solid #F8FAFC' } : {})
+                                                                        }}>
+                                                                            <i className="ms-Icon ms-Icon--Page" style={{ fontSize: 13, color: aowColor, opacity: 0.7 }} />
+                                                                            <span style={{
+                                                                                fontSize: 12, fontWeight: 500,
+                                                                                color: isDarkMode ? '#E5E7EB' : '#1E293B',
+                                                                                flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const
+                                                                            }}>
+                                                                                {name}
+                                                                            </span>
+                                                                            {type && <span style={{ fontSize: 10, color: isDarkMode ? '#4B5563' : '#CBD5E1', textTransform: 'uppercase' as const }}>{type}</span>}
+                                                                            {size > 0 && <span style={{ fontSize: 10, color: isDarkMode ? '#4B5563' : '#CBD5E1' }}>{formatSize(size)}</span>}
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        )}
+                                                        {/* Terms & ID folder */}
+                                                        {(termsAccepted || idDocsFolder) && (
+                                                            <div style={{
+                                                                display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center',
+                                                                ...(docs.length > 0 ? { paddingTop: 8, borderTop: isDarkMode ? '1px solid rgba(75,85,99,0.2)' : '1px solid #F1F5F9' } : {})
+                                                            }}>
+                                                                {termsAccepted && (
+                                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                                                                        <div style={{
+                                                                            width: 14, height: 14, borderRadius: 3,
+                                                                            background: 'rgba(16,185,129,0.15)',
+                                                                            border: '1px solid rgba(16,185,129,0.3)',
+                                                                            display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                                                        }}>
+                                                                            <svg width="8" height="8" viewBox="0 0 24 24" fill="none">
+                                                                                <polyline points="20,6 9,17 4,12" stroke="#10b981" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
+                                                                            </svg>
+                                                                        </div>
+                                                                        <span style={{ fontSize: 11, color: isDarkMode ? '#9CA3AF' : '#64748B' }}>Terms accepted</span>
+                                                                    </div>
+                                                                )}
+                                                                {idDocsFolder && (
+                                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                                                                        <i className="ms-Icon ms-Icon--FabricFolder" style={{ fontSize: 11, color: aowColor, opacity: 0.7 }} />
+                                                                        <span style={{ fontSize: 11, color: isDarkMode ? '#6B7280' : '#94A3B8' }}>ID docs on file</span>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })()}
+                                    </div> {/* End review content grid */}
+
+                                    {/* Accent divider before confirmation */}
+                                    <div style={{
+                                        height: 1, margin: '12px 0 16px',
+                                        background: isDarkMode
+                                            ? `linear-gradient(90deg, transparent 0%, ${aowColor}30 50%, transparent 100%)`
+                                            : `linear-gradient(90deg, transparent 0%, ${aowColor}20 50%, transparent 100%)`
+                                    }} />
+
+                                    {/* Confirmation bar */}
                                     {!summaryConfirmed && (
                                         <div style={{
-                                            marginTop: 16,
-                                            padding: '16px 18px',
-                                            background: isDarkMode
-                                                ? 'linear-gradient(135deg, #111827 0%, #1F2937 100%)'
-                                                : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
-                                            border: isDarkMode ? '1px solid #374151' : '1px solid #e2e8f0',
-                                            borderRadius: 8,
-                                            boxShadow: isDarkMode ? '0 2px 6px rgba(0,0,0,0.35)' : '0 2px 4px rgba(0,0,0,0.04)'
+                                            marginTop: 20,
+                                            borderRadius: 12,
+                                            overflow: 'hidden',
+                                            border: isDarkMode ? `1px solid ${aowColor}25` : `1px solid ${aowColor}20`,
+                                            boxShadow: isDarkMode
+                                                ? `0 4px 16px rgba(0,0,0,0.35), 0 0 0 1px ${aowColor}10`
+                                                : `0 2px 12px rgba(0,0,0,0.06), 0 0 0 1px ${aowColor}08`,
+                                            transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
                                         }}>
-                                            {/* Conflicts status row */}
-                                            <div style={{ 
+                                            {/* Status warnings above the action row */}
+                                            {userDataLoading && (
+                                                <div style={{
+                                                    padding: '10px 18px',
+                                                    background: isDarkMode ? 'rgba(59,130,246,0.08)' : 'rgba(59,130,246,0.06)',
+                                                    borderBottom: isDarkMode ? '1px solid rgba(59,130,246,0.2)' : '1px solid rgba(59,130,246,0.15)',
+                                                    fontSize: 12,
+                                                    color: isDarkMode ? '#93C5FD' : '#1e40af',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: 8
+                                                }}>
+                                                    <div style={{
+                                                        width: 6, height: 6, borderRadius: '50%',
+                                                        background: isDarkMode ? '#93C5FD' : '#3B82F6',
+                                                        animation: 'pulse 1.5s ease-in-out infinite'
+                                                    }} />
+                                                    Loading your profile data...
+                                                </div>
+                                            )}
+                                            {(!effectiveUserData || !Array.isArray(effectiveUserData) || effectiveUserData.length === 0) && !userDataLoading && (
+                                                <div style={{
+                                                    padding: '10px 18px',
+                                                    background: isDarkMode ? 'rgba(59,130,246,0.06)' : 'rgba(59,130,246,0.04)',
+                                                    borderBottom: isDarkMode ? '1px solid rgba(59,130,246,0.15)' : '1px solid rgba(59,130,246,0.1)',
+                                                    fontSize: 12,
+                                                    color: isDarkMode ? '#93C5FD' : '#1e40af',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: 8
+                                                }}>
+                                                    <i className="ms-Icon ms-Icon--Info" style={{ fontSize: 12 }} />
+                                                    Profile data will be loaded automatically from team records.
+                                                </div>
+                                            )}
+
+                                            {/* Main confirmation row */}
+                                            <div style={{
+                                                padding: '14px 18px',
+                                                background: isDarkMode
+                                                    ? 'linear-gradient(135deg, #0F172A 0%, #1E293B 100%)'
+                                                    : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
                                                 display: 'flex',
                                                 alignItems: 'center',
-                                                gap: 10,
-                                                marginBottom: 12,
-                                                paddingBottom: 12,
-                                                borderBottom: isDarkMode ? '1px solid #374151' : '1px solid #e2e8f0'
+                                                gap: 14
                                             }}>
-                                                <i className={`ms-Icon ms-Icon--${noConflict ? 'CheckMark' : 'Warning'}`} 
-                                                   style={{ fontSize: 14, color: noConflict ? '#10b981' : '#f87171' }} />
-                                                <span style={{ fontSize: 13, fontWeight: 600, color: isDarkMode ? (noConflict ? '#34d399' : '#fca5a5') : (noConflict ? '#047857' : '#b91c1c') }}>
-                                                    {noConflict ? 'No conflicts detected' : 'Conflict check required'}
-                                                </span>
-                                                {editsAfterConfirmation && (
-                                                    <span style={{
-                                                        marginLeft: 'auto',
-                                                        padding: '2px 8px',
-                                                        background: isDarkMode ? 'rgba(251,191,36,0.15)' : '#fef3c7',
-                                                        color: isDarkMode ? '#fde68a' : '#92400e',
-                                                        borderRadius: 4,
-                                                        fontSize: 11,
-                                                        fontWeight: 500,
-                                                        border: isDarkMode ? '1px solid rgba(253,230,138,0.35)' : '1px solid #fde68a'
-                                                    }}>
-                                                        Changes detected
-                                                    </span>
-                                                )}
-                                            </div>
-                                            
-                                            {/* Confirmation row */}
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                                                {/* Conflicts indicator */}
+                                                <div style={{
+                                                    width: 28, height: 28, borderRadius: 8, flexShrink: 0,
+                                                    background: noConflict
+                                                        ? (isDarkMode ? 'rgba(16,185,129,0.12)' : 'rgba(16,185,129,0.08)')
+                                                        : (isDarkMode ? 'rgba(248,113,113,0.12)' : 'rgba(248,113,113,0.08)'),
+                                                    display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                                }}>
+                                                    <i className={`ms-Icon ms-Icon--${noConflict ? 'CheckMark' : 'Warning'}`}
+                                                       style={{ fontSize: 13, color: noConflict ? '#10b981' : '#f87171' }} />
+                                                </div>
+
+                                                {/* Checkbox + text */}
                                                 <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', flex: 1, margin: 0 }}>
                                                     <input
                                                         type="checkbox"
                                                         checked={confirmAcknowledge}
                                                         onChange={(e) => setConfirmAcknowledge(e.currentTarget.checked)}
                                                         style={{
-                                                            width: 16,
-                                                            height: 16,
-                                                            cursor: 'pointer',
-                                                            accentColor: '#D65541'
+                                                            width: 18, height: 18, cursor: 'pointer',
+                                                            accentColor: aowColor,
+                                                            borderRadius: 4
                                                         }}
                                                     />
-                                                    <span style={{ fontSize: 13, color: isDarkMode ? '#E5E7EB' : '#374151', lineHeight: 1.3 }}>
-                                                        {editsAfterConfirmation 
-                                                            ? 'I have reviewed the changes and am ready to proceed' 
-                                                            : 'I have reviewed all details and am ready to proceed'}
+                                                    <span style={{ fontSize: 13, color: isDarkMode ? '#E5E7EB' : '#374151', lineHeight: 1.4, userSelect: 'none' }}>
+                                                        {editsAfterConfirmation
+                                                            ? 'I have reviewed the changes and confirm all details are correct'
+                                                            : 'I confirm all details are correct and ready to open'}
                                                         {instructionRef && (
                                                             <span style={{
                                                                 marginLeft: 8,
-                                                                padding: '2px 6px',
-                                                                background: isDarkMode ? 'rgba(148,163,184,0.15)' : '#f1f5f9',
+                                                                padding: '2px 8px',
+                                                                background: isDarkMode ? `${aowColor}15` : `${aowColor}08`,
                                                                 color: isDarkMode ? '#cbd5e1' : '#475569',
                                                                 borderRadius: 4,
                                                                 fontSize: 11,
-                                                                fontWeight: 500
+                                                                fontWeight: 600,
+                                                                letterSpacing: '0.02em'
                                                             }}>
                                                                 {instructionRef}
                                                             </span>
                                                         )}
                                                     </span>
                                                 </label>
-                                                {userDataLoading && (
-                                                    <div style={{
-                                                        marginBottom: 12,
-                                                        padding: '8px 12px',
-                                                        background: 'rgba(59, 130, 246, 0.1)',
-                                                        border: '1px solid rgba(59, 130, 246, 0.3)',
+
+                                                {/* Changes detected badge */}
+                                                {editsAfterConfirmation && (
+                                                    <span style={{
+                                                        padding: '3px 10px',
+                                                        background: isDarkMode ? 'rgba(251,191,36,0.12)' : '#fef3c7',
+                                                        color: isDarkMode ? '#fde68a' : '#92400e',
                                                         borderRadius: 6,
-                                                        fontSize: 12,
-                                                        color: '#1e40af',
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        gap: 8
+                                                        fontSize: 11,
+                                                        fontWeight: 600,
+                                                        border: isDarkMode ? '1px solid rgba(253,230,138,0.25)' : '1px solid #fde68a',
+                                                        whiteSpace: 'nowrap'
                                                     }}>
-                                                        <span style={{ fontSize: 14 }}>🔄</span>
-                                                        <span>Loading user profile data...</span>
-                                                    </div>
+                                                        Changes detected
+                                                    </span>
                                                 )}
-                                                {(!effectiveUserData || !Array.isArray(effectiveUserData) || effectiveUserData.length === 0) && !userDataLoading && (
-                                                    <div style={{
-                                                        marginBottom: 12,
-                                                        padding: '8px 12px',
-                                                        background: 'rgba(245, 158, 11, 0.1)',
-                                                        border: '1px solid rgba(245, 158, 11, 0.3)',
-                                                        borderRadius: 6,
-                                                        fontSize: 12,
-                                                        color: '#92400e',
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        gap: 8
-                                                    }}>
-                                                        <span style={{ fontSize: 14 }}>⚠️</span>
-                                                        <span>User profile data not loaded. Please refresh the page before opening the matter.</span>
-                                                    </div>
-                                                )}
+                                            </div>
+
+                                            {/* Demo outcome selector - only in demo mode */}
+                                            {demoModeEnabled && (
+                                                <div style={{
+                                                    padding: '8px 18px 12px',
+                                                    borderTop: isDarkMode ? '1px solid rgba(75,85,99,0.2)' : '1px solid #F1F5F9',
+                                                    background: isDarkMode ? 'rgba(59,130,246,0.04)' : 'rgba(59,130,246,0.03)',
+                                                    display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap'
+                                                }}>
+                                                    <span style={{ fontSize: 10, fontWeight: 700, color: isDarkMode ? '#60A5FA' : '#3B82F6', textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>
+                                                        Demo Outcome
+                                                    </span>
+                                                    {([
+                                                        { key: 'success' as const, label: 'Success', icon: 'CheckMark' },
+                                                        { key: 'fail-early' as const, label: 'Fail Early', icon: 'Warning' },
+                                                        { key: 'fail-mid' as const, label: 'Fail Mid', icon: 'Warning' },
+                                                        { key: 'fail-late' as const, label: 'Fail Late', icon: 'Warning' },
+                                                    ]).map(opt => (
+                                                        <button
+                                                            key={opt.key}
+                                                            type="button"
+                                                            onClick={() => setDemoProcessingOutcome(opt.key)}
+                                                            style={{
+                                                                padding: '3px 10px', borderRadius: 4,
+                                                                fontSize: 10, fontWeight: 600,
+                                                                background: demoProcessingOutcome === opt.key
+                                                                    ? (opt.key === 'success' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.12)')
+                                                                    : (isDarkMode ? 'rgba(75,85,99,0.15)' : '#F8FAFC'),
+                                                                color: demoProcessingOutcome === opt.key
+                                                                    ? (opt.key === 'success' ? '#10b981' : '#ef4444')
+                                                                    : (isDarkMode ? '#6B7280' : '#94A3B8'),
+                                                                border: demoProcessingOutcome === opt.key
+                                                                    ? (opt.key === 'success' ? '1px solid rgba(16,185,129,0.3)' : '1px solid rgba(239,68,68,0.25)')
+                                                                    : (isDarkMode ? '1px solid rgba(75,85,99,0.3)' : '1px solid #E2E8F0'),
+                                                                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
+                                                                transition: 'all 0.15s ease'
+                                                            }}
+                                                        >
+                                                            <i className={`ms-Icon ms-Icon--${opt.icon}`} style={{ fontSize: 9 }} />
+                                                            {opt.label}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            )}
+
+                                            {/* Action row */}
+                                            <div style={{
+                                                padding: demoModeEnabled ? '8px 18px 12px' : '0px 18px 0px',
+                                                display: 'flex', justifyContent: 'flex-end'
+                                            }}>
+
+                                                {/* Open Matter button */}
                                                 <button
                                                     type="button"
                                                     onClick={() => {
-                                                        if (!confirmAcknowledge || processingStarted || !effectiveUserData || !Array.isArray(effectiveUserData) || effectiveUserData.length === 0 || userDataLoading) return;
+                                                        if (!confirmAcknowledge || processingStarted || userDataLoading) return;
                                                         setSummaryConfirmed(true);
                                                         setEditsAfterConfirmation(false);
-                                                        // Kick off processing immediately so status header & steps align
                                                         if (!isProcessing) {
                                                             setProcessingStarted(true);
-                                                            simulateProcessing().then(r => r && setGeneratedCclUrl(r.url));
+                                                            const runner = demoModeEnabled ? simulateDemoProcessing : simulateProcessing;
+                                                            runner().then(r => r && setGeneratedCclUrl(r.url));
                                                         }
-                                                        // Smooth scroll to processing section after a brief delay
                                                         setTimeout(() => {
                                                             const processingSection = document.querySelector('[data-processing-section]');
                                                             if (processingSection) {
-                                                                processingSection.scrollIntoView({ 
-                                                                    behavior: 'smooth', 
-                                                                    block: 'start' 
-                                                                });
+                                                                processingSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
                                                             }
                                                         }, 200);
                                                     }}
-                                                    disabled={!confirmAcknowledge || !userData || !Array.isArray(userData) || userData.length === 0}
+                                                    disabled={!confirmAcknowledge || !profileReady}
+                                                    title={!profileReady ? 'Waiting for user profile data to load…' : undefined}
                                                     style={{
-                                                        background: (confirmAcknowledge && userData && Array.isArray(userData) && userData.length > 0)
-                                                            ? 'linear-gradient(135deg, #D65541 0%, #B83C2B 100%)' 
-                                                            : '#f3f4f6',
-                                                        color: (confirmAcknowledge && userData && Array.isArray(userData) && userData.length > 0) ? '#fff' : '#9ca3af',
-                                                        border: (confirmAcknowledge && userData && Array.isArray(userData) && userData.length > 0)
-                                                            ? '1px solid #B83C2B' 
-                                                            : '1px solid #d1d5db',
-                                                        borderRadius: 6,
-                                                        padding: '10px 18px',
+                                                        background: (confirmAcknowledge && profileReady)
+                                                            ? `linear-gradient(135deg, ${colours.cta} 0%, #B83C2B 100%)`
+                                                            : (isDarkMode ? '#1F2937' : '#f3f4f6'),
+                                                        color: (confirmAcknowledge && profileReady)
+                                                            ? '#fff'
+                                                            : (isDarkMode ? '#4B5563' : '#9ca3af'),
+                                                        border: (confirmAcknowledge && profileReady)
+                                                            ? '1px solid #B83C2B'
+                                                            : (isDarkMode ? '1px solid #374151' : '1px solid #d1d5db'),
+                                                        borderRadius: 8,
+                                                        padding: '10px 22px',
                                                         fontSize: 13,
-                                                        fontWeight: 600,
-                                                        cursor: (confirmAcknowledge && userData && Array.isArray(userData) && userData.length > 0) ? 'pointer' : 'not-allowed',
-                                                        transition: 'all 0.15s ease',
-                                                        minWidth: 110,
-                                                        boxShadow: (confirmAcknowledge && userData && Array.isArray(userData) && userData.length > 0)
-                                                            ? '0 2px 4px rgba(214,85,65,0.2)' 
-                                                            : 'none'
+                                                        fontWeight: 700,
+                                                        letterSpacing: '0.01em',
+                                                        cursor: (confirmAcknowledge && profileReady) ? 'pointer' : 'not-allowed',
+                                                        transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                                                        minWidth: 130,
+                                                        boxShadow: (confirmAcknowledge && profileReady)
+                                                            ? `0 4px 12px ${colours.cta}35`
+                                                            : 'none',
+                                                        flexShrink: 0
                                                     }}
                                                     onMouseEnter={(e) => {
-                                                        if (confirmAcknowledge) {
-                                                            e.currentTarget.style.transform = 'translateY(-1px)';
+                                                        if (confirmAcknowledge && profileReady) {
+                                                            e.currentTarget.style.transform = 'translateY(-1px) scale(1.02)';
+                                                            e.currentTarget.style.boxShadow = `0 6px 20px ${colours.cta}45`;
                                                         }
                                                     }}
                                                     onMouseLeave={(e) => {
+                                                        e.currentTarget.style.transform = 'translateY(0) scale(1)';
                                                         if (confirmAcknowledge) {
-                                                            e.currentTarget.style.transform = 'translateY(0)';
+                                                            e.currentTarget.style.boxShadow = `0 4px 12px ${colours.cta}35`;
                                                         }
                                                     }}
                                                 >
-                                                    Open Matter
+                                                    {!profileReady ? 'Loading Profile…' : 'Open Matter'}
                                                 </button>
-                                            </div>
+                                            </div> {/* End action row */}
                                         </div>
                                     )}
 
-                                    {/* Processing Panel - now shown directly without Developer Tools wrapper */}
+                                    {/* Processing Panel - streamed step list */}
                                     {currentStep === 2 && summaryConfirmed && (
-                                            <div style={{ marginTop: 16 }}>
-                                                {(() => {
-                                                    const total = processingSteps.length || 0;
-                                                    const done = processingSteps.filter(s => s.status === 'success').length;
-                                                    const failed = processingSteps.filter(s => s.status === 'error').length;
-                                                    const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-                                                    const statusText = failed > 0 ? 'Attention required' : (done === total && total > 0 ? 'Completed' : 'In progress');
-                                                    
-                                                    return (
+                                        <div data-processing-section style={{
+                                            marginTop: 16,
+                                            borderRadius: 12,
+                                            overflow: 'hidden',
+                                            border: isDarkMode ? '1px solid rgba(75,85,99,0.3)' : '1px solid #E2E8F0',
+                                            boxShadow: isDarkMode
+                                                ? '0 4px 20px rgba(0,0,0,0.4)'
+                                                : '0 2px 12px rgba(0,0,0,0.06)',
+                                            transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
+                                        }}>
+                                            {(() => {
+                                                const total = processingSteps.length || 0;
+                                                const done = processingSteps.filter(s => s.status === 'success').length;
+                                                const failed = processingSteps.filter(s => s.status === 'error').length;
+                                                const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+                                                const isComplete = done === total && total > 0;
+                                                const hasFailed = failed > 0;
+                                                const statusColor = hasFailed ? '#ef4444' : (isComplete ? '#20b26c' : aowColor);
+
+                                                return (
+                                                    <>
+                                                        {/* Header */}
                                                         <div style={{
-                                                            border: '1px solid #e5e7eb',
-                                                            borderRadius: 12,
-                                                            background: 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
-                                                            overflow: 'hidden',
-                                                            boxShadow: '0 4px 6px rgba(0, 0, 0, 0.07), 0 1px 3px rgba(0, 0, 0, 0.1)',
-                                                            position: 'relative'
+                                                            padding: '14px 18px',
+                                                            background: isDarkMode
+                                                                ? 'linear-gradient(135deg, #0F172A 0%, #1E293B 100%)'
+                                                                : '#FAFBFC',
+                                                            borderBottom: isDarkMode ? '1px solid rgba(75,85,99,0.3)' : '1px solid #E5E7EB',
+                                                            display: 'flex', justifyContent: 'space-between', alignItems: 'center'
                                                         }}>
-                                                            <div style={{
-                                                                padding: '16px 20px',
-                                                                background: 'linear-gradient(135deg, #F8FAFC 0%, #F1F5F9 100%)',
-                                                                borderBottom: '1px solid #e5e7eb',
-                                                                display: 'flex',
-                                                                justifyContent: 'space-between',
-                                                                alignItems: 'center'
-                                                            }}>
-                                                                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                                                                    <div style={{
-                                                                        width: 20,
-                                                                        height: 20,
-                                                                        borderRadius: '50%',
-                                                                        background: '#20b26c',
-                                                                        display: 'flex',
-                                                                        alignItems: 'center',
-                                                                        justifyContent: 'center'
-                                                                    }}>
-                                                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
-                                                                            <polyline 
-                                                                                points="20,6 9,17 4,12" 
-                                                                                stroke="#fff" 
-                                                                                strokeWidth="2" 
-                                                                                strokeLinecap="round" 
-                                                                                strokeLinejoin="round"
-                                                                            />
-                                                                        </svg>
-                                                                    </div>
-                                                                    <div>
-                                                                        <div style={{
-                                                                            fontSize: 14,
-                                                                            fontWeight: 600,
-                                                                            color: '#20b26c',
-                                                                            lineHeight: 1.2
-                                                                        }}>
-                                                                            Details Reviewed and Confirmed
-                                                                        </div>
-                                                                    </div>
-                                                                </div>
-                                                                
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        setDebugInspectorOpen(!debugInspectorOpen);
-                                                                        if (!debugInspectorOpen) {
-                                                                            setDebugActiveTab('json');
-                                                                            setDebugJsonInput('');
-                                                                            setDebugValidation(null);
-                                                                            setDebugManualPasteOpen(false);
-                                                                        }
-                                                                    }}
-                                                                    title="Open debug inspector with JSON and backend details"
-                                                                    style={{
-                                                                        background: debugInspectorOpen ? 'linear-gradient(135deg, #D65541 0%, #B83C2B 100%)' : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
-                                                                        border: '1px solid #D65541',
-                                                                        borderRadius: 6,
-                                                                        padding: '6px 14px',
-                                                                        fontSize: 12,
-                                                                        fontWeight: 600,
-                                                                        color: debugInspectorOpen ? '#fff' : '#D65541',
-                                                                        cursor: 'pointer',
-                                                                        display: 'flex',
-                                                                        alignItems: 'center',
-                                                                        gap: 6,
-                                                                        transition: 'all 0.2s ease'
-                                                                    }}
-                                                                    onMouseEnter={(e) => {
-                                                                        if (!debugInspectorOpen) {
-                                                                            e.currentTarget.style.background = 'linear-gradient(135deg, #D65541 0%, #B83C2B 100%)';
-                                                                            e.currentTarget.style.color = '#fff';
-                                                                        }
-                                                                    }}
-                                                                    onMouseLeave={(e) => {
-                                                                        if (!debugInspectorOpen) {
-                                                                            e.currentTarget.style.background = 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)';
-                                                                            e.currentTarget.style.color = '#D65541';
-                                                                        }
-                                                                    }}
-                                                                >
-                                                                    <i className="ms-Icon ms-Icon--BugSolid" style={{ fontSize: 11 }} />
-                                                                    Debug
-                                                                </button>
-                                                            </div>
-                                                            
-                                                            <div style={{ padding: '20px' }}>
-                                                                {/* Live Status Header */}
-                                                                <div style={{ 
-                                                                    display: 'flex', 
-                                                                    alignItems: 'center', 
-                                                                    justifyContent: 'space-between', 
-                                                                    marginBottom: 20,
-                                                                    padding: '12px 16px',
-                                                                    background: 'linear-gradient(135deg, #F0F7FF 0%, #E6F3FF 100%)',
-                                                                    border: '1px solid #3690CE',
-                                                                    borderRadius: 8
+                                                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                                                {/* Status icon */}
+                                                                <div style={{
+                                                                    width: 28, height: 28, borderRadius: 8,
+                                                                    background: isComplete
+                                                                        ? 'linear-gradient(135deg, #20b26c 0%, #16a34a 100%)'
+                                                                        : (hasFailed
+                                                                            ? 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)'
+                                                                            : `linear-gradient(135deg, ${aowColor} 0%, ${aowColor}cc 100%)`),
+                                                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                                    boxShadow: `0 2px 8px ${statusColor}40`,
+                                                                    transition: 'all 0.5s cubic-bezier(0.4, 0, 0.2, 1)'
                                                                 }}>
-                                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                                                    {isComplete ? (
+                                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                                                                            <polyline points="20,6 9,17 4,12" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+                                                                        </svg>
+                                                                    ) : hasFailed ? (
+                                                                        <i className="ms-Icon ms-Icon--Warning" style={{ fontSize: 13, color: '#fff' }} />
+                                                                    ) : (
                                                                         <div style={{
-                                                                            width: 8,
-                                                                            height: 8,
-                                                                            borderRadius: '50%',
-                                                                            background: failed > 0 ? '#ef4444' : (done === total && total > 0 ? '#20b26c' : '#3690CE'),
-                                                                            boxShadow: `0 0 8px ${failed > 0 ? '#ef4444' : (done === total && total > 0 ? '#20b26c' : '#3690CE')}`,
-                                                                            animation: done !== total && total > 0 ? 'pulse 2s infinite' : 'none'
+                                                                            width: 12, height: 12, borderRadius: '50%',
+                                                                            border: '2px solid rgba(255,255,255,0.4)',
+                                                                            borderTopColor: '#fff',
+                                                                            animation: 'spin 0.8s linear infinite'
                                                                         }} />
-                                                                        <span style={{ 
-                                                                            fontSize: 14, 
-                                                                            fontWeight: 600, 
-                                                                            color: '#374151'
-                                                                        }}>
-                                                                            {failed > 0 ? 'Issue detected - review required' : 
-                                                                             done === total && total > 0 ? 'Matter opened successfully' : 
-                                                                             'Opening matter in progress...'}
-                                                                        </span>
-                                                                    </div>
-                                                                    <div style={{ 
-                                                                        fontSize: 12, 
-                                                                        fontWeight: 500, 
-                                                                        color: '#6b7280',
-                                                                        display: 'flex',
-                                                                        alignItems: 'center',
-                                                                        gap: 6
+                                                                    )}
+                                                                </div>
+                                                                <div>
+                                                                    <div style={{
+                                                                        fontSize: 14, fontWeight: 700,
+                                                                        color: isDarkMode ? '#F3F4F6' : '#0F172A',
+                                                                        lineHeight: 1.2
                                                                     }}>
-                                                                        <i className="ms-Icon ms-Icon--Clock" style={{ fontSize: 10 }} />
-                                                                        Live processing
+                                                                        {hasFailed ? 'Attention Required' :
+                                                                         isComplete ? 'Matter Opened Successfully' :
+                                                                         'Opening Matter...'}
+                                                                    </div>
+                                                                    <div style={{ fontSize: 11, color: isDarkMode ? '#6B7280' : '#9CA3AF', marginTop: 1 }}>
+                                                                        {isComplete ? 'All steps completed' :
+                                                                         hasFailed ? `${failed} step${failed > 1 ? 's' : ''} need${failed === 1 ? 's' : ''} attention` :
+                                                                         `${done} of ${total} steps complete`}
                                                                     </div>
                                                                 </div>
-
-                                                                {/* Current Action Display */}
-                                                                {total > 0 && done < total && (
-                                                                    <div style={{
-                                                                        marginBottom: 16,
-                                                                        padding: '10px 14px',
-                                                                        background: '#f8fafc',
-                                                                        border: '1px solid #e2e8f0',
-                                                                        borderRadius: 6,
-                                                                        fontSize: 13,
-                                                                        color: '#475569',
-                                                                        fontStyle: 'italic',
-                                                                        display: 'flex',
-                                                                        alignItems: 'center',
-                                                                        gap: 8
-                                                                    }}>
-                                                                        <div style={{
-                                                                            width: 4,
-                                                                            height: 4,
-                                                                            borderRadius: '50%',
-                                                                            background: '#3690CE',
-                                                                            animation: 'pulse 1.5s infinite'
-                                                                        }} />
-                                                                        {(() => {
-                                                                            const currentStep = processingSteps.find(s => s.status === 'pending');
-                                                                            return currentStep ? `Currently: ${currentStep.label}` : 'Preparing next step...';
-                                                                        })()}
-                                                                    </div>
-                                                                )}
-
-                                                                <style>{`
-                                                                    @keyframes pulse {
-                                                                        0%, 100% { opacity: 1; }
-                                                                        50% { opacity: 0.5; }
+                                                            </div>
+                                                            {/* Debug button */}
+                                                            <button
+                                                                type="button"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    setDebugInspectorOpen(!debugInspectorOpen);
+                                                                    if (!debugInspectorOpen) {
+                                                                        setDebugActiveTab('json');
+                                                                        setDebugJsonInput('');
+                                                                        setDebugValidation(null);
+                                                                        setDebugManualPasteOpen(false);
                                                                     }
-                                                                `}</style>
-                                                                
-                                                                {total > 0 && (
-                                                                    <div>
-                                                                        <div style={{ 
-                                                                            display: 'grid', 
-                                                                            gridTemplateColumns: 'repeat(auto-fill, minmax(50px, 1fr))', 
-                                                                            gap: 12 
-                                                                        }}>
-                                                                            {(() => {
-                                                                                // Group consecutive steps by app (using icon as app identifier)
-                                                                                const groupedSteps: Array<{
-                                                                                    icon?: string;
-                                                                                    label: string;
-                                                                                    status: 'pending' | 'success' | 'error';
-                                                                                    count: number;
-                                                                                    steps: typeof processingSteps;
-                                                                                }> = [];
-                                                                                
-                                                                                processingSteps.forEach((step, idx) => {
-                                                                                    const lastGroup = groupedSteps[groupedSteps.length - 1];
-                                                                                    
-                                                                                    // Group if same icon/app and consecutive
-                                                                                    if (lastGroup && lastGroup.icon === step.icon && step.icon) {
-                                                                                        lastGroup.count += 1;
-                                                                                        lastGroup.steps.push(step);
-                                                                                        lastGroup.label = step.icon ? 
-                                                                                            `${lastGroup.steps[0].label.split(' ')[0]} (${lastGroup.count} steps)` : 
-                                                                                            step.label;
-                                                                                    } else {
-                                                                                        // New group
-                                                                                        groupedSteps.push({
-                                                                                            icon: step.icon,
-                                                                                            label: step.label,
-                                                                                            status: 'pending',
-                                                                                            count: 1,
-                                                                                            steps: [step]
-                                                                                        });
-                                                                                    }
-                                                                                });
+                                                                }}
+                                                                title="Open diagnostic inspector"
+                                                                style={{
+                                                                    background: debugInspectorOpen
+                                                                        ? `linear-gradient(135deg, ${colours.cta} 0%, #B83C2B 100%)`
+                                                                        : (isDarkMode ? 'rgba(148,163,184,0.08)' : 'transparent'),
+                                                                    border: `1px solid ${debugInspectorOpen ? colours.cta : (isDarkMode ? 'rgba(148,163,184,0.2)' : '#e5e7eb')}`,
+                                                                    borderRadius: 6, padding: '4px 10px',
+                                                                    fontSize: 11, fontWeight: 600,
+                                                                    color: debugInspectorOpen ? '#fff' : (isDarkMode ? '#9CA3AF' : '#6b7280'),
+                                                                    cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
+                                                                    transition: 'all 0.2s'
+                                                                }}
+                                                            >
+                                                                <i className="ms-Icon ms-Icon--BugSolid" style={{ fontSize: 10 }} />
+                                                                Debug
+                                                            </button>
+                                                        </div>
 
-                                                                                // Update group statuses based on all steps in each group
-                                                                                groupedSteps.forEach(group => {
-                                                                                    const hasError = group.steps.some(s => s.status === 'error');
-                                                                                    const hasPending = group.steps.some(s => s.status === 'pending');
-                                                                                    
-                                                                                    if (hasError) {
-                                                                                        group.status = 'error';
-                                                                                    } else if (hasPending) {
-                                                                                        group.status = 'pending';
-                                                                                    } else {
-                                                                                        // All steps are success
-                                                                                        group.status = 'success';
-                                                                                    }
-                                                                                });
-                                                                                
-                                                                                return groupedSteps.map((group, idx) => (
-                                                                                    <div key={`grouped-proc-${idx}`} 
-                                                                                         title={group.count > 1 ? `${group.label} - Click for details` : group.label} 
-                                                                                         style={{
-                                                                                        height: 48,
-                                                                                        display: 'flex',
-                                                                                        flexDirection: 'column',
-                                                                                        alignItems: 'center',
-                                                                                        justifyContent: 'center',
-                                                                                        borderRadius: 8,
-                                                                                        background: 'linear-gradient(135deg, #FFFFFF 0%, #F9FAFB 100%)',
-                                                                                        border: `1px solid ${group.status === 'error' ? '#EF4444' : '#D1D5DB'}`,
-                                                                                        position: 'relative',
-                                                                                        cursor: 'pointer',
-                                                                                        transition: 'all 0.2s ease',
-                                                                                        boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
-                                                                                    }}>
-                                                                                        <div style={{
-                                                                                            display: 'flex',
-                                                                                            alignItems: 'center',
-                                                                                            justifyContent: 'center',
-                                                                                            width: 24,
-                                                                                            height: 24,
-                                                                                            marginBottom: 2
+                                                        {/* Progress bar */}
+                                                        <div style={{ height: 3, background: isDarkMode ? '#1F2937' : '#F1F5F9' }}>
+                                                            <div style={{
+                                                                height: '100%', width: `${pct}%`,
+                                                                background: hasFailed
+                                                                    ? 'linear-gradient(90deg, #ef4444 0%, #f87171 100%)'
+                                                                    : `linear-gradient(90deg, ${aowColor} 0%, ${statusColor} 100%)`,
+                                                                transition: 'width 0.5s cubic-bezier(0.4, 0, 0.2, 1)',
+                                                                boxShadow: `0 0 8px ${statusColor}50`
+                                                            }} />
+                                                        </div>
+
+                                                        <style>{`
+                                                            @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+                                                            @keyframes spin { to { transform: rotate(360deg); } }
+                                                        `}</style>
+
+                                                        {/* Streamed step list */}
+                                                        <div style={{
+                                                            padding: '12px 18px',
+                                                            background: isDarkMode
+                                                                ? 'linear-gradient(135deg, #111827 0%, #1E293B 100%)'
+                                                                : '#FFFFFF',
+                                                            display: 'grid', gap: 0
+                                                        }}>
+                                                            {/* Phase-grouped step list for clarity */}
+                                                            {total > 0 && (() => {
+                                                                const phases = [
+                                                                    { label: 'Authentication', range: [0, 9] as const },
+                                                                    { label: 'Data Processing', range: [10, 11] as const },
+                                                                    { label: 'Integration', range: [12, 16] as const },
+                                                                    { label: 'Finalisation', range: [17, total - 1] as const },
+                                                                ];
+                                                                return phases.map(phase => {
+                                                                    const phaseSteps = processingSteps.slice(phase.range[0], Math.min(phase.range[1] + 1, total));
+                                                                    if (phaseSteps.length === 0) return null;
+                                                                    const phaseDone = phaseSteps.every(s => s.status === 'success');
+                                                                    const phaseFailed = phaseSteps.some(s => s.status === 'error');
+                                                                    const phaseActive = phaseSteps.some(s => {
+                                                                        const globalIdx = processingSteps.indexOf(s);
+                                                                        return s.status === 'pending' && (globalIdx === 0 || processingSteps[globalIdx - 1]?.status !== 'pending');
+                                                                    });
+
+
+                                                                    return (
+                                                                        <div key={phase.label} style={{ marginBottom: 2 }}>
+                                                                            {/* Phase header */}
+                                                                            <div style={{
+                                                                                display: 'flex', alignItems: 'center', gap: 8,
+                                                                                padding: '8px 0 4px',
+                                                                                borderTop: phase.range[0] > 0 ? (isDarkMode ? '1px solid rgba(75,85,99,0.2)' : '1px solid #F1F5F9') : 'none',
+                                                                            }}>
+                                                                                <div style={{
+                                                                                    width: 6, height: 6, borderRadius: '50%',
+                                                                                    background: phaseDone ? '#20b26c' : phaseFailed ? '#ef4444' : phaseActive ? aowColor : (isDarkMode ? '#374151' : '#CBD5E1'),
+                                                                                    boxShadow: phaseActive ? `0 0 6px ${aowColor}60` : 'none',
+                                                                                    transition: 'all 0.3s',
+                                                                                }} />
+                                                                                <span style={{
+                                                                                    fontSize: 9, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: 0.8,
+                                                                                    color: phaseDone ? (isDarkMode ? '#86EFAC' : '#15803d')
+                                                                                        : phaseFailed ? (isDarkMode ? '#FCA5A5' : '#dc2626')
+                                                                                        : phaseActive ? (isDarkMode ? '#E5E7EB' : '#1E293B')
+                                                                                        : (isDarkMode ? '#4B5563' : '#9CA3AF'),
+                                                                                }}>
+                                                                                    {phase.label}
+                                                                                </span>
+                                                                                {phaseDone && (
+                                                                                    <svg width="8" height="8" viewBox="0 0 24 24" fill="none" style={{ marginLeft: -2 }}>
+                                                                                        <polyline points="20,6 9,17 4,12" stroke="#20b26c" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
+                                                                                    </svg>
+                                                                                )}
+                                                                                {phase.label === 'Authentication' && phaseDone && !phaseFailed && (
+                                                                                    <span style={{ fontSize: 9, color: isDarkMode ? '#4B5563' : '#CBD5E1', marginLeft: 'auto' }}>
+                                                                                        3 services
+                                                                                    </span>
+                                                                                )}
+                                                                            </div>
+                                                                            {/* Phase steps - amalgamate auth into grouped milestones */}
+                                                                            {phase.label === 'Authentication' ? (() => {
+                                                                                // Group auth steps into 3 display milestones
+                                                                                const authGroups = [
+                                                                                    { label: 'ActiveCampaign', range: [0, 1] },
+                                                                                    { label: 'Clio', range: [2, 5] },
+                                                                                    { label: 'Asana', range: [6, 9] },
+                                                                                ];
+                                                                                return authGroups.map(grp => {
+                                                                                    const grpSteps = processingSteps.slice(grp.range[0], Math.min(grp.range[1] + 1, total));
+                                                                                    if (grpSteps.length === 0) return null;
+                                                                                    const grpDone = grpSteps.every(s => s.status === 'success');
+                                                                                    const grpFailed = grpSteps.some(s => s.status === 'error');
+                                                                                    const grpActive = grpSteps.some(s => {
+                                                                                        const gi = processingSteps.indexOf(s);
+                                                                                        return s.status === 'pending' && (gi === 0 || processingSteps[gi - 1]?.status !== 'pending');
+                                                                                    });
+                                                                                    const grpPending = grpSteps.every(s => s.status === 'pending') && !grpActive;
+                                                                                    const grpDoneCount = grpSteps.filter(s => s.status === 'success').length;
+                                                                                    const failedStep = grpSteps.find(s => s.status === 'error');
+                                                                                    return (
+                                                                                        <div key={`auth-grp-${grp.label}`} style={{
+                                                                                            display: 'flex', alignItems: 'center', gap: 10,
+                                                                                            padding: '7px 0',
+                                                                                            borderBottom: isDarkMode ? '1px solid rgba(75,85,99,0.15)' : '1px solid #F1F5F9',
+                                                                                            opacity: grpPending ? 0.4 : 1,
+                                                                                            transition: 'opacity 0.3s ease'
                                                                                         }}>
-                                                                                            {group.icon ? (
-                                                                                                <img src={group.icon} alt="" style={{ 
-                                                                                                    width: 20, 
-                                                                                                    height: 20, 
-                                                                                                    opacity: group.status === 'pending' ? 0.7 : 1,
-                                                                                                    filter: group.status === 'success' 
-                                                                                                        ? 'brightness(0) saturate(100%) invert(47%) sepia(58%) saturate(1945%) hue-rotate(119deg) brightness(97%) contrast(91%)' 
-                                                                                                        : 'none'
-                                                                                                }} />
-                                                                                            ) : (
-                                                                                                <i className={`ms-Icon ${group.status === 'success' ? 'ms-Icon--CheckMark' : group.status === 'error' ? 'ms-Icon--ErrorBadge' : 'ms-Icon--Clock'}`} 
-                                                                                                   style={{ 
-                                                                                                    fontSize: 16, 
-                                                                                                    color: group.status === 'success' ? '#20b26c' : group.status === 'error' ? '#DC2626' : '#6B7280'
-                                                                                                }} />
+                                                                                            <div style={{
+                                                                                                width: 20, height: 20, borderRadius: 6,
+                                                                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                                                                flexShrink: 0,
+                                                                                                background: grpDone ? (isDarkMode ? 'rgba(32,178,108,0.15)' : 'rgba(32,178,108,0.1)')
+                                                                                                    : grpFailed ? (isDarkMode ? 'rgba(239,68,68,0.15)' : 'rgba(239,68,68,0.1)')
+                                                                                                    : grpActive ? (isDarkMode ? `${aowColor}15` : `${aowColor}10`)
+                                                                                                    : (isDarkMode ? 'rgba(75,85,99,0.1)' : '#F8FAFC'),
+                                                                                                transition: 'all 0.3s ease'
+                                                                                            }}>
+                                                                                                {grpDone ? (
+                                                                                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none"><polyline points="20,6 9,17 4,12" stroke="#20b26c" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                                                                                                ) : grpFailed ? (
+                                                                                                    <i className="ms-Icon ms-Icon--ErrorBadge" style={{ fontSize: 10, color: '#ef4444' }} />
+                                                                                                ) : grpActive ? (
+                                                                                                    <div style={{ width: 8, height: 8, borderRadius: '50%', border: `2px solid ${aowColor}60`, borderTopColor: aowColor, animation: 'spin 0.8s linear infinite' }} />
+                                                                                                ) : (
+                                                                                                    <div style={{ width: 4, height: 4, borderRadius: '50%', background: isDarkMode ? '#4B5563' : '#CBD5E1' }} />
+                                                                                                )}
+                                                                                            </div>
+                                                                                            <span style={{
+                                                                                                fontSize: 12, flex: 1,
+                                                                                                fontWeight: grpActive ? 600 : 400,
+                                                                                                color: grpDone ? (isDarkMode ? '#86EFAC' : '#15803d')
+                                                                                                    : grpFailed ? (isDarkMode ? '#FCA5A5' : '#dc2626')
+                                                                                                    : grpActive ? (isDarkMode ? '#E5E7EB' : '#1E293B')
+                                                                                                    : (isDarkMode ? '#6B7280' : '#9CA3AF'),
+                                                                                                transition: 'color 0.3s ease'
+                                                                                            }}>
+                                                                                                Authenticate {grp.label}
+                                                                                                {grpActive && !grpDone && <span style={{ fontSize: 10, color: isDarkMode ? '#4B5563' : '#CBD5E1', marginLeft: 6 }}>{grpDoneCount}/{grpSteps.length}</span>}
+                                                                                            </span>
+                                                                                            {grpFailed && failedStep && (
+                                                                                                <span style={{ fontSize: 10, color: isDarkMode ? '#FCA5A5' : '#dc2626', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{failedStep.message}</span>
+                                                                                            )}
+                                                                                            {grpActive && (
+                                                                                                <div style={{ width: 5, height: 5, borderRadius: '50%', background: aowColor, boxShadow: `0 0 6px ${aowColor}`, animation: 'pulse 1.5s ease-in-out infinite' }} />
                                                                                             )}
                                                                                         </div>
-                                                                                        
-                                                                                        {group.count > 1 && (
-                                                                                            <div style={{
-                                                                                                position: 'absolute',
-                                                                                                top: -6,
-                                                                                                right: -6,
-                                                                                                background: 'linear-gradient(135deg, #6B7280 0%, #4B5563 100%)',
-                                                                                                color: '#fff',
-                                                                                                borderRadius: '50%',
-                                                                                                width: 18,
-                                                                                                height: 18,
-                                                                                                display: 'flex',
-                                                                                                alignItems: 'center',
-                                                                                                justifyContent: 'center',
-                                                                                                fontSize: 9,
-                                                                                                fontWeight: 700,
-                                                                                                border: '2px solid #fff',
-                                                                                                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.15)'
-                                                                                            }}>
-                                                                                                {group.count}
-                                                                                            </div>
-                                                                                        )}
-                                                                                    </div>
-                                                                                ));
-                                                                            })()}
+                                                                                    );
+                                                                                });
+                                                                            })() : phaseSteps.map((step, localIdx) => {
+                                                                                const idx = phase.range[0] + localIdx;
+                                                                                const isActive = step.status === 'pending' && (idx === 0 || processingSteps[idx - 1]?.status !== 'pending');
+                                                                return (
+                                                                    <div key={`proc-${idx}`} style={{
+                                                                        display: 'flex', alignItems: 'center', gap: 10,
+                                                                        padding: '7px 0',
+                                                                        borderBottom: idx < total - 1
+                                                                            ? (isDarkMode ? '1px solid rgba(75,85,99,0.15)' : '1px solid #F1F5F9')
+                                                                            : 'none',
+                                                                        opacity: step.status === 'pending' && !isActive ? 0.4 : 1,
+                                                                        transition: 'opacity 0.3s ease'
+                                                                    }}>
+                                                                        {/* Status indicator */}
+                                                                        <div style={{
+                                                                            width: 20, height: 20, borderRadius: 6,
+                                                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                                            flexShrink: 0,
+                                                                            background: step.status === 'success'
+                                                                                ? (isDarkMode ? 'rgba(32,178,108,0.15)' : 'rgba(32,178,108,0.1)')
+                                                                                : step.status === 'error'
+                                                                                    ? (isDarkMode ? 'rgba(239,68,68,0.15)' : 'rgba(239,68,68,0.1)')
+                                                                                    : isActive
+                                                                                        ? (isDarkMode ? `${aowColor}15` : `${aowColor}10`)
+                                                                                        : (isDarkMode ? 'rgba(75,85,99,0.1)' : '#F8FAFC'),
+                                                                            transition: 'all 0.3s ease'
+                                                                        }}>
+                                                                            {step.status === 'success' ? (
+                                                                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
+                                                                                    <polyline points="20,6 9,17 4,12" stroke="#20b26c" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
+                                                                                </svg>
+                                                                            ) : step.status === 'error' ? (
+                                                                                <i className="ms-Icon ms-Icon--ErrorBadge" style={{ fontSize: 10, color: '#ef4444' }} />
+                                                                            ) : isActive ? (
+                                                                                <div style={{
+                                                                                    width: 8, height: 8, borderRadius: '50%',
+                                                                                    border: `2px solid ${aowColor}60`,
+                                                                                    borderTopColor: aowColor,
+                                                                                    animation: 'spin 0.8s linear infinite'
+                                                                                }} />
+                                                                            ) : (
+                                                                                <div style={{
+                                                                                    width: 4, height: 4, borderRadius: '50%',
+                                                                                    background: isDarkMode ? '#4B5563' : '#CBD5E1'
+                                                                                }} />
+                                                                            )}
                                                                         </div>
+                                                                        {/* Icon */}
+                                                                        {step.icon && (
+                                                                            <img src={step.icon} alt="" style={{
+                                                                                width: 16, height: 16,
+                                                                                opacity: step.status === 'pending' ? 0.4 : 0.8,
+                                                                                filter: step.status === 'success'
+                                                                                    ? 'brightness(0) saturate(100%) invert(47%) sepia(58%) saturate(1945%) hue-rotate(119deg) brightness(97%) contrast(91%)'
+                                                                                    : (isDarkMode && step.status === 'pending' ? 'brightness(0.7) invert(0.8)' : 'none'),
+                                                                                transition: 'all 0.3s ease'
+                                                                            }} />
+                                                                        )}
+                                                                        {/* Label */}
+                                                                        <span style={{
+                                                                            fontSize: 12, flex: 1,
+                                                                            fontWeight: isActive ? 600 : 400,
+                                                                            color: step.status === 'success'
+                                                                                ? (isDarkMode ? '#86EFAC' : '#15803d')
+                                                                                : step.status === 'error'
+                                                                                    ? (isDarkMode ? '#FCA5A5' : '#dc2626')
+                                                                                    : isActive
+                                                                                        ? (isDarkMode ? '#E5E7EB' : '#1E293B')
+                                                                                        : (isDarkMode ? '#6B7280' : '#9CA3AF'),
+                                                                            transition: 'color 0.3s ease'
+                                                                        }}>
+                                                                            {step.label}
+                                                                        </span>
+                                                                        {/* Active pulse dot */}
+                                                                        {isActive && (
+                                                                            <div style={{
+                                                                                width: 5, height: 5, borderRadius: '50%',
+                                                                                background: aowColor,
+                                                                                boxShadow: `0 0 6px ${aowColor}`,
+                                                                                animation: 'pulse 1.5s ease-in-out infinite'
+                                                                            }} />
+                                                                        )}
                                                                     </div>
-                                                                )}
-                                                            </div>
+                                                                );
+                                                            })}
                                                         </div>
                                                     );
-                                                })()}
-                                            </div>
-                                        )}
+                                                });
+                                            })()}
+                                        </div>
+
+                                                    {/* Failure summary + dispatch confirmation — below step list */}
+                                                    {hasFailed && failureSummary && (
+                                                        <div style={{
+                                                            padding: '14px 18px',
+                                                            background: isDarkMode
+                                                                ? 'linear-gradient(135deg, rgba(127,29,29,0.15) 0%, rgba(15,23,42,0.6) 100%)'
+                                                                : 'linear-gradient(135deg, rgba(254,242,242,0.8) 0%, rgba(255,251,235,0.4) 100%)',
+                                                            borderTop: isDarkMode ? '1px solid rgba(239,68,68,0.2)' : '1px solid rgba(239,68,68,0.12)',
+                                                        }}>
+                                                            {/* Failure message */}
+                                                            <div style={{
+                                                                display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 12,
+                                                            }}>
+                                                                <i className="ms-Icon ms-Icon--ErrorBadge" style={{ fontSize: 14, color: '#ef4444', flexShrink: 0, marginTop: 1 }} />
+                                                                <div style={{
+                                                                    fontSize: 12, fontWeight: 600, lineHeight: 1.5,
+                                                                    color: isDarkMode ? '#FCA5A5' : '#991b1b',
+                                                                    wordBreak: 'break-word' as const,
+                                                                }}>
+                                                                    {failureSummary}
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Dispatch status — animates from sending to delivered */}
+                                                            <div style={{
+                                                                display: 'flex', alignItems: 'center', gap: 8,
+                                                                padding: '8px 12px', borderRadius: 8,
+                                                                background: reportDelivered
+                                                                    ? (isDarkMode ? 'rgba(16,185,129,0.08)' : 'rgba(16,185,129,0.06)')
+                                                                    : (isDarkMode ? 'rgba(148,163,184,0.06)' : 'rgba(148,163,184,0.04)'),
+                                                                border: reportDelivered
+                                                                    ? (isDarkMode ? '1px solid rgba(16,185,129,0.25)' : '1px solid rgba(16,185,129,0.2)')
+                                                                    : (isDarkMode ? '1px solid rgba(148,163,184,0.15)' : '1px solid rgba(148,163,184,0.12)'),
+                                                                transition: 'all 0.5s cubic-bezier(0.4, 0, 0.2, 1)',
+                                                            }}>
+                                                                {reportDelivered ? (
+                                                                    <div style={{
+                                                                        width: 20, height: 20, borderRadius: 6,
+                                                                        background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                                                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                                        flexShrink: 0,
+                                                                        animation: 'fadeIn 0.3s ease-out',
+                                                                    }}>
+                                                                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
+                                                                            <polyline points="20,6 9,17 4,12" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
+                                                                        </svg>
+                                                                    </div>
+                                                                ) : (
+                                                                    <div style={{
+                                                                        width: 12, height: 12, borderRadius: '50%',
+                                                                        border: '2px solid rgba(148,163,184,0.4)',
+                                                                        borderTopColor: isDarkMode ? '#9CA3AF' : '#64748B',
+                                                                        animation: 'spin 0.8s linear infinite',
+                                                                        flexShrink: 0,
+                                                                    }} />
+                                                                )}
+                                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                                    <div style={{
+                                                                        fontSize: 11, fontWeight: 600,
+                                                                        color: reportDelivered
+                                                                            ? (isDarkMode ? '#86EFAC' : '#166534')
+                                                                            : (isDarkMode ? '#9CA3AF' : '#64748B'),
+                                                                        transition: 'color 0.3s ease',
+                                                                    }}>
+                                                                        {reportDelivered ? 'Diagnostic report delivered' : 'Sending diagnostic report...'}
+                                                                    </div>
+                                                                    <div style={{
+                                                                        fontSize: 10,
+                                                                        color: isDarkMode ? '#6B7280' : '#94A3B8',
+                                                                        marginTop: 1,
+                                                                    }}>
+                                                                        {reportDelivered
+                                                                            ? 'The development team has been notified automatically.'
+                                                                            : 'Preparing full diagnostic with form data...'}
+                                                                    </div>
+                                                                </div>
+                                                                {reportDelivered && (
+                                                                    <span style={{
+                                                                        fontSize: 9, fontWeight: 700, padding: '2px 6px',
+                                                                        borderRadius: 4,
+                                                                        background: isDarkMode ? 'rgba(16,185,129,0.12)' : 'rgba(16,185,129,0.08)',
+                                                                        color: '#10b981',
+                                                                        letterSpacing: '0.04em',
+                                                                    }}>SENT</span>
+                                                                )}
+                                                            </div>
+
+                                                            {/* Reassurance message */}
+                                                            <div style={{
+                                                                marginTop: 12, paddingTop: 10,
+                                                                borderTop: isDarkMode ? '1px solid rgba(75,85,99,0.2)' : '1px solid rgba(226,232,240,0.6)',
+                                                                display: 'flex', alignItems: 'flex-start', gap: 8,
+                                                            }}>
+                                                                <i className="ms-Icon ms-Icon--Info" style={{ fontSize: 11, color: isDarkMode ? '#6B7280' : '#94A3B8', flexShrink: 0, marginTop: 1 }} />
+                                                                <div style={{
+                                                                    fontSize: 11, lineHeight: 1.5,
+                                                                    color: isDarkMode ? '#9CA3AF' : '#64748B',
+                                                                }}>
+                                                                    Nothing further to action. Your form data has been captured and you’ll be notified when this has been resolved.
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    )}
+
+                                                    {/* Success CTA — morph into "View Matter" prompt */}
+                                                    {isComplete && (
+                                                        <div style={{
+                                                            padding: '20px 18px',
+                                                            background: isDarkMode
+                                                                ? 'linear-gradient(135deg, rgba(32,178,108,0.06) 0%, rgba(22,163,74,0.03) 100%)'
+                                                                : 'linear-gradient(135deg, rgba(32,178,108,0.04) 0%, rgba(22,163,74,0.02) 100%)',
+                                                            borderTop: isDarkMode ? '1px solid rgba(32,178,108,0.2)' : '1px solid rgba(32,178,108,0.15)',
+                                                        }}>
+                                                            <div style={{
+                                                                display: 'flex', alignItems: 'center', gap: 12,
+                                                                padding: '14px 16px', borderRadius: 10,
+                                                                background: isDarkMode
+                                                                    ? 'linear-gradient(135deg, rgba(32,178,108,0.10) 0%, rgba(22,163,74,0.06) 100%)'
+                                                                    : 'linear-gradient(135deg, rgba(32,178,108,0.08) 0%, rgba(22,163,74,0.04) 100%)',
+                                                                border: isDarkMode ? '1px solid rgba(32,178,108,0.25)' : '1px solid rgba(32,178,108,0.2)',
+                                                            }}>
+                                                                <div style={{
+                                                                    width: 32, height: 32, borderRadius: 8,
+                                                                    background: 'linear-gradient(135deg, #20b26c 0%, #16a34a 100%)',
+                                                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                                    flexShrink: 0,
+                                                                    boxShadow: '0 2px 8px rgba(32,178,108,0.3)',
+                                                                }}>
+                                                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                                                                        <path d="M9 12h6m-3-3v6m-3 5h6a3 3 0 003-3V7a3 3 0 00-3-3H9a3 3 0 00-3 3v10a3 3 0 003 3z" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                                                    </svg>
+                                                                </div>
+                                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                                    <div style={{
+                                                                        fontSize: 13, fontWeight: 700,
+                                                                        color: isDarkMode ? '#86EFAC' : '#166534',
+                                                                    }}>
+                                                                        Matter is ready
+                                                                    </div>
+                                                                    <div style={{
+                                                                        fontSize: 11, color: isDarkMode ? '#6B7280' : '#64748B', marginTop: 1,
+                                                                    }}>
+                                                                        {openedMatterId
+                                                                            ? `Matter ${openedMatterId} has been created in Clio and is available in the Matters tab.`
+                                                                            : 'The matter has been created and is available in the Matters tab.'}
+                                                                    </div>
+                                                                </div>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        window.dispatchEvent(new CustomEvent('navigateToMatter', {
+                                                                            detail: { matterId: openedMatterId || undefined }
+                                                                        }));
+                                                                    }}
+                                                                    style={{
+                                                                        display: 'flex', alignItems: 'center', gap: 6,
+                                                                        padding: '8px 16px', borderRadius: 8,
+                                                                        background: 'linear-gradient(135deg, #20b26c 0%, #16a34a 100%)',
+                                                                        color: '#fff', border: 'none', cursor: 'pointer',
+                                                                        fontSize: 12, fontWeight: 700, fontFamily: 'inherit',
+                                                                        boxShadow: '0 2px 8px rgba(32,178,108,0.3)',
+                                                                        transition: 'all 0.2s ease',
+                                                                        flexShrink: 0,
+                                                                        whiteSpace: 'nowrap',
+                                                                    }}
+                                                                    onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(32,178,108,0.4)'; }}
+                                                                    onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 2px 8px rgba(32,178,108,0.3)'; }}
+                                                                >
+                                                                    View Matter
+                                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+                                                                        <path d="M5 12h14m-6-6l6 6-6 6" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+                                                                    </svg>
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                    </>
+                                                );
+                                            })()}
+                                        </div>
+                                    )}
                             </div>
                             
                             {/* Workbench Section - appears below review when active */}
@@ -4991,6 +5465,11 @@ ${JSON.stringify(debugInfo, null, 2)}
                                 opacity: 1;
                                 transform: translateY(0);
                             }
+                        }
+                        
+                        @keyframes fadeIn {
+                            from { opacity: 0; transform: scale(0.8); }
+                            to { opacity: 1; transform: scale(1); }
                         }
                     `}</style>
 
