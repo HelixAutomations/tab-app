@@ -59,7 +59,7 @@ router.get('/', async (req, res) => {
             ...enq,
             _source: 'legacy-getEnquiries',
             // Map Ultimate_Source to source field that enquiry cards expect
-            source: enq.Ultimate_Source || enq.source || 'originalForward'
+            source: enq.Ultimate_Source || enq.source || null
           }));
           
           allEnquiries.push(...legacyEnquiries);

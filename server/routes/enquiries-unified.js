@@ -83,24 +83,28 @@ router.get('/', async (req, res) => {
     const fetchAll = String(req.query.fetchAll || 'false').toLowerCase() === 'true';
     const dateFrom = req.query.dateFrom || '';
     const dateTo = req.query.dateTo || '';
+    const prospectId = (req.query.prospectId || '').toString().trim();
+    const hasProspectId = prospectId.length > 0;
     const bypassCache = String(req.query.bypassCache || 'false').toLowerCase() === 'true';
+    const effectiveBypassCache = bypassCache || hasProspectId;
     
     log.debug('bypassCache parameter:', bypassCache);
 
     // Build cache params (not a prebuilt key) for consistent unified cache keys
     const cacheParams = [
-      'enquiries-v3', // bump cache schema to invalidate old payloads
+      'enquiries-v4', // bump cache schema to invalidate old payloads
       limit,
       email,
       initials,
       includeTeamInbox,
       fetchAll,
       dateFrom,
-      dateTo
+      dateTo,
+      prospectId
     ].filter(p => p !== '' && p !== null && p !== undefined);
 
     // Use Redis cache wrapper if not bypassed
-    if (!bypassCache) {
+    if (!effectiveBypassCache) {
       const result = await cacheUnified(cacheParams, async () => {
         return await performUnifiedEnquiriesQuery(req.query);
       });
@@ -266,7 +270,10 @@ async function performUnifiedEnquiriesQuery(queryParams) {
       }
       if (hasProspectId) {
         request.input('prospectIdStr', sql.NVarChar(100), prospectIdRaw);
-        filters.push('acid = @prospectIdStr');
+        // Match by EITHER id (Instructions DB PK / ProspectId) OR acid (legacy Core Data ID)
+        // ProspectId from the instructions pipeline is the id column, not acid.
+        // acid is the ActiveCampaign contact ID that links back to Core Data.
+        filters.push('(id = @prospectIdStr OR acid = @prospectIdStr)');
       }
       if (!fetchAll && (email || initials)) {
         const pocConditions = [];
@@ -304,6 +311,11 @@ async function performUnifiedEnquiriesQuery(queryParams) {
           email,
           phone,
           acid,
+          source,
+          url,
+          contact_referrer,
+          company_referrer,
+          gclid,
           NULL as uid,
           NULL as displayNumber,
           NULL as postcode,

@@ -19,6 +19,8 @@ import {
 // invisible change
 import { useTheme } from '../../app/functionality/ThemeContext';
 import '../../app/styles/FormCard.css';
+import { isAdminUser } from '../../app/admin';
+import FormHealthCheck from '../../CustomForms/shared/FormHealthCheck';
 
 // Import Financial Forms
 import { formSections } from './formsData';
@@ -129,6 +131,7 @@ const Forms: React.FC<FormsProps> = ({ userData, matters }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [copySuccess, setCopySuccess] = useState<string | null>(null);
   const [selectedLink, setSelectedLink] = useState<FormItem | null>(null);
+  const isAdmin = isAdminUser(userData?.[0]);
 
   // Handle storage changes for syncing favourites
   useEffect(() => {
@@ -273,14 +276,17 @@ const Forms: React.FC<FormsProps> = ({ userData, matters }) => {
         >
           Forms & Processes
         </Text>
-        <div className={sharedSearchBoxContainerStyle(isDarkMode)}>
-          <SearchBox
-            placeholder="Search forms and processes..."
-            value={searchQuery}
-            onChange={(_, newValue) => setSearchQuery(newValue || '')}
-            styles={sharedSearchBoxStyle(isDarkMode)}
-            aria-label="Search forms and processes"
-          />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          {isAdmin && <FormHealthCheck />}
+          <div className={sharedSearchBoxContainerStyle(isDarkMode)}>
+            <SearchBox
+              placeholder="Search forms and processes..."
+              value={searchQuery}
+              onChange={(_, newValue) => setSearchQuery(newValue || '')}
+              styles={sharedSearchBoxStyle(isDarkMode)}
+              aria-label="Search forms and processes"
+            />
+          </div>
         </div>
       </header>
 

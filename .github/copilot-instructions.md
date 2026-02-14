@@ -43,6 +43,10 @@ node tools/instant-lookup.mjs person "Luke Test"
 node tools/instant-lookup.mjs pipeline HLX-00898-37693
 node tools/instant-lookup.mjs --plan person "Luke Test"
 
+# Matter opening one-off replay (API endpoint chain)
+node tools/run-matter-oneoff.mjs HLX-30038-73942 RCH --fee-earner "Ryan Choi" --originating "Ryan Choi" --supervising "Alex"
+node tools/run-matter-oneoff.mjs HLX-30038-73942 RCH --dry-run
+
 # The instant-lookup script auto-resolves Key Vault passwords (no flags) and fails fast if auth hangs.
 
 # Raw one-liners (if script unavailable)

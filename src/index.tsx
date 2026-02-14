@@ -16,8 +16,7 @@ import "./utils/callLogger";
 import { initializeIcons } from "@fluentui/react";
 import Loading from "./app/styles/Loading";
 import ErrorBoundary from "./components/ErrorBoundary";
-import UserSelectionDialog from "./components/UserSelectionDialog";
-import PasscodeDialog from "./components/PasscodeDialog";
+import EntryGate from "./components/EntryGate";
 const Data = lazy(() => import("./tabs/Data"));
 
 // Initialize icons once.
@@ -714,8 +713,7 @@ const AppWithContext: React.FC = () => {
   const [teamData, setTeamData] = useState<TeamData[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showUserSelection, setShowUserSelection] = useState(false);
-  const [showPasscode, setShowPasscode] = useState(false);
+  const [showEntryGate, setShowEntryGate] = useState(false);
 
   // Avoid over-flushing server cache during rapid refresh bursts (e.g. SSE-driven refresh).
   const lastEnquiriesCacheFlushAtRef = React.useRef<number>(0);
@@ -909,7 +907,7 @@ const AppWithContext: React.FC = () => {
 
   // Handle user selection from dialog (outside Teams)
   const handleUserSelected = async (userKey: string) => {
-    setShowUserSelection(false);
+    setShowEntryGate(false);
     setLoading(true);
 
     try {
@@ -1097,7 +1095,8 @@ const AppWithContext: React.FC = () => {
         }
       } else {
         // No Teams context found
-        if (isLocalDevEnv) {
+        const isWebEntry = new URLSearchParams(window.location.search).has('web');
+        if (isLocalDevEnv && !isWebEntry) {
           // Local development: skip prompts and use default local user
           try {
             setTeamsContext({
@@ -1177,9 +1176,9 @@ const AppWithContext: React.FC = () => {
             setLoading(false);
           }
         } else {
-          // Production (outside Teams): require passcode before selection
+          // Production (outside Teams): require passcode + user selection
           setLoading(false);
-          setShowPasscode(true);
+          setShowEntryGate(true);
         }
         return;
       }
@@ -1207,16 +1206,12 @@ const AppWithContext: React.FC = () => {
         onRefreshMatters={refreshMatters}
         onOptimisticClaim={optimisticClaimEnquiry}
       />
-      <PasscodeDialog
-        isOpen={showPasscode}
-        onVerified={() => {
-          setShowPasscode(false);
-          setShowUserSelection(true);
+      <EntryGate
+        isOpen={showEntryGate}
+        onUserSelected={(userKey) => {
+          setShowEntryGate(false);
+          handleUserSelected(userKey);
         }}
-      />
-      <UserSelectionDialog
-        isOpen={showUserSelection}
-        onUserSelected={handleUserSelected}
       />
     </>
   );

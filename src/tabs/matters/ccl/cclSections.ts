@@ -112,7 +112,19 @@ export function autoFillFromMatter(matter: NormalizedMatter, teamData?: TeamData
   fields.insert_clients_name = matter.clientName || '';
   fields.matter = matter.description || matter.practiceArea || '';
 
-  const solicitorName = matter.responsibleSolicitor || '';
+  let solicitorName = matter.responsibleSolicitor || '';
+
+  // Resolve initials → full name using team data (Instructions pipeline stores
+  // HelixContact initials like "BOD" instead of full names like "Bianca O'Donnell")
+  if (teamData && solicitorName && /^[A-Z]{2,4}$/.test(solicitorName.trim())) {
+    const byInitials = teamData.find(
+      (t) => ((t as Record<string, unknown>)['Initials'] as string || '').toUpperCase() === solicitorName.trim().toUpperCase()
+    );
+    if (byInitials) {
+      solicitorName = byInitials['Full Name'] || `${byInitials['First'] || ''} ${byInitials['Last'] || ''}`.trim() || solicitorName;
+    }
+  }
+
   fields.name_of_person_handling_matter = solicitorName;
   fields.name_of_handler = solicitorName.split(' ')[0] || solicitorName;
 
@@ -131,8 +143,20 @@ export function autoFillFromMatter(matter: NormalizedMatter, teamData?: TeamData
         fields.email = `by email at ${email}`;
         fields.fee_earner_email = email;
       }
-      const phone = (member as Record<string, unknown>)['Phone'] || (member as Record<string, unknown>)['Mobile'] || '';
-      if (phone) fields.fee_earner_phone = String(phone);
+      // Phone is always the firm number — no personal numbers on CCLs
+      fields.fee_earner_phone = '0345 314 2044';
+
+      // Derive handler pronoun (he/she/they) from first name
+      const pronounMap: Record<string, string> = {
+        'luke': 'he', 'rory': 'he', 'alex': 'he', 'ryan': 'he', 'jack': 'he',
+        'james': 'he', 'chris': 'he', 'christopher': 'he', 'daniel': 'he', 'dan': 'he',
+        'bianca': 'she', 'katie': 'she', 'jessica': 'she', 'jess': 'she',
+        'laura': 'she', 'francesca': 'she', 'charlotte': 'she', 'sarah': 'she',
+        'helen': 'she', 'emma': 'she', 'rachel': 'she', 'caroline': 'she',
+        'kerry': 'she', 'lisa': 'she', 'anna': 'she', 'naomi': 'she',
+      };
+      const firstName = (member['First'] || solicitorName.split(' ')[0] || '').toLowerCase().trim();
+      fields.handler = pronounMap[firstName] || 'they';
 
       // Set hourly rate based on role
       const rateMap: Record<string, string> = {
@@ -152,11 +176,31 @@ export function autoFillFromMatter(matter: NormalizedMatter, teamData?: TeamData
     ? `There is a risk that you may have to pay ${matter.opponent} costs in this matter. This is explained in section 5, Funding and billing below.`
     : 'We do not expect that you will have to pay another party\'s costs. This only tends to arise in litigation and is therefore not relevant to your matter.';
 
+  // Phone always firm number (not personal)
+  if (!fields.fee_earner_phone) fields.fee_earner_phone = '0345 314 2044';
+
   // Standard defaults for compliance fields
   fields.contact_details_for_marketing_opt_out = 'info@helix-law.com';
   fields.fee_earner_postal_address = 'Helix Law, Second Floor, Britannia House, 21 Station Street, Brighton, BN1 4DE';
 
   fields.name = matter.supervisingPartner || '';
+
+  // Support staff — supervising partner is the fallback contact
+  if (matter.supervisingPartner && teamData) {
+    const supervisor = teamData.find(t => {
+      const fullName = t['Full Name'] || `${t['First'] || ''} ${t['Last'] || ''}`.trim();
+      return fullName.toLowerCase() === (matter.supervisingPartner || '').toLowerCase();
+    });
+    if (supervisor) {
+      const supEmail = supervisor['Email'] || '';
+      const supRole = supervisor['Role'] || 'Partner';
+      fields.names_and_contact_details_of_other_members_of_staff_who_can_help_with_queries =
+        `${matter.supervisingPartner} — ${supEmail || '0345 314 2044'} — ${supRole}`;
+    } else {
+      fields.names_and_contact_details_of_other_members_of_staff_who_can_help_with_queries =
+        `${matter.supervisingPartner} — 0345 314 2044`;
+    }
+  }
   fields.insert_heading_eg_matter_description =
     matter.description || `${matter.practiceArea} — ${matter.clientName}`;
   if (matter.opponent) {
@@ -177,7 +221,7 @@ export const DEMO_FIELDS: Record<string, string> = {
   handler: 'he',
   email: 'by email at rory@helix-law.com',
   fee_earner_email: 'rory@helix-law.com',
-  fee_earner_phone: '01234 567890',
+  fee_earner_phone: '0345 314 2044',
   fee_earner_postal_address: 'Helix Law, Second Floor, Britannia House, 21 Station Street, Brighton, BN1 4DE',
   name: 'Luke Watson',
   names_and_contact_details_of_other_members_of_staff_who_can_help_with_queries: 'Luke Watson — luke@helix-law.com — Partner',

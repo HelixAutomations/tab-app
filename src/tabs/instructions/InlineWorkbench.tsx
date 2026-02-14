@@ -73,7 +73,7 @@ type InlineWorkbenchProps = {
   onRefreshData?: () => void | Promise<void>;
   onClose?: () => void;
   currentUser?: { FullName?: string; Email?: string } | null;
-  onRiskAssessmentSave?: (risk: any) => void;
+  onRiskAssessmentSave?: (risk: any) => void | Promise<void>;
   demoModeEnabled?: boolean;
 };
 
@@ -482,8 +482,24 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     return raw;
   })();
 
+  const isPlaceholderSource = (value: unknown): boolean => {
+    if (value === null || value === undefined) return true;
+    const normalized = String(value).trim().toLowerCase().replace(/\s+/g, '');
+    return normalized === '' || normalized === '—' || normalized === 'originalforward';
+  };
+
+  const matterSource =
+    matter?.Source ||
+    matter?.source ||
+    matter?.Ultimate_Source ||
+    matter?.ultimateSource ||
+    deal?.Source ||
+    deal?.source ||
+    '—';
+
   const enquirySourceSummary = (() => {
-    if (ultimateSource && ultimateSource !== '—') return String(ultimateSource);
+    if (!isPlaceholderSource(ultimateSource)) return String(ultimateSource);
+    if (!isPlaceholderSource(matterSource)) return String(matterSource);
     if (campaign && campaign !== '—') return String(campaign);
     if (referralUrl && referralUrl !== '—') return String(referralUrl);
     return '—';
@@ -6154,12 +6170,16 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
               instructionRef={inst.InstructionRef || inst.instructionRef || ''}
               riskAssessor={currentUser?.FullName || 'Unknown'}
               existingRisk={risk}
-              onSave={(savedRisk) => {
+              onSave={async (savedRisk) => {
                 // Don't close modal here — RiskAssessmentPage shows its own
                 // success toast then calls onBack() after 1200ms to close
-                if (onRiskAssessmentSave) onRiskAssessmentSave(savedRisk);
+                if (onRiskAssessmentSave) {
+                  try { await onRiskAssessmentSave(savedRisk); } catch { /* silent */ }
+                }
                 // Refresh instruction data so risk tab updates without manual refresh
-                if (onRefreshData) onRefreshData();
+                if (onRefreshData) {
+                  try { await onRefreshData(); } catch { /* silent */ }
+                }
                 // Show parent-level toast for confirmation outside the modal
                 showToast({ type: 'success', title: 'Risk Assessment Saved', message: `Result: ${savedRisk?.RiskAssessmentResult || 'Complete'}` });
               }}

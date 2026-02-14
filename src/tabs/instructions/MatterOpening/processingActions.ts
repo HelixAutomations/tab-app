@@ -23,6 +23,11 @@ let matterId: string | null = null;
 let matterIdCallback: ((id: string | null) => void) | null = null;
 let matterRequestId: string | null = null;
 let matterDisplayNumber: string | null = null;
+let matterTraceId = `mo-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+export function resetMatterTraceId() {
+    matterTraceId = `mo-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
 
 export function registerClientIdCallback(cb: ((id: string | null) => void) | null) {
     clientIdCallback = cb;
@@ -77,6 +82,10 @@ async function instrumentedFetch(
     options: RequestInit = {},
     payloadForSummary?: unknown
 ): Promise<Response> {
+    const headersWithTrace = {
+        ...(options.headers || {}),
+        'x-matter-trace-id': matterTraceId,
+    };
     try {
         if (operationObserver) {
             const method = (options.method || 'GET').toString().toUpperCase();
@@ -84,7 +93,7 @@ async function instrumentedFetch(
             operationObserver({ index: currentActionIndex, label, phase: 'sent', url, method, payloadSummary });
         }
     } catch {}
-    const resp = await fetch(url, options);
+    const resp = await fetch(url, { ...options, headers: headersWithTrace });
     try {
         if (operationObserver) {
             operationObserver({ index: currentActionIndex, label, phase: 'response', url, method: (options.method || 'GET').toString().toUpperCase(), status: resp.status });

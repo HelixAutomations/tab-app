@@ -29,7 +29,7 @@ import ModernMultiSelect from './ModernMultiSelect';
 import { useToast } from '../../../components/feedback/ToastProvider';
 import { CompletionProvider } from './CompletionContext';
 import ProcessingSection, { ProcessingStep } from './ProcessingSection';
-import { processingActions, initialSteps, registerClientIdCallback, registerMatterIdCallback, registerOperationObserver, setCurrentActionIndex } from './processingActions';
+import { processingActions, initialSteps, registerClientIdCallback, registerMatterIdCallback, registerOperationObserver, setCurrentActionIndex, resetMatterTraceId } from './processingActions';
 import idVerifications from '../../../localData/localIdVerifications.json';
 import { sharedPrimaryButtonStyles, sharedDefaultButtonStyles } from '../../../app/styles/ButtonStyles';
 import { clearMatterOpeningDraft, completeMatterOpening } from '../../../app/functionality/matterOpeningUtils';
@@ -2067,7 +2067,14 @@ const handleClearAll = () => {
     };
 
     const simulateProcessing = async () => {
+        resetMatterTraceId();
         let workingUserData = effectiveUserData;
+        const resolvedProcessingInitials = (
+            userInitials ||
+            (teamData ? getInitialsFromName(teamMember, teamData) : '') ||
+            (teamData ? getInitialsFromName(originatingSolicitor, teamData) : '') ||
+            ''
+        ).trim();
         
         // CRITICAL: Validate userData is loaded before processing - try fallback if missing
         if (!workingUserData || !Array.isArray(workingUserData) || workingUserData.length === 0) {
@@ -2075,9 +2082,9 @@ const handleClearAll = () => {
             
             // Try to get Entra ID from teamData by matching userInitials
             let entraId: string | null = null;
-            if (teamData && Array.isArray(teamData) && userInitials) {
+            if (teamData && Array.isArray(teamData) && resolvedProcessingInitials) {
                 const teamMember = teamData.find((t: any) => 
-                    (t.Initials || t.initials || '').toLowerCase() === userInitials.toLowerCase()
+                    (t.Initials || t.initials || '').toLowerCase() === resolvedProcessingInitials.toLowerCase()
                 );
                 entraId = teamMember?.['Entra ID'] || (teamMember as any)?.EntraID || null;
             }
@@ -2093,17 +2100,21 @@ const handleClearAll = () => {
             
             // If still missing, construct minimal userData from teamData
             if (!workingUserData || !Array.isArray(workingUserData) || workingUserData.length === 0) {
-                if (teamData && Array.isArray(teamData) && userInitials) {
+                if (teamData && Array.isArray(teamData) && resolvedProcessingInitials) {
                     const teamMember = teamData.find((t: any) => 
-                        (t.Initials || t.initials || '').toLowerCase() === userInitials.toLowerCase()
+                        (t.Initials || t.initials || '').toLowerCase() === resolvedProcessingInitials.toLowerCase()
                     );
                     if (teamMember) {
-                        console.warn('[FlatMatterOpening] Constructing userData from teamData for:', userInitials);
+                        console.warn('[FlatMatterOpening] Constructing userData from teamData for:', resolvedProcessingInitials);
                         const tm = teamMember as any;
                         workingUserData = [{
-                            Initials: teamMember.Initials || tm.initials || userInitials,
+                            Initials: teamMember.Initials || tm.initials || resolvedProcessingInitials,
+                            ASANAClientID: tm.ASANAClientID || tm.ASANAClient_ID || '',
+                            ASANAClient_ID: tm.ASANAClient_ID || tm.ASANAClientID || '',
                             ASANASecret: tm.ASANASecret || tm.ASANA_Secret || '',
                             ASANA_Secret: tm.ASANA_Secret || tm.ASANASecret || '',
+                            ASANARefreshToken: tm.ASANARefreshToken || tm.ASANARefresh_Token || '',
+                            ASANARefresh_Token: tm.ASANARefresh_Token || tm.ASANARefreshToken || '',
                             'Entra ID': teamMember['Entra ID'] || tm.EntraID || '',
                             Email: teamMember.Email || tm.email || '',
                             Name: teamMember['Full Name'] || tm.Name || tm.name || `${teamMember.First || ''} ${teamMember.Last || ''}`.trim(),
@@ -2120,8 +2131,8 @@ const handleClearAll = () => {
                 setProcessingLogs([`[x] Pre-validation: ${errorMsg}`]);
                 setProcessingSteps(prev => prev.map((s, idx) => idx === 0 ? { ...s, status: 'error', message: errorMsg } : s));
                 setDebugInspectorOpen(true);
-                console.error('[x] [simulateProcessing] userData validation failed - no data source available:', { userData, fallbackUserData, userInitials, hasTeamData: !!teamData });
-                reportMatterTelemetry('PreValidation.Failed', { error: errorMsg, phase: 'userDataCheck', hasUserData: !!userData, hasFallback: !!fallbackUserData, hasTeamData: !!teamData });
+                console.error('[x] [simulateProcessing] userData validation failed - no data source available:', { userData, fallbackUserData, userInitials, resolvedProcessingInitials, hasTeamData: !!teamData });
+                reportMatterTelemetry('PreValidation.Failed', { error: errorMsg, phase: 'userDataCheck', hasUserData: !!userData, hasFallback: !!fallbackUserData, hasTeamData: !!teamData, resolvedProcessingInitials });
                 return { url: '' };
             }
         }
@@ -2164,7 +2175,7 @@ const handleClearAll = () => {
                 const action = processingActions[i];
                 setCurrentActionIndex(i);
                 // Use workingUserData which may be from fallback
-                const result = await action.run(generateSampleJson(), userInitials, workingUserData);
+                const result = await action.run(generateSampleJson(), resolvedProcessingInitials, workingUserData);
                 const message = typeof result === 'string' ? result : result.message;
                 setProcessingSteps(prev => prev.map((s, idx) => idx === i ? { ...s, status: 'success', message } : s));
                 setProcessingLogs(prev => [...prev, `[x] ${message}`]);

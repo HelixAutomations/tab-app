@@ -30,6 +30,71 @@ This platform is evolving into **Helix CRM** — the single source of truth for 
 - [ ] **Refresh Clio PBI token** — Re-authenticate Power BI Clio integration and update `clio-pbi-refreshtoken` secret in Azure Key Vault (helix-keys). Currently using user fallback (lz/jw/ac credentials). See `docs/INTEGRATIONS_REFERENCE.md` for instructions.
 - [ ] **Containerise deployment** — Current `build-and-deploy.ps1` is slow and error-prone. Move to Docker containers for consistent, fast deploys. Investigate Azure Container Apps or AKS.
 - [ ] **Enquiry-processing claim → Hub realtime** — In `HelixAutomations/enquiry-processing-v2`, ensure the claim flow that updates SQL + Teams card also persists `TeamsBotActivityTracking.ClaimedBy/ClaimedAt/UpdatedAt` consistently (and/or emits a webhook/event). Hub now watches this table to drive realtime claim state.
+- [ ] **Deploy speed: run-from-package + staging swap** — Enable `WEBSITE_RUN_FROM_PACKAGE=1` on link-hub-v1 (Azure mounts zip, no 30k file extraction → ~2 min vs 30 min). Add `az webapp deployment slot swap` to `build-and-deploy-staging.ps1`. Staging slot already exists and is running. See Feb 2026 session notes below.
+
+---
+
+## Azure Identity & Teams Notifications — Strategy (Feb 2026)
+
+### Current State (audited Feb 2026)
+
+**AAD App Registrations:**
+
+| Display Name | App ID | Purpose | Notes |
+|-------------|--------|---------|-------|
+| **Team Hub** (renamed from "Aiden") | `bee758ec-919c-45b2-9cdf-540c6419561f` | Team Hub SSO + tab auth | Used in `appPackage/manifest.json` → `webApplicationInfo`. Has ~50 Graph permissions already approved. Also registered as bot for Tasking-v3 (blocker — see below). |
+| **Aiden** | `bb3357f0-dca3-4fef-9c4d-e58f69dde46c` | Enquiry-processing bot | Used by Bot Service "Aiden" in Main RG. Endpoint: `helixlaw-enquiry-processing.azurewebsites.net/api/messages`. |
+| **linkhub003-aad** | `84e5e9b1-78a1-4461-9634-504671bfaf15` | Teams Toolkit local dev scaffolding | Redirect URI: `localhost:53000`. Identifier: `api://localhost:53000/...`. Probably unused in production. Candidate for cleanup. |
+
+**Bot Service Resources:**
+
+| Name | Resource Group | App ID | Endpoint |
+|------|---------------|--------|----------|
+| **Aiden** | Main | `bb3357f0` | `helixlaw-enquiry-processing.azurewebsites.net/api/messages` |
+| **Tasking-v3** | Tasking | `bee758ec` ⚠️ | `tasking-v3.azurewebsites.net/api/messages` |
+
+**Key problem**: `bee758ec` (Team Hub's app) is also registered as the Tasking-v3 bot. An app ID can only belong to one Bot Service. This blocks creating a TeamHub-Bot using the same app ID.
+
+### Plan: Azure Identity Cleanup
+
+**Phase 1 — Unblock Team Hub bot (requires Tasking migration)**
+1. Create a **new AAD app reg** for Tasking (e.g. "Tasking Bot", new app ID)
+2. Create a **new Bot Service** for Tasking using the new app ID
+3. Update Tasking-v3's code/config to use the new app ID + password
+4. **Delete** the old Tasking-v3 Bot Service (frees `bee758ec`)
+5. Create **TeamHub-Bot** Bot Service using `bee758ec` with endpoint `link-hub-v1.../api/messages`
+
+**Phase 2 — Team Hub notifications**
+1. Add `bots` array to `appPackage/manifest.json` referencing `bee758ec`
+2. Add `activities.activityTypes` to manifest (e.g. `newActionItem`, `enquiryAssigned`, `matterUpdate`)
+3. Add minimal `/api/messages` endpoint to Express server (acknowledge bot install/uninstall)
+4. Add `/api/send-notification` route that calls Graph API `sendActivityNotification`
+5. Add `TeamsActivity.Send` application permission to `bee758ec` (may need admin consent — but app already has 50+ permissions approved, so likely smooth)
+6. Redeploy Teams app package to org
+
+**Phase 3 — Unified notification system (future)**
+- Enquiry-processing (Aiden) continues owning channel Adaptive Cards for enquiry distribution
+- Team Hub owns personal activity feed notifications: action items, matter updates, pipeline progress
+- Asana connector integration for task-level notifications
+- Dedicated Tasking platform app with its own bot identity, separated cleanly from both Team Hub and enquiry-processing
+- Consider: should Aiden and Team Hub merge into a single Teams app with both tab + bot? Or stay separate? Decision depends on whether users benefit from seeing them as one app.
+
+### Deployment Improvements (ready to implement now)
+
+These are independent of the bot work and can be done immediately:
+
+1. **`WEBSITE_RUN_FROM_PACKAGE=1`** — One Azure CLI command. Deploys drop from ~30 min to ~2 min. No code changes.
+   ```powershell
+   az webapp config appsettings set --resource-group Main --name link-hub-v1 --settings WEBSITE_RUN_FROM_PACKAGE=1
+   ```
+
+2. **Staging slot swap** — Add to `build-and-deploy-staging.ps1`:
+   ```powershell
+   az webapp deployment slot swap --resource-group Main --name link-hub-v1 --slot staging --target-slot production
+   ```
+   Zero-downtime deployment. Staging slot already exists at `link-hub-v1-staging-etd3hhg9fhb7fsdv.uksouth-01.azurewebsites.net`.
+
+3. **Test staging in Teams** — The staging URL can be loaded in a browser with the passcode guard. For full Teams testing, temporarily update the manifest `contentUrl` to the staging URL, or use `?inTeams=1` query param (existing escape hatch in `isInTeams()`).
 
 ## Medium Priority
 
@@ -55,6 +120,69 @@ This platform is evolving into **Helix CRM** — the single source of truth for 
 - [ ] **Consistent naming conventions** — snake_case vs camelCase inconsistency.
 - [ ] **Remove unused routes** — Grep server route registrations against actual frontend `fetch()` calls to identify dead endpoints.
 - [ ] **Submodule header CSS compat warning** — `-webkit-overflow-scrolling: touch;` in `submodules/enquiry-processing-v2/wwwroot/components/header.html` triggers Edge Tools compat warning; fix upstream.
+
+---
+
+## Cognito → Bespoke Form Conversion Plan
+
+**Goal**: Replace all 9 remaining Cognito-embedded forms with bespoke React components. This eliminates the external Cognito dependency, gives us full control over styling/validation/submission, enables the form health check system, and lets us pre-fill user context (initials, name, matter refs) automatically.
+
+**Current state**: 6 bespoke forms already exist (`BundleForm`, `NotableCaseInfoForm`, `TechIdeaForm`, `TechProblemForm`, `CounselRecommendationForm`, `ExpertRecommendationForm`). Financial forms use the generic `BespokeForm` field renderer. The shared form infrastructure (`formStyles.ts`, `AreaWorkTypeDropdown`, `FormHealthCheck`) is mature.
+
+**Pattern to follow**: Each conversion creates a new `src/CustomForms/XxxForm.tsx` file using the established form style helpers (`getFormScrollContainerStyle`, `getFormCardStyle`, `getFormSectionStyle`, `getInputStyles`, etc.) from `shared/formStyles.ts`. A matching server route in `server/routes/` handles submission.
+
+### Priority Order
+
+Prioritised by usage frequency and value of replacing the Cognito embed. Forms that benefit most from matters/user context pre-fill come first.
+
+#### Tier 1 — High-frequency, high-value (convert first)
+
+| # | Form | Cognito ID | Section | Fields needed | Backend action | Complexity |
+|---|------|-----------|---------|---------------|----------------|------------|
+| 1 | **Tel. Attendance Note** | 41 | General | Matter ref (dropdown), caller name, phone, attendance type, notes, follow-up date | Clio activity entry or Asana task | Medium — needs matter dropdown + Clio API |
+| 2 | **Tasks** | 90 | General | Assignee (team dropdown), matter ref, due date, priority, description | Asana task creation (existing pattern in `techTickets.js`) | Medium — reuse Asana integration |
+| 3 | **Call Handling** | 98 | Operations | Caller name, phone, company, enquiry type, area of work, urgency, notes, fee earner to notify | Email notification or Asana task | Low-Medium |
+
+#### Tier 2 — Moderate frequency
+
+| # | Form | Cognito ID | Section | Fields needed | Backend action | Complexity |
+|---|------|-----------|---------|---------------|----------------|------------|
+| 4 | **Office Attendance** | 109 | General | Date, location (Brighton/Remote/Other), time in/out | SQL insert to attendance table (route exists: `server/routes/attendance.js`) | Low |
+| 5 | **Incoming Post** | 108 | Operations | Recipient (team dropdown), sender, item type, matter ref, notes | Email to recipient or Asana task | Low |
+| 6 | **Transaction Intake** | 58 | Operations | Property address, client name, transaction type, price, solicitor, key dates | SQL insert + email to property team | Medium |
+
+#### Tier 3 — Lower frequency or being superseded
+
+| # | Form | Cognito ID | Section | Fields needed | Backend action | Complexity |
+|---|------|-----------|---------|---------------|----------------|------------|
+| 7 | **Proof of Identity** | 60 | General | Client name, matter ref, ID type, file upload, verification status | Already partially superseded by inline EID in Prospects. May keep as standalone for ops team. | Medium — file upload |
+| 8 | **Open a Matter** | 9 | General | Client details, matter type, fee earner, area/worktype | **Already superseded** by `FlatMatterOpening.tsx` in Prospects. Remove from Forms page or redirect. | N/A — retire |
+| 9 | **CollabSpace Requests** | 44 | General | Matter ref, participants, purpose | Email to ops or Asana task | Low |
+
+### Per-form conversion checklist
+
+Each conversion should follow this checklist:
+
+1. [ ] **Audit Cognito form** — Open the Cognito URL, screenshot/document all fields, validation rules, conditional logic, and submission action (email? webhook? Zapier?)
+2. [ ] **Create server route** — `server/routes/xxxForm.js` with POST handler. Use `withRequest()` for SQL, or Asana/email for task-based forms. Add App Insights telemetry.
+3. [ ] **Create React component** — `src/CustomForms/XxxForm.tsx` using shared form styles. Props: `{ users, userData, currentUser, matters, onBack }`. Pre-fill user initials/name from `currentUser`.
+4. [ ] **Register in formsData.ts** — Replace `embedScript` with `component: XxxForm`. Keep `url` as fallback link.
+5. [ ] **Add to health check** — Add GET probe in `server/routes/formHealthCheck.js`.
+6. [ ] **Test** — Open form from Forms page, fill fields, submit. Verify submission arrives at destination (Asana/SQL/email). Check health check reports healthy.
+7. [ ] **Remove Cognito embed** — Delete `embedScript` entry and Cognito URL from `formsData.ts`.
+
+### Infrastructure notes
+
+- **Cognito script loader** can be removed from `FormDetails.tsx` once all 9 forms are converted. Currently at lines 85–130, ~45 lines of dead code post-conversion.
+- **Form mode toggle** (Cognito/Bespoke buttons in `FormDetails.tsx`) can also be removed.
+- **`BespokeForm` generic renderer** stays — it powers the Financial forms which use field definitions rather than custom components.
+
+### Conversion log
+
+| Form | Status | Date | Notes |
+|------|--------|------|-------|
+| Open a Matter | Superseded | Feb 2026 | `FlatMatterOpening.tsx` in Prospects handles this. Consider removing from Forms page. |
+| *Others* | Not started | — | — |
 
 ---
 

@@ -181,6 +181,7 @@ interface EnquiryLineItemProps {
     onTriggerEID?: (instructionRef: string) => void | Promise<void>;
     onOpenIdReview?: (instructionRef: string) => void;
     onRefreshData?: (instructionRef?: string) => void | Promise<void>;
+    onRiskAssessmentSave?: (instructionRef: string, risk: any) => void;
   };
 }
 
@@ -1212,6 +1213,7 @@ const EnquiryLineItem: React.FC<EnquiryLineItemProps> = ({
                 onOpenMatter={workbenchHandlers?.onOpenMatter}
                 onOpenRiskAssessment={workbenchHandlers?.onOpenRiskAssessment}
                 onRefreshData={workbenchHandlers?.onRefreshData ? () => workbenchHandlers.onRefreshData!(inlineWorkbenchItem?.instruction?.InstructionRef || inlineWorkbenchItem?.instruction?.instructionRef) : undefined}
+                onRiskAssessmentSave={workbenchHandlers?.onRiskAssessmentSave ? (risk) => workbenchHandlers.onRiskAssessmentSave!(inlineWorkbenchItem?.instruction?.InstructionRef || inlineWorkbenchItem?.instruction?.instructionRef, risk) : undefined}
                 onClose={() => setNotesExpanded(false)}
                 teamData={teamData}
               />

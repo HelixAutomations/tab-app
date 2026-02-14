@@ -646,6 +646,16 @@ const Enquiries: React.FC<EnquiriesProps> = ({
           const override = instructionOverrides.get(ref);
           return override?.idVerifications ?? prospect?.idVerifications;
         })(),
+        // Merge risk assessments from override when inline save occurs
+        riskAssessments: (() => {
+          const overriddenInst = instructions.find((inst: any) =>
+            instructionOverrides.has(inst?.InstructionRef || inst?.instructionRef || '')
+          );
+          if (!overriddenInst) return prospect?.riskAssessments;
+          const ref = overriddenInst?.InstructionRef || overriddenInst?.instructionRef || '';
+          const override = instructionOverrides.get(ref);
+          return override?.riskAssessments ?? prospect?.riskAssessments;
+        })(),
       };
     });
   }, [instructionData, instructionOverrides]);
@@ -1040,6 +1050,38 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       if (!result.success) {
         throw new Error(result.message || 'Verification failed');
       }
+
+      const overallRaw = String(result.overall || '').trim();
+      const overallLower = overallRaw.toLowerCase();
+      const optimisticOverall = overallRaw || 'Verification Submitted';
+      const optimisticStatus =
+        overallLower.includes('pass') || overallLower.includes('verified')
+          ? 'Verified'
+          : overallLower.includes('review') || overallLower.includes('fail')
+            ? 'Review'
+            : 'Processing';
+
+      const optimisticVerification = {
+        InstructionRef: instructionRef,
+        EIDOverallResult: optimisticOverall,
+        EIDStatus: optimisticStatus,
+        PEPAndSanctionsCheckResult: result.pep || null,
+        AddressVerificationResult: result.address || null,
+        EIDCheckedDate: new Date().toISOString(),
+      };
+
+      setInstructionOverrides(prev => {
+        const next = new Map(prev);
+        const existing = next.get(instructionRef) || {};
+        const existingVerifications = Array.isArray(existing.idVerifications) ? existing.idVerifications : [];
+        next.set(instructionRef, {
+          ...existing,
+          EIDOverallResult: optimisticOverall,
+          EIDStatus: optimisticStatus,
+          idVerifications: [optimisticVerification, ...existingVerifications],
+        });
+        return next;
+      });
     },
     onRefreshData: async (instructionRef?: string) => {
       // Fetch updated instruction data and merge locally so UI updates without full refresh
@@ -1064,6 +1106,20 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     },
     onOpenRiskAssessment: (_instruction: any) => {
       // No-op — risk assessment is handled inline via InlineWorkbench's local modal
+    },
+    onRiskAssessmentSave: (instructionRef: string, savedRisk: any) => {
+      const ref = (instructionRef || '').trim();
+      if (!ref || !savedRisk) return;
+      setInstructionOverrides(prev => {
+        const next = new Map(prev);
+        const existing = next.get(ref) || {};
+        const existingRisks = Array.isArray(existing.riskAssessments) ? existing.riskAssessments : [];
+        next.set(ref, {
+          ...existing,
+          riskAssessments: [savedRisk, ...existingRisks],
+        });
+        return next;
+      });
     },
     onOpenMatter: (_instruction: any) => {
       // No-op — matter opening is handled inline via InlineWorkbench's local modal

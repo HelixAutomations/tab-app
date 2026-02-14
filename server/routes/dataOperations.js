@@ -397,6 +397,33 @@ async function syncCollectedTime(options = {}) {
       }
     }
 
+    // ── Safety: if Clio returned an empty report, preserve existing data ──
+    // An empty report_data ({}) passes the null guard above but contains 0 rows.
+    // Proceeding would DELETE existing records then INSERT nothing → data loss.
+    const reportEntries = Object.entries(downloadData.report_data);
+    const hasActualData = reportEntries.some(([, md]) => md.bill_data && md.matter_payment_data && md.line_items_data);
+    if (!hasActualData && shouldDelete) {
+      const durationMs = Date.now() - startedAt;
+      logProgress(operationKey, `Clio report empty for ${startDateSql} → ${endDateSql}. Skipping delete to preserve existing data.`);
+      logOperation({
+        operation: operationKey,
+        status: 'no-data',
+        message: `Clio report empty for ${startDateSql} → ${endDateSql}. Existing data preserved.`,
+        durationMs,
+        triggeredBy,
+        invokedBy,
+        startDate: startDateSql,
+        endDate: endDateSql,
+        deletedRows: 0,
+        insertedRows: 0,
+      });
+      trackEvent('DataOps.CollectedTime.EmptyReport', {
+        operation: operationKey, triggeredBy, startDate: startDateSql, endDate: endDateSql, durationMs,
+      });
+      activeJobs.delete(operationKey);
+      return { deletedRows: 0, insertedRows: 0, noData: true, preserved: true, message: `Clio report empty for ${startDateSql} → ${endDateSql}. Existing data preserved.` };
+    }
+
     // Connect to SQL
     logProgress(operationKey, 'Connecting to SQL database...');
     const connStr = process.env.SQL_CONNECTION_STRING;
@@ -819,6 +846,29 @@ async function syncWip(options = {}) {
 
       if (batch.length < limit || !data.meta?.paging?.next) break;
       offset += limit;
+    }
+
+    // ── Safety: if Clio returned 0 activities, preserve existing data ──
+    // Proceeding would DELETE existing records then INSERT nothing → data loss.
+    if (activities.length === 0) {
+      const durationMs = Date.now() - startedAt;
+      logProgress(operationKey, `Clio returned 0 activities for ${startDateSql} → ${endDateSql}. Skipping delete to preserve existing data.`);
+      logOperation({
+        operation: operationKey,
+        status: 'no-data',
+        message: `Clio returned 0 activities for ${startDateSql} → ${endDateSql}. Existing data preserved.`,
+        durationMs,
+        triggeredBy: wipTriggeredBy,
+        invokedBy: wipInvokedBy,
+        startDate: startDateSql,
+        endDate: endDateSql,
+        deletedRows: 0,
+        insertedRows: 0,
+      });
+      trackEvent('DataOps.Wip.EmptyResponse', {
+        operation: operationKey, triggeredBy: wipTriggeredBy, startDate: startDateSql, endDate: endDateSql, durationMs,
+      });
+      return { success: true, deletedRows: 0, insertedRows: 0, noData: true, preserved: true, message: `Clio returned 0 activities for ${startDateSql} → ${endDateSql}. Existing data preserved.` };
     }
 
     // Connect to SQL

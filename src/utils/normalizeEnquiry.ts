@@ -48,7 +48,7 @@ export function normalizeEnquiry(raw: Record<string, unknown>): NormalizedEnquir
     // Preserve claim timestamp from instructions enquiries; legacy stays null
     claim: raw.claim ?? null,
     // Map Ultimate_Source to source field for enquiry cards
-    source: raw.source || raw.Ultimate_Source || 'originalForward',
+    source: raw.source || raw.Ultimate_Source || null,
     __sourceType: sourceType,
   } as unknown as NormalizedEnquiry;
 }

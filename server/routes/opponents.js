@@ -10,10 +10,21 @@ const router = express.Router();
  * Writes to instructions database (direct SQL, no Azure Function proxy)
  */
 router.post('/', async (req, res) => {
+    const startTime = Date.now();
     const body = req.body || {};
+    const traceId = req.headers['x-matter-trace-id'] || '';
+    trackEvent('MatterOpening.Opponents.Started', {
+        hasOpponent: String(!!body.opponent),
+        hasSolicitor: String(!!body.solicitor),
+        traceId: String(traceId || ''),
+    });
 
     const connectionString = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
     if (!connectionString) {
+        trackEvent('MatterOpening.Opponents.ConfigError', {
+            reason: 'INSTRUCTIONS_SQL_CONNECTION_STRING not configured',
+            traceId: String(traceId || ''),
+        });
         return res.status(500).json({ error: 'INSTRUCTIONS_SQL_CONNECTION_STRING not configured' });
     }
 
@@ -79,12 +90,14 @@ router.post('/', async (req, res) => {
             solicitorId = solRes.recordset[0].OpponentID;
         }
 
-        trackEvent('MatterOpening.Opponents.Completed', { opponentId: opponentId || '', solicitorId: solicitorId || '', hasOpponent: String(!!body.opponent), hasSolicitor: String(!!body.solicitor) });
+        const durationMs = Date.now() - startTime;
+        trackEvent('MatterOpening.Opponents.Completed', { opponentId: opponentId || '', solicitorId: solicitorId || '', hasOpponent: String(!!body.opponent), hasSolicitor: String(!!body.solicitor), durationMs: String(durationMs), traceId: String(traceId || '') });
+        trackMetric('MatterOpening.Opponents.Duration', durationMs, {});
         res.json({ opponentId, solicitorId });
     } catch (err) {
         console.error('[opponents] Error:', err);
-        trackException(err, { component: 'MatterOpening', operation: 'Opponents', phase: 'insert' });
-        trackEvent('MatterOpening.Opponents.Failed', { error: err.message });
+        trackException(err, { component: 'MatterOpening', operation: 'Opponents', phase: 'insert', traceId: String(traceId || '') });
+        trackEvent('MatterOpening.Opponents.Failed', { error: err.message, durationMs: String(Date.now() - startTime), traceId: String(traceId || '') });
         res.status(500).json({ error: 'Failed to insert opponents', detail: err.message });
     } finally {
         if (pool) await pool.close();

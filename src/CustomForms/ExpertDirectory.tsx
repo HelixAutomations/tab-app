@@ -25,7 +25,6 @@ import {
 import { getProxyBaseUrl } from '../utils/getProxyBaseUrl';
 import { UserData } from '../app/functionality/types';
 import { useTheme } from '../app/functionality/ThemeContext';
-import PasscodeGuard from './shared/PasscodeGuard';
 import { practiceAreasByArea } from '../tabs/instructions/MatterOpening/config';
 import {
   getFormContainerStyle,

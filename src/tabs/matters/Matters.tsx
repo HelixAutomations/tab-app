@@ -1327,7 +1327,6 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
     return (
       <div className={detailContainerStyle(isDarkMode)}>
         <MatterOverview
-          key={selected.matterId}
           matter={selected}
           userInitials={userInitials}
           activeTab={activeDetailTab}

@@ -334,6 +334,8 @@ const FormDetails: React.FC<FormDetailsProps> = ({
           ) : link.component ? (
             React.createElement(link.component, {
               users: userData || [],
+              userData: userData || [],
+              currentUser: userData?.[0],
               matters,
               onBack: onClose,
             })

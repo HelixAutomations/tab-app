@@ -117,6 +117,7 @@ const getMattersRouter = require('./routes/getMatters');
 const riskAssessmentsRouter = require('./routes/riskAssessments');
 const bundleRouter = require('./routes/bundle');
 const { router: cclRouter, CCL_DIR } = require('./routes/ccl');
+const cclAiRouter = require('./routes/ccl-ai');
 
 const updateEnquiryPOCRouter = require('./routes/updateEnquiryPOC');
 const pitchesRouter = require('./routes/pitches');
@@ -167,6 +168,7 @@ const peopleSearchRouter = require('./routes/people-search');
 const claimEnquiryRouter = require('./routes/claimEnquiry');
 const rateChangesRouter = require('./routes/rate-changes');
 const cclDateRouter = require('./routes/ccl-date');
+const cclOpsRouter = require('./routes/ccl-ops');
 const expertsRouter = require('./routes/experts');
 const counselRouter = require('./routes/counsel');
 const techTicketsRouter = require('./routes/techTickets');
@@ -176,6 +178,7 @@ const bookSpaceRouter = require('./routes/bookSpace');
 const financialTaskRouter = require('./routes/financialTask');
 const releaseNotesRouter = require('./routes/release-notes');
 const { router: dataOperationsRouter } = require('./routes/dataOperations');
+const formHealthCheckRouter = require('./routes/formHealthCheck');
 const { userContextMiddleware } = require('./middleware/userContext');
 
 const app = express();
@@ -281,6 +284,8 @@ app.use('/api/getAllMatters', (req, res) => {
     });
 });
 app.use('/api/ccl', cclRouter);
+app.use('/api/ccl-ai', cclAiRouter);
+app.use('/api/ccl-ops', cclOpsRouter);
 app.use('/api/enquiries-unified', enquiriesUnifiedRouter);
 app.use('/api/home-wip', homeWipRouter);
 app.use('/api/home-enquiries', homeEnquiriesRouter);
@@ -358,6 +363,9 @@ app.use('/api/resources/core', resourcesCoreRouter);
 // Book space and financial task routes (migrated from Azure Functions)
 app.use('/api/book-space', bookSpaceRouter);
 app.use('/api/financial-task', financialTaskRouter);
+
+// Form health checks (admin-only, non-destructive endpoint probes)
+app.use('/api/form-health', formHealthCheckRouter);
 
 // Metrics routes (migrated from Azure Functions to fix cold start issues)
 app.use('/api/poid', poidRouter);

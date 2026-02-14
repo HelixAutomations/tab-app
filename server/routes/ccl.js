@@ -110,9 +110,26 @@ const router = express.Router();
 
 const CCL_DIR = path.join(process.cwd(), 'public', 'ccls');
 fs.mkdirSync(CCL_DIR, { recursive: true });
+const CCL_DRAFT_DIR = path.join(process.cwd(), 'logs', 'ccl-drafts');
+fs.mkdirSync(CCL_DRAFT_DIR, { recursive: true });
 
 const filePath = (id) => path.join(CCL_DIR, `${id}.docx`);
 const jsonPath = (id) => path.join(CCL_DIR, `${id}.json`);
+const draftCachePath = (id) => path.join(CCL_DRAFT_DIR, `${id}.json`);
+
+let cclDraftTableAvailable = null;
+
+async function ensureCclDraftsTable(pool) {
+    if (cclDraftTableAvailable !== null) return cclDraftTableAvailable;
+    const result = await pool.request().query(`
+        SELECT CASE WHEN OBJECT_ID(N'CclDrafts', N'U') IS NOT NULL THEN 1 ELSE 0 END AS ExistsFlag
+    `);
+    cclDraftTableAvailable = Boolean(result?.recordset?.[0]?.ExistsFlag);
+    if (!cclDraftTableAvailable) {
+        console.warn('[ccl] CclDrafts table not found; using file-based draft fallback only');
+    }
+    return cclDraftTableAvailable;
+}
 
 // Direct SQL functions (no Azure Function proxy)
 async function saveDraftToDb(matterId, json) {
@@ -124,6 +141,7 @@ async function saveDraftToDb(matterId, json) {
     let pool;
     try {
         pool = await sql.connect(connectionString);
+        if (!(await ensureCclDraftsTable(pool))) return;
         await pool.request()
             .input('MatterId', sql.NVarChar(50), matterId)
             .input('DraftJson', sql.NVarChar(sql.MAX), JSON.stringify(json))
@@ -147,6 +165,7 @@ async function fetchDraftFromDb(matterId) {
     let pool;
     try {
         pool = await sql.connect(connectionString);
+        if (!(await ensureCclDraftsTable(pool))) return null;
         const result = await pool.request()
             .input('MatterId', sql.NVarChar(50), matterId)
             .query('SELECT DraftJson FROM CclDrafts WHERE MatterId = @MatterId');
@@ -154,6 +173,24 @@ async function fetchDraftFromDb(matterId) {
         return row ? JSON.parse(row.DraftJson) : null;
     } finally {
         if (pool) await pool.close();
+    }
+}
+
+function saveDraftToFileCache(matterId, json) {
+    try {
+        fs.writeFileSync(draftCachePath(matterId), JSON.stringify(json, null, 2));
+    } catch (err) {
+        console.warn('[ccl] Draft file cache save failed:', err?.message || err);
+    }
+}
+
+function loadDraftFromFileCache(matterId) {
+    try {
+        const fp = draftCachePath(matterId);
+        if (!fs.existsSync(fp)) return null;
+        return JSON.parse(fs.readFileSync(fp, 'utf-8'));
+    } catch {
+        return null;
     }
 }
 
@@ -183,8 +220,7 @@ router.patch('/:matterId', async (req, res) => {
     try {
         const merged = await mergeMatterFields(matterId, draftJson);
         try { await saveDraftToDb(matterId, merged); } catch (dbErr) { console.warn('[ccl] Draft DB save failed (non-blocking):', dbErr.message); }
-        await generateWordFromJson(merged, filePath(matterId));
-        fs.writeFileSync(jsonPath(matterId), JSON.stringify(merged, null, 2));
+        saveDraftToFileCache(matterId, merged);
         res.json({ ok: true, url: `/ccls/${matterId}.docx` });
     } catch (err) {
         console.error('CCL regeneration failed', err);
@@ -199,6 +235,9 @@ router.get('/:matterId', async (req, res) => {
     let json;
     try {
         json = await fetchDraftFromDb(matterId);
+        if (!json) {
+            json = loadDraftFromFileCache(matterId);
+        }
         if (!json && fs.existsSync(jsonPath(matterId))) {
             json = JSON.parse(fs.readFileSync(jsonPath(matterId), 'utf-8'));
         }

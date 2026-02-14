@@ -836,6 +836,7 @@ interface EnquiryTimelineProps {
     onTriggerEID?: (instructionRef: string) => void | Promise<void>;
     onOpenIdReview?: (instructionRef: string) => void;
     onRefreshData?: (instructionRef?: string) => void | Promise<void>;
+    onRiskAssessmentSave?: (instructionRef: string, risk: any) => void;
   };
   /** Pre-fetched pitch data from enrichment (email-based lookup fallback) */
   enrichmentPitchData?: {
@@ -5565,6 +5566,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             onOpenMatter={workbenchHandlers?.onOpenMatter}
             onOpenRiskAssessment={workbenchHandlers?.onOpenRiskAssessment}
             onRefreshData={workbenchHandlers?.onRefreshData ? () => workbenchHandlers.onRefreshData!(inlineWorkbenchItem?.instruction?.InstructionRef || inlineWorkbenchItem?.instruction?.instructionRef) : undefined}
+            onRiskAssessmentSave={workbenchHandlers?.onRiskAssessmentSave ? (risk) => workbenchHandlers.onRiskAssessmentSave!(inlineWorkbenchItem?.instruction?.InstructionRef || inlineWorkbenchItem?.instruction?.instructionRef, risk) : undefined}
             demoModeEnabled={demoModeEnabled}
           />
         </div>

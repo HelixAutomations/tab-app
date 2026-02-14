@@ -15,10 +15,11 @@
         "docx-templates": "^4.14.1",
         "dotenv": "^16.4.2",
         "express": "^4.18.2",
+        "googleapis": "^162.0.0",
         "morgan": "^1.10.0",
         "mssql": "^11.0.1",
-            "googleapis": "^162.0.0",
         "node-fetch": "^2.7.0",
+        "openai": "^6.21.0",
         "redis": "^4.7.0",
         "supertest": "^7.1.3"
     },

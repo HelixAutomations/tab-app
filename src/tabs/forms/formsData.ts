@@ -105,7 +105,6 @@ export const formSections: { [key in Exclude<SectionName, 'Favorites'>]: FormIte
         },
     ],
     Financial: financialForms,
-    // Tech_Support and Directories are passcode protected (2011)
     Tech_Support: [
         {
             title: 'Tech Development Idea',

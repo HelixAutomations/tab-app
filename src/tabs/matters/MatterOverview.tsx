@@ -7,6 +7,7 @@ import { useTheme } from '../../app/functionality/ThemeContext';
 import InlineWorkbench from '../instructions/InlineWorkbench';
 import CCLEditor from './ccl/CCLEditor';
 import NextStepChip from './components/NextStepChip';
+import { ADMIN_USERS } from '../../app/admin';
 import { normaliseId, resolveEnquiryKeys } from './utils/enquiryMatching';
 import { fmt, fmtDate, fmtCurrency, safeNumber, get, formatLongDate, formatAddress, parseInstructionRef } from './utils/formatters';
 import {
@@ -621,9 +622,21 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
           Value: raw.Value || raw.value,
           Initial_first_call_notes: raw.Initial_first_call_notes || raw.notes,
           Call_Taker: raw.Call_Taker || raw.rep,
+          Ultimate_Source: raw.Ultimate_Source || raw.source || null,
         })) as Enquiry[];
 
-        const found = normalised.find((enquiry) => resolveEnquiryKeys(enquiry).includes(candidateKey)) || null;
+        // Find all matching records — prefer the one whose email matches the matter
+        const matches = normalised.filter((enquiry) => resolveEnquiryKeys(enquiry).includes(candidateKey));
+        let found: Enquiry | null = null;
+        if (matches.length > 1) {
+          const matterEmail = (matter.clientEmail || '').toString().trim().toLowerCase();
+          const byEmail = matterEmail
+            ? matches.find((e: any) => (e.Email || e.email || '').toString().trim().toLowerCase() === matterEmail)
+            : null;
+          found = byEmail || matches[0];
+        } else {
+          found = matches[0] || null;
+        }
         if (!cancelled) setDirectEnquiry(found);
       } catch {
         if (!cancelled) setDirectEnquiry(null);
@@ -895,7 +908,8 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
     },
   ].filter((m) => m.name && m.name.trim());
 
-  const showNextSteps = matter.status === 'active' && !matter.cclDate && !showCCLEditor;
+  const isAdmin = !!(userInitials && ADMIN_USERS.includes(userInitials.toUpperCase().trim() as any));
+  const showNextSteps = isAdmin && matter.status === 'active' && !matter.cclDate && !showCCLEditor;
 
   return (
     <div className={`${containerStyle(isDarkMode)} ${entryStyle}`}>
@@ -981,8 +995,8 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
         </section>
       )}
 
-      {/* CCL Editor — replaces main content when open */}
-      {showCCLEditor && (
+      {/* CCL Editor — replaces main content when open (admin only) */}
+      {isAdmin && showCCLEditor && (
         <div style={{ padding: '0 24px', flex: 1, display: 'flex', flexDirection: 'column' as const, minHeight: 0 }}>
         <CCLEditor
           matter={matter}

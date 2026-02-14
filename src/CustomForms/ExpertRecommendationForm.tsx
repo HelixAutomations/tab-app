@@ -18,7 +18,6 @@ import {
 import { useTheme } from '../app/functionality/ThemeContext';
 import { getProxyBaseUrl } from '../utils/getProxyBaseUrl';
 import { UserData } from '../app/functionality/types';
-import PasscodeGuard from './shared/PasscodeGuard';
 import AreaWorkTypeDropdown from './shared/AreaWorkTypeDropdown';
 import {
   getFormScrollContainerStyle,

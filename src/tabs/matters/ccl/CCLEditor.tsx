@@ -16,10 +16,13 @@ import {
   type ChargesChoice,
   type DisbursementsChoice,
 } from '../../../shared/ccl';
-import { CCL_SECTIONS, autoFillFromMatter, DEMO_FIELDS, STEPS, type EditorStepType } from './cclSections';
+import { CCL_SECTIONS, autoFillFromMatter, DEMO_FIELDS, type EditorStepType } from './cclSections';
+import { fetchAiFill, type AiFillResponse, type AiDebugTrace } from './cclAiService';
 import QuestionnaireStep from './QuestionnaireStep';
 import EditorStep from './EditorStep';
 import PreviewStep from './PreviewStep';
+
+export type AiStatus = 'idle' | 'loading' | 'complete' | 'partial' | 'fallback' | 'error';
 
 interface CCLEditorProps {
   matter: NormalizedMatter;
@@ -31,19 +34,37 @@ interface CCLEditorProps {
 const CCLEditor: React.FC<CCLEditorProps> = ({ matter, teamData, demoModeEnabled = false, onClose }) => {
   const { isDarkMode } = useTheme();
 
-  // Step state
-  const [currentStep, setCurrentStep] = useState<EditorStepType>('questionnaire');
+  // Only use demo fields for the synthetic demo matter — real matters always get real data
+  const isDemoMatter = demoModeEnabled && (!matter.displayNumber || matter.displayNumber.includes('DEMO'));
+
+  // Step state — always start on preview (AI-first: user sees finished doc on entry)
+  const [currentStep, setCurrentStep] = useState<EditorStepType>('preview');
   const [expandedSection, setExpandedSection] = useState<string>('client');
 
-  // Field values
+  // AI fill state
+  const [aiStatus, setAiStatus] = useState<AiStatus>('idle');
+  const [aiSource, setAiSource] = useState<string>('');
+  const [aiDurationMs, setAiDurationMs] = useState<number>(0);
+  const [aiDataSources, setAiDataSources] = useState<string[]>([]);
+  const [aiContextSummary, setAiContextSummary] = useState<string>('');
+  const [aiUserPrompt, setAiUserPrompt] = useState<string>('');
+  const [aiSystemPrompt, setAiSystemPrompt] = useState<string>('');
+  const [aiFallbackReason, setAiFallbackReason] = useState<string>('');
+  const [aiDebugTrace, setAiDebugTrace] = useState<AiDebugTrace | undefined>(undefined);
+  const aiFiredRef = useRef(false);
+
+  // Track which fields the user has manually edited (for provenance colouring)
+  const [userEditedKeys, setUserEditedKeys] = useState<Set<string>>(new Set());
+
+  // Field values — real matters always use autoFillFromMatter, demo only for synthetic demo matter
   const [fields, setFields] = useState<Record<string, string>>(() =>
-    demoModeEnabled ? { ...DEMO_FIELDS } : autoFillFromMatter(matter, teamData)
+    isDemoMatter ? { ...DEMO_FIELDS } : autoFillFromMatter(matter, teamData)
   );
 
   // Generation options
-  const [costsChoice, setCostsChoice] = useState<CostsChoice>(demoModeEnabled ? 'risk_costs' : null);
+  const [costsChoice, setCostsChoice] = useState<CostsChoice>(isDemoMatter ? 'risk_costs' : null);
   const [chargesChoice, setChargesChoice] = useState<ChargesChoice>('hourly_rate');
-  const [disbursementsChoice, setDisbursementsChoice] = useState<DisbursementsChoice>(demoModeEnabled ? 'estimate' : null);
+  const [disbursementsChoice, setDisbursementsChoice] = useState<DisbursementsChoice>(isDemoMatter ? 'estimate' : null);
 
   // Editor state
   const editorRef = useRef<HTMLDivElement>(null);
@@ -52,7 +73,7 @@ const CCLEditor: React.FC<CCLEditorProps> = ({ matter, teamData, demoModeEnabled
 
   // ─── Load existing draft on mount ───
   useEffect(() => {
-    if (demoModeEnabled) return;
+    if (isDemoMatter) return;
     const matterId = matter.matterId || matter.displayNumber;
     if (!matterId) return;
     (async () => {
@@ -69,12 +90,80 @@ const CCLEditor: React.FC<CCLEditorProps> = ({ matter, teamData, demoModeEnabled
         setDraftLoaded(true);
       }
     })();
-  }, [matter.matterId, matter.displayNumber, demoModeEnabled]);
+  }, [matter.matterId, matter.displayNumber, isDemoMatter]);
+
+  // ─── AI fill on mount (fires once — fills the 26 intake fields) ───
+  useEffect(() => {
+    if (isDemoMatter || aiFiredRef.current) return;
+    const matterId = matter.matterId || matter.displayNumber;
+    if (!matterId) return;
+    aiFiredRef.current = true;
+    setAiStatus('loading');
+
+    (async () => {
+      try {
+        const result: AiFillResponse = await fetchAiFill({
+          matterId,
+          instructionRef: matter.instructionRef || '',
+          practiceArea: matter.practiceArea || '',
+          description: matter.description || '',
+          clientName: matter.clientName || '',
+          opponent: (matter as any).opponent || '',
+          handlerName: matter.responsibleSolicitor || '',
+          handlerRole: fields.status || '',
+          handlerRate: fields.handler_hourly_rate || '',
+        });
+
+        if (result.ok && result.fields) {
+          // Merge AI fields with existing auto-filled fields.
+          // AI fills the intake fields; auto-fill already set handler/client fields.
+          // Only overwrite fields that are currently empty or very short.
+          setFields((prev) => {
+            const merged = { ...prev };
+            for (const [key, value] of Object.entries(result.fields)) {
+              // Don't overwrite auto-filled handler/client fields
+              const isAutoFilled = [
+                'insert_clients_name', 'name_of_person_handling_matter', 'name_of_handler',
+                'handler', 'email', 'fee_earner_email', 'fee_earner_phone',
+                'fee_earner_postal_address', 'name', 'status', 'handler_hourly_rate',
+                'contact_details_for_marketing_opt_out', 'matter', 'matter_number',
+              ].includes(key);
+              if (isAutoFilled && prev[key]?.trim()) continue;
+              // Only fill if current value is empty/short
+              if (!prev[key]?.trim() || prev[key].trim().length < 5) {
+                merged[key] = value;
+              }
+            }
+            return merged;
+          });
+
+          setAiSource(result.source);
+          setAiDurationMs(result.durationMs);
+          setAiDataSources(result.dataSources || []);
+          setAiContextSummary(result.contextSummary || '');
+          setAiUserPrompt(result.userPrompt || '');
+          setAiSystemPrompt(result.systemPrompt || '');
+          setAiFallbackReason(result.fallbackReason || '');
+          setAiDebugTrace(result.debug);
+          setAiStatus(
+            result.confidence === 'full' ? 'complete' :
+            result.confidence === 'partial' ? 'partial' : 'fallback'
+          );
+        } else {
+          setAiStatus('error');
+        }
+      } catch (err) {
+        console.warn('[CCL] AI fill failed:', err);
+        setAiStatus('error');
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDemoMatter, matter.matterId, matter.displayNumber]);
 
   // ─── Auto-save draft (debounced 2s) ───
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    if (demoModeEnabled || !draftLoaded) return;
+    if (isDemoMatter || !draftLoaded) return;
     const matterId = matter.matterId || matter.displayNumber;
     if (!matterId) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -90,26 +179,11 @@ const CCLEditor: React.FC<CCLEditorProps> = ({ matter, teamData, demoModeEnabled
       }
     }, 2000);
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
-  }, [fields, demoModeEnabled, draftLoaded, matter.matterId, matter.displayNumber]);
+  }, [fields, isDemoMatter, draftLoaded, matter.matterId, matter.displayNumber]);
 
-  // Demo one-click
-  const handleDemoComplete = useCallback(() => {
-    setFields({ ...DEMO_FIELDS });
-    setCostsChoice('risk_costs');
-    setChargesChoice('hourly_rate');
-    setDisbursementsChoice('estimate');
-    const options: GenerationOptions = {
-      costsChoice: 'risk_costs',
-      chargesChoice: 'hourly_rate',
-      disbursementsChoice: 'estimate',
-      showEstimateExamples: false,
-    };
-    const content = generateTemplateContent(DEFAULT_CCL_TEMPLATE, DEMO_FIELDS, options);
-    setEditorContent(content);
-    setCurrentStep('preview');
-  }, []);
 
-  // Generate content
+
+  // Generate content (fully substituted — for print/export)
   const generatedContent = useMemo(() => {
     const options: GenerationOptions = {
       costsChoice,
@@ -118,6 +192,18 @@ const CCLEditor: React.FC<CCLEditorProps> = ({ matter, teamData, demoModeEnabled
       showEstimateExamples: false,
     };
     return generateTemplateContent(DEFAULT_CCL_TEMPLATE, fields, options);
+  }, [fields, costsChoice, chargesChoice, disbursementsChoice]);
+
+  // Template with section choices resolved but {{field}} placeholders kept intact
+  // — used by PreviewStep to render inline-editable fields on the A4 surface
+  const templateWithPlaceholders = useMemo(() => {
+    const options: GenerationOptions = {
+      costsChoice,
+      chargesChoice,
+      disbursementsChoice,
+      showEstimateExamples: false,
+    };
+    return generateTemplateContent(DEFAULT_CCL_TEMPLATE, fields, options, true);
   }, [fields, costsChoice, chargesChoice, disbursementsChoice]);
 
   // Completion tracking
@@ -139,7 +225,14 @@ const CCLEditor: React.FC<CCLEditorProps> = ({ matter, teamData, demoModeEnabled
   }, [completionBySection]);
 
   const updateField = useCallback((key: string, value: string) => {
-    setFields((prev) => ({ ...prev, [key]: value }));
+    setFields((prev) => {
+      const next = { ...prev, [key]: value };
+      // Keep figure ↔ state_amount in sync (same number, different template locations)
+      if (key === 'figure') next.state_amount = value;
+      else if (key === 'state_amount') next.figure = value;
+      return next;
+    });
+    setUserEditedKeys((prev) => { const next = new Set(prev); next.add(key); return next; });
   }, []);
 
   const goToEditor = useCallback(() => {
@@ -165,12 +258,12 @@ const CCLEditor: React.FC<CCLEditorProps> = ({ matter, teamData, demoModeEnabled
       display: 'flex', flexDirection: 'column', gap: 0,
       minHeight: 0, flex: 1,
     }}>
-      {/* ─── Header bar ─── */}
+      {/* ─── Minimal header — document-first: no step indicators ─── */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 12,
-        padding: '12px 0',
+        padding: '10px 0',
         borderBottom: `1px solid ${cardBorder}`,
-        marginBottom: 12,
+        marginBottom: 0,
       }}>
         <button
           type="button"
@@ -191,7 +284,7 @@ const CCLEditor: React.FC<CCLEditorProps> = ({ matter, teamData, demoModeEnabled
             e.currentTarget.style.background = 'transparent';
             e.currentTarget.style.color = textMuted;
           }}
-          aria-label="Close CCL Editor"
+          aria-label="Close CCL"
         >
           <Icon iconName="ChromeBack" styles={{ root: { fontSize: 12 } }} />
         </button>
@@ -208,89 +301,37 @@ const CCLEditor: React.FC<CCLEditorProps> = ({ matter, teamData, demoModeEnabled
           </div>
         </div>
 
-        {/* Step indicator */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          {STEPS.map((step, idx) => {
-            const isActive = step.key === currentStep;
-            const stepIdx = STEPS.findIndex((s) => s.key === currentStep);
-            const isPast = idx < stepIdx;
-            return (
-              <React.Fragment key={step.key}>
-                {idx > 0 && (
-                  <div style={{
-                    width: 20, height: 1,
-                    background: isPast ? accentBlue : cardBorder,
-                  }} />
-                )}
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (step.key === 'editor') goToEditor();
-                    else if (step.key === 'preview') goToPreview();
-                    else setCurrentStep(step.key);
-                  }}
-                  style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 5,
-                    padding: '4px 10px', borderRadius: 2,
-                    background: isActive
-                      ? (isDarkMode ? 'rgba(54,144,206,0.15)' : 'rgba(54,144,206,0.1)')
-                      : 'transparent',
-                    border: isActive
-                      ? `1px solid ${isDarkMode ? 'rgba(54,144,206,0.35)' : 'rgba(54,144,206,0.25)'}`
-                      : `1px solid transparent`,
-                    color: isActive ? accentBlue : (isPast ? accentBlue : textMuted),
-                    fontSize: 11, fontWeight: isActive ? 700 : 500,
-                    cursor: 'pointer', transition: 'all 0.12s ease',
-                    textTransform: 'uppercase' as const, letterSpacing: '0.03em',
-                  }}
-                >
-                  <Icon iconName={step.icon} styles={{ root: { fontSize: 11 } }} />
-                  {step.label}
-                </button>
-              </React.Fragment>
-            );
-          })}
-        </div>
+        {/* Completion badge — subtle */}
+        {overallCompletion === 100 && (
+          <div style={{
+            padding: '3px 8px', borderRadius: 2, fontSize: 10, fontWeight: 700,
+            background: isDarkMode ? 'rgba(34,197,94,0.15)' : 'rgba(34,197,94,0.1)',
+            color: isDarkMode ? '#4ade80' : '#16a34a',
+          }}>
+            Ready
+          </div>
+        )}
 
-        {/* Completion badge */}
-        <div style={{
-          padding: '3px 8px', borderRadius: 2, fontSize: 10, fontWeight: 700,
-          background: overallCompletion === 100
-            ? (isDarkMode ? 'rgba(34,197,94,0.15)' : 'rgba(34,197,94,0.1)')
-            : (isDarkMode ? 'rgba(214,85,65,0.15)' : 'rgba(214,85,65,0.1)'),
-          color: overallCompletion === 100
-            ? (isDarkMode ? '#4ade80' : '#16a34a')
-            : (isDarkMode ? '#f0a090' : colours.cta),
-        }}>
-          {overallCompletion}%
-        </div>
-
-        {/* Demo one-click complete */}
-        {demoModeEnabled && currentStep === 'questionnaire' && (
+        {/* Advanced mode toggle — gear icon for power users */}
+        {currentStep !== 'preview' && (
           <button
             type="button"
-            onClick={handleDemoComplete}
+            onClick={() => setCurrentStep('preview')}
             style={{
-              display: 'inline-flex', alignItems: 'center', gap: 5,
+              display: 'inline-flex', alignItems: 'center', gap: 4,
               padding: '4px 10px', borderRadius: 2,
-              background: isDarkMode ? 'rgba(34,197,94,0.15)' : 'rgba(34,197,94,0.1)',
-              border: `1px solid ${isDarkMode ? 'rgba(34,197,94,0.3)' : 'rgba(34,197,94,0.2)'}`,
-              color: isDarkMode ? '#4ade80' : '#16a34a',
-              fontSize: 10, fontWeight: 700,
-              textTransform: 'uppercase' as const, letterSpacing: '0.04em',
+              background: 'transparent', border: `1px solid ${cardBorder}`,
+              color: textMuted, fontSize: 10, fontWeight: 600,
               cursor: 'pointer', transition: 'all 0.12s ease',
-              fontFamily: 'inherit',
             }}
-            onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-1px)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; }}
           >
-            <Icon iconName="LightningBolt" styles={{ root: { fontSize: 11 } }} />
-            Demo Complete
+            <Icon iconName="ChromeBack" styles={{ root: { fontSize: 9 } }} />
+            Back to document
           </button>
         )}
       </div>
 
-      {/* ─── Step content ─── */}
+      {/* ─── Content ─── */}
       {currentStep === 'questionnaire' && (
         <QuestionnaireStep
           sections={CCL_SECTIONS}
@@ -321,13 +362,25 @@ const CCLEditor: React.FC<CCLEditorProps> = ({ matter, teamData, demoModeEnabled
       )}
       {currentStep === 'preview' && (
         <PreviewStep
-          content={editorRef.current?.innerText || editorContent}
+          content={generatedContent}
+          templateContent={templateWithPlaceholders}
           matter={matter}
           fields={fields}
           updateField={updateField}
+          userEditedKeys={userEditedKeys}
+          aiStatus={aiStatus}
+          aiSource={aiSource}
+          aiDurationMs={aiDurationMs}
+          aiDataSources={aiDataSources}
+          aiContextSummary={aiContextSummary}
+          aiUserPrompt={aiUserPrompt}
+          aiSystemPrompt={aiSystemPrompt}
+          aiFallbackReason={aiFallbackReason}
+          aiDebugTrace={aiDebugTrace}
           isDarkMode={isDarkMode}
           onBack={() => setCurrentStep('editor')}
           onClose={onClose}
+          onAdvancedMode={() => setCurrentStep('questionnaire')}
         />
       )}
     </div>

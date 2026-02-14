@@ -169,9 +169,9 @@ const NotableCaseInfoForm: React.FC<NotableCaseInfoFormProps> = ({
     
     const searchLower = matterSearchTerm.toLowerCase();
     return matters.filter((matter: any) => {
-      const displayNumber = matter.displayNumber || '';
-      const clientName = matter.clientName || '';
-      const description = matter.description || '';
+      const displayNumber = matter["Display Number"] || matter.displayNumber || '';
+      const clientName = matter["Client Name"] || matter.clientName || '';
+      const description = matter["Description"] || matter.description || '';
       return displayNumber.toLowerCase().includes(searchLower) ||
              clientName.toLowerCase().includes(searchLower) ||
              description.toLowerCase().includes(searchLower);
@@ -199,7 +199,7 @@ const NotableCaseInfoForm: React.FC<NotableCaseInfoFormProps> = ({
   // ─────────────────────────────────────────────────────────────────────────
 
   const handleMatterSelect = (matter: any) => {
-    const displayNumber = matter.displayNumber || '';
+    const displayNumber = matter["Display Number"] || matter.displayNumber || '';
     setFormData(prev => ({ ...prev, display_number: displayNumber }));
     setMatterSearchTerm(displayNumber);
     setMatterDropdownOpen(false);

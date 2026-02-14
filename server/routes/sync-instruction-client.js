@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { withRequest, sql } = require('../utils/db');
+const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
 
 /**
  * Sync Instruction Client API
@@ -19,10 +20,24 @@ const getInstrConnStr = () => {
  * POST /api/sync-instruction-client/link-client
  */
 router.post('/link-client', async (req, res) => {
+  const startTime = Date.now();
   try {
     const { instructionRef, clientId, matterId } = req.body;
+    const traceId = req.headers['x-matter-trace-id'] || '';
+    trackEvent('MatterOpening.SyncInstructionClient.Started', {
+      operation: 'link-client',
+      instructionRef: String(instructionRef || ''),
+      clientId: String(clientId || ''),
+      matterId: String(matterId || ''),
+      traceId: String(traceId || ''),
+    });
     
     if (!instructionRef || !clientId) {
+      trackEvent('MatterOpening.SyncInstructionClient.ValidationFailed', {
+        operation: 'link-client',
+        reason: 'Instruction reference and client ID are required',
+        traceId: String(traceId || ''),
+      });
       return res.status(400).json({ 
         error: 'Instruction reference and client ID are required' 
       });
@@ -44,8 +59,28 @@ router.post('/link-client', async (req, res) => {
     });
     
     if (result.rowsAffected[0] === 0) {
+      trackEvent('MatterOpening.SyncInstructionClient.NotFound', {
+        operation: 'link-client',
+        instructionRef: String(instructionRef || ''),
+        traceId: String(traceId || ''),
+      });
       return res.status(404).json({ error: 'Instruction not found' });
     }
+
+    const durationMs = Date.now() - startTime;
+    trackEvent('MatterOpening.SyncInstructionClient.Completed', {
+      operation: 'link-client',
+      instructionRef: String(instructionRef || ''),
+      clientId: String(clientId || ''),
+      matterId: String(matterId || ''),
+      rowsAffected: String(result.rowsAffected[0] || 0),
+      durationMs: String(durationMs),
+      traceId: String(traceId || ''),
+    });
+    trackMetric('MatterOpening.SyncInstructionClient.Duration', durationMs, {
+      operation: 'link-client',
+      instructionRef: String(instructionRef || ''),
+    });
     
     res.json({
       success: true,
@@ -58,6 +93,18 @@ router.post('/link-client', async (req, res) => {
     
   } catch (error) {
     console.error('Error linking client to instruction:', error);
+    const traceId = req.headers['x-matter-trace-id'] || '';
+    trackException(error, {
+      component: 'MatterOpening',
+      operation: 'SyncInstructionClient.link-client',
+      traceId: String(traceId || ''),
+    });
+    trackEvent('MatterOpening.SyncInstructionClient.Failed', {
+      operation: 'link-client',
+      error: String(error.message || error),
+      durationMs: String(Date.now() - startTime),
+      traceId: String(traceId || ''),
+    });
     res.status(500).json({ 
       error: 'Failed to link client to instruction',
       details: error.message 
@@ -70,10 +117,23 @@ router.post('/link-client', async (req, res) => {
  * POST /api/sync-instruction-client/link-matter
  */
 router.post('/link-matter', async (req, res) => {
+  const startTime = Date.now();
   try {
     const { instructionRef, matterId } = req.body;
+    const traceId = req.headers['x-matter-trace-id'] || '';
+    trackEvent('MatterOpening.SyncInstructionClient.Started', {
+      operation: 'link-matter',
+      instructionRef: String(instructionRef || ''),
+      matterId: String(matterId || ''),
+      traceId: String(traceId || ''),
+    });
     
     if (!instructionRef || !matterId) {
+      trackEvent('MatterOpening.SyncInstructionClient.ValidationFailed', {
+        operation: 'link-matter',
+        reason: 'Instruction reference and matter ID are required',
+        traceId: String(traceId || ''),
+      });
       return res.status(400).json({ 
         error: 'Instruction reference and matter ID are required' 
       });
@@ -91,8 +151,27 @@ router.post('/link-matter', async (req, res) => {
     });
     
     if (result.rowsAffected[0] === 0) {
+      trackEvent('MatterOpening.SyncInstructionClient.NotFound', {
+        operation: 'link-matter',
+        instructionRef: String(instructionRef || ''),
+        traceId: String(traceId || ''),
+      });
       return res.status(404).json({ error: 'Instruction not found' });
     }
+
+    const durationMs = Date.now() - startTime;
+    trackEvent('MatterOpening.SyncInstructionClient.Completed', {
+      operation: 'link-matter',
+      instructionRef: String(instructionRef || ''),
+      matterId: String(matterId || ''),
+      rowsAffected: String(result.rowsAffected[0] || 0),
+      durationMs: String(durationMs),
+      traceId: String(traceId || ''),
+    });
+    trackMetric('MatterOpening.SyncInstructionClient.Duration', durationMs, {
+      operation: 'link-matter',
+      instructionRef: String(instructionRef || ''),
+    });
     
     res.json({
       success: true,
@@ -104,6 +183,18 @@ router.post('/link-matter', async (req, res) => {
     
   } catch (error) {
     console.error('Error linking matter to instruction:', error);
+    const traceId = req.headers['x-matter-trace-id'] || '';
+    trackException(error, {
+      component: 'MatterOpening',
+      operation: 'SyncInstructionClient.link-matter',
+      traceId: String(traceId || ''),
+    });
+    trackEvent('MatterOpening.SyncInstructionClient.Failed', {
+      operation: 'link-matter',
+      error: String(error.message || error),
+      durationMs: String(Date.now() - startTime),
+      traceId: String(traceId || ''),
+    });
     res.status(500).json({ 
       error: 'Failed to link matter to instruction',
       details: error.message 

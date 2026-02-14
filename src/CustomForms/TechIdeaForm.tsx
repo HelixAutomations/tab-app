@@ -19,7 +19,6 @@ import { colours } from '../app/styles/colours';
 import { useTheme } from '../app/functionality/ThemeContext';
 import { getProxyBaseUrl } from '../utils/getProxyBaseUrl';
 import { UserData } from '../app/functionality/types';
-import PasscodeGuard from './shared/PasscodeGuard';
 import TechTicketsLedger from './shared/TechTicketsLedger';
 import {
   getFormScrollContainerStyle,

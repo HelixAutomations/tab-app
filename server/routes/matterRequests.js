@@ -140,15 +140,26 @@ router.post('/', async (req, res) => {
  * Updates a MatterRequest placeholder once real IDs are available
  */
 router.patch('/:matterId', async (req, res) => {
+    const patchStartTime = Date.now();
     const { matterId } = req.params;
     const body = req.body || {};
+    const traceId = req.headers['x-matter-trace-id'] || '';
 
     const connectionString = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
     if (!connectionString) {
+        trackEvent('MatterOpening.MatterRequestPatch.ConfigError', {
+            matterId: String(matterId || ''),
+            reason: 'INSTRUCTIONS_SQL_CONNECTION_STRING not configured',
+            traceId: String(traceId || ''),
+        });
         return res.status(500).json({ error: 'INSTRUCTIONS_SQL_CONNECTION_STRING not configured' });
     }
 
     if (!matterId) {
+        trackEvent('MatterOpening.MatterRequestPatch.ValidationFailed', {
+            reason: 'matterId is required',
+            traceId: String(traceId || ''),
+        });
         return res.status(400).json({ error: 'matterId is required' });
     }
 
@@ -160,8 +171,22 @@ router.patch('/:matterId', async (req, res) => {
     };
 
     if (!updates.instructionRef && !updates.clientId && !updates.displayNumber && !updates.clioMatterId) {
+        trackEvent('MatterOpening.MatterRequestPatch.ValidationFailed', {
+            matterId: String(matterId || ''),
+            reason: 'No update fields provided',
+            traceId: String(traceId || ''),
+        });
         return res.status(400).json({ error: 'No update fields provided' });
     }
+
+    trackEvent('MatterOpening.MatterRequestPatch.Started', {
+        matterId: String(matterId || ''),
+        instructionRef: String(updates.instructionRef || ''),
+        hasClientId: String(!!updates.clientId),
+        hasDisplayNumber: String(!!updates.displayNumber),
+        hasClioMatterId: String(!!updates.clioMatterId),
+        traceId: String(traceId || ''),
+    });
 
     let pool;
     try {
@@ -184,12 +209,36 @@ router.patch('/:matterId', async (req, res) => {
             `);
 
         if (!result.rowsAffected || result.rowsAffected[0] === 0) {
+            trackEvent('MatterOpening.MatterRequestPatch.NotFound', {
+                matterId: String(matterId || ''),
+                traceId: String(traceId || ''),
+            });
             return res.status(404).json({ error: 'Matter request not found' });
         }
 
+        const durationMs = Date.now() - patchStartTime;
+        trackEvent('MatterOpening.MatterRequestPatch.Completed', {
+            matterId: String(matterId || ''),
+            updated: String(result.rowsAffected[0] || 0),
+            durationMs: String(durationMs),
+            traceId: String(traceId || ''),
+        });
+        trackMetric('MatterOpening.MatterRequestPatch.Duration', durationMs, {});
         return res.json({ ok: true, updated: result.rowsAffected[0] });
     } catch (err) {
         console.error('[matter-requests] Patch error:', err);
+        trackException(err, {
+            component: 'MatterOpening',
+            operation: 'MatterRequestPatch',
+            matterId: String(matterId || ''),
+            traceId: String(traceId || ''),
+        });
+        trackEvent('MatterOpening.MatterRequestPatch.Failed', {
+            matterId: String(matterId || ''),
+            error: String(err.message || err),
+            durationMs: String(Date.now() - patchStartTime),
+            traceId: String(traceId || ''),
+        });
         return res.status(500).json({ error: 'Failed to update matter request', detail: err.message });
     } finally {
         if (pool) await pool.close();
