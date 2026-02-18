@@ -127,7 +127,8 @@ module.exports = async (req, res) => {
     reminders,
     notes,
     dealKind: providedDealKind,
-    linkOnly
+    linkOnly,
+    checkoutMode: providedCheckoutMode
   } = req.body;
 
   const finalServiceDescription = serviceDescription || initialScopeDescription;
@@ -158,7 +159,12 @@ module.exports = async (req, res) => {
       return '';
     })();
 
-    const resolvedStatus = linkOnly === true ? 'CHECKOUT_LINK' : 'pitched';
+    const resolvedStatus = (() => {
+      if (linkOnly === true) return 'CHECKOUT_LINK';
+      // CFA checkout mode: set deal status to 'CFA' so instruct-pitch derives CFA mode
+      if (typeof providedCheckoutMode === 'string' && providedCheckoutMode.toUpperCase() === 'CFA') return 'CFA';
+      return 'pitched';
+    })();
 
     // Insert new deal
     const now = new Date();

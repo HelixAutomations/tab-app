@@ -1538,6 +1538,8 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
   const [dealClients, setDealClients] = useState<ClientInfo[]>([]);
   const [isMultiClientFlag, setIsMultiClientFlag] = useState<boolean>(false);
   const [selectedScenarioId, setSelectedScenarioId] = useState<string>('');
+  // CFA mode: derived from scenario selection — skips payment, sets Amount=0, sends CheckoutMode='CFA'
+  const isCfaMode = selectedScenarioId === 'cfa';
   // Inline email send/draft status for confirmation modal
   const [emailStatus, setEmailStatus] = useState<'idle' | 'processing' | 'sent' | 'error'>('idle');
   const [emailMessage, setEmailMessage] = useState<string>('');
@@ -2959,7 +2961,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
       return false;
     }
     const numericAmt = parseFloat(amount.replace(/[^0-9.]/g, ''));
-    if (!amount.trim() || isNaN(numericAmt) || numericAmt <= 0) {
+    if (!isCfaMode && (!amount.trim() || isNaN(numericAmt) || numericAmt <= 0)) {
       setErrorMessage('Estimated fee is required (enter a positive number).');
       setIsErrorVisible(true);
       return false;
@@ -2982,7 +2984,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
         setDealStatus('processing');
       }
 
-      const numericAmount = options?.background ? 0 : parseFloat(amount.replace(/,/g, '')) || 0;
+      const numericAmount = options?.background ? 0 : (isCfaMode ? 0 : (parseFloat(amount.replace(/,/g, '')) || 0));
       // Updated to use server route instead of Azure Function
       const url = `/api/deal-capture`;
       
@@ -3073,6 +3075,8 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
         leadClientId: resolvedProspectId,
         // Include pre-generated passcode (or let server override if needed)
         passcode: dealPasscode,
+        // CFA mode: send CheckoutMode so deal is created with Status='CFA' and Amount=0
+        ...(isCfaMode && { checkoutMode: 'CFA' }),
         // Include email recipient details for monitoring notification
         emailRecipients: {
           to: to || enquiry.Point_of_Contact || enquiry.Email,

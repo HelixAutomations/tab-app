@@ -333,7 +333,7 @@ const AnimatedProgressBar: React.FC<{
   height?: number; radiusStyle?: 'round' | 'asymmetric';
   colourFn: (p: number) => string; trackBg: string;
   targetLabel?: string | number; trackShadow?: string; barShadow?: string;
-}> = React.memo(({ progress, enabled, replayKey, isDarkMode, height = 8, radiusStyle = 'round', colourFn, trackBg, targetLabel, trackShadow, barShadow }) => {
+}> = React.memo(({ progress, enabled, replayKey, isDarkMode, height = 3, radiusStyle = 'round', colourFn, trackBg, targetLabel, trackShadow, barShadow }) => {
   const animatedProgress = useCountUp(progress, ANIM_DURATION, enabled, replayKey);
   const borderRadius = radiusStyle === 'round' ? `${height / 2}px` : undefined;
   const borderTopLeftRadius = radiusStyle === 'asymmetric' ? '6px' : borderRadius;
@@ -381,8 +381,8 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
       return false;
     }
   }, []);
-  // Previous period values are hidden by default; hold button to reveal.
-  const [showPreviousPeriod, setShowPreviousPeriod] = React.useState(false);
+  // Previous period comparison is always visible
+  const showPreviousPeriod = true;
   const [metricDetails, setMetricDetails] = React.useState<MetricDetails | null>(null);
   const [isMetricDetailsOpen, setIsMetricDetailsOpen] = React.useState(false);
   const [mounted, setMounted] = React.useState(false);
@@ -423,14 +423,6 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
   // Animation key to trigger refresh animation on metric values
   const [refreshAnimationKey, setRefreshAnimationKey] = React.useState(0);
 
-  const startPreviousPeek = React.useCallback(() => {
-    setShowPreviousPeriod(true);
-  }, []);
-
-  const stopPreviousPeek = React.useCallback(() => {
-    setShowPreviousPeriod(false);
-  }, []);
-  
   // Format countdown as mm:ss
   const formatCountdown = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
@@ -467,18 +459,7 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
     };
   }, []);
 
-  React.useEffect(() => {
-    if (!showPreviousPeriod) return;
-    const release = () => setShowPreviousPeriod(false);
-    window.addEventListener('mouseup', release);
-    window.addEventListener('touchend', release);
-    window.addEventListener('blur', release);
-    return () => {
-      window.removeEventListener('mouseup', release);
-      window.removeEventListener('touchend', release);
-      window.removeEventListener('blur', release);
-    };
-  }, [showPreviousPeriod]);
+
   
   // Handle manual refresh - resets countdown
   const handleRefresh = React.useCallback(() => {
@@ -545,13 +526,6 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
     return rawTitle;
   };
 
-  const getPreviousComparatorText = (rawTitle: string): string => {
-    if (rawTitle.includes('Today')) return 'Compared to: same weekday last week.';
-    if (rawTitle.includes('This Week')) return 'Compared to: last week-to-date (same elapsed workdays).';
-    if (rawTitle.includes('This Month')) return 'Compared to: last month-to-date (same day-of-month / same elapsed days).';
-    return 'Compared to: previous period.';
-  };
-
   const detailsChipStyle: React.CSSProperties = React.useMemo(() => ({
     fontSize: 10,
     fontWeight: 700,
@@ -573,7 +547,7 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
     const rows: MetricDetails['rows'] = [
       {
         label: 'Period',
-        value: showPreviousPeriod ? getDisplayTitle(metric.title) : metric.title,
+        value: getDisplayTitle(metric.title),
       },
       {
         label: 'Includes',
@@ -581,13 +555,9 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
           ? ((metric as TimeMetric).isTimeMoney ? 'Hours and value totals.' : (metric as TimeMetric).isMoneyOnly ? 'Value total.' : 'Hours/count total.')
           : ((metric as EnquiryMetric).isPercentage ? 'Percentage.' : 'Count.'),
       },
-      {
-        label: 'Comparator',
-        value: showPreviousPeriod ? 'Not shown in Previous view.' : getPreviousComparatorText(metric.title),
-      },
     ];
 
-    if (showPreviousPeriod && isTime && metric.title === 'Time Today') {
+    if (isTime && metric.title === 'Time Today') {
       rows.push({
         label: 'Note',
         value: 'Previous view may also show Yesterday as a secondary reference when available.',
@@ -600,7 +570,7 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
       rows,
     });
     setIsMetricDetailsOpen(true);
-  }, [showDetailsFeature, getDisplayTitle, getPreviousComparatorText, showPreviousPeriod]);
+  }, [showDetailsFeature, getDisplayTitle]);
 
   const calculateProgress = (metric: TimeMetric, usePrev: boolean = false): number => {
     if (metric.showDial && metric.dialTarget) {
@@ -932,56 +902,13 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
             )}
           </div>
           
-          {/* Right side: Toast notification + Toggle Switch */}
+          {/* Right side: Toast notification */}
           <div className="tmv2-header-right" style={{
             display: 'flex',
             alignItems: 'center',
             gap: '10px',
           }}>
-            <button
-              type="button"
-              onMouseDown={startPreviousPeek}
-              onMouseUp={stopPreviousPeek}
-              onMouseLeave={stopPreviousPeek}
-              onTouchStart={startPreviousPeek}
-              onTouchEnd={stopPreviousPeek}
-              onKeyDown={(e) => {
-                if (e.key === ' ' || e.key === 'Enter') {
-                  e.preventDefault();
-                  startPreviousPeek();
-                }
-              }}
-              onKeyUp={(e) => {
-                if (e.key === ' ' || e.key === 'Enter') {
-                  stopPreviousPeek();
-                }
-              }}
-              onBlur={stopPreviousPeek}
-              style={{
-                border: `1px solid ${showPreviousPeriod
-                  ? (isDarkMode ? 'rgba(54, 144, 206, 0.45)' : 'rgba(54, 144, 206, 0.6)')
-                  : (isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.35)')}`,
-                background: showPreviousPeriod
-                  ? (isDarkMode ? 'rgba(54, 144, 206, 0.16)' : 'rgba(214, 232, 255, 0.9)')
-                  : (isDarkMode ? 'rgba(6, 23, 51, 0.55)' : 'rgba(255, 255, 255, 0.9)'),
-                color: isDarkMode ? colours.dark.text : colours.light.text,
-                fontSize: '10px',
-                letterSpacing: '0',
-                fontWeight: 500,
-                padding: '3px 9px',
-                borderRadius: 0,
-                cursor: 'pointer',
-                userSelect: 'none',
-                transition: 'background 140ms ease, border-color 140ms ease, color 140ms ease',
-              }}
-              aria-label="Hold to show previous period values"
-              title="Hold to show previous period values"
-            >
-              {showPreviousPeriod ? 'Showing previous period' : 'Show previous period'}
-            </button>
-            {/* Toast notification - inline in header */}
             {toast && <Toast message={toast.message} type={toast.type} visible={toast.visible} isDarkMode={isDarkMode} />}
-
           </div>
         </div>
         
@@ -1008,89 +935,136 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
               Time
             </div>
 
-          {/* Time metric rows */}
+          {/* Time metric tiles — 3:2 dashboard grid */}
           {isLoading ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0', padding: '0 12px 8px 12px' }}>
-              {[0,1,2,3,4].map(i => (
-                <div key={i} style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  padding: '8px 0',
-                  borderBottom: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.05)' : 'rgba(148, 163, 184, 0.08)'}`,
-                }}>
-                  <SkeletonBox width="90px" height="11px" isDarkMode={isDarkMode} animate={false} />
-                  <SkeletonBox width="60px" height="16px" isDarkMode={isDarkMode} />
-                </div>
-              ))}
+            <div style={{ padding: '0 12px 10px 12px' }}>
+              {/* Skeleton row 1: 3 across */}
+              <div className="metricsGridThree" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0' }}>
+                {[0,1,2].map(i => (
+                  <div key={i} style={{
+                    padding: '10px 10px',
+                    borderRight: i < 2 ? `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(148, 163, 184, 0.08)'}` : 'none',
+                  }}>
+                    <SkeletonBox width="70px" height="9px" isDarkMode={isDarkMode} animate={false} />
+                    <div style={{ marginTop: '6px' }}>
+                      <SkeletonBox width="55px" height="18px" isDarkMode={isDarkMode} />
+                    </div>
+                    <div style={{ marginTop: '8px' }}>
+                      <SkeletonBox width="100%" height="3px" isDarkMode={isDarkMode} animate={false} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ borderTop: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(148, 163, 184, 0.08)'}` }} />
+              {/* Skeleton row 2: 2 across */}
+              <div className="metricsGridTwo" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0' }}>
+                {[0,1].map(i => (
+                  <div key={i} style={{
+                    padding: '10px 10px',
+                    borderRight: i < 1 ? `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(148, 163, 184, 0.08)'}` : 'none',
+                  }}>
+                    <SkeletonBox width="90px" height="9px" isDarkMode={isDarkMode} animate={false} />
+                    <div style={{ marginTop: '6px' }}>
+                      <SkeletonBox width="65px" height="18px" isDarkMode={isDarkMode} />
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0', padding: '0 12px 8px 12px' }}>
-              {currentMetrics.map((metric, index) => {
-                const currentValue = getCurrentValue(metric);
-                const prevValue = getPrevValue(metric);
-                const progress = isTimeMetric(metric) ? calculateProgress(metric as TimeMetric, showPreviousPeriod) : 0;
-                const trend = getTrendDirection(currentValue, prevValue);
-                const trendColor = getTrendColor(trend);
-                const hasProgress = isTimeMetric(metric) && metric.showDial && metric.dialTarget;
-                const spec = getDisplaySpec(metric as TimeMetric, false);
+            <div style={{ padding: '4px 8px 8px 8px' }}>
+              {/* Row 1: first 3 metrics */}
+              <div className="metricsGridThree" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px' }}>
+                {currentMetrics.slice(0, 3).map((metric, index) => {
+                  const currentValue = getCurrentValue(metric);
+                  const prevValue = getPrevValue(metric);
+                  const progress = isTimeMetric(metric) ? calculateProgress(metric as TimeMetric, showPreviousPeriod) : 0;
+                  const trend = getTrendDirection(currentValue, prevValue);
+                  const trendColor = getTrendColor(trend);
+                  const hasProgress = isTimeMetric(metric) && metric.showDial && metric.dialTarget;
+                  const spec = getDisplaySpec(metric as TimeMetric, false);
 
-                return (
-                  <div
-                    className="tmv2-metric-card"
-                    key={metric.title}
-                    style={{
-                      padding: '7px 4px',
-                      borderBottom: index < currentMetrics.length - 1
-                        ? `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(148, 163, 184, 0.10)'}`
-                        : 'none',
-                      cursor: showDetailsFeature ? 'pointer' : 'default',
-                      transition: 'background 100ms ease',
-                      borderRadius: '0',
-                      ...staggerStyle(index),
-                      animation: dataLanded 
-                        ? `dataLanded 0.5s ease ${index * 0.06}s both`
-                        : refreshAnimationKey > 0 
-                          ? `metricRefresh 0.4s ease ${index * 0.05}s both` 
-                          : undefined,
-                    }}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => openTimeMetricDetails(metric)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        openTimeMetricDetails(metric);
-                      }
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = isDarkMode
-                        ? 'rgba(54, 144, 206, 0.06)'
-                        : 'rgba(214, 232, 255, 0.35)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = 'transparent';
-                    }}
-                  >
-                    {/* Row: label — value — money sub-value */}
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'baseline',
-                      justifyContent: 'space-between',
-                      gap: '12px',
-                    }}>
-                      <span style={{
-                        fontSize: '12px',
+                  return (
+                    <div
+                      className="tmv2-metric-card"
+                      key={metric.title}
+                      style={{
+                        padding: '10px 12px 12px 12px',
+                        background: isDarkMode
+                          ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.08) 0%, rgba(54, 144, 206, 0.00) 60%), rgba(6, 23, 51, 0.45)'
+                          : 'linear-gradient(135deg, rgba(54, 144, 206, 0.05) 0%, rgba(54, 144, 206, 0.00) 60%), rgba(255, 255, 255, 0.55)',
+                        border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(148, 163, 184, 0.16)'}`,
+                        boxShadow: isDarkMode
+                          ? 'inset 0 1px 0 rgba(54, 144, 206, 0.06), 0 1px 3px rgba(0, 3, 25, 0.20)'
+                          : 'inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 1px 3px rgba(0, 0, 0, 0.04)',
+                        cursor: showDetailsFeature ? 'pointer' : 'default',
+                        transition: 'background 180ms ease, border-color 180ms ease, transform 180ms ease, box-shadow 180ms ease',
+                        borderRadius: '0',
+                        ...staggerStyle(index),
+                        animation: dataLanded 
+                          ? `dataLanded 0.5s ease ${index * 0.06}s both`
+                          : refreshAnimationKey > 0 
+                            ? `metricRefresh 0.4s ease ${index * 0.05}s both` 
+                            : undefined,
+                      }}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => openTimeMetricDetails(metric)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openTimeMetricDetails(metric); }
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = isDarkMode
+                          ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.14) 0%, rgba(54, 144, 206, 0.02) 60%), rgba(6, 23, 51, 0.55)'
+                          : 'linear-gradient(135deg, rgba(54, 144, 206, 0.08) 0%, rgba(54, 144, 206, 0.00) 60%), rgba(255, 255, 255, 0.75)';
+                        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.22)';
+                        e.currentTarget.style.transform = 'translateY(-1px)';
+                        e.currentTarget.style.boxShadow = isDarkMode
+                          ? '0 6px 16px rgba(0, 3, 25, 0.35)'
+                          : '0 4px 12px rgba(6, 23, 51, 0.08)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = isDarkMode
+                          ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.08) 0%, rgba(54, 144, 206, 0.00) 60%), rgba(6, 23, 51, 0.45)'
+                          : 'linear-gradient(135deg, rgba(54, 144, 206, 0.05) 0%, rgba(54, 144, 206, 0.00) 60%), rgba(255, 255, 255, 0.55)';
+                        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(148, 163, 184, 0.16)';
+                        e.currentTarget.style.transform = 'translateY(0)';
+                        e.currentTarget.style.boxShadow = isDarkMode
+                          ? 'inset 0 1px 0 rgba(54, 144, 206, 0.06), 0 1px 3px rgba(0, 3, 25, 0.20)'
+                          : 'inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 1px 3px rgba(0, 0, 0, 0.04)';
+                      }}
+                    >
+                      {/* Label */}
+                      <div style={{
+                        fontSize: '10px',
                         fontWeight: 500,
-                        color: isDarkMode ? 'rgba(243, 244, 246, 0.85)' : 'rgba(15, 23, 42, 0.75)',
+                        color: isDarkMode ? 'rgba(243, 244, 246, 0.55)' : 'rgba(15, 23, 42, 0.50)',
+                        marginBottom: '4px',
                         whiteSpace: 'nowrap' as const,
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
-                        flex: '1 1 auto',
                       }}>
                         {getDisplayTitle(metric.title)}
-                      </span>
+                      </div>
 
-                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', flexShrink: 0 }}>
-                        {/* Money sub-value (for isTimeMoney metrics) */}
+                      {/* Value row */}
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px', flexWrap: 'wrap' }}>
+                        <AnimatedValueWithEnabled
+                          value={spec.value}
+                          formatter={spec.formatter}
+                          enabled={enableAnimationThisMount}
+                          replayKey={replayKey}
+                          className="tmv2-metric-value"
+                          style={{
+                            fontSize: '18px',
+                            fontWeight: 700,
+                            color: isDarkMode ? '#F9FAFB' : '#0f172a',
+                            letterSpacing: '-0.03em',
+                            fontVariantNumeric: 'tabular-nums',
+                            lineHeight: 1.1,
+                          }}
+                        />
+                        {/* Money sub-value */}
                         {isTimeMetric(metric) && metric.isTimeMoney && ((metric.money ?? 0) > 0) && (
                           <AnimatedValueWithEnabled
                             value={metric.money || 0}
@@ -1105,8 +1079,131 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
                             }}
                           />
                         )}
+                        {/* Previous period delta */}
+                        {(prevValue > 0 || metric.title === 'Time Today') && (
+                          <span style={{
+                            display: 'inline-flex', alignItems: 'center', gap: '2px',
+                            fontSize: '10px', fontWeight: 500,
+                            color: trend !== 'neutral' ? trendColor : (isDarkMode ? colours.subtleGrey : colours.greyText),
+                            opacity: 0.8,
+                            overflow: 'hidden',
+                            whiteSpace: 'nowrap' as const, fontVariantNumeric: 'tabular-nums',
+                          }}>
+                            {prevValue > 0 && trend !== 'neutral' && (
+                              <FiTrendingUp size={9} style={{ transform: trend === 'down' ? 'rotate(180deg)' : 'none', flexShrink: 0 }} />
+                            )}
+                            <span>
+                              {isTimeMetric(metric) && metric.isMoneyOnly ? formatCurrency(prevValue)
+                                : isTimeMetric(metric) && metric.isTimeMoney ? formatHours(prevValue)
+                                : prevValue.toFixed(0)}
+                            </span>
+                          </span>
+                        )}
+                      </div>
 
-                        {/* Main value */}
+                      {/* Progress bar */}
+                      {hasProgress && (
+                        <div style={{ marginTop: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <div style={{
+                            flex: 1, height: '3px',
+                            background: isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(148, 163, 184, 0.15)',
+                            borderRadius: '2px', overflow: 'hidden',
+                          }}>
+                            <div style={{
+                              width: `${Math.min(progress, 100)}%`, height: '100%',
+                              background: progress >= 100 ? colours.green : colours.highlight,
+                              borderRadius: '2px',
+                              transition: enableAnimationThisMount ? 'width 0.6s cubic-bezier(0.4, 0, 0.2, 1)' : 'none',
+                            }} />
+                          </div>
+                          <span style={{
+                            fontSize: '9px', fontWeight: 500,
+                            color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                            fontVariantNumeric: 'tabular-nums', minWidth: '24px', textAlign: 'right' as const,
+                          }}>
+                            {progress.toFixed(0)}%
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Row 2: last 2 metrics */}
+              <div className="metricsGridTwo" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '4px', marginTop: '4px' }}>
+                {currentMetrics.slice(3).map((metric, index) => {
+                  const currentValue = getCurrentValue(metric);
+                  const prevValue = getPrevValue(metric);
+                  const trend = getTrendDirection(currentValue, prevValue);
+                  const trendColor = getTrendColor(trend);
+                  const spec = getDisplaySpec(metric as TimeMetric, false);
+
+                  return (
+                    <div
+                      className="tmv2-metric-card"
+                      key={metric.title}
+                      style={{
+                        padding: '10px 12px 12px 12px',
+                        background: isDarkMode
+                          ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.08) 0%, rgba(54, 144, 206, 0.00) 60%), rgba(6, 23, 51, 0.45)'
+                          : 'linear-gradient(135deg, rgba(54, 144, 206, 0.05) 0%, rgba(54, 144, 206, 0.00) 60%), rgba(255, 255, 255, 0.55)',
+                        border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(148, 163, 184, 0.16)'}`,
+                        boxShadow: isDarkMode
+                          ? 'inset 0 1px 0 rgba(54, 144, 206, 0.06), 0 1px 3px rgba(0, 3, 25, 0.20)'
+                          : 'inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 1px 3px rgba(0, 0, 0, 0.04)',
+                        cursor: showDetailsFeature ? 'pointer' : 'default',
+                        transition: 'background 180ms ease, border-color 180ms ease, transform 180ms ease, box-shadow 180ms ease',
+                        borderRadius: '0',
+                        ...staggerStyle(index + 3),
+                        animation: dataLanded 
+                          ? `dataLanded 0.5s ease ${(index + 3) * 0.06}s both`
+                          : refreshAnimationKey > 0 
+                            ? `metricRefresh 0.4s ease ${(index + 3) * 0.05}s both` 
+                            : undefined,
+                      }}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => openTimeMetricDetails(metric)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openTimeMetricDetails(metric); }
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = isDarkMode
+                          ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.14) 0%, rgba(54, 144, 206, 0.02) 60%), rgba(6, 23, 51, 0.55)'
+                          : 'linear-gradient(135deg, rgba(54, 144, 206, 0.08) 0%, rgba(54, 144, 206, 0.00) 60%), rgba(255, 255, 255, 0.75)';
+                        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.22)';
+                        e.currentTarget.style.transform = 'translateY(-1px)';
+                        e.currentTarget.style.boxShadow = isDarkMode
+                          ? '0 6px 16px rgba(0, 3, 25, 0.35)'
+                          : '0 4px 12px rgba(6, 23, 51, 0.08)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = isDarkMode
+                          ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.08) 0%, rgba(54, 144, 206, 0.00) 60%), rgba(6, 23, 51, 0.45)'
+                          : 'linear-gradient(135deg, rgba(54, 144, 206, 0.05) 0%, rgba(54, 144, 206, 0.00) 60%), rgba(255, 255, 255, 0.55)';
+                        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(148, 163, 184, 0.16)';
+                        e.currentTarget.style.transform = 'translateY(0)';
+                        e.currentTarget.style.boxShadow = isDarkMode
+                          ? 'inset 0 1px 0 rgba(54, 144, 206, 0.06), 0 1px 3px rgba(0, 3, 25, 0.20)'
+                          : 'inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 1px 3px rgba(0, 0, 0, 0.04)';
+                      }}
+                    >
+                      {/* Label */}
+                      <div style={{
+                        fontSize: '10px',
+                        fontWeight: 500,
+                        color: isDarkMode ? 'rgba(243, 244, 246, 0.55)' : 'rgba(15, 23, 42, 0.50)',
+                        marginBottom: '4px',
+                        whiteSpace: 'nowrap' as const,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}>
+                        {getDisplayTitle(metric.title)}
+                      </div>
+
+                      {/* Value row */}
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
                         <AnimatedValueWithEnabled
                           value={spec.value}
                           formatter={spec.formatter}
@@ -1114,88 +1211,39 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
                           replayKey={replayKey}
                           className="tmv2-metric-value"
                           style={{
-                            fontSize: '15px',
+                            fontSize: '18px',
                             fontWeight: 700,
                             color: isDarkMode ? '#F9FAFB' : '#0f172a',
                             letterSpacing: '-0.03em',
                             fontVariantNumeric: 'tabular-nums',
+                            lineHeight: 1.1,
                           }}
                         />
-
-                        {/* Previous period delta (inline, revealed on hold) */}
-                        {(prevValue > 0 || metric.title === 'Time Today') && (
+                        {/* Previous period delta */}
+                        {prevValue > 0 && (
                           <span style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '3px',
-                            fontSize: '11px',
-                            fontWeight: 500,
+                            display: 'inline-flex', alignItems: 'center', gap: '2px',
+                            fontSize: '10px', fontWeight: 500,
                             color: trend !== 'neutral' ? trendColor : (isDarkMode ? colours.subtleGrey : colours.greyText),
-                            opacity: showPreviousPeriod ? 0.8 : 0,
-                            maxWidth: showPreviousPeriod ? '120px' : '0px',
+                            opacity: 0.8,
                             overflow: 'hidden',
-                            transition: 'opacity 160ms ease, max-width 200ms ease',
-                            whiteSpace: 'nowrap' as const,
-                            fontVariantNumeric: 'tabular-nums',
+                            whiteSpace: 'nowrap' as const, fontVariantNumeric: 'tabular-nums',
                           }}>
-                            {prevValue > 0 && trend !== 'neutral' && (
-                              <FiTrendingUp 
-                                size={10} 
-                                style={{ 
-                                  transform: trend === 'down' ? 'rotate(180deg)' : 'none',
-                                  flexShrink: 0,
-                                }} 
-                              />
+                            {trend !== 'neutral' && (
+                              <FiTrendingUp size={9} style={{ transform: trend === 'down' ? 'rotate(180deg)' : 'none', flexShrink: 0 }} />
                             )}
                             <span>
-                              {isTimeMetric(metric) && metric.isMoneyOnly 
-                                ? formatCurrency(prevValue)
-                                : isTimeMetric(metric) && metric.isTimeMoney
-                                ? formatHours(prevValue)
+                              {isTimeMetric(metric) && metric.isMoneyOnly ? formatCurrency(prevValue)
+                                : isTimeMetric(metric) && metric.isTimeMoney ? formatHours(prevValue)
                                 : prevValue.toFixed(0)}
                             </span>
                           </span>
                         )}
                       </div>
                     </div>
-
-                    {/* Inline progress bar (for dial metrics) */}
-                    {hasProgress && (
-                      <div style={{ marginTop: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <div style={{
-                          flex: 1,
-                          height: '3px',
-                          background: isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(148, 163, 184, 0.15)',
-                          borderRadius: '2px',
-                          overflow: 'hidden',
-                        }}>
-                          <div style={{
-                            width: `${Math.min(progress, 100)}%`,
-                            height: '100%',
-                            background: progress >= 100
-                              ? colours.green
-                              : isDarkMode
-                              ? colours.highlight
-                              : colours.highlight,
-                            borderRadius: '2px',
-                            transition: enableAnimationThisMount ? 'width 0.6s cubic-bezier(0.4, 0, 0.2, 1)' : 'none',
-                          }} />
-                        </div>
-                        <span style={{
-                          fontSize: '10px',
-                          fontWeight: 500,
-                          color: isDarkMode ? colours.subtleGrey : colours.greyText,
-                          fontVariantNumeric: 'tabular-nums',
-                          minWidth: '28px',
-                          textAlign: 'right' as const,
-                        }}>
-                          {progress.toFixed(0)}%
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
           )}
           </div>{/* Close Time section panel */}
@@ -1229,7 +1277,6 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
                   refreshAnimationKey={refreshAnimationKey}
                   isLoading={isLoadingEnquiryMetrics ?? isLoading}
                   breakdown={enquiryMetricsBreakdown}
-                  showPreviousPeriod={showPreviousPeriod}
                   embedded
                 />
               </div>

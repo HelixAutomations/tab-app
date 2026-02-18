@@ -11,6 +11,7 @@ import { isAdminUser, isPowerUser } from '../app/admin';
 import { useTheme } from '../app/functionality/ThemeContext';
 import { colours } from '../app/styles/colours';
 import RefreshDataModal from './RefreshDataModal';
+import LegacyMigrationTool from './LegacyMigrationTool';
 import lightAvatarMark from '../assets/dark blue mark.svg';
 import darkAvatarMark from '../assets/markwhite.svg';
 
@@ -58,6 +59,9 @@ const UserBubble: React.FC<UserBubbleProps> = ({
     const [showDemoPrompts, setShowDemoPrompts] = useState(false);
     const [showLoadingDebug, setShowLoadingDebug] = useState(false);
     const [showErrorTracker, setShowErrorTracker] = useState(false);
+    const [showMigrationTool, setShowMigrationTool] = useState(false);
+    const [adminCollapsed, setAdminCollapsed] = useState(true);
+    const [localCollapsed, setLocalCollapsed] = useState(true);
     const [toast, setToast] = useState<{ message: string; tone: BubbleToastTone } | null>(null);
     const [sessionElapsed, setSessionElapsed] = useState('');
     const bubbleRef = useRef<HTMLButtonElement | null>(null);
@@ -776,31 +780,58 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                 </div>
                             </div>
 
-                            {/* Admin controls (grouped) */}
-                            {hasAdminControls && (
-                                <div style={{
-                                    marginBottom: 20,
-                                    padding: '12px 14px',
-                                    background: isDarkMode ? colours.darkBlue : colours.grey,
-                                    border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
-                                    borderRadius: 4
-                                }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
-                                        {adminBadge}
-                                        <span style={{ fontSize: '11px', color: textMuted }}>
-                                            Admin-only controls{isLocalDev && !isAdmin ? ' (local dev override enabled)' : ''}
-                                        </span>
-                                        {!isAdminEligible && (
-                                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={textMuted} strokeWidth="2.5" style={{ marginLeft: 'auto' }}>
-                                                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-                                                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-                                            </svg>
-                                        )}
-                                    </div>
-
+                            {/* Admin controls (grouped) — always visible, collapsible */}
+                            <div style={{
+                                marginBottom: 20,
+                                padding: '0',
+                                background: isDarkMode ? colours.darkBlue : colours.grey,
+                                border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
+                                borderRadius: 4,
+                                overflow: 'hidden',
+                            }}>
+                                <div
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '10px',
+                                        padding: '10px 14px',
+                                        cursor: 'pointer',
+                                        transition: 'background 0.15s ease',
+                                        background: 'transparent',
+                                    }}
+                                    onMouseEnter={e => { e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.03)'; }}
+                                    onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                                    onClick={() => setAdminCollapsed(prev => !prev)}
+                                >
+                                    {adminBadge}
+                                    <span style={{ fontSize: '11px', color: textMuted, flex: 1 }}>
+                                        Admin-only controls{isLocalDev && !isAdmin ? ' (local dev override)' : ''}
+                                    </span>
                                     {!isAdminEligible && (
-                                        <div style={{ fontSize: 11, color: textMuted, marginBottom: 10 }}>
-                                            Not available for your account.
+                                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={textMuted} strokeWidth="2.5" style={{ flexShrink: 0 }}>
+                                            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                                            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                                        </svg>
+                                    )}
+                                    <svg
+                                        width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={textMuted} strokeWidth="2.5"
+                                        style={{ flexShrink: 0, transition: 'transform 0.2s ease', transform: adminCollapsed ? 'rotate(0deg)' : 'rotate(180deg)' }}
+                                    >
+                                        <path d="M6 9l6 6 6-6"/>
+                                    </svg>
+                                </div>
+
+                                {/* Collapsible body */}
+                                <div style={{
+                                    maxHeight: adminCollapsed ? 0 : 600,
+                                    opacity: adminCollapsed ? 0 : 1,
+                                    overflow: 'hidden',
+                                    transition: 'max-height 0.25s ease, opacity 0.2s ease, padding 0.25s ease',
+                                    padding: adminCollapsed ? '0 14px' : '0 14px 12px 14px',
+                                }}>
+                                    {!isAdminEligible && !adminCollapsed && (
+                                        <div style={{ fontSize: 10, color: textMuted, marginBottom: 8, fontStyle: 'italic' }}>
+                                            Restricted — admin or local access required.
                                         </div>
                                     )}
 
@@ -808,8 +839,9 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                         display: 'flex',
                                         flexDirection: 'column',
                                         gap: 8,
-                                        opacity: isAdminEligible ? 1 : 0.55,
-                                        pointerEvents: isAdminEligible ? 'auto' : 'none'
+                                        opacity: isAdminEligible ? 1 : 0.35,
+                                        pointerEvents: isAdminEligible ? 'auto' : 'none',
+                                        filter: isAdminEligible ? 'none' : 'grayscale(0.6)',
                                     }}>
                                         {/* Switch user */}
                                         {onUserChange && availableUsers && (
@@ -909,23 +941,69 @@ const UserBubble: React.FC<UserBubbleProps> = ({
 
                                     </div>
                                 </div>
-                            )}
+                            </div>
 
-                            {/* Local-only controls (grouped) */}
-                            {isLocalDev && (
+                            {/* Local-only controls (grouped) — always visible, collapsible */}
+                            <div style={{
+                                marginBottom: 20,
+                                padding: '0',
+                                background: isDarkMode ? colours.darkBlue : colours.grey,
+                                border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
+                                borderRadius: 4,
+                                overflow: 'hidden',
+                            }}>
+                                <div
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '10px',
+                                        padding: '10px 14px',
+                                        cursor: 'pointer',
+                                        transition: 'background 0.15s ease',
+                                        background: 'transparent',
+                                    }}
+                                    onMouseEnter={e => { e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.03)'; }}
+                                    onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                                    onClick={() => setLocalCollapsed(prev => !prev)}
+                                >
+                                    {localBadge}
+                                    <span style={{ fontSize: '11px', color: textMuted, flex: 1 }}>Localhost-only</span>
+                                    {!isLocalDev && (
+                                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={textMuted} strokeWidth="2.5" style={{ flexShrink: 0 }}>
+                                            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                                            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                                        </svg>
+                                    )}
+                                    <svg
+                                        width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={textMuted} strokeWidth="2.5"
+                                        style={{ flexShrink: 0, transition: 'transform 0.2s ease', transform: localCollapsed ? 'rotate(0deg)' : 'rotate(180deg)' }}
+                                    >
+                                        <path d="M6 9l6 6 6-6"/>
+                                    </svg>
+                                </div>
+
+                                {/* Collapsible body */}
                                 <div style={{
-                                    marginBottom: 20,
-                                    padding: '12px 14px',
-                                    background: isDarkMode ? colours.darkBlue : colours.grey,
-                                    border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
-                                    borderRadius: 4
+                                    maxHeight: localCollapsed ? 0 : 1200,
+                                    opacity: localCollapsed ? 0 : 1,
+                                    overflow: 'hidden',
+                                    transition: 'max-height 0.3s ease, opacity 0.2s ease, padding 0.3s ease',
+                                    padding: localCollapsed ? '0 14px' : '0 14px 12px 14px',
                                 }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
-                                        {localBadge}
-                                        <span style={{ fontSize: '11px', color: textMuted }}>Localhost-only</span>
-                                    </div>
+                                    {!isLocalDev && !localCollapsed && (
+                                        <div style={{ fontSize: 10, color: textMuted, marginBottom: 8, fontStyle: 'italic' }}>
+                                            Restricted — local development cluster only.
+                                        </div>
+                                    )}
 
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                    <div style={{
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        gap: 8,
+                                        opacity: isLocalDev ? 1 : 0.35,
+                                        pointerEvents: isLocalDev ? 'auto' : 'none',
+                                        filter: isLocalDev ? 'none' : 'grayscale(0.6)',
+                                    }}>
                                         {/* Dev Dashboard */}
                                         <button
                                             onClick={() => { setShowDevDashboard(true); closePopover(false); }}
@@ -1126,9 +1204,37 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                                 <path d="M9 18l6-6-6-6"/>
                                             </svg>
                                         </div>
+
+                                        {/* Pipeline Migration */}
+                                        <div
+                                            style={toggleRow}
+                                            onMouseEnter={(e) => {
+                                                applyRowHover(e.currentTarget);
+                                            }}
+                                            onMouseLeave={(e) => {
+                                                resetRowHover(e.currentTarget);
+                                            }}
+                                            onClick={() => {
+                                                showToast('Opening migration tool', 'info');
+                                                setShowMigrationTool(true);
+                                                closePopover(false);
+                                            }}
+                                        >
+                                            <div>
+                                                <div style={{ fontSize: 12, fontWeight: 500, color: textPrimary, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                    Pipeline Migration
+                                                    <span style={{ fontSize: 8, fontWeight: 700, color: colours.blue, padding: '1px 5px', background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.06)', border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.20)' : 'rgba(54, 144, 206, 0.12)'}`, borderRadius: '2px', textTransform: 'uppercase', letterSpacing: '0.3px' }}>v1</span>
+                                                </div>
+                                                <div style={{ fontSize: 10, color: textMuted, marginTop: 2 }}>Migrate legacy Clio matters into the pipeline</div>
+                                            </div>
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={textMuted} strokeWidth="2">
+                                                <path d="M9 18l6-6-6-6"/>
+                                            </svg>
+                                        </div>
                                     </div>
                                 </div>
-                            )}
+                            </div>
+                            
                             
                             
 
@@ -1464,6 +1570,7 @@ const UserBubble: React.FC<UserBubbleProps> = ({
             {isLocalDev && showDemoPrompts && <DemoPromptsModal isOpen={showDemoPrompts} onClose={() => setShowDemoPrompts(false)} />}
             {isLocalDev && showLoadingDebug && <LoadingDebugModal isOpen={showLoadingDebug} onClose={() => setShowLoadingDebug(false)} />}
             {isLocalDev && showErrorTracker && <ErrorTracker onClose={() => setShowErrorTracker(false)} />}
+            {isLocalDev && showMigrationTool && <LegacyMigrationTool isOpen={showMigrationTool} onClose={() => setShowMigrationTool(false)} />}
         </div>
     );
 };

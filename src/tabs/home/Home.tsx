@@ -107,6 +107,7 @@ import OutstandingBalancesList from '../transactions/OutstandingBalancesList';
 import Attendance from './AttendanceCompact';
 import EnhancedAttendance from './EnhancedAttendanceNew';
 import PersonalAttendanceConfirm from './PersonalAttendanceConfirm';
+import AwayInsight from './AwayInsight';
 import RateChangeModal from './RateChangeModal';
 import { useRateChangeData } from './useRateChangeData';
 
@@ -4643,35 +4644,17 @@ const conversionRate = displayEnquiriesMonthToDate
         viewAsProd={featureToggles.viewAsProd}
       />
 
-      {/* Attendance placed outside dashboard container, directly below TimeMetricsV2 */}
+      {/* Away / Annual Leave insight — single horizontal strip */}
       {!isBespokePanelOpen && featureToggles.showAttendance && (
-        <div style={{ margin: '12px 16px 0 16px' }}>
-          <SectionCard 
-            title="Attendance" 
-            id="attendance-section"
-            variant="default"
-            animationDelay={0.1}
-            styleOverrides={{ paddingBottom: 0 }}
-          >
-            <EnhancedAttendance
-              ref={attendanceRef}
-              isDarkMode={isDarkMode}
-              isLoadingAttendance={isLoadingAttendance}
-              isLoadingAnnualLeave={isLoadingAnnualLeave}
-              attendanceError={attendanceError}
-              annualLeaveError={annualLeaveError}
-              attendanceRecords={transformedAttendanceRecords}
-              teamData={attendanceTeam}
-              annualLeaveRecords={annualLeaveRecords}
-              futureLeaveRecords={futureLeaveRecords}
-              userData={userData}
-              onAttendanceUpdated={handleAttendanceUpdated}
-              currentUserConfirmed={currentUserConfirmed}
-              onConfirmAttendance={() => handleActionClick({ title: 'Confirm Attendance', icon: 'Attendance' })}
-              realtimeHighlightInitials={attendanceRealtimeHighlightInitials}
-              realtimePulseNonce={attendanceRealtimePulseNonce}
-            />
-          </SectionCard>
+        <div style={{ margin: '8px 16px 0 16px' }}>
+          <AwayInsight
+            isDarkMode={isDarkMode}
+            annualLeaveRecords={annualLeaveRecords}
+            futureLeaveRecords={futureLeaveRecords}
+            teamData={attendanceTeam}
+            isLoading={isLoadingAnnualLeave}
+            onManageLeave={() => handleActionClick({ title: 'Request Annual Leave', icon: 'PalmTree' })}
+          />
         </div>
       )}
 

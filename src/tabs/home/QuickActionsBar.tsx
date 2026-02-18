@@ -1,7 +1,6 @@
 import React from 'react';
 import { Icon } from '@fluentui/react';
 import { colours } from '../../app/styles/colours';
-import ToggleSwitch from '../../components/ToggleSwitch';
 import {
   FaChevronRight,
   FaRegCheckSquare,
@@ -103,54 +102,47 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
   const [expanded, setExpanded] = React.useState(false);
   const [hoveredAction, setHoveredAction] = React.useState<string | null>(null);
   const [showGreeting, setShowGreeting] = React.useState(false);
+  const [greetingDone, setGreetingDone] = React.useState(false);
+  const [iconsMounted, setIconsMounted] = React.useState(false);
 
   // Release notes unread dot — once per session
   const [releaseNotesUnread, setReleaseNotesUnread] = React.useState(() => {
     try { return !sessionStorage.getItem('releaseNotesRead'); } catch { return true; }
   });
-  const hasTriggeredGreetingRef = React.useRef<string | null>(null);
 
-  // Greeting logic
-  const greetingStorageKey = React.useMemo(() => {
-    if (!userDisplayName && !userIdentifier) return null;
-    const identifier = (userIdentifier || userDisplayName || '').toLowerCase().trim();
-    if (!identifier) return null;
-    return `quickActionsGreeting:${identifier}`;
-  }, [userDisplayName, userIdentifier]);
-
+  // Greeting logic — always replays on mount, on-brand
   const greetingLabel = React.useMemo(() => {
     if (!userDisplayName) return null;
     const trimmed = userDisplayName.trim();
     if (!trimmed) return null;
     const firstToken = trimmed.split(' ')[0];
-    return `Hi ${firstToken.charAt(0).toUpperCase() + firstToken.slice(1)}!`;
+    const name = firstToken.charAt(0).toUpperCase() + firstToken.slice(1);
+    const hour = new Date().getHours();
+    const timeGreeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+    return `${timeGreeting}, ${name}`;
   }, [userDisplayName]);
 
   React.useEffect(() => {
-    if (!greetingStorageKey || !greetingLabel) return;
-    if (hasTriggeredGreetingRef.current === greetingStorageKey) return;
-
-    let alreadySeen = false;
-    try {
-      alreadySeen = window.sessionStorage.getItem(greetingStorageKey) === 'seen';
-    } catch {
-      alreadySeen = false;
+    if (!greetingLabel) {
+      setGreetingDone(true);
+      return;
     }
+    // Small delay so the bar renders first, then greeting slides in
+    const showTimer = window.setTimeout(() => setShowGreeting(true), 300);
+    const hideTimer = window.setTimeout(() => {
+      setShowGreeting(false);
+      // Mark greeting as done after fade-out transition completes
+      window.setTimeout(() => setGreetingDone(true), 350);
+    }, 4000);
+    return () => { window.clearTimeout(showTimer); window.clearTimeout(hideTimer); };
+  }, [greetingLabel]);
 
-    if (!alreadySeen) {
-      hasTriggeredGreetingRef.current = greetingStorageKey;
-      setShowGreeting(true);
-      try {
-        window.sessionStorage.setItem(greetingStorageKey, 'seen');
-      } catch {}
-    }
-  }, [greetingLabel, greetingStorageKey]);
-
+  // Trigger icon drop-in animation only after greeting has cleared
   React.useEffect(() => {
-    if (!showGreeting) return;
-    const timeout = window.setTimeout(() => setShowGreeting(false), 4200);
-    return () => window.clearTimeout(timeout);
-  }, [showGreeting]);
+    if (!greetingDone) return;
+    const timer = window.setTimeout(() => setIconsMounted(true), 80);
+    return () => window.clearTimeout(timer);
+  }, [greetingDone]);
 
   React.useEffect(() => {
     if (expanded) setShowGreeting(false);
@@ -243,33 +235,6 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
       role="region"
       aria-label="Quick actions"
     >
-      {/* Greeting */}
-      {greetingLabel && (
-        <div
-          className="qa-greeting"
-          aria-live="polite"
-          role="status"
-          style={{
-            position: 'absolute',
-            right: onToggleTheme ? 140 : 16,
-            top: '50%',
-            transform: greetingVisible
-              ? 'translateY(-50%) translateX(0)'
-              : 'translateY(-50%) translateX(30px)',
-            opacity: greetingVisible ? 1 : 0,
-            transition: 'opacity 0.3s ease, transform 0.3s ease',
-            color: textPrimary,
-            fontSize: 13,
-            fontWeight: 600,
-            whiteSpace: 'nowrap',
-            pointerEvents: 'none',
-          }}
-        >
-          {greetingLabel}
-        </div>
-      )}
-
-      {/* Toggle button + label */}
       <button
         type="button"
         onClick={() => setExpanded(prev => !prev)}
@@ -383,119 +348,173 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
         })}
       </div>
 
-      {/* Release Notes chip + Theme toggle on right */}
-      {!greetingVisible && (onOpenReleaseNotes || onToggleTheme) && (
-        <div
-          style={{
-            marginLeft: 'auto',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            paddingLeft: 10,
-            borderLeft: `1px solid ${isDarkMode ? `${colours.dark.border}66` : 'rgba(0, 0, 0, 0.06)'}`,
-          }}
-        >
-          {onOpenReleaseNotes && (
-            <button
-              onClick={() => {
-                setReleaseNotesUnread(false);
-                try { sessionStorage.setItem('releaseNotesRead', '1'); } catch {}
-                onOpenReleaseNotes();
-              }}
-              style={{
-                position: 'relative',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 4,
-                height: 18,
-                padding: '0 8px',
-                borderRadius: 18,
-                border: 'none',
-                background: isDarkMode ? 'rgba(148, 163, 184, 0.10)' : 'rgba(100, 116, 139, 0.10)',
-                color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)',
-                fontSize: 10,
-                fontWeight: 600,
-                cursor: 'pointer',
-                transition: 'all 0.15s',
-                letterSpacing: '0.1px',
-                whiteSpace: 'nowrap',
-                lineHeight: 1,
-                opacity: 0.7,
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.opacity = '1';
-                e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(100, 116, 139, 0.15)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.opacity = '0.7';
-                e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.10)' : 'rgba(100, 116, 139, 0.10)';
-              }}
-            >
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                <polyline points="14 2 14 8 20 8" />
-              </svg>
-              Notes
-              {releaseNotesUnread && (
-                <span style={{
-                  position: 'absolute',
-                  top: -2,
-                  right: -2,
-                  width: 6,
-                  height: 6,
-                  borderRadius: 999,
-                  background: '#3690CE',
-                  boxShadow: '0 0 0 1.5px ' + (isDarkMode ? '#0f172a' : '#ffffff'),
-                }} />
-              )}
-            </button>
-          )}
-          {onToggleTheme && (
-            <>
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke={isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)'}
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            style={{ flexShrink: 0 }}
+      {/* Right zone — greeting swaps to icons */}
+      <div
+        style={{
+          marginLeft: 'auto',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 0,
+          flexShrink: 0,
+          minHeight: 28,
+        }}
+      >
+        {/* Greeting — shown first, fades out */}
+        {greetingLabel && !greetingDone && (
+          <div
+            className="qa-greeting"
+            aria-live="polite"
+            role="status"
+            style={{
+              opacity: greetingVisible ? 1 : 0,
+              transform: greetingVisible ? 'translateX(0)' : 'translateX(12px)',
+              transition: 'opacity 0.35s ease, transform 0.35s ease',
+              fontFamily: 'Raleway, sans-serif',
+              fontSize: 12,
+              fontWeight: 500,
+              letterSpacing: '0.01em',
+              color: isDarkMode ? colours.accent : colours.highlight,
+              whiteSpace: 'nowrap',
+              pointerEvents: 'none',
+              paddingRight: 4,
+            }}
           >
-            {isDarkMode ? (
-              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-            ) : (
-              <>
-                <circle cx="12" cy="12" r="5" />
-                <line x1="12" y1="1" x2="12" y2="3" />
-                <line x1="12" y1="21" x2="12" y2="23" />
-                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
-                <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
-                <line x1="1" y1="12" x2="3" y2="12" />
-                <line x1="21" y1="12" x2="23" y2="12" />
-                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
-                <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
-              </>
+            {greetingLabel}
+          </div>
+        )}
+
+        {/* Pipe + Icons — appear after greeting is done */}
+        {greetingDone && (onOpenReleaseNotes || onToggleTheme) && (
+          <>
+            {/* Vertical pipe separator */}
+            <div
+              style={{
+                width: 1,
+                height: 18,
+                background: isDarkMode ? `${colours.dark.border}66` : 'rgba(0, 0, 0, 0.08)',
+                marginRight: 8,
+                animation: iconsMounted ? 'qaIconDropIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both' : 'none',
+                opacity: iconsMounted ? 1 : 0,
+              }}
+            />
+            {onOpenReleaseNotes && (
+              <button
+                onClick={() => {
+                  setReleaseNotesUnread(false);
+                  try { sessionStorage.setItem('releaseNotesRead', '1'); } catch {}
+                  onOpenReleaseNotes();
+                }}
+                className="qa-icon-btn"
+                style={{
+                  position: 'relative',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: 28,
+                  height: 28,
+                  padding: 0,
+                  border: 'none',
+                  borderRadius: 2,
+                  background: 'transparent',
+                  color: isDarkMode ? 'rgba(148, 163, 184, 0.55)' : 'rgba(100, 116, 139, 0.55)',
+                  cursor: 'pointer',
+                  transition: 'background 150ms ease, color 150ms ease',
+                  animation: iconsMounted ? 'qaIconDropIn 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) 0.05s both' : 'none',
+                }}
+                aria-label="Release notes"
+                title="Release notes"
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(54, 144, 206, 0.08)';
+                  e.currentTarget.style.color = isDarkMode ? 'rgba(148, 163, 184, 0.85)' : 'rgba(100, 116, 139, 0.85)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'transparent';
+                  e.currentTarget.style.color = isDarkMode ? 'rgba(148, 163, 184, 0.55)' : 'rgba(100, 116, 139, 0.55)';
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                  <line x1="16" y1="13" x2="8" y2="13" />
+                  <line x1="16" y1="17" x2="8" y2="17" />
+                </svg>
+                {releaseNotesUnread && (
+                  <span style={{
+                    position: 'absolute',
+                    top: 4,
+                    right: 4,
+                    width: 5,
+                    height: 5,
+                    borderRadius: 999,
+                    background: colours.highlight,
+                    boxShadow: `0 0 0 1.5px ${isDarkMode ? colours.darkBlue : colours.grey}`,
+                  }} />
+                )}
+              </button>
             )}
-          </svg>
-          <ToggleSwitch
-            checked={isDarkMode}
-            onChange={onToggleTheme}
-            ariaLabel="Toggle dark mode"
-            size="sm"
-            style={{ opacity: 0.7 }}
-          />
-            </>
-          )}
-        </div>
-      )}
+            {onToggleTheme && (
+              <button
+                onClick={onToggleTheme}
+                className="qa-icon-btn"
+                style={{
+                  position: 'relative',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: 28,
+                  height: 28,
+                  padding: 0,
+                  border: 'none',
+                  borderRadius: 2,
+                  background: 'transparent',
+                  color: isDarkMode ? 'rgba(148, 163, 184, 0.55)' : 'rgba(100, 116, 139, 0.55)',
+                  cursor: 'pointer',
+                  transition: 'background 150ms ease, color 150ms ease',
+                  animation: iconsMounted ? 'qaIconDropIn 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) 0.12s both' : 'none',
+                }}
+                aria-label={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+                title={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(54, 144, 206, 0.08)';
+                  e.currentTarget.style.color = isDarkMode ? 'rgba(148, 163, 184, 0.85)' : 'rgba(100, 116, 139, 0.85)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'transparent';
+                  e.currentTarget.style.color = isDarkMode ? 'rgba(148, 163, 184, 0.55)' : 'rgba(100, 116, 139, 0.55)';
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transition: 'transform 300ms ease' }}>
+                  {isDarkMode ? (
+                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                  ) : (
+                    <>
+                      <circle cx="12" cy="12" r="5" />
+                      <line x1="12" y1="1" x2="12" y2="3" />
+                      <line x1="12" y1="21" x2="12" y2="23" />
+                      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+                      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+                      <line x1="1" y1="12" x2="3" y2="12" />
+                      <line x1="21" y1="12" x2="23" y2="12" />
+                      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+                      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+                    </>
+                  )}
+                </svg>
+              </button>
+            )}
+          </>
+        )}
+      </div>
 
       {/* Animation keyframes */}
       <style>{`
         @keyframes fadeInChip {
           from { opacity: 0; transform: translateX(-6px); }
           to { opacity: 1; transform: translateX(0); }
+        }
+        @keyframes qaIconDropIn {
+          from { opacity: 0; transform: translateY(-8px) scale(0.85); }
+          to { opacity: 1; transform: translateY(0) scale(1); }
         }
         @media (max-width: 600px) {
           .qa-greeting { display: none !important; }

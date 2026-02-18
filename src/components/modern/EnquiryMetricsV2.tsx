@@ -115,7 +115,7 @@ const SkeletonMetricCard: React.FC<{ isDarkMode: boolean; index: number; showPro
     {/* Progress bar if needed */}
     {showProgress && (
       <div style={{ marginTop: '6px' }}>
-        <SkeletonBox width="100%" height="5px" isDarkMode={isDarkMode} style={{ borderRadius: '4px' }} />
+        <SkeletonBox width="100%" height="3px" isDarkMode={isDarkMode} style={{ borderRadius: '2px' }} />
       </div>
     )}
   </div>
@@ -157,7 +157,7 @@ const Toast: React.FC<{ message: string; type: 'info' | 'success' | 'error'; vis
   );
 };
 
-const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode, userEmail, userInitials, headerActions, title, refreshAnimationKey, isLoading, breakdown, showPreviousPeriod = false, viewAsProd = false, embedded = false }) => {
+const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode, userEmail, userInitials, headerActions, title, refreshAnimationKey, isLoading, breakdown, showPreviousPeriod = true, viewAsProd = false, embedded = false }) => {
   const isSessionStorageAvailable = React.useMemo(() => {
     try {
       const key = '__emv2_storage_test__';
@@ -773,100 +773,246 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
           </>
         )}
         
-        {/* Metrics Content — clean data rows */}
+        {/* Metrics Content — 3:2 dashboard grid */}
         <div style={{
           padding: embedded ? '0' : '10px 10px 10px 10px',
         }}>
           {/* Skeleton loading state */}
           {isLoading && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
-              {[0,1,2,3,4].map(i => (
-                <div key={i} style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  padding: '8px 0',
-                  borderBottom: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.05)' : 'rgba(148, 163, 184, 0.08)'}`,
-                }}>
-                  <SkeletonBox width="100px" height="11px" isDarkMode={isDarkMode} animate={false} />
-                  <SkeletonBox width="50px" height="14px" isDarkMode={isDarkMode} />
-                </div>
-              ))}
+            <div>
+              {/* Skeleton row 1: 3 across */}
+              <div className="metricsGridThree" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0' }}>
+                {[0,1,2].map(i => (
+                  <div key={i} style={{
+                    padding: '10px 10px',
+                    borderRight: i < 2 ? `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(148, 163, 184, 0.08)'}` : 'none',
+                  }}>
+                    <SkeletonBox width="70px" height="9px" isDarkMode={isDarkMode} animate={false} />
+                    <div style={{ marginTop: '6px' }}>
+                      <SkeletonBox width="40px" height="18px" isDarkMode={isDarkMode} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ borderTop: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(148, 163, 184, 0.08)'}` }} />
+              {/* Skeleton row 2: 2 across */}
+              <div className="metricsGridTwo" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0' }}>
+                {[0,1].map(i => (
+                  <div key={i} style={{
+                    padding: '10px 10px',
+                    borderRight: i < 1 ? `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(148, 163, 184, 0.08)'}` : 'none',
+                  }}>
+                    <SkeletonBox width="90px" height="9px" isDarkMode={isDarkMode} animate={false} />
+                    <div style={{ marginTop: '6px' }}>
+                      <SkeletonBox width="50px" height="18px" isDarkMode={isDarkMode} />
+                    </div>
+                    {i === 1 && (
+                      <div style={{ marginTop: '8px' }}>
+                        <SkeletonBox width="100%" height="3px" isDarkMode={isDarkMode} animate={false} />
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
           
-          {/* Data loaded state — row per metric */}
+          {/* Data loaded state — 3:2 grid */}
           {!isLoading && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
-              {metrics.map((metric, index) => {
-                const currentValue = getCurrentValue(metric);
-                const prevValue = getPrevValue(metric);
-                const displayValue = currentValue;
-                const displayPercentage = metric.percentage || 0;
-                const trend = getTrendDirection(currentValue, prevValue);
-                const trendColor = getTrendColor(trend);
+            <div style={{ padding: '4px 0' }}>
+              {/* Row 1: first 3 metrics */}
+              <div className="metricsGridThree" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px' }}>
+                {metrics.slice(0, 3).map((metric, index) => {
+                  const currentValue = getCurrentValue(metric);
+                  const prevValue = getPrevValue(metric);
+                  const displayValue = currentValue;
+                  const trend = getTrendDirection(currentValue, prevValue);
+                  const trendColor = getTrendColor(trend);
 
-                return (
-                  <div
-                    key={`${metric.title}-${index}`}
-                    style={{
-                      padding: '7px 4px',
-                      borderBottom: index < metrics.length - 1
-                        ? `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(148, 163, 184, 0.10)'}`
-                        : 'none',
-                      cursor: showDetailsFeature ? 'pointer' : 'default',
-                      transition: 'background 100ms ease',
-                      borderRadius: '0',
-                      animation: dataLanded 
-                        ? `dataLanded 0.5s ease ${index * 0.06}s both`
-                        : refreshPulse 
-                          ? 'metricRefresh 0.4s ease' 
-                          : undefined,
-                      ...staggerStyle(index),
-                    }}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => openMetricDetails(metric)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        openMetricDetails(metric);
-                      }
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = isDarkMode
-                        ? 'rgba(54, 144, 206, 0.06)'
-                        : 'rgba(214, 232, 255, 0.35)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = 'transparent';
-                    }}
-                  >
-                    {/* Row: label — value — previous delta */}
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'baseline',
-                      justifyContent: 'space-between',
-                      gap: '12px',
-                    }}>
-                      <span style={{
-                        fontSize: '12px',
+                  return (
+                    <div
+                      key={`${metric.title}-${index}`}
+                      style={{
+                        padding: '10px 12px 12px 12px',
+                        background: isDarkMode
+                          ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.08) 0%, rgba(54, 144, 206, 0.00) 60%), rgba(6, 23, 51, 0.45)'
+                          : 'linear-gradient(135deg, rgba(54, 144, 206, 0.05) 0%, rgba(54, 144, 206, 0.00) 60%), rgba(255, 255, 255, 0.55)',
+                        border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(148, 163, 184, 0.16)'}`,
+                        boxShadow: isDarkMode
+                          ? 'inset 0 1px 0 rgba(54, 144, 206, 0.06), 0 1px 3px rgba(0, 3, 25, 0.20)'
+                          : 'inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 1px 3px rgba(0, 0, 0, 0.04)',
+                        cursor: showDetailsFeature ? 'pointer' : 'default',
+                        transition: 'background 180ms ease, border-color 180ms ease, transform 180ms ease, box-shadow 180ms ease',
+                        borderRadius: '0',
+                        animation: dataLanded 
+                          ? `dataLanded 0.5s ease ${index * 0.06}s both`
+                          : refreshPulse 
+                            ? 'metricRefresh 0.4s ease' 
+                            : undefined,
+                        ...staggerStyle(index),
+                      }}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => openMetricDetails(metric)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openMetricDetails(metric); }
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = isDarkMode
+                          ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.14) 0%, rgba(54, 144, 206, 0.02) 60%), rgba(6, 23, 51, 0.55)'
+                          : 'linear-gradient(135deg, rgba(54, 144, 206, 0.08) 0%, rgba(54, 144, 206, 0.00) 60%), rgba(255, 255, 255, 0.75)';
+                        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.22)';
+                        e.currentTarget.style.transform = 'translateY(-1px)';
+                        e.currentTarget.style.boxShadow = isDarkMode
+                          ? '0 6px 16px rgba(0, 3, 25, 0.35)'
+                          : '0 4px 12px rgba(6, 23, 51, 0.08)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = isDarkMode
+                          ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.08) 0%, rgba(54, 144, 206, 0.00) 60%), rgba(6, 23, 51, 0.45)'
+                          : 'linear-gradient(135deg, rgba(54, 144, 206, 0.05) 0%, rgba(54, 144, 206, 0.00) 60%), rgba(255, 255, 255, 0.55)';
+                        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(148, 163, 184, 0.16)';
+                        e.currentTarget.style.transform = 'translateY(0)';
+                        e.currentTarget.style.boxShadow = isDarkMode
+                          ? 'inset 0 1px 0 rgba(54, 144, 206, 0.06), 0 1px 3px rgba(0, 3, 25, 0.20)'
+                          : 'inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 1px 3px rgba(0, 0, 0, 0.04)';
+                      }}
+                    >
+                      {/* Label */}
+                      <div style={{
+                        fontSize: '10px',
                         fontWeight: 500,
-                        color: isDarkMode ? 'rgba(243, 244, 246, 0.85)' : 'rgba(15, 23, 42, 0.75)',
+                        color: isDarkMode ? 'rgba(243, 244, 246, 0.55)' : 'rgba(15, 23, 42, 0.50)',
+                        marginBottom: '4px',
                         whiteSpace: 'nowrap' as const,
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
-                        flex: '1 1 auto',
                       }}>
                         {getDisplayTitle(metric.title)}
-                      </span>
+                      </div>
 
-                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', flexShrink: 0 }}>
-                        {/* Main value */}
+                      {/* Value row */}
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
                         <span style={{
-                          fontSize: '15px',
+                          fontSize: '18px',
                           fontWeight: 700,
                           color: isDarkMode ? '#F9FAFB' : '#0f172a',
                           letterSpacing: '-0.03em',
                           fontVariantNumeric: 'tabular-nums',
+                          lineHeight: 1.1,
+                        }}>
+                          <AnimatedMetricValue
+                            storageKey={`emv2_metric_${metric.title}`}
+                            value={displayValue}
+                            decimals={0}
+                            suffix=""
+                            enabled={enableAnimationThisMount}
+                          />
+                        </span>
+
+                        {/* Previous period delta */}
+                        {prevValue > 0 && (
+                          <span style={{
+                            display: 'inline-flex', alignItems: 'center', gap: '2px',
+                            fontSize: '10px', fontWeight: 500,
+                            color: trend !== 'neutral' ? trendColor : (isDarkMode ? colours.subtleGrey : colours.greyText),
+                            opacity: 0.8,
+                            overflow: 'hidden',
+                            whiteSpace: 'nowrap' as const, fontVariantNumeric: 'tabular-nums',
+                          }}>
+                            {trend !== 'neutral' && metric.showTrend !== false && (
+                              <FiTrendingUp size={9} style={{ transform: trend === 'down' ? 'rotate(180deg)' : 'none', flexShrink: 0 }} />
+                            )}
+                            <span>{prevValue}</span>
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Row 2: last 2 metrics */}
+              <div className="metricsGridTwo" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '4px', marginTop: '4px' }}>
+                {metrics.slice(3).map((metric, index) => {
+                  const currentValue = getCurrentValue(metric);
+                  const prevValue = getPrevValue(metric);
+                  const displayValue = currentValue;
+                  const displayPercentage = metric.percentage || 0;
+                  const trend = getTrendDirection(currentValue, prevValue);
+                  const trendColor = getTrendColor(trend);
+
+                  return (
+                    <div
+                      key={`${metric.title}-${index}`}
+                      style={{
+                        padding: '10px 12px 12px 12px',
+                        background: isDarkMode
+                          ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.08) 0%, rgba(54, 144, 206, 0.00) 60%), rgba(6, 23, 51, 0.45)'
+                          : 'linear-gradient(135deg, rgba(54, 144, 206, 0.05) 0%, rgba(54, 144, 206, 0.00) 60%), rgba(255, 255, 255, 0.55)',
+                        border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(148, 163, 184, 0.16)'}`,
+                        boxShadow: isDarkMode
+                          ? 'inset 0 1px 0 rgba(54, 144, 206, 0.06), 0 1px 3px rgba(0, 3, 25, 0.20)'
+                          : 'inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 1px 3px rgba(0, 0, 0, 0.04)',
+                        cursor: showDetailsFeature ? 'pointer' : 'default',
+                        transition: 'background 180ms ease, border-color 180ms ease, transform 180ms ease, box-shadow 180ms ease',
+                        borderRadius: '0',
+                        animation: dataLanded 
+                          ? `dataLanded 0.5s ease ${(index + 3) * 0.06}s both`
+                          : refreshPulse 
+                            ? 'metricRefresh 0.4s ease' 
+                            : undefined,
+                        ...staggerStyle(index + 3),
+                      }}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => openMetricDetails(metric)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openMetricDetails(metric); }
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = isDarkMode
+                          ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.14) 0%, rgba(54, 144, 206, 0.02) 60%), rgba(6, 23, 51, 0.55)'
+                          : 'linear-gradient(135deg, rgba(54, 144, 206, 0.08) 0%, rgba(54, 144, 206, 0.00) 60%), rgba(255, 255, 255, 0.75)';
+                        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.22)';
+                        e.currentTarget.style.transform = 'translateY(-1px)';
+                        e.currentTarget.style.boxShadow = isDarkMode
+                          ? '0 6px 16px rgba(0, 3, 25, 0.35)'
+                          : '0 4px 12px rgba(6, 23, 51, 0.08)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = isDarkMode
+                          ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.08) 0%, rgba(54, 144, 206, 0.00) 60%), rgba(6, 23, 51, 0.45)'
+                          : 'linear-gradient(135deg, rgba(54, 144, 206, 0.05) 0%, rgba(54, 144, 206, 0.00) 60%), rgba(255, 255, 255, 0.55)';
+                        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(148, 163, 184, 0.16)';
+                        e.currentTarget.style.transform = 'translateY(0)';
+                        e.currentTarget.style.boxShadow = isDarkMode
+                          ? 'inset 0 1px 0 rgba(54, 144, 206, 0.06), 0 1px 3px rgba(0, 3, 25, 0.20)'
+                          : 'inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 1px 3px rgba(0, 0, 0, 0.04)';
+                      }}
+                    >
+                      {/* Label */}
+                      <div style={{
+                        fontSize: '10px',
+                        fontWeight: 500,
+                        color: isDarkMode ? 'rgba(243, 244, 246, 0.55)' : 'rgba(15, 23, 42, 0.50)',
+                        marginBottom: '4px',
+                        whiteSpace: 'nowrap' as const,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}>
+                        {getDisplayTitle(metric.title)}
+                      </div>
+
+                      {/* Value row */}
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
+                        <span style={{
+                          fontSize: '18px',
+                          fontWeight: 700,
+                          color: isDarkMode ? '#F9FAFB' : '#0f172a',
+                          letterSpacing: '-0.03em',
+                          fontVariantNumeric: 'tabular-nums',
+                          lineHeight: 1.1,
                         }}>
                           <AnimatedMetricValue
                             storageKey={`emv2_metric_${metric.title}`}
@@ -877,72 +1023,52 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
                           />
                         </span>
 
-                        {/* Previous period delta (inline, revealed on hold) */}
+                        {/* Previous period delta */}
                         {prevValue > 0 && (
                           <span style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '3px',
-                            fontSize: '11px',
-                            fontWeight: 500,
+                            display: 'inline-flex', alignItems: 'center', gap: '2px',
+                            fontSize: '10px', fontWeight: 500,
                             color: trend !== 'neutral' ? trendColor : (isDarkMode ? colours.subtleGrey : colours.greyText),
-                            opacity: showPreviousPeriod ? 0.8 : 0,
-                            maxWidth: showPreviousPeriod ? '120px' : '0px',
+                            opacity: 0.8,
                             overflow: 'hidden',
-                            transition: 'opacity 160ms ease, max-width 200ms ease',
-                            whiteSpace: 'nowrap' as const,
-                            fontVariantNumeric: 'tabular-nums',
+                            whiteSpace: 'nowrap' as const, fontVariantNumeric: 'tabular-nums',
                           }}>
                             {trend !== 'neutral' && metric.showTrend !== false && (
-                              <FiTrendingUp 
-                                size={10} 
-                                style={{ 
-                                  transform: trend === 'down' ? 'rotate(180deg)' : 'none',
-                                  flexShrink: 0,
-                                }} 
-                              />
+                              <FiTrendingUp size={9} style={{ transform: trend === 'down' ? 'rotate(180deg)' : 'none', flexShrink: 0 }} />
                             )}
                             <span>{metric.isPercentage ? `${prevValue.toFixed(1)}%` : prevValue}</span>
                           </span>
                         )}
                       </div>
-                    </div>
 
-                    {/* Inline progress bar (for percentage metrics) */}
-                    {metric.isPercentage && (
-                      <div style={{ marginTop: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <div style={{
-                          flex: 1,
-                          height: '3px',
-                          background: isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(148, 163, 184, 0.15)',
-                          borderRadius: '2px',
-                          overflow: 'hidden',
-                        }}>
+                      {/* Progress bar (for percentage metrics) */}
+                      {metric.isPercentage && (
+                        <div style={{ marginTop: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                           <div style={{
-                            width: `${Math.min(displayPercentage, 100)}%`,
-                            height: '100%',
-                            background: displayPercentage >= 80
-                              ? colours.green
-                              : colours.highlight,
-                            borderRadius: '2px',
-                            transition: enableAnimationThisMount ? 'width 0.6s cubic-bezier(0.4, 0, 0.2, 1)' : 'none',
-                          }} />
+                            flex: 1, height: '3px',
+                            background: isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(148, 163, 184, 0.15)',
+                            borderRadius: '2px', overflow: 'hidden',
+                          }}>
+                            <div style={{
+                              width: `${Math.min(displayPercentage, 100)}%`, height: '100%',
+                              background: displayPercentage >= 80 ? colours.green : colours.highlight,
+                              borderRadius: '2px',
+                              transition: enableAnimationThisMount ? 'width 0.6s cubic-bezier(0.4, 0, 0.2, 1)' : 'none',
+                            }} />
+                          </div>
+                          <span style={{
+                            fontSize: '9px', fontWeight: 500,
+                            color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                            fontVariantNumeric: 'tabular-nums', minWidth: '24px', textAlign: 'right' as const,
+                          }}>
+                            {displayPercentage.toFixed(0)}%
+                          </span>
                         </div>
-                        <span style={{
-                          fontSize: '10px',
-                          fontWeight: 500,
-                          color: isDarkMode ? colours.subtleGrey : colours.greyText,
-                          fontVariantNumeric: 'tabular-nums',
-                          minWidth: '28px',
-                          textAlign: 'right' as const,
-                        }}>
-                          {displayPercentage.toFixed(0)}%
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
 
