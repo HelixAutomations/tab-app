@@ -59,7 +59,7 @@ const PIPELINE_ALIASES = new Set(['pipeline', 'journey', 'chain']);
 const OPS_ALIASES = new Set(['ops', 'operation', 'operations', 'dataops', 'data-ops', 'dataopslog', 'data-ops-log']);
 const LONDON_TZ = 'Europe/London';
 const WEEKDAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-const ALLOWED_TYPES = new Set(['passcode', 'enquiry', 'deal', 'instruction', 'prospect', 'person', 'pipeline', 'ops']);
+const ALLOWED_TYPES = new Set(['passcode', 'enquiry', 'deal', 'instruction', 'prospect', 'person', 'pipeline', 'ops', 'ccl']);
 
 /**
  * Generate Teams deep link to a specific message/card.
@@ -1115,8 +1115,142 @@ async function lookup() {
         break;
       }
 
+      case 'ccl': {
+        pool = trackPool(await sql.connect(await resolveInstructionsConnectionString()));
+
+        // Check tables exist
+        const tableCheck = await pool.request().query(
+          `SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME LIKE 'Ccl%'`
+        );
+        const existingTables = tableCheck.recordset.map(r => r.TABLE_NAME);
+        if (existingTables.length === 0) {
+          console.log('❌ No CCL tables found. Run migration: tools/db/migrate-ccl-persistence.sql');
+          process.exit(1);
+        }
+
+        const isMatterId = /^\d+$/.test(input);
+        const isInstructionRef = /^HLX-/i.test(input);
+        const isStatus = ['draft', 'final', 'uploaded', 'sent'].includes(input?.toLowerCase());
+        const isStatsRequest = !input || input === 'stats' || input === 'summary';
+
+        if (isStatsRequest) {
+          // ─── Stats overview ──────────────────────────────
+          const stats = {};
+          if (existingTables.includes('CclContent')) {
+            const r = await pool.request().query(`
+              SELECT
+                COUNT(DISTINCT MatterId) AS TotalMatters,
+                COUNT(*) AS TotalVersions,
+                SUM(CASE WHEN Status = 'draft' THEN 1 ELSE 0 END) AS Drafts,
+                SUM(CASE WHEN Status = 'final' THEN 1 ELSE 0 END) AS Finals,
+                SUM(CASE WHEN Status = 'uploaded' THEN 1 ELSE 0 END) AS Uploaded,
+                SUM(CASE WHEN UploadedToClio = 1 THEN 1 ELSE 0 END) AS ClioUploads,
+                SUM(CASE WHEN UploadedToNd = 1 THEN 1 ELSE 0 END) AS NdUploads,
+                MIN(CreatedAt) AS FirstCcl,
+                MAX(CreatedAt) AS LatestCcl
+              FROM CclContent
+            `);
+            stats.content = r.recordset[0];
+
+            // Practice area breakdown
+            const pa = await pool.request().query(`
+              SELECT ISNULL(PracticeArea, 'Unknown') AS PracticeArea,
+                COUNT(DISTINCT MatterId) AS Matters, COUNT(*) AS Versions
+              FROM CclContent GROUP BY PracticeArea ORDER BY Matters DESC
+            `);
+            stats.byPracticeArea = pa.recordset;
+
+            // Fee earner breakdown
+            const fe = await pool.request().query(`
+              SELECT ISNULL(FeeEarner, 'Unknown') AS FeeEarner,
+                COUNT(DISTINCT MatterId) AS Matters
+              FROM CclContent GROUP BY FeeEarner ORDER BY Matters DESC
+            `);
+            stats.byFeeEarner = fe.recordset;
+          }
+          if (existingTables.includes('CclAiTrace')) {
+            const r = await pool.request().query(`
+              SELECT
+                COUNT(*) AS TotalAiCalls,
+                SUM(CASE WHEN AiStatus = 'complete' THEN 1 ELSE 0 END) AS FullAi,
+                SUM(CASE WHEN AiStatus = 'partial' THEN 1 ELSE 0 END) AS PartialAi,
+                SUM(CASE WHEN AiStatus = 'fallback' THEN 1 ELSE 0 END) AS FallbackAi,
+                AVG(DurationMs) AS AvgDurationMs,
+                AVG(GeneratedFieldCount) AS AvgFieldCount
+              FROM CclAiTrace
+            `);
+            stats.ai = r.recordset[0];
+          }
+          dbName = 'Instructions';
+          recordset = [{ tables: existingTables, ...stats }];
+        } else if (isMatterId) {
+          // ─── Lookup by matterId ──────────────────────────
+          const result = { matterId: input };
+          if (existingTables.includes('CclContent')) {
+            const r = await pool.request()
+              .input('MatterId', sql.NVarChar(50), input)
+              .query(`SELECT CclContentId, MatterId, InstructionRef, DocumentType, ClientName,
+                      FeeEarner, PracticeArea, Version, Status, UploadedToClio, UploadedToNd,
+                      SentToClient, TemplateVersion, CreatedBy, CreatedAt, FinalizedAt
+                FROM CclContent WHERE MatterId = @MatterId ORDER BY Version DESC`);
+            result.versions = r.recordset;
+            result.versionCount = r.recordset.length;
+          }
+          if (existingTables.includes('CclAiTrace')) {
+            const r = await pool.request()
+              .input('MatterId', sql.NVarChar(50), input)
+              .query(`SELECT CclAiTraceId, TrackingId, AiStatus, Model, DurationMs,
+                      GeneratedFieldCount, Confidence, FallbackReason, RetryCount, CreatedBy, CreatedAt
+                FROM CclAiTrace WHERE MatterId = @MatterId ORDER BY CreatedAt DESC`);
+            result.aiTraces = r.recordset;
+          }
+          dbName = 'Instructions';
+          recordset = [result];
+        } else if (isInstructionRef) {
+          // ─── Lookup by InstructionRef ────────────────────
+          if (existingTables.includes('CclContent')) {
+            const r = await pool.request()
+              .input('Ref', sql.NVarChar(100), input)
+              .query(`SELECT CclContentId, MatterId, InstructionRef, DocumentType, ClientName,
+                      FeeEarner, PracticeArea, Version, Status, UploadedToClio, UploadedToNd,
+                      CreatedBy, CreatedAt
+                FROM CclContent WHERE InstructionRef = @Ref ORDER BY CreatedAt DESC`);
+            recordset = r.recordset;
+          }
+          dbName = 'Instructions';
+        } else if (isStatus) {
+          // ─── Filter by status ────────────────────────────
+          if (existingTables.includes('CclContent')) {
+            const r = await pool.request()
+              .input('Status', sql.NVarChar(20), input.toLowerCase())
+              .query(`SELECT TOP 50 CclContentId, MatterId, InstructionRef, ClientName,
+                      FeeEarner, PracticeArea, Version, Status, UploadedToClio,
+                      CreatedBy, CreatedAt
+                FROM CclContent WHERE Status = @Status ORDER BY CreatedAt DESC`);
+            recordset = r.recordset;
+          }
+          dbName = 'Instructions';
+        } else {
+          // ─── Name/text search across client, fee earner ──
+          if (existingTables.includes('CclContent')) {
+            const r = await pool.request()
+              .input('Like', sql.NVarChar(200), `%${input}%`)
+              .query(`SELECT TOP 50 CclContentId, MatterId, InstructionRef, ClientName,
+                      FeeEarner, PracticeArea, Version, Status, UploadedToClio,
+                      CreatedBy, CreatedAt
+                FROM CclContent
+                WHERE ClientName LIKE @Like OR FeeEarner LIKE @Like
+                  OR InstructionRef LIKE @Like OR MatterDescription LIKE @Like
+                ORDER BY CreatedAt DESC`);
+            recordset = r.recordset;
+          }
+          dbName = 'Instructions';
+        }
+        break;
+      }
+
       default:
-        console.log('❌ Invalid type. Use: passcode, enquiry, deal, instruction, prospect, person, pipeline, ops');
+        console.log('❌ Invalid type. Use: passcode, enquiry, deal, instruction, prospect, person, pipeline, ops, ccl');
         process.exit(1);
     }
 

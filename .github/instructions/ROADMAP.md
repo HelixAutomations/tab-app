@@ -115,6 +115,7 @@ These are independent of the bot work and can be done immediately:
 
 ## Low Priority
 
+- [ ] **AML annual review automation** — The SRA AML Firm-Wide Risk Assessment is annual (Feb–Feb cycle). Current process: run `scripts/amlReview12Months.mjs` for aggregated stats, then `scripts/amlReviewFollowUp.mjs` for PEP names + high-risk country details, then manually look up matter descriptions in Clio. Consider: (1) a combined "AML annual report" script that does everything in one pass including Clio lookups, (2) a Hub UI panel in Data Centre that generates the report on demand, (3) recording AML data differently at source so extraction is simpler (Kanchel's suggestion). See `docs/AML_REVIEW_12_MONTH_REPORT_RUNBOOK.md` for full methodology and gotchas.
 - [ ] **Audit decoupled-functions/** — Only 2 of ~15 functions actually used (fetchInstructionData, recordRiskAssessment). Consider migrating to server routes or deleting unused.
 - [ ] **Remove commented-out code** — Scattered across codebase.
 - [ ] **Consistent naming conventions** — snake_case vs camelCase inconsistency.

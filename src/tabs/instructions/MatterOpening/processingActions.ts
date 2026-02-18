@@ -40,6 +40,7 @@ export function registerMatterIdCallback(cb: ((id: string | null) => void) | nul
 export interface ProcessingResult {
     message: string;
     url?: string;
+    cclQueuedAt?: string;
 }
 
 export interface ProcessingAction {
@@ -436,29 +437,71 @@ export const processingActions: ProcessingAction[] = [
                 if (!patchResp.ok) {
                     const patchError = await patchResp.text();
                     console.warn('Failed to patch matter request:', patchError);
+                    return `Instructions table updated with Client ID ${clientId}${matterId ? ` and Matter ID ${matterId}` : ''}`;
                 }
+                const patchData = await patchResp.json();
+                return {
+                    message: `Instructions table updated with Client ID ${clientId}${matterId ? ` and Matter ID ${matterId}` : ''}`,
+                    cclQueuedAt: patchData?.cclQueuedAt || undefined,
+                };
             }
             return `Instructions table updated with Client ID ${clientId}${matterId ? ` and Matter ID ${matterId}` : ''}`;
+        }
+    },
+    {
+        label: 'CCL AI Fill',
+        icon: cclIcon,
+        run: async (formData, _initials) => {
+            const id = matterId || formData.matter_details?.matter_ref;
+            if (!id) return 'Skipped — no matter ID available';
+
+            const payload = {
+                matterId: id,
+                instructionRef: formData.matter_details?.instruction_ref || '',
+                practiceArea: formData.matter_details?.practice_area || formData.matter_details?.area_of_work || '',
+                description: formData.matter_details?.description || '',
+                clientName: (() => {
+                    const c = formData.client_information?.[0];
+                    return c ? [c.first_name, c.last_name].filter(Boolean).join(' ') : '';
+                })(),
+                opponent: formData.opponent_details?.opponent?.first_name
+                    ? `${formData.opponent_details.opponent.first_name} ${formData.opponent_details.opponent.last_name || ''}`.trim()
+                    : '',
+                handlerName: formData.team_assignments?.fee_earner || '',
+            };
+
+            const resp = await instrumentedFetch('CCL AI Fill', '/api/ccl-ai/fill', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            }, payload);
+
+            if (!resp.ok) throw new Error('CCL AI fill failed');
+            const data = await resp.json();
+            return `AI fill complete — ${Object.keys(data.fields || {}).length} fields populated`;
+        }
+    },
+    {
+        label: 'Draft CCL Generated',
+        icon: cclIcon,
+        run: async (formData, _initials) => {
+            const id = matterId || formData.matter_details?.matter_ref;
+            if (!id) return 'Skipped — no matter ID available';
+
+            const payload = { matterId: id, draftJson: formData };
+            const resp = await instrumentedFetch('Draft CCL Generated', '/api/ccl', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            }, payload);
+
+            if (!resp.ok) throw new Error('CCL generation failed');
+            const { url } = await resp.json();
+            return { message: 'Draft CCL created', url };
         }
     }
 ];
 
-export const generateDraftCclAction: ProcessingAction = {
-    label: 'Generate Draft CCL',
-    icon: cclIcon,
-    run: async (formData, _initials) => {
-        const id = matterId || formData.matter_details.matter_ref;
-        const payload = { matterId: id, draftJson: formData };
-        const resp = await instrumentedFetch('Generate Draft CCL', '/api/ccl', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        }, payload);
-        if (!resp.ok) throw new Error('CCL generation failed');
-        const { url } = await resp.json();
-        return { message: 'Draft CCL created', url };
-    }
-};
 // invisible change 2.2
 
 export const initialSteps: ProcessingStep[] = processingActions.map(action => ({

@@ -30,26 +30,24 @@ const slideUpFade = keyframes({
 });
 
 const baseClass = (isDark: boolean, variant: string, animationDelay: number) => mergeStyles({
-  // Operations dashboard aesthetic: deep dark gradient backgrounds
+  // Solid brand surfaces — no glass/blur
   background: isDark
     ? (variant === 'minimal'
-      ? 'linear-gradient(90deg, rgba(10, 16, 30, 0.95) 0%, rgba(18, 26, 42, 0.92) 100%)'
-      : 'linear-gradient(90deg, rgba(10, 16, 30, 0.98) 0%, rgba(18, 26, 42, 0.95) 100%)')
+      ? colours.dark.background
+      : colours.dark.sectionBackground)
     : (variant === 'minimal'
       ? 'rgba(255, 255, 255, 0.95)'
-      : 'rgba(255, 255, 255, 0.98)'),
-  backdropFilter: 'blur(20px)',
-  WebkitBackdropFilter: 'blur(20px)',
+      : '#F8FAFC'),
   padding: variant === 'minimal' ? '12px' : '18px',
   borderRadius: '2px',
-  border: `1px solid ${isDark ? 'rgba(54, 144, 206, 0.15)' : 'rgba(148, 163, 184, 0.15)'}`,
+  border: `1px solid ${isDark ? 'rgba(54, 144, 206, 0.18)' : 'rgba(148, 163, 184, 0.15)'}`,
   boxShadow: variant === 'elevated' 
     ? isDark 
-      ? '0 4px 20px rgba(0,0,0,0.35), 0 1px 6px rgba(0,0,0,0.2)' 
-      : '0 4px 20px rgba(0,0,0,0.06), 0 1px 6px rgba(0,0,0,0.03)'
+      ? '0 4px 20px rgba(0,0,0,0.5)' 
+      : '0 2px 12px rgba(0,0,0,0.04)'
     : isDark
-      ? '0 2px 12px rgba(0,0,0,0.25), 0 1px 4px rgba(0,0,0,0.15)'
-      : '0 2px 12px rgba(0,0,0,0.04), 0 1px 4px rgba(0,0,0,0.02)',
+      ? '0 2px 12px rgba(0,0,0,0.4)'
+      : '0 1px 6px rgba(0,0,0,0.03)',
   width: '100%',
   display: 'flex',
   flexDirection: 'column',
@@ -58,15 +56,27 @@ const baseClass = (isDark: boolean, variant: string, animationDelay: number) => 
   transition: 'all 0.15s ease',
   animation: `${slideUpFade} 0.4s ease ${animationDelay}s both`,
   overflow: 'hidden',
+  // Accent gradient line — Helix signature on dark section cards
+  ...(isDark && variant !== 'minimal' ? {
+    '&::after': {
+      content: '""',
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      height: '2px',
+      background: 'linear-gradient(90deg, transparent 0%, rgba(54, 144, 206, 0.35) 30%, rgba(135, 243, 243, 0.18) 50%, rgba(54, 144, 206, 0.35) 70%, transparent 100%)',
+    },
+  } : {}),
   '&:hover': {
-    borderColor: isDark ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)',
+    borderColor: isDark ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)',
     boxShadow: variant === 'elevated'
       ? isDark
-        ? '0 8px 32px rgba(0,0,0,0.35), 0 2px 12px rgba(0,0,0,0.2)'
-        : '0 8px 32px rgba(0,0,0,0.08), 0 2px 12px rgba(0,0,0,0.04)'
+        ? '0 6px 28px rgba(0,0,0,0.5)'
+        : '0 4px 20px rgba(0,0,0,0.06)'
       : isDark
-        ? '0 4px 20px rgba(0,0,0,0.25), 0 2px 8px rgba(0,0,0,0.15)'
-        : '0 4px 20px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.03)',
+        ? '0 4px 20px rgba(0,0,0,0.45)'
+        : '0 2px 12px rgba(0,0,0,0.05)',
   },
 });
 

@@ -123,7 +123,7 @@ const CollapsibleSection: React.FC<{
                 style={{
                   backgroundColor: colours.tagBackground,
                   padding: '2px 8px',
-                  borderRadius: '12px',
+                  borderRadius: '2px',
                 }}
               >
                 {label}

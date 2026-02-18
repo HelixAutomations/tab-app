@@ -86,23 +86,12 @@ export const ImmediateActionChip: React.FC<ImmediateActionChipProps> = ({
   const { isDarkMode: contextDarkMode } = useTheme();
   const isDark = contextDarkMode ?? propDarkMode ?? false;
 
-  const text = isDark ? '#f1f5f9' : '#1e293b';
-  const textMuted = isDark ? '#94a3b8' : '#64748b';
-  const textSubtle = isDark ? '#64748b' : '#94a3b8';
+  const text = isDark ? colours.dark.text : colours.light.text;
+  const textMuted = isDark ? colours.subtleGrey : colours.greyText;
+  const textSubtle = isDark ? colours.greyText : colours.subtleGrey;
 
-  const needsUrgentAttention = !disabled && (count ?? 0) > 0 && 
-    (title.toLowerCase().startsWith('approve annual leave') || title.toLowerCase().startsWith('rate change'));
-  
-  // Category accent - subtle left indicator (red for urgent items)
-  const categoryColor = needsUrgentAttention
-    ? colours.cta  // Red for urgent attention
-    : category === 'critical'
-    ? colours.cta
-    : category === 'warning'
-    ? colours.orange
-    : category === 'success'
-    ? colours.green
-    : colours.highlight;
+  // All chips are equal-importance "to do" items — one consistent accent
+  const accentColor = colours.highlight;
 
   const hovered = isHovered && !disabled;
 
@@ -119,33 +108,22 @@ export const ImmediateActionChip: React.FC<ImmediateActionChipProps> = ({
         padding: '8px 12px',
         minWidth: 140,
         maxWidth: 280,
-        background: needsUrgentAttention
-          ? (isDark ? 'rgba(239, 68, 68, 0.12)' : 'rgba(239, 68, 68, 0.08)')
-          : (hovered 
-            ? (isDark 
-                ? 'linear-gradient(90deg, rgba(24, 36, 58, 0.98) 0%, rgba(34, 48, 70, 0.95) 100%)' 
-                : 'linear-gradient(90deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 250, 252, 0.95) 100%)')
-            : (isDark 
-                ? 'linear-gradient(90deg, rgba(18, 28, 48, 0.95) 0%, rgba(28, 40, 60, 0.92) 100%)' 
-                : 'linear-gradient(90deg, rgba(255, 255, 255, 0.95) 0%, rgba(250, 251, 252, 0.9) 100%)')),
-        backdropFilter: 'blur(16px)',
-        WebkitBackdropFilter: 'blur(16px)',
+        background: hovered 
+          ? (isDark ? colours.helixBlue : 'rgba(255, 255, 255, 0.98)')
+          : (isDark ? colours.darkBlue : '#F8FAFC'),
         color: text,
-        borderTop: `1px solid ${hovered ? (isDark ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.2)') : (isDark ? 'rgba(54, 144, 206, 0.2)' : 'rgba(148, 163, 184, 0.15)')}`,
-        borderRight: `1px solid ${hovered ? (isDark ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.2)') : (isDark ? 'rgba(54, 144, 206, 0.2)' : 'rgba(148, 163, 184, 0.15)')}`,
-        borderBottom: `1px solid ${hovered ? (isDark ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.2)') : (isDark ? 'rgba(54, 144, 206, 0.2)' : 'rgba(148, 163, 184, 0.15)')}`,
-        borderLeft: `3px solid ${categoryColor}`,
+        border: `1px solid ${hovered 
+          ? (isDark ? 'rgba(54, 144, 206, 0.15)' : 'rgba(0,0,0,0.1)') 
+          : (isDark ? 'rgba(54, 144, 206, 0.08)' : 'rgba(0,0,0,0.06)')}`,
+        borderLeft: `2px solid ${colours.cta}`,
         borderRadius: 2,
-        boxShadow: needsUrgentAttention
-          ? (isDark ? '0 0 0 1px rgba(239, 68, 68, 0.2), 0 4px 12px rgba(0,0,0,0.3)' : '0 0 0 1px rgba(239, 68, 68, 0.15), 0 4px 12px rgba(0,0,0,0.08)')
-          : hovered
-            ? (isDark ? '0 4px 16px rgba(0,0,0,0.35)' : '0 4px 16px rgba(0,0,0,0.08)')
-            : (isDark ? '0 2px 8px rgba(0,0,0,0.25)' : '0 2px 8px rgba(0,0,0,0.04)'),
+        boxShadow: hovered
+          ? (isDark ? '0 4px 16px rgba(0, 3, 25, 0.4)' : '0 4px 16px rgba(0,0,0,0.08)')
+          : (isDark ? '0 2px 8px rgba(0, 3, 25, 0.3)' : '0 2px 8px rgba(0,0,0,0.04)'),
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.5 : 1,
         transition: 'all 0.12s ease',
-        transform: hovered && !disabled ? 'translateY(-1px) scale(1.01)' : 'translateY(0) scale(1)',
-        animation: needsUrgentAttention ? 'helixUrgentPulse 1.4s ease-in-out infinite' : undefined,
+        transform: hovered && !disabled ? 'translateY(-1px)' : 'none',
         position: 'relative',
         textAlign: 'left',
       }}
@@ -162,10 +140,8 @@ export const ImmediateActionChip: React.FC<ImmediateActionChipProps> = ({
         alignItems: 'center',
         justifyContent: 'center',
         flexShrink: 0,
-        color: categoryColor,
-        background: needsUrgentAttention
-          ? 'transparent'
-          : (isDark ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)'),
+        color: isDark ? 'rgba(243, 244, 246, 0.7)' : accentColor,
+        background: isDark ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)',
         borderRadius: 2,
         transition: 'transform 0.12s ease',
         transform: hovered ? 'scale(1.1)' : 'scale(1)',
@@ -188,8 +164,8 @@ export const ImmediateActionChip: React.FC<ImmediateActionChipProps> = ({
             <span style={{
               marginLeft: 6,
               padding: '2px 6px',
-              background: isDark ? 'rgba(148, 163, 184, 0.12)' : 'rgba(100, 116, 139, 0.08)',
-              color: isDark ? '#cbd5e1' : '#475569',
+              background: isDark ? 'rgba(54, 144, 206, 0.08)' : 'rgba(0,0,0,0.04)',
+              color: isDark ? colours.subtleGrey : colours.greyText,
               fontSize: 10,
               fontWeight: 600,
               verticalAlign: 'middle',
@@ -232,16 +208,3 @@ export const ImmediateActionChip: React.FC<ImmediateActionChipProps> = ({
 };
 
 export default ImmediateActionChip;
-
-// CSS animation for urgent approval chip
-const urgentStyle = document.createElement('style');
-urgentStyle.textContent = `
-@keyframes helixUrgentPulse {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-1px); }
-}
-`;
-if (!document.head.querySelector('style[data-immediate-action-chip]')) {
-  urgentStyle.setAttribute('data-immediate-action-chip', '');
-  document.head.appendChild(urgentStyle);
-}

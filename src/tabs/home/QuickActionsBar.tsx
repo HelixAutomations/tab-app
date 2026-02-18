@@ -2,8 +2,8 @@ import React from 'react';
 import { Icon } from '@fluentui/react';
 import { colours } from '../../app/styles/colours';
 import ToggleSwitch from '../../components/ToggleSwitch';
-import { FaChevronRight } from 'react-icons/fa';
 import {
+  FaChevronRight,
   FaRegCheckSquare,
   FaCheckSquare,
   FaUmbrellaBeach,
@@ -39,6 +39,7 @@ interface QuickActionsBarProps {
   userDisplayName?: string;
   userIdentifier?: string;
   onToggleTheme?: () => void;
+  onOpenReleaseNotes?: () => void;
   loading?: boolean; // Show skeleton loading state
 }
 
@@ -94,6 +95,7 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
   userDisplayName,
   userIdentifier,
   onToggleTheme,
+  onOpenReleaseNotes,
   loading = false,
 }) => {
   const [selected, setSelected] = React.useState<string | null>(null);
@@ -101,6 +103,11 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
   const [expanded, setExpanded] = React.useState(false);
   const [hoveredAction, setHoveredAction] = React.useState<string | null>(null);
   const [showGreeting, setShowGreeting] = React.useState(false);
+
+  // Release notes unread dot — once per session
+  const [releaseNotesUnread, setReleaseNotesUnread] = React.useState(() => {
+    try { return !sessionStorage.getItem('releaseNotesRead'); } catch { return true; }
+  });
   const hasTriggeredGreetingRef = React.useRef<string | null>(null);
 
   // Greeting logic
@@ -221,67 +228,25 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
       style={{
         display: 'flex',
         alignItems: 'center',
-        gap: 12,
+        gap: 8,
         padding: '8px 16px',
         minHeight: 44,
         background: isDarkMode
-          ? 'rgba(15, 23, 42, 0.6)'
-          : 'rgba(255, 255, 255, 0.7)',
-        backdropFilter: 'blur(16px)',
-        WebkitBackdropFilter: 'blur(16px)',
-        borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.15)'}`,
-        borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.15)'}`,
+          ? colours.darkBlue
+          : colours.grey,
+        borderBottom: `1px solid ${isDarkMode ? `${colours.dark.border}66` : 'rgba(0, 0, 0, 0.06)'}`,
         position: 'relative',
         width: '100%',
-        transition: 'all 0.12s ease',
+        boxSizing: 'border-box',
       }}
+      className="qa-bar"
       role="region"
       aria-label="Quick actions"
     >
-      {/* Toggle button */}
-      <button
-        type="button"
-        aria-expanded={expanded}
-        onClick={() => setExpanded((e) => !e)}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          padding: '6px 10px',
-          background: expanded 
-            ? (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)')
-            : 'transparent',
-          border: `1px solid ${expanded ? (isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.25)') : 'transparent'}`,
-          borderRadius: 2,
-          color: textPrimary,
-          fontSize: 13,
-          fontWeight: 600,
-          cursor: 'pointer',
-          transition: 'all 0.12s ease',
-          flexShrink: 0,
-        }}
-      >
-        <span>Quick actions</span>
-        <span
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            width: 18,
-            height: 18,
-            borderRadius: 4,
-            background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.15)',
-            transition: 'transform 0.2s ease',
-            transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
-          }}
-        >
-          <FaChevronRight style={{ fontSize: 10, color: textSecondary }} />
-        </span>
-      </button>
-
       {/* Greeting */}
       {greetingLabel && (
         <div
+          className="qa-greeting"
           aria-live="polite"
           role="status"
           style={{
@@ -304,20 +269,59 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
         </div>
       )}
 
-      {/* Expanded chips container */}
-      <div
+      {/* Toggle button + label */}
+      <button
+        type="button"
+        onClick={() => setExpanded(prev => !prev)}
+        aria-label={expanded ? 'Collapse actions' : 'Expand actions'}
+        aria-expanded={expanded}
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 8,
-          overflow: 'hidden',
+          gap: 6,
+          height: 28,
+          padding: '0 8px 0 6px',
+          background: expanded
+            ? (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)')
+            : 'transparent',
+          border: `1px solid ${expanded ? (isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.25)') : 'transparent'}`,
+          borderRadius: 2,
+          cursor: 'pointer',
+          flexShrink: 0,
+          transition: 'all 0.15s ease',
+          color: expanded ? colours.blue : textSecondary,
+          fontSize: 12,
+          fontWeight: 600,
+          whiteSpace: 'nowrap',
+          letterSpacing: '0.02em',
+        }}
+        className="qa-toggle-btn"
+      >
+        <FaChevronRight
+          style={{
+            fontSize: 10,
+            color: expanded ? colours.blue : textSecondary,
+            transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
+            transition: 'transform 0.2s ease, color 0.15s ease',
+          }}
+        />
+        Quick Actions
+      </button>
+
+      {/* Action chips — revealed on expand, labels shown when expanded */}
+      <div
+        className="qa-chips"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
           maxWidth: expanded ? 800 : 0,
           opacity: expanded ? 1 : 0,
-          transition: 'max-width 0.25s ease, opacity 0.2s ease',
+          overflow: 'hidden',
+          transition: 'max-width 0.3s ease, opacity 0.2s ease',
           pointerEvents: expanded ? 'auto' : 'none',
         }}
       >
-        {/* Action chips */}
         {quickActions.map((action, index) => {
           const isSelected = selected === action.title;
           const isHovered = hoveredAction === action.title;
@@ -336,41 +340,51 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: 8,
-                padding: '6px 14px',
+                gap: 6,
+                padding: '7px 10px',
                 background: isActive 
                   ? (isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)')
                   : isHovered 
                     ? (isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.15)')
-                    : (isDarkMode ? 'rgba(30, 41, 59, 0.6)' : 'rgba(255, 255, 255, 0.8)'),
-                border: `1px solid ${isActive ? (isDarkMode ? 'rgba(54, 144, 206, 0.4)' : colours.blue) : (isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)')}`,
+                    : 'transparent',
+                border: `1px solid ${isActive ? (isDarkMode ? 'rgba(54, 144, 206, 0.4)' : colours.blue) : 'transparent'}`,
                 borderRadius: 2,
                 color: isActive ? colours.blue : textPrimary,
                 fontSize: 13,
                 fontWeight: 500,
                 cursor: isLoading && !isSelected ? 'not-allowed' : 'pointer',
                 opacity: isLoading && !isSelected ? 0.5 : 1,
-                transition: 'all 0.12s ease',
+                transition: 'all 0.15s ease',
                 whiteSpace: 'nowrap',
                 flexShrink: 0,
                 animation: expanded ? `fadeInChip 0.2s ease ${index * 0.03}s both` : 'none',
               }}
+              title={getShortTitle(action.title)}
             >
               <IconComponent
                 style={{
-                  fontSize: 14,
+                  fontSize: 15,
                   color: isActive ? colours.blue : isHovered ? textPrimary : textSecondary,
                   transition: 'color 0.15s ease',
                 }}
               />
-              <span>{getShortTitle(action.title)}</span>
+              <span
+                className="qa-chip-label"
+                style={{
+                  overflow: 'hidden',
+                  display: 'inline-block',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {getShortTitle(action.title)}
+              </span>
             </button>
           );
         })}
       </div>
 
-      {/* Session log chip + Theme toggle on right */}
-      {onToggleTheme && !greetingVisible && (
+      {/* Release Notes chip + Theme toggle on right */}
+      {!greetingVisible && (onOpenReleaseNotes || onToggleTheme) && (
         <div
           style={{
             marginLeft: 'auto',
@@ -378,9 +392,66 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
             alignItems: 'center',
             gap: 10,
             paddingLeft: 10,
-            borderLeft: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.06)'}`,
+            borderLeft: `1px solid ${isDarkMode ? `${colours.dark.border}66` : 'rgba(0, 0, 0, 0.06)'}`,
           }}
         >
+          {onOpenReleaseNotes && (
+            <button
+              onClick={() => {
+                setReleaseNotesUnread(false);
+                try { sessionStorage.setItem('releaseNotesRead', '1'); } catch {}
+                onOpenReleaseNotes();
+              }}
+              style={{
+                position: 'relative',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                height: 18,
+                padding: '0 8px',
+                borderRadius: 18,
+                border: 'none',
+                background: isDarkMode ? 'rgba(148, 163, 184, 0.10)' : 'rgba(100, 116, 139, 0.10)',
+                color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)',
+                fontSize: 10,
+                fontWeight: 600,
+                cursor: 'pointer',
+                transition: 'all 0.15s',
+                letterSpacing: '0.1px',
+                whiteSpace: 'nowrap',
+                lineHeight: 1,
+                opacity: 0.7,
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.opacity = '1';
+                e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(100, 116, 139, 0.15)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.opacity = '0.7';
+                e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.10)' : 'rgba(100, 116, 139, 0.10)';
+              }}
+            >
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+              </svg>
+              Notes
+              {releaseNotesUnread && (
+                <span style={{
+                  position: 'absolute',
+                  top: -2,
+                  right: -2,
+                  width: 6,
+                  height: 6,
+                  borderRadius: 999,
+                  background: '#3690CE',
+                  boxShadow: '0 0 0 1.5px ' + (isDarkMode ? '#0f172a' : '#ffffff'),
+                }} />
+              )}
+            </button>
+          )}
+          {onToggleTheme && (
+            <>
           <svg
             width="14"
             height="14"
@@ -415,20 +486,20 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
             size="sm"
             style={{ opacity: 0.7 }}
           />
+            </>
+          )}
         </div>
       )}
 
       {/* Animation keyframes */}
       <style>{`
         @keyframes fadeInChip {
-          from {
-            opacity: 0;
-            transform: translateX(-8px);
-          }
-          to {
-            opacity: 1;
-            transform: translateX(0);
-          }
+          from { opacity: 0; transform: translateX(-6px); }
+          to { opacity: 1; transform: translateX(0); }
+        }
+        @media (max-width: 600px) {
+          .qa-greeting { display: none !important; }
+          .qa-chip-label { display: none !important; }
         }
       `}</style>
     </div>

@@ -80,6 +80,10 @@ const teamsActivityTrackingRouter = require('./routes/teamsActivityTracking');
 const pitchTrackingRouter = require('./routes/pitchTracking');
 const enquiryEnrichmentRouter = require('./routes/enquiryEnrichment');
 const rateChangesRouter = require('./routes/rate-changes');
+const { router: cclRouter, CCL_DIR } = require('./routes/ccl');
+const cclAiRouter = require('./routes/ccl-ai');
+const cclAdminRouter = require('./routes/ccl-admin');
+const cclOpsRouter = require('./routes/ccl-ops');
 const cclDateRouter = require('./routes/ccl-date');
 const expertsRouter = require('./routes/experts');
 const counselRouter = require('./routes/counsel');
@@ -187,6 +191,13 @@ app.use('/api/pitch-tracking', pitchTrackingRouter);
 app.use('/api/enquiry-enrichment', enquiryEnrichmentRouter);
 // Rate change notification tracking
 app.use('/api/rate-changes', rateChangesRouter);
+
+// CCL: draft management, AI fill, ops (Clio upload, support tickets)
+app.use('/api/ccl', cclRouter);
+app.use('/api/ccl-ai', cclAiRouter);
+app.use('/api/ccl-admin', cclAdminRouter);
+app.use('/api/ccl-ops', cclOpsRouter);
+app.use('/ccls', express.static(CCL_DIR));
 
 // CCL Date operation (Clio + legacy SQL)
 app.use('/api/ccl-date', cclDateRouter);

@@ -408,7 +408,7 @@ const PersonalAttendanceConfirm = forwardRef<
         const config = STATUS_CONFIG[status];
         const statusColor = isLeave ? '#9CA3AF' : (isDarkMode ? config.darkColor : config.color);
         
-        let bgColor = isDarkMode ? 'rgba(31, 41, 55, 0.4)' : 'rgba(255, 255, 255, 0.5)';
+        let bgColor = isDarkMode ? 'rgba(6, 23, 51, 0.5)' : 'rgba(255, 255, 255, 0.5)';
         let textColor = isDarkMode ? '#F3F4F6' : '#374151';
         
         if (isWeekend) {
@@ -420,7 +420,7 @@ const PersonalAttendanceConfirm = forwardRef<
         return {
             padding: '8px',
             background: bgColor,
-            border: `1px solid ${isToday ? (isDarkMode ? colours.accent : colours.highlight) : (isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)')}`,
+            border: `1px solid ${isToday ? (isDarkMode ? colours.highlight : colours.highlight) : (isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)')}`,
             borderLeft: isWeekend ? undefined : `3px solid ${statusColor}`,
             borderRadius: 0,
             textAlign: 'center',
@@ -466,7 +466,7 @@ const PersonalAttendanceConfirm = forwardRef<
         top: '100%',
         left: 0,
         right: 0,
-        background: isDarkMode ? '#1F2937' : '#FFFFFF',
+        background: isDarkMode ? colours.dark.sectionBackground : '#FFFFFF',
         border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : '#E5E7EB'}`,
         borderRadius: '4px',
         boxShadow: isDarkMode ? '0 4px 12px rgba(0, 0, 0, 0.4)' : '0 2px 8px rgba(0, 0, 0, 0.12)',
@@ -677,7 +677,7 @@ const PersonalAttendanceConfirm = forwardRef<
                 <div style={{
                     marginBottom: '16px',
                     padding: '10px 14px',
-                    background: isDarkMode ? 'rgba(31, 41, 55, 0.4)' : 'rgba(255, 255, 255, 0.5)',
+                    background: isDarkMode ? 'rgba(6, 23, 51, 0.5)' : 'rgba(255, 255, 255, 0.5)',
                     border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)'}`,
                     borderRadius: 4,
                 }}>
@@ -710,7 +710,7 @@ const PersonalAttendanceConfirm = forwardRef<
                             onMouseEnter={(e) => {
                                 if (!dayInfo.isLeave) {
                                     e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.15)';
-                                    e.currentTarget.style.borderColor = isDarkMode ? colours.accent : colours.highlight;
+                                    e.currentTarget.style.borderColor = isDarkMode ? colours.highlight : colours.highlight;
                                 }
                             }}
                             onMouseLeave={(e) => {
@@ -830,18 +830,18 @@ const PersonalAttendanceConfirm = forwardRef<
                             height: '24px',
                             minWidth: '90px',
                             borderRadius: 0,
-                            border: isDarkMode ? `1px solid ${colours.accent}` : 'none',
-                            backgroundColor: isDarkMode ? 'rgba(135, 243, 243, 0.1)' : colours.highlight,
-                            color: isDarkMode ? colours.accent : '#ffffff',
+                            border: isDarkMode ? `1px solid ${colours.highlight}` : 'none',
+                            backgroundColor: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : colours.highlight,
+                            color: isDarkMode ? colours.highlight : '#ffffff',
                             fontSize: '10px',
                             fontWeight: 600,
                             padding: '0 12px',
                             transition: 'all 0.2s ease',
                         },
                         rootHovered: {
-                            backgroundColor: isDarkMode ? 'rgba(135, 243, 243, 0.15)' : colours.highlight,
-                            borderColor: isDarkMode ? colours.accent : 'transparent',
-                            color: isDarkMode ? colours.accent : '#ffffff',
+                            backgroundColor: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : colours.highlight,
+                            borderColor: isDarkMode ? colours.highlight : 'transparent',
+                            color: isDarkMode ? colours.highlight : '#ffffff',
                             opacity: isDarkMode ? 1 : 0.85,
                         },
                         rootDisabled: {

@@ -6,12 +6,12 @@
     z-index: 100;
     display: flex;
     flex-direction: column;
-    gap: 4px; /* compact spacing */
+    gap: 0;
 }
 
 /* Ensure inner controls align compactly inside the premium card */
 .navigator-card {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 0;
 }

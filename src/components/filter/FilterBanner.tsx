@@ -153,15 +153,13 @@ const FilterBanner: React.FC<FilterBannerProps> = React.memo(({
       ? (dense ? '4px 8px' : '8px 12px')
       : (dense ? '4px 8px' : '12px 20px'),
     background: seamless ? 'transparent' : (isDarkMode 
-      ? 'linear-gradient(135deg, rgba(7, 16, 32, 0.75) 0%, rgba(11, 30, 55, 0.7) 100%)'
-      : 'rgb(255, 255, 255)'),
-    backdropFilter: seamless ? 'none' : (isDarkMode ? 'blur(16px) saturate(180%)' : 'none'),
-    WebkitBackdropFilter: seamless ? 'none' : (isDarkMode ? 'blur(16px) saturate(180%)' : 'none'),
+      ? colours.darkBlue
+      : colours.grey),
     borderBottom: seamless ? 'none' : (isDarkMode 
-      ? '1px solid rgba(125, 211, 252, 0.15)' 
+      ? `1px solid ${colours.dark.border}66`
       : '1px solid rgba(0, 0, 0, 0.06)'),
     boxShadow: seamless ? 'none' : (isDarkMode
-      ? '0 2px 12px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.3)'
+      ? 'none'
       : '0 2px 8px rgba(0, 0, 0, 0.08)'),
     fontFamily: 'Raleway, sans-serif',
     minHeight: 48,
@@ -307,7 +305,7 @@ const FilterBanner: React.FC<FilterBannerProps> = React.memo(({
             alignItems: 'center',
             paddingLeft: 8,
             paddingRight: 12,
-            borderRight: isDarkMode ? '1px solid rgba(0, 0, 0, 0.04)' : '1px solid rgba(0, 0, 0, 0.04)',
+            borderRight: isDarkMode ? `1px solid rgba(55, 65, 81, 0.3)` : '1px solid rgba(0, 0, 0, 0.06)',
             flexShrink: 0,
             justifyContent: 'center',
           }}>
@@ -375,11 +373,11 @@ const FilterBanner: React.FC<FilterBannerProps> = React.memo(({
                       justifyContent: 'center',
                       width: 28,
                       height: 28,
-                      borderRadius: 6,
-                      border: isDarkMode ? '1px solid rgba(255,255,255,0.12)' : '1px solid rgba(0,0,0,0.12)',
+                      borderRadius: 0,
+                      border: isDarkMode ? `1px solid ${colours.dark.border}` : '1px solid rgba(0,0,0,0.12)',
                       background: 'transparent',
                       cursor: 'pointer',
-                      color: isDarkMode ? '#E5E7EB' : '#0F172A'
+                      color: isDarkMode ? colours.dark.text : colours.darkBlue
                     }}
                   >
                     <Icon iconName="Search" style={{ fontSize: 14 }} />
@@ -448,11 +446,11 @@ const FilterBanner: React.FC<FilterBannerProps> = React.memo(({
                   padding: refreshOpen ? '0 10px 0 8px' : '0',
                   width: refreshOpen ? 90 : 28, // Fixed widths to prevent layout shift
                   minWidth: refreshOpen ? 90 : 28,
-                  borderRadius: 14,
-                  border: isDarkMode ? '1px solid rgba(255,255,255,0.12)' : '1px solid rgba(0,0,0,0.12)',
+                  borderRadius: 0,
+                  border: isDarkMode ? `1px solid ${colours.dark.border}` : '1px solid rgba(0,0,0,0.12)',
                   background: 'transparent',
                   cursor: refresh.isLoading ? 'not-allowed' : 'pointer',
-                  color: isDarkMode ? '#cbd5e1' : '#64748b',
+                  color: isDarkMode ? colours.subtleGrey : colours.greyText,
                   fontSize: 10,
                   fontFamily: 'Raleway, sans-serif',
                   fontWeight: 500,
@@ -476,7 +474,7 @@ const FilterBanner: React.FC<FilterBannerProps> = React.memo(({
                       right: 0,
                       height: 2,
                       background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.2)',
-                      borderRadius: '0 0 14px 14px',
+                      borderRadius: 0,
                     }}
                   >
                     <div
@@ -489,7 +487,7 @@ const FilterBanner: React.FC<FilterBannerProps> = React.memo(({
                         background: isDarkMode 
                           ? 'linear-gradient(90deg, rgba(54, 144, 206, 0.6) 0%, rgba(54, 144, 206, 0.4) 100%)'
                           : 'linear-gradient(90deg, rgba(54, 144, 206, 0.7) 0%, rgba(54, 144, 206, 0.5) 100%)',
-                        borderRadius: '0 0 14px 14px',
+                        borderRadius: 0,
                         opacity: refreshOpen ? 0.8 : 0.6,
                         transition: 'width 1s linear, opacity 0.2s',
                       }}
@@ -501,7 +499,7 @@ const FilterBanner: React.FC<FilterBannerProps> = React.memo(({
                   iconName={refresh.isLoading ? "Sync" : "Clock"}
                   style={{ 
                     fontSize: 12,
-                    color: isDarkMode ? '#94a3b8' : '#64748b',
+                    color: isDarkMode ? colours.subtleGrey : colours.greyText,
                     animation: refresh.isLoading ? 'spin 1s linear infinite' : 'none',
                     transition: 'transform 0.2s',
                     transform: refreshOpen ? 'scale(1)' : 'scale(1.1)',

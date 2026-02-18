@@ -101,14 +101,14 @@ export const statusBadgeStyle = (status: 'active' | 'closed', isDarkMode: boolea
     backgroundColor: 'transparent',
     border: `1px solid ${
       status === 'active'
-        ? (isDarkMode ? 'rgba(34, 197, 94, 0.45)' : 'rgba(34, 197, 94, 0.35)')
+        ? (isDarkMode ? 'rgba(54, 144, 206, 0.45)' : 'rgba(54, 144, 206, 0.35)')
         : (isDarkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(148, 163, 184, 0.3)')
     }`,
     color:
       status === 'active'
         ? isDarkMode
-          ? '#86efac'
-          : '#15803d'
+          ? colours.blue
+          : colours.missedBlue
         : isDarkMode
         ? '#94a3b8'
         : '#64748b',
@@ -155,7 +155,7 @@ export const metricsGridStyle = mergeStyles({
 
 export const metricCardStyle = (isDarkMode: boolean) =>
   mergeStyles({
-    backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+    backgroundColor: isDarkMode ? colours.dark.cardBackground : colours.light.sectionBackground,
     border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
     borderRadius: SURFACE_RADIUS,
     padding: 14,
@@ -187,7 +187,7 @@ export const metricValueStyle = (isDarkMode: boolean, accent?: boolean) =>
 
 export const sectionCardStyle = (isDarkMode: boolean) =>
   mergeStyles({
-    backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+    backgroundColor: isDarkMode ? colours.dark.cardBackground : colours.light.sectionBackground,
     border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
     borderRadius: SURFACE_RADIUS,
     padding: 16,
@@ -317,13 +317,13 @@ export const copyChipStyle = (isCopied: boolean, isDarkMode: boolean) =>
     flexShrink: 0,
     borderRadius: 5,
     border: isCopied
-      ? `1px solid ${isDarkMode ? 'rgba(16, 185, 129, 0.5)' : 'rgba(16, 185, 129, 0.38)'}`
+      ? `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.5)' : 'rgba(54, 144, 206, 0.38)'}`
       : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(100, 116, 139, 0.12)'}`,
     background: isCopied
-      ? (isDarkMode ? 'rgba(16, 185, 129, 0.16)' : 'rgba(16, 185, 129, 0.12)')
+      ? (isDarkMode ? 'rgba(54, 144, 206, 0.16)' : 'rgba(54, 144, 206, 0.12)')
       : 'transparent',
     color: isCopied
-      ? '#10B981'
+      ? colours.highlight
       : (isDarkMode ? 'rgba(203, 213, 225, 0.5)' : 'rgba(71, 85, 105, 0.55)'),
     cursor: 'pointer',
     padding: 0,
@@ -332,7 +332,7 @@ export const copyChipStyle = (isCopied: boolean, isDarkMode: boolean) =>
     ':hover': {
       opacity: isCopied ? 1 : 0.9,
       borderColor: isCopied
-        ? (isDarkMode ? 'rgba(16, 185, 129, 0.6)' : 'rgba(16, 185, 129, 0.5)')
+        ? (isDarkMode ? 'rgba(54, 144, 206, 0.6)' : 'rgba(54, 144, 206, 0.5)')
         : (isDarkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(100, 116, 139, 0.3)'),
     },
   });
@@ -347,7 +347,7 @@ export const progressBarStyle = (isDarkMode: boolean) =>
   mergeStyles({
     height: 8,
     borderRadius: 2,
-    backgroundColor: isDarkMode ? colours.dark.border : '#e5e7eb',
+    backgroundColor: isDarkMode ? colours.dark.border : colours.highlightNeutral,
     overflow: 'hidden',
     position: 'relative',
   });
@@ -359,7 +359,7 @@ export const progressFillStyle = (percentage: number) =>
     top: 0,
     bottom: 0,
     width: `${percentage}%`,
-    backgroundColor: '#16a34a',
+    backgroundColor: colours.highlight,
     borderRadius: 2,
     transition: 'width 0.3s ease',
   });

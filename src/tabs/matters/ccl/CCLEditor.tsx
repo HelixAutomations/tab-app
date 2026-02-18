@@ -28,10 +28,11 @@ interface CCLEditorProps {
   matter: NormalizedMatter;
   teamData?: TeamData[] | null;
   demoModeEnabled?: boolean;
+  userInitials?: string;
   onClose: () => void;
 }
 
-const CCLEditor: React.FC<CCLEditorProps> = ({ matter, teamData, demoModeEnabled = false, onClose }) => {
+const CCLEditor: React.FC<CCLEditorProps> = ({ matter, teamData, demoModeEnabled = false, userInitials, onClose }) => {
   const { isDarkMode } = useTheme();
 
   // Only use demo fields for the synthetic demo matter — real matters always get real data
@@ -92,73 +93,66 @@ const CCLEditor: React.FC<CCLEditorProps> = ({ matter, teamData, demoModeEnabled
     })();
   }, [matter.matterId, matter.displayNumber, isDemoMatter]);
 
-  // ─── AI fill on mount (fires once — fills the 26 intake fields) ───
-  useEffect(() => {
-    if (isDemoMatter || aiFiredRef.current) return;
+  // ─── AI fill (explicitly triggered by user — no auto-fire) ───
+  const triggerAiFill = useCallback(async () => {
+    if (aiFiredRef.current) return;
     const matterId = matter.matterId || matter.displayNumber;
     if (!matterId) return;
     aiFiredRef.current = true;
     setAiStatus('loading');
 
-    (async () => {
-      try {
-        const result: AiFillResponse = await fetchAiFill({
-          matterId,
-          instructionRef: matter.instructionRef || '',
-          practiceArea: matter.practiceArea || '',
-          description: matter.description || '',
-          clientName: matter.clientName || '',
-          opponent: (matter as any).opponent || '',
-          handlerName: matter.responsibleSolicitor || '',
-          handlerRole: fields.status || '',
-          handlerRate: fields.handler_hourly_rate || '',
+    try {
+      const result: AiFillResponse = await fetchAiFill({
+        matterId,
+        instructionRef: matter.instructionRef || '',
+        practiceArea: matter.practiceArea || '',
+        description: matter.description || '',
+        clientName: matter.clientName || '',
+        opponent: (matter as any).opponent || '',
+        handlerName: matter.responsibleSolicitor || '',
+        handlerRole: fields.status || '',
+        handlerRate: fields.handler_hourly_rate || '',
+        initials: userInitials || '',
+      });
+
+      if (result.ok && result.fields) {
+        setFields((prev) => {
+          const merged = { ...prev };
+          for (const [key, value] of Object.entries(result.fields)) {
+            const isAutoFilled = [
+              'insert_clients_name', 'name_of_person_handling_matter', 'name_of_handler',
+              'handler', 'email', 'fee_earner_email', 'fee_earner_phone',
+              'fee_earner_postal_address', 'name', 'status', 'handler_hourly_rate',
+              'contact_details_for_marketing_opt_out', 'matter', 'matter_number',
+            ].includes(key);
+            if (isAutoFilled && prev[key]?.trim()) continue;
+            if (!prev[key]?.trim() || prev[key].trim().length < 5) {
+              merged[key] = value;
+            }
+          }
+          return merged;
         });
 
-        if (result.ok && result.fields) {
-          // Merge AI fields with existing auto-filled fields.
-          // AI fills the intake fields; auto-fill already set handler/client fields.
-          // Only overwrite fields that are currently empty or very short.
-          setFields((prev) => {
-            const merged = { ...prev };
-            for (const [key, value] of Object.entries(result.fields)) {
-              // Don't overwrite auto-filled handler/client fields
-              const isAutoFilled = [
-                'insert_clients_name', 'name_of_person_handling_matter', 'name_of_handler',
-                'handler', 'email', 'fee_earner_email', 'fee_earner_phone',
-                'fee_earner_postal_address', 'name', 'status', 'handler_hourly_rate',
-                'contact_details_for_marketing_opt_out', 'matter', 'matter_number',
-              ].includes(key);
-              if (isAutoFilled && prev[key]?.trim()) continue;
-              // Only fill if current value is empty/short
-              if (!prev[key]?.trim() || prev[key].trim().length < 5) {
-                merged[key] = value;
-              }
-            }
-            return merged;
-          });
-
-          setAiSource(result.source);
-          setAiDurationMs(result.durationMs);
-          setAiDataSources(result.dataSources || []);
-          setAiContextSummary(result.contextSummary || '');
-          setAiUserPrompt(result.userPrompt || '');
-          setAiSystemPrompt(result.systemPrompt || '');
-          setAiFallbackReason(result.fallbackReason || '');
-          setAiDebugTrace(result.debug);
-          setAiStatus(
-            result.confidence === 'full' ? 'complete' :
-            result.confidence === 'partial' ? 'partial' : 'fallback'
-          );
-        } else {
-          setAiStatus('error');
-        }
-      } catch (err) {
-        console.warn('[CCL] AI fill failed:', err);
+        setAiSource(result.source);
+        setAiDurationMs(result.durationMs);
+        setAiDataSources(result.dataSources || []);
+        setAiContextSummary(result.contextSummary || '');
+        setAiUserPrompt(result.userPrompt || '');
+        setAiSystemPrompt(result.systemPrompt || '');
+        setAiFallbackReason(result.fallbackReason || '');
+        setAiDebugTrace(result.debug);
+        setAiStatus(
+          result.confidence === 'full' ? 'complete' :
+          result.confidence === 'partial' ? 'partial' : 'fallback'
+        );
+      } else {
         setAiStatus('error');
       }
-    })();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isDemoMatter, matter.matterId, matter.displayNumber]);
+    } catch (err) {
+      console.warn('[CCL] AI fill failed:', err);
+      setAiStatus('error');
+    }
+  }, [matter, fields.status, fields.handler_hourly_rate, userInitials]);
 
   // ─── Auto-save draft (debounced 2s) ───
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -172,14 +166,14 @@ const CCLEditor: React.FC<CCLEditorProps> = ({ matter, teamData, demoModeEnabled
         await fetch(`/api/ccl/${encodeURIComponent(matterId)}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ draftJson: fields }),
+          body: JSON.stringify({ draftJson: fields, initials: userInitials || '' }),
         });
       } catch {
         // Silent fail — draft save is best-effort
       }
     }, 2000);
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
-  }, [fields, isDemoMatter, draftLoaded, matter.matterId, matter.displayNumber]);
+  }, [fields, isDemoMatter, draftLoaded, matter.matterId, matter.displayNumber, userInitials]);
 
 
 
@@ -305,8 +299,8 @@ const CCLEditor: React.FC<CCLEditorProps> = ({ matter, teamData, demoModeEnabled
         {overallCompletion === 100 && (
           <div style={{
             padding: '3px 8px', borderRadius: 2, fontSize: 10, fontWeight: 700,
-            background: isDarkMode ? 'rgba(34,197,94,0.15)' : 'rgba(34,197,94,0.1)',
-            color: isDarkMode ? '#4ade80' : '#16a34a',
+            background: isDarkMode ? 'rgba(54,144,206,0.18)' : 'rgba(54,144,206,0.1)',
+            color: accentBlue,
           }}>
             Ready
           </div>
@@ -368,6 +362,7 @@ const CCLEditor: React.FC<CCLEditorProps> = ({ matter, teamData, demoModeEnabled
           fields={fields}
           updateField={updateField}
           userEditedKeys={userEditedKeys}
+          userInitials={userInitials}
           aiStatus={aiStatus}
           aiSource={aiSource}
           aiDurationMs={aiDurationMs}
@@ -381,6 +376,7 @@ const CCLEditor: React.FC<CCLEditorProps> = ({ matter, teamData, demoModeEnabled
           onBack={() => setCurrentStep('editor')}
           onClose={onClose}
           onAdvancedMode={() => setCurrentStep('questionnaire')}
+          onTriggerAiFill={triggerAiFill}
         />
       )}
     </div>

@@ -11,9 +11,9 @@ body.theme-dark .immediate-actions-portal,
 body[data-theme="dark"] .immediate-actions-portal,
 body.theme-contrast .immediate-actions-portal,
 body[data-theme="contrast"] .immediate-actions-portal {
-  background: #0a0e1a;
-  border-bottom: 1px solid rgba(54, 144, 206, 0.12);
-  color: #f1f5f9;
+  background: #000319;
+  border-bottom: 1px solid rgba(55, 65, 81, 0.4);
+  color: #f3f4f6;
 }
 
 body.theme-light .immediate-actions-portal,

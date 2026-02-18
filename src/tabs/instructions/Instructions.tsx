@@ -2139,7 +2139,6 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
     // Default (including Matter Opening): show the full filter banner (new navigator with breadcrumbs)
     setContent(
         <FilterBanner
-          seamless
           dense
           collapsibleSearch
           primaryFilter={
@@ -7250,8 +7249,8 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                               {[
                                 { label: 'Client Risk Policy', url: 'https://drive.google.com/file/d/1_7dX2qSlvuNmOiirQCxQb8NDs6iUSAhT/view?usp=sharing' },
                                 { label: 'Transaction Risk', url: 'https://drive.google.com/file/d/1sTRII8MFU3JLpMiUcz-Y6KBQ1pP1nKgT/view?usp=sharing' },
-                                { label: 'AML Policy', url: 'https://drive.google.com/file/d/1TcBlV0Pf0lYlNkmdOGRfpx--DcTEC7na/view?usp=sharing' },
-                                { label: 'Sanctions Policy', url: 'https://drive.google.com/file/d/1Wx-dHdfXuN0-A2YmBYb-OO-Bz2wXevl9/view?usp=sharing' }
+                                { label: 'AML Policy', url: 'https://drive.google.com/file/d/1opiC3TbEsdEH4ExDjckIhQzzsI3_wYYB/view?usp=sharing' },
+                                { label: 'Sanctions Policy', url: 'https://drive.google.com/file/d/1y7fTLI_Dody00y9v42ohltQU-hnnYJ9P/view?usp=sharing' }
                               ].map((doc) => (
                                 <a
                                   key={doc.label}

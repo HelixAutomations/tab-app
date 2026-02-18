@@ -816,7 +816,7 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
       : (isDark ? colours.dark.cardBackground : colours.light.cardBackground),
     border: isUser 
       ? `3px solid ${isDark ? colours.blue : colours.missedBlue}` 
-      : `1px solid ${isDark ? 'rgba(125, 211, 252, 0.24)' : colours.light.border}`,
+      : `1px solid ${isDark ? 'rgba(54, 144, 206, 0.08)' : colours.light.border}`,
     borderRadius: '2px',
     transition: 'all 0.2s ease',
     minHeight: '70px',
@@ -899,7 +899,7 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
         ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.35) 0%, rgba(27, 91, 136, 0.26) 100%)'
         : 'linear-gradient(135deg, rgba(54, 144, 206, 0.20) 0%, rgba(118, 184, 228, 0.16) 100%)')
       : 'transparent',
-    border: `1px solid ${isActive ? colours.highlight : (isDarkMode ? 'rgba(125, 211, 252, 0.24)' : colours.light.border)}`,
+    border: `1px solid ${isActive ? colours.highlight : (isDarkMode ? 'rgba(54, 144, 206, 0.08)' : colours.light.border)}`,
     color: isActive ? (isDarkMode ? '#E9F5FF' : colours.highlight) : (isDarkMode ? colours.dark.text : colours.light.text),
     borderRadius: '2px',
     lineHeight: 1.2,
@@ -939,11 +939,11 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
     fontWeight: 600,
     background: isActive
       ? (isDarkMode
-        ? 'linear-gradient(135deg, rgba(135,243,243,0.20) 0%, rgba(135,243,243,0.12) 100%)'
+        ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.20) 0%, rgba(54, 144, 206, 0.12) 100%)'
         : 'linear-gradient(135deg, rgba(191,219,254,0.55) 0%, rgba(191,219,254,0.35) 100%)')
       : 'transparent',
-    color: isActive ? (isDarkMode ? colours.accent : colours.highlight) : (isDarkMode ? colours.dark.text : colours.light.text),
-    border: `1px solid ${isActive ? (isDarkMode ? colours.accent : colours.highlight) : (isDarkMode ? 'rgba(148,163,184,0.26)' : 'rgba(6,23,51,0.14)')}`,
+    color: isActive ? (isDarkMode ? colours.highlight : colours.highlight) : (isDarkMode ? colours.dark.text : colours.light.text),
+    border: `1px solid ${isActive ? (isDarkMode ? colours.highlight : colours.highlight) : (isDarkMode ? 'rgba(148,163,184,0.26)' : 'rgba(6,23,51,0.14)')}`,
     borderRadius: '2px',
     lineHeight: 1.2,
     display: 'flex',
@@ -951,15 +951,15 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
     justifyContent: 'center',
     boxShadow: isActive
       ? (isDarkMode
-        ? '0 6px 14px rgba(135,243,243,0.08)'
+        ? '0 6px 14px rgba(54, 144, 206, 0.08)'
         : '0 6px 14px rgba(54,144,206,0.08)')
       : 'none',
     '&:hover': {
       background: isActive
         ? (isDarkMode
-          ? 'linear-gradient(135deg, rgba(135,243,243,0.28) 0%, rgba(135,243,243,0.18) 100%)'
+          ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.28) 0%, rgba(54, 144, 206, 0.18) 100%)'
           : 'linear-gradient(135deg, rgba(191,219,254,0.65) 0%, rgba(191,219,254,0.42) 100%)')
-        : (isDarkMode ? 'rgba(135,243,243,0.10)' : 'rgba(54,144,206,0.10)')
+        : (isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(54,144,206,0.10)')
     }
   });
 
@@ -1735,7 +1735,7 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
                           </div>
                           <div style={{ 
                             fontSize: '11px', 
-                            color: isDarkMode ? colours.accent : colours.blue
+                            color: isDarkMode ? colours.highlight : colours.blue
                           }}>
                             {membersForStatus.length} {membersForStatus.length === 1 ? 'person' : 'people'}
                           </div>

@@ -37,6 +37,8 @@ interface EnquiryMetricsV2Props {
   showPreviousPeriod?: boolean;
   /** When true (viewing as production), hide dev features like metric details modal */
   viewAsProd?: boolean;
+  /** When true, skip outer container/header — render only the card grids (for embedding inside another panel) */
+  embedded?: boolean;
 }
 
 
@@ -91,38 +93,29 @@ const SkeletonMetricCard: React.FC<{ isDarkMode: boolean; index: number; showPro
   ({ isDarkMode, index, showProgress = false }) => (
   <div
     style={{
-      background: isDarkMode 
-        ? 'linear-gradient(90deg, rgba(14, 22, 38, 0.98) 0%, rgba(24, 34, 52, 0.95) 100%)'
-        : 'linear-gradient(90deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 250, 252, 0.95) 100%)',
-      borderRadius: '2px',
-      padding: '20px',
+      background: isDarkMode
+        ? 'rgba(0, 3, 25, 0.28)'
+        : 'rgba(255, 255, 255, 0.66)',
+      borderRadius: '0',
+      padding: '8px',
+      borderLeft: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.45)' : 'rgba(54, 144, 206, 0.55)'}`,
       border: isDarkMode 
-        ? '1px solid rgba(54, 144, 206, 0.15)'
+        ? '1px solid rgba(54, 144, 206, 0.06)'
         : '1px solid rgba(148, 163, 184, 0.12)',
-      boxShadow: isDarkMode
-        ? '0 2px 8px rgba(0, 0, 0, 0.3)'
-        : '0 1px 4px rgba(0, 0, 0, 0.06)',
+      boxShadow: 'none',
       opacity: 1,
       animation: `fadeInToast 0.3s ease ${index * 50}ms both`,
     }}
   >
-    {/* Header row: icon + trend */}
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-      <SkeletonBox width="36px" height="36px" isDarkMode={isDarkMode} style={{ borderRadius: '2px' }} animate={false} />
-      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-        <SkeletonBox width="12px" height="12px" isDarkMode={isDarkMode} animate={false} />
-        <SkeletonBox width="32px" height="12px" isDarkMode={isDarkMode} animate={false} />
-      </div>
-    </div>
     {/* Title */}
-    <SkeletonBox width="70%" height="14px" isDarkMode={isDarkMode} style={{ marginBottom: '10px' }} animate={false} />
+    <SkeletonBox width="62%" height="11px" isDarkMode={isDarkMode} style={{ marginBottom: '6px' }} animate={false} />
     {/* Value */}
-    <SkeletonBox width="50%" height="28px" isDarkMode={isDarkMode} style={{ marginBottom: '8px' }} />
-    <SkeletonBox width="30%" height="12px" isDarkMode={isDarkMode} style={{ marginBottom: showProgress ? '14px' : '0' }} animate={false} />
+    <SkeletonBox width="46%" height="20px" isDarkMode={isDarkMode} style={{ marginBottom: '5px' }} />
+    <SkeletonBox width="34%" height="10px" isDarkMode={isDarkMode} style={{ marginBottom: showProgress ? '6px' : '0' }} animate={false} />
     {/* Progress bar if needed */}
     {showProgress && (
-      <div style={{ marginTop: '14px' }}>
-        <SkeletonBox width="100%" height="8px" isDarkMode={isDarkMode} style={{ borderRadius: '4px' }} />
+      <div style={{ marginTop: '6px' }}>
+        <SkeletonBox width="100%" height="5px" isDarkMode={isDarkMode} style={{ borderRadius: '4px' }} />
       </div>
     )}
   </div>
@@ -164,7 +157,7 @@ const Toast: React.FC<{ message: string; type: 'info' | 'success' | 'error'; vis
   );
 };
 
-const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode, userEmail, userInitials, headerActions, title, refreshAnimationKey, isLoading, breakdown, showPreviousPeriod = false, viewAsProd = false }) => {
+const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode, userEmail, userInitials, headerActions, title, refreshAnimationKey, isLoading, breakdown, showPreviousPeriod = false, viewAsProd = false, embedded = false }) => {
   const isSessionStorageAvailable = React.useMemo(() => {
     try {
       const key = '__emv2_storage_test__';
@@ -177,6 +170,21 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
   }, []);
   // Show details feature only in local dev when NOT viewing as production
   const showDetailsFeature = !viewAsProd;
+
+  const sectionRailStyle = React.useMemo<React.CSSProperties>(() => ({
+    background: isDarkMode ? 'rgba(6, 23, 51, 0.35)' : 'rgba(248, 250, 252, 0.68)',
+    border: isDarkMode ? '1px solid rgba(54, 144, 206, 0.08)' : '1px solid rgba(148, 163, 184, 0.16)',
+    padding: '3px',
+  }), [isDarkMode]);
+
+  const metricBlockStyle = React.useMemo<React.CSSProperties>(() => ({
+    background: isDarkMode ? 'rgba(0, 3, 25, 0.28)' : 'rgba(255, 255, 255, 0.66)',
+    border: isDarkMode ? '1px solid rgba(54, 144, 206, 0.06)' : '1px solid rgba(148, 163, 184, 0.12)',
+    borderLeft: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.45)' : 'rgba(54, 144, 206, 0.55)'}`,
+    borderRadius: '0',
+    padding: '8px',
+    boxShadow: 'none',
+  }), [isDarkMode]);
 
   // Inject keyframes
   React.useEffect(() => {
@@ -205,13 +213,8 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
   const [hoveredTrendKey, setHoveredTrendKey] = React.useState<string | null>(null);
 
   const getDisplayTitle = React.useCallback((rawTitle: string): string => {
-    if (!showPreviousPeriod) return rawTitle;
-
-    if (rawTitle.includes('Today')) return rawTitle.replace('Today', 'Same Day Last Week');
-    if (rawTitle.includes('This Week')) return rawTitle.replace('This Week', 'Last Week (to date)');
-    if (rawTitle.includes('This Month')) return rawTitle.replace('This Month', 'Last Month (to date)');
     return rawTitle;
-  }, [showPreviousPeriod]);
+  }, []);
 
   const getTrendHelpText = React.useCallback((rawTitle: string): string => {
     const titleLower = (rawTitle || '').toLowerCase();
@@ -482,8 +485,8 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
     letterSpacing: 0.6,
     textTransform: 'uppercase',
     color: isDarkMode ? 'rgba(148, 163, 184, 0.9)' : 'rgba(100, 116, 139, 0.95)',
-    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(15, 23, 42, 0.10)'}`,
-    background: isDarkMode ? 'rgba(2, 6, 23, 0.25)' : 'rgba(255, 255, 255, 0.7)',
+    border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(15, 23, 42, 0.10)'}`,
+    background: isDarkMode ? 'rgba(6, 23, 51, 0.4)' : 'rgba(255, 255, 255, 0.7)',
     padding: '3px 8px',
     borderRadius: 999,
     lineHeight: 1,
@@ -647,7 +650,7 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
     switch (trend) {
       case 'up': return colours.green;
       case 'down': return colours.cta;
-      default: return isDarkMode ? colours.accent : colours.light.subText;
+      default: return isDarkMode ? colours.subtleGrey : colours.light.subText;
     }
   };
 
@@ -676,404 +679,148 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
   };
 
   return (
-    <div style={{
-      padding: '0 16px',
+    <div style={embedded ? { width: '100%' } : {
+      padding: '0',
       margin: '0',
       position: 'relative',
       background: 'transparent',
       width: '100%',
-      boxSizing: 'border-box',
+      boxSizing: 'border-box' as const,
     }}>
-      {/* Unified Enquiry Metrics Container */}
-      <div style={{
+      <div style={embedded ? { width: '100%' } : {
         background: isDarkMode 
-          ? 'linear-gradient(90deg, rgba(6, 10, 20, 0.98) 0%, rgba(10, 16, 28, 0.98) 100%)'
+          ? colours.websiteBlue
           : 'rgba(255, 255, 255, 0.98)',
-        backdropFilter: 'blur(20px)',
-        WebkitBackdropFilter: 'blur(20px)',
-        borderRadius: '2px',
-        border: isDarkMode 
-          ? '1px solid rgba(54, 144, 206, 0.15)' 
-          : '1px solid rgba(148, 163, 184, 0.15)',
-        boxShadow: isDarkMode
-          ? '0 4px 24px rgba(0,0,0,0.4)'
-          : '0 2px 16px rgba(0,0,0,0.05)',
-        marginBottom: '20px',
+        borderRadius: '0',
+        border: 'none',
+        boxShadow: 'none',
+        marginBottom: '0',
         width: '100%',
-        boxSizing: 'border-box',
-        overflow: 'hidden',
-        position: 'relative',
+        boxSizing: 'border-box' as const,
+        overflow: 'hidden' as const,
+        position: 'relative' as const,
       }}>
-        {/* Accent gradient line at top */}
-        <div style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          height: '2px',
-          background: isDarkMode 
-            ? 'linear-gradient(90deg, rgba(54, 144, 206, 0.6) 0%, rgba(135, 243, 243, 0.4) 50%, rgba(54, 144, 206, 0.6) 100%)'
-            : 'linear-gradient(90deg, rgba(54, 144, 206, 0.4) 0%, rgba(54, 144, 206, 0.6) 50%, rgba(54, 144, 206, 0.4) 100%)',
-        }} />
-        {/* Header */}
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '14px 16px',
-          borderBottom: isDarkMode 
-            ? '1px solid rgba(54, 144, 206, 0.12)' 
-            : '1px solid rgba(148, 163, 184, 0.12)',
-          marginBottom: '12px',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <h2 style={{
-              margin: 0,
-              fontSize: '18px',
-              fontWeight: 600,
-              color: isDarkMode ? colours.dark.text : colours.light.text,
-              letterSpacing: '-0.025em',
-            }}>
-              {title || 'Enquiry & Conversion Metrics'}
-            </h2>
-            {/* Loading indicator badge */}
-            {isLoading && (
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '4px 10px',
-                borderRadius: '12px',
-                background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)',
-                border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)'}`,
-              }}>
-                <svg 
-                  width="12" 
-                  height="12" 
-                  viewBox="0 0 24 24" 
-                  fill="none" 
-                  stroke={colours.highlight}
-                  strokeWidth="2"
-                  style={{ animation: 'shimmer 1s linear infinite' }}
-                >
-                  <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-                  <path d="M3 3v5h5" />
-                </svg>
-                <span style={{ 
-                  fontSize: '11px', 
-                  fontWeight: 500, 
-                  color: colours.highlight,
-                }}>
-                  Loading...
-                </span>
-              </div>
-            )}
-            {/* Toast notification */}
-            {toast && <Toast message={toast.message} type={toast.type} visible={toast.visible} isDarkMode={isDarkMode} />}
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            {headerActions}
-          </div>
-        </div>
-        
-        {/* Metrics Content */}
-        <div style={{
-          padding: '0 16px 16px 16px',
-        }}>
-          {/* Skeleton loading state */}
-          {isLoading && (
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(3, 1fr)',
-              gap: '16px',
-              marginBottom: '16px',
-            }}>
-              <SkeletonMetricCard isDarkMode={isDarkMode} index={0} showProgress={false} />
-              <SkeletonMetricCard isDarkMode={isDarkMode} index={1} showProgress={false} />
-              <SkeletonMetricCard isDarkMode={isDarkMode} index={2} showProgress={false} />
-            </div>
-          )}
-          {isLoading && (
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(2, 1fr)',
-              gap: '16px',
-            }}>
-              <SkeletonMetricCard isDarkMode={isDarkMode} index={3} showProgress={false} />
-              <SkeletonMetricCard isDarkMode={isDarkMode} index={4} showProgress={true} />
-            </div>
-          )}
-          
-          {/* Data loaded state */}
-          {!isLoading && (
+        {!embedded && (
           <>
-          {/* First row - first 3 metrics */}
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(3, 1fr)',
-            gap: '16px',
-            marginBottom: metrics.length > 3 ? '16px' : '0',
-          }}>
-            {metrics.slice(0, 3).map((metric, index) => {
-              const Icon = getIcon(metric);
-              const currentValue = getCurrentValue(metric);
-              const prevValue = getPrevValue(metric);
-              const displayValue = showPreviousPeriod ? prevValue : currentValue;
-              const displayPercentage = showPreviousPeriod ? (metric.prevPercentage || 0) : (metric.percentage || 0);
-              const trend = getTrendDirection(currentValue, prevValue);
-              const trendColor = getTrendColor(trend);
-              const trendKey = `${metric.title}-${index}`;
-
-              return (
-                <div
-                  key={`${metric.title}-${index}`}
-                  style={{
-                    background: isDarkMode 
-                      ? 'linear-gradient(90deg, rgba(14, 22, 38, 0.98) 0%, rgba(24, 34, 52, 0.95) 100%)'
-                      : 'linear-gradient(90deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 250, 252, 0.95) 100%)',
-                    borderRadius: '2px',
-                    padding: '20px',
-                    border: isDarkMode 
-                      ? '1px solid rgba(54, 144, 206, 0.2)'
-                      : `1px solid rgba(148, 163, 184, 0.18)`,
-                    boxShadow: isDarkMode
-                      ? '0 2px 8px rgba(0, 0, 0, 0.3)'
-                      : '0 1px 4px rgba(0, 0, 0, 0.06)',
-                    transition: 'all 0.15s ease',
-                    cursor: 'pointer',
-                    position: 'relative',
-                    animation: dataLanded 
-                      ? `dataLanded 0.5s ease ${index * 0.06}s both`
-                      : refreshPulse 
-                        ? 'metricRefresh 0.4s ease' 
-                        : undefined,
-                    ...staggerStyle(index),
-                  }}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => openMetricDetails(metric)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      openMetricDetails(metric);
-                    }
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.borderColor = isDarkMode
-                      ? 'rgba(54, 144, 206, 0.25)'
-                      : 'rgba(0, 0, 0, 0.15)';
-                    e.currentTarget.style.transform = 'translateY(-2px)';
-                    const icon = e.currentTarget.querySelector('[data-metric-icon]') as HTMLElement;
-                    if (icon) icon.style.transform = 'scale(1.1)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = isDarkMode
-                      ? 'rgba(54, 144, 206, 0.12)'
-                      : colours.light.border;
-                    e.currentTarget.style.transform = 'translateY(0)';
-                    const icon = e.currentTarget.querySelector('[data-metric-icon]') as HTMLElement;
-                    if (icon) icon.style.transform = 'scale(1)';
-                  }}
-                >
-                  {/* No breakdown cue / click-to-open */}
-                  {/* Header with icon and trend */}
+            {/* Accent gradient line at top */}
+            <div style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              height: '1px',
+              background: colours.highlight,
+            }} />
+            {/* Header */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '10px 16px',
+              background: 'transparent',
+              borderBottom: isDarkMode 
+                ? '1px solid rgba(54, 144, 206, 0.08)' 
+                : '1px solid rgba(148, 163, 184, 0.12)',
+              marginBottom: '0',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <h2 style={{
+                  margin: 0,
+                  fontSize: '14px',
+                  fontWeight: 600,
+                  color: isDarkMode ? colours.dark.text : colours.light.text,
+                  letterSpacing: '-0.025em',
+                }}>
+                  {title || 'Enquiry & Conversion Metrics'}
+                </h2>
+                {isLoading && (
                   <div style={{
                     display: 'flex',
                     alignItems: 'center',
-                    justifyContent: 'space-between',
-                    marginBottom: '12px',
+                    gap: '6px',
+                    padding: '4px 10px',
+                    borderRadius: '12px',
+                    background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)',
+                    border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)'}`,
                   }}>
-                    <div 
-                      data-metric-icon
-                      style={{
-                      width: '36px',
-                      height: '36px',
-                      borderRadius: '2px',
-                      background: isDarkMode
-                        ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.2) 0%, rgba(135, 243, 243, 0.12) 100%)'
-                        : 'linear-gradient(135deg, rgba(54, 144, 206, 0.15) 0%, rgba(54, 144, 206, 0.08) 100%)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      color: isDarkMode ? colours.accent : colours.highlight,
-                      transition: 'transform 0.12s ease',
-                      boxShadow: isDarkMode ? '0 2px 6px rgba(0,0,0,0.2)' : '0 1px 3px rgba(0,0,0,0.05)',
+                    <svg 
+                      width="12" 
+                      height="12" 
+                      viewBox="0 0 24 24" 
+                      fill="none" 
+                      stroke={colours.highlight}
+                      strokeWidth="2"
+                      style={{ animation: 'shimmer 1s linear infinite' }}
+                    >
+                      <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                      <path d="M3 3v5h5" />
+                    </svg>
+                    <span style={{ 
+                      fontSize: '11px', 
+                      fontWeight: 500, 
+                      color: colours.highlight,
                     }}>
-                      <Icon size={16} />
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      {!showPreviousPeriod && trend !== 'neutral' && metric.showTrend !== false && (
-                        <div style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                          color: trendColor,
-                          fontSize: '12px',
-                          fontWeight: 500,
-                        }}>
-                          <FiTrendingUp 
-                            size={12} 
-                            style={{ 
-                              transform: trend === 'down' ? 'rotate(180deg)' : 'none' 
-                            }} 
-                          />
-                          <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatTrendValue(currentValue, prevValue, metric.isPercentage || false)}</span>
-
-                          <span
-                            onMouseEnter={() => setHoveredTrendKey(trendKey)}
-                            onMouseLeave={() => setHoveredTrendKey(prev => (prev === trendKey ? null : prev))}
-                            style={{
-                              position: 'relative',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              marginLeft: 6,
-                              width: 16,
-                              height: 16,
-                              borderRadius: 999,
-                              border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.32)' : 'rgba(54, 144, 206, 0.28)'}`,
-                              color: isDarkMode ? colours.accent : colours.highlight,
-                              fontSize: 10,
-                              fontWeight: 700,
-                              lineHeight: 1,
-                            }}
-                          >
-                            i
-                            <span
-                              style={{
-                                position: 'absolute',
-                                top: 20,
-                                right: 0,
-                                minWidth: 220,
-                                maxWidth: 280,
-                                padding: '8px 10px',
-                                borderRadius: 8,
-                                background: isDarkMode ? 'rgba(10, 16, 28, 0.96)' : 'rgba(255, 255, 255, 0.96)',
-                                border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(148, 163, 184, 0.22)'}`,
-                                boxShadow: isDarkMode ? '0 10px 24px rgba(0,0,0,0.45)' : '0 10px 22px rgba(0,0,0,0.12)',
-                                color: isDarkMode ? colours.dark.text : colours.light.text,
-                                fontSize: 12,
-                                fontWeight: 500,
-                                lineHeight: 1.35,
-                                opacity: hoveredTrendKey === trendKey ? 1 : 0,
-                                transform: hoveredTrendKey === trendKey ? 'translateY(0)' : 'translateY(-4px)',
-                                transition: 'opacity 140ms ease, transform 140ms ease',
-                                pointerEvents: 'none',
-                                zIndex: 5,
-                                whiteSpace: 'normal',
-                              }}
-                            >
-                              {getTrendHelpText(metric.title)}
-                            </span>
-                          </span>
-                        </div>
-                      )}
-                      {showDetailsFeature && <span style={detailsChipStyle}>Details</span>}
-                    </div>
+                      Loading...
+                    </span>
                   </div>
-
-                  <h3 style={{
-                    margin: '0 0 8px 0',
-                    fontSize: '13px',
-                    fontWeight: 500,
-                    color: isDarkMode ? '#9CA3AF' : '#6B7280',
-                    lineHeight: '1.2',
-                  }}>
-                    {getDisplayTitle(metric.title)}
-                  </h3>
-
-                  {/* Main value */}
-                  <div style={{
-                    fontSize: '28px',
-                    fontWeight: 700,
-                    color: isDarkMode ? '#F9FAFB' : '#0f172a',
-                    letterSpacing: '-0.03em',
-                    fontVariantNumeric: 'tabular-nums',
-                    marginBottom: '8px',
-                    textShadow: isDarkMode ? '0 2px 8px rgba(0,0,0,0.3)' : 'none',
-                  }}>
-                    <AnimatedMetricValue
-                      storageKey={`emv2_metric_${metric.title}`}
-                      value={displayValue}
-                      decimals={metric.isPercentage ? 1 : 0}
-                      suffix={metric.isPercentage ? '%' : ''}
-                      enabled={enableAnimationThisMount && !showPreviousPeriod}
-                    />
-                  </div>
-
-                  {/* Progress indicator for percentages */}
-                  {metric.isPercentage && (
-                    <div style={{
-                      marginTop: '14px',
-                    }}>
-                      <div style={{
-                        width: '100%',
-                        height: '8px',
-                        background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(148, 163, 184, 0.15)',
-                        borderRadius: '4px',
-                        overflow: 'hidden',
-                        boxShadow: isDarkMode ? 'inset 0 1px 2px rgba(0,0,0,0.2)' : 'inset 0 1px 2px rgba(0,0,0,0.05)',
-                      }}>
-                        <div style={{
-                          width: `${Math.min(displayPercentage, 100)}%`,
-                          height: '100%',
-                          background: displayPercentage >= 80 
-                            ? `linear-gradient(90deg, ${colours.green} 0%, #34d399 100%)`
-                            : isDarkMode
-                            ? `linear-gradient(90deg, ${colours.highlight} 0%, ${colours.accent} 100%)`
-                            : `linear-gradient(90deg, ${colours.highlight} 0%, #60a5fa 100%)`,
-                          borderRadius: '4px',
-                          transition: enableAnimationThisMount ? 'width 0.5s cubic-bezier(0.4, 0, 0.2, 1)' : 'none',
-                          boxShadow: isDarkMode ? '0 0 8px rgba(54, 144, 206, 0.4)' : '0 0 6px rgba(54, 144, 206, 0.3)',
-                        }} />
-                      </div>
-                    </div>
-                  )}
+                )}
+                {toast && <Toast message={toast.message} type={toast.type} visible={toast.visible} isDarkMode={isDarkMode} />}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                {headerActions}
+              </div>
+            </div>
+          </>
+        )}
+        
+        {/* Metrics Content — clean data rows */}
+        <div style={{
+          padding: embedded ? '0' : '10px 10px 10px 10px',
+        }}>
+          {/* Skeleton loading state */}
+          {isLoading && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
+              {[0,1,2,3,4].map(i => (
+                <div key={i} style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '8px 0',
+                  borderBottom: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.05)' : 'rgba(148, 163, 184, 0.08)'}`,
+                }}>
+                  <SkeletonBox width="100px" height="11px" isDarkMode={isDarkMode} animate={false} />
+                  <SkeletonBox width="50px" height="14px" isDarkMode={isDarkMode} />
                 </div>
-              );
-            })}
-          </div>
-
-          {/* Second row - remaining metrics if any */}
-          {metrics.length > 3 && (
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(2, 1fr)',
-              gap: '16px',
-            }}>
-              {metrics.slice(3).map((metric, index) => {
-                const Icon = getIcon(metric);
+              ))}
+            </div>
+          )}
+          
+          {/* Data loaded state — row per metric */}
+          {!isLoading && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
+              {metrics.map((metric, index) => {
                 const currentValue = getCurrentValue(metric);
                 const prevValue = getPrevValue(metric);
-                const displayValue = showPreviousPeriod ? prevValue : currentValue;
-                const displayPercentage = showPreviousPeriod ? (metric.prevPercentage || 0) : (metric.percentage || 0);
+                const displayValue = currentValue;
+                const displayPercentage = metric.percentage || 0;
                 const trend = getTrendDirection(currentValue, prevValue);
                 const trendColor = getTrendColor(trend);
-                const trendKey = `${metric.title}-${index + 3}`;
 
                 return (
                   <div
-                    key={`${metric.title}-${index + 3}`}
+                    key={`${metric.title}-${index}`}
                     style={{
-                      background: isDarkMode 
-                        ? 'rgba(15, 23, 42, 0.6)'
-                        : colours.light.cardBackground,
-                      borderRadius: '2px',
-                      padding: '20px',
-                      border: isDarkMode 
-                        ? '1px solid rgba(54, 144, 206, 0.12)'
-                        : `1px solid ${colours.light.border}`,
-                      boxShadow: isDarkMode
-                        ? '0 1px 2px rgba(0, 0, 0, 0.2)'
-                        : '0 1px 3px rgba(0, 0, 0, 0.1)',
-                      transition: 'all 0.12s ease',
-                      cursor: 'pointer',
+                      padding: '7px 4px',
+                      borderBottom: index < metrics.length - 1
+                        ? `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(148, 163, 184, 0.10)'}`
+                        : 'none',
+                      cursor: showDetailsFeature ? 'pointer' : 'default',
+                      transition: 'background 100ms ease',
+                      borderRadius: '0',
                       animation: dataLanded 
-                        ? `dataLanded 0.5s ease ${(index + 3) * 0.06}s both`
+                        ? `dataLanded 0.5s ease ${index * 0.06}s both`
                         : refreshPulse 
                           ? 'metricRefresh 0.4s ease' 
                           : undefined,
-                      ...staggerStyle(index + 3),
+                      ...staggerStyle(index),
                     }}
                     role="button"
                     tabIndex={0}
@@ -1084,149 +831,119 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
                         openMetricDetails(metric);
                       }
                     }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = isDarkMode
+                        ? 'rgba(54, 144, 206, 0.06)'
+                        : 'rgba(214, 232, 255, 0.35)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'transparent';
+                    }}
                   >
-                    {/* Header with icon and trend */}
+                    {/* Row: label — value — previous delta */}
                     <div style={{
                       display: 'flex',
-                      alignItems: 'center',
+                      alignItems: 'baseline',
                       justifyContent: 'space-between',
-                      marginBottom: '12px',
+                      gap: '12px',
                     }}>
-                      <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
+                      <span style={{
+                        fontSize: '12px',
+                        fontWeight: 500,
+                        color: isDarkMode ? 'rgba(243, 244, 246, 0.85)' : 'rgba(15, 23, 42, 0.75)',
+                        whiteSpace: 'nowrap' as const,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        flex: '1 1 auto',
                       }}>
-                        <Icon size={16} style={{
-                          color: isDarkMode ? colours.accent : colours.highlight,
-                        }} />
+                        {getDisplayTitle(metric.title)}
+                      </span>
+
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', flexShrink: 0 }}>
+                        {/* Main value */}
                         <span style={{
-                          fontSize: '13px',
-                          fontWeight: 500,
-                          color: isDarkMode ? colours.accent : colours.highlight,
+                          fontSize: '15px',
+                          fontWeight: 700,
+                          color: isDarkMode ? '#F9FAFB' : '#0f172a',
+                          letterSpacing: '-0.03em',
+                          fontVariantNumeric: 'tabular-nums',
                         }}>
-                          {getDisplayTitle(metric.title)}
+                          <AnimatedMetricValue
+                            storageKey={`emv2_metric_${metric.title}`}
+                            value={displayValue}
+                            decimals={metric.isPercentage ? 1 : 0}
+                            suffix={metric.isPercentage ? '%' : ''}
+                            enabled={enableAnimationThisMount}
+                          />
                         </span>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        {!showPreviousPeriod && trend !== 'neutral' && metric.showTrend !== false && (
-                          <div style={{
-                            display: 'flex',
+
+                        {/* Previous period delta (inline, revealed on hold) */}
+                        {prevValue > 0 && (
+                          <span style={{
+                            display: 'inline-flex',
                             alignItems: 'center',
-                            gap: '4px',
+                            gap: '3px',
                             fontSize: '11px',
-                            color: trendColor,
-                            fontWeight: 600,
+                            fontWeight: 500,
+                            color: trend !== 'neutral' ? trendColor : (isDarkMode ? colours.subtleGrey : colours.greyText),
+                            opacity: showPreviousPeriod ? 0.8 : 0,
+                            maxWidth: showPreviousPeriod ? '120px' : '0px',
+                            overflow: 'hidden',
+                            transition: 'opacity 160ms ease, max-width 200ms ease',
+                            whiteSpace: 'nowrap' as const,
+                            fontVariantNumeric: 'tabular-nums',
                           }}>
-                            {trend === 'up' && '↗'}
-                            {trend === 'down' && '↘'}
-                            <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatTrendValue(currentValue, prevValue, metric.isPercentage || false)}</span>
-
-                            <span
-                              onMouseEnter={() => setHoveredTrendKey(trendKey)}
-                              onMouseLeave={() => setHoveredTrendKey(prev => (prev === trendKey ? null : prev))}
-                              style={{
-                                position: 'relative',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                marginLeft: 6,
-                                width: 16,
-                                height: 16,
-                                borderRadius: 999,
-                                border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.32)' : 'rgba(54, 144, 206, 0.28)'}`,
-                                color: isDarkMode ? colours.accent : colours.highlight,
-                                fontSize: 10,
-                                fontWeight: 700,
-                                lineHeight: 1,
-                              }}
-                            >
-                              i
-                              <span
-                                style={{
-                                  position: 'absolute',
-                                  top: 20,
-                                  right: 0,
-                                  minWidth: 220,
-                                  maxWidth: 280,
-                                  padding: '8px 10px',
-                                  borderRadius: 8,
-                                  background: isDarkMode ? 'rgba(10, 16, 28, 0.96)' : 'rgba(255, 255, 255, 0.96)',
-                                  border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(148, 163, 184, 0.22)'}`,
-                                  boxShadow: isDarkMode ? '0 10px 24px rgba(0,0,0,0.45)' : '0 10px 22px rgba(0,0,0,0.12)',
-                                  color: isDarkMode ? colours.dark.text : colours.light.text,
-                                  fontSize: 12,
-                                  fontWeight: 500,
-                                  lineHeight: 1.35,
-                                  opacity: hoveredTrendKey === trendKey ? 1 : 0,
-                                  transform: hoveredTrendKey === trendKey ? 'translateY(0)' : 'translateY(-4px)',
-                                  transition: 'opacity 140ms ease, transform 140ms ease',
-                                  pointerEvents: 'none',
-                                  zIndex: 5,
-                                  whiteSpace: 'normal',
-                                }}
-                              >
-                                {getTrendHelpText(metric.title)}
-                              </span>
-                            </span>
-                          </div>
+                            {trend !== 'neutral' && metric.showTrend !== false && (
+                              <FiTrendingUp 
+                                size={10} 
+                                style={{ 
+                                  transform: trend === 'down' ? 'rotate(180deg)' : 'none',
+                                  flexShrink: 0,
+                                }} 
+                              />
+                            )}
+                            <span>{metric.isPercentage ? `${prevValue.toFixed(1)}%` : prevValue}</span>
+                          </span>
                         )}
-                        <span style={detailsChipStyle}>Details</span>
                       </div>
-
                     </div>
 
-                    {/* Main value */}
-                    <div style={{
-                      fontSize: '24px',
-                      fontWeight: 700,
-                      color: isDarkMode ? colours.dark.text : colours.light.text,
-                      fontVariantNumeric: 'tabular-nums',
-                      marginBottom: '8px',
-                    }}>
-                      <AnimatedMetricValue
-                        storageKey={`emv2_metric_${metric.title}`}
-                        value={displayValue}
-                        decimals={metric.isPercentage ? 1 : 0}
-                        suffix={metric.isPercentage ? '%' : ''}
-                        enabled={enableAnimationThisMount && !showPreviousPeriod}
-                      />
-                    </div>
-
-                    {/* Progress indicator for percentages */}
+                    {/* Inline progress bar (for percentage metrics) */}
                     {metric.isPercentage && (
-                      <div style={{
-                        marginTop: '12px',
-                      }}>
+                      <div style={{ marginTop: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <div style={{
-                          width: '100%',
-                          height: '6px',
-                          background: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-                          borderTopLeftRadius: '6px',
-                          borderBottomRightRadius: '6px',
+                          flex: 1,
+                          height: '3px',
+                          background: isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(148, 163, 184, 0.15)',
+                          borderRadius: '2px',
                           overflow: 'hidden',
                         }}>
                           <div style={{
                             width: `${Math.min(displayPercentage, 100)}%`,
                             height: '100%',
-                            background: displayPercentage >= 80 
-                              ? `linear-gradient(90deg, ${colours.green} 0%, rgba(32, 178, 108, 0.8) 100%)`
-                              : isDarkMode
-                              ? `linear-gradient(90deg, ${colours.highlight} 0%, ${colours.accent} 100%)`
+                            background: displayPercentage >= 80
+                              ? colours.green
                               : colours.highlight,
-                            borderTopLeftRadius: '6px',
-                            borderBottomRightRadius: '6px',
-                            transition: enableAnimationThisMount ? 'width 0.3s ease' : 'none',
+                            borderRadius: '2px',
+                            transition: enableAnimationThisMount ? 'width 0.6s cubic-bezier(0.4, 0, 0.2, 1)' : 'none',
                           }} />
                         </div>
+                        <span style={{
+                          fontSize: '10px',
+                          fontWeight: 500,
+                          color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                          fontVariantNumeric: 'tabular-nums',
+                          minWidth: '28px',
+                          textAlign: 'right' as const,
+                        }}>
+                          {displayPercentage.toFixed(0)}%
+                        </span>
                       </div>
                     )}
                   </div>
                 );
               })}
             </div>
-          )}
-          </>
           )}
 
           <MetricDetailsModal

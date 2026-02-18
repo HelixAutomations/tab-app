@@ -5399,8 +5399,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 const hasIssue = stage.status === 'review';
 
                 // Status text colors for inactive state
-                const statusColor = isCompleted ? '#22c55e' 
-                  : hasIssue ? '#ef4444' 
+                const statusColor = isCompleted ? colours.green 
+                  : hasIssue ? colours.cta 
                   : isCurrent ? colours.highlight 
                   : (isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.8)');
 
@@ -5450,7 +5450,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                         height: 1.5,
                         width: 10,
                         background: isConnectorLit 
-                          ? 'rgba(34, 197, 94, 0.7)'
+                          ? `${colours.green}B3`
                           : (isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.25)'),
                         borderRadius: 1,
                         margin: '0 2px',
@@ -5491,10 +5491,10 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                       borderRadius: '16px',
                       // Active: Sky blue tint like filter buttons
                       background: stage.isActive 
-                        ? 'rgba(125, 211, 252, 0.12)' 
+                        ? `${colours.highlight}1F`
                         : (isDarkMode ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)'),
                       border: stage.isActive 
-                        ? '1px solid rgba(125, 211, 252, 0.45)' 
+                        ? `1px solid ${colours.highlight}73`
                         : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)'}`,
                       cursor: 'pointer',
                       color: stage.statusColor,
@@ -5536,10 +5536,10 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                        </span>
                     )}
                     {stage.status === 'complete' && stage.key !== 'documents' && (
-                      <FaCheck size={9} style={{ color: '#22c55e', marginLeft: 2 }} />
+                      <FaCheck size={9} style={{ color: colours.green, marginLeft: 2 }} />
                     )}
                     {stage.hasIssue && (
-                      <FaExclamationTriangle size={9} style={{ color: '#ef4444', marginLeft: 2 }} />
+                      <FaExclamationTriangle size={9} style={{ color: colours.cta, marginLeft: 2 }} />
                     )}
                   </button>
                 </React.Fragment>

@@ -2,6 +2,12 @@ import React from 'react';
 import type { CSSProperties } from 'react';
 import { DefaultButton, FontIcon, Spinner, SpinnerSize, Modal, DatePicker, Dialog, DialogType, DialogFooter, PrimaryButton, ChoiceGroup } from '@fluentui/react';
 import { OperationValidator } from './components/OperationValidator';
+import {
+  reportingPanelBackground,
+  reportingPanelBorder,
+  reportingPanelShadow,
+  reportingShellBackground,
+} from './styles/reportingFoundation';
 import { colours } from '../../app/styles/colours';
 import { useTheme } from '../../app/functionality/ThemeContext';
 
@@ -29,6 +35,10 @@ type OperationLogEntry = {
   ts: number;
   operation: string;
   status: 'started' | 'progress' | 'completed' | 'error';
+  startDate?: string;
+  endDate?: string;
+  triggeredBy?: string;
+  invokedBy?: string;
   daysBack?: number;
   deletedRows?: number;
   insertedRows?: number;
@@ -43,6 +53,10 @@ type MonthAuditEntry = {
   lastValidate: { ts: string; status: string; message?: string; invokedBy?: string } | null;
   syncCount: number;
   validateCount: number;
+  /** SQL row counts for this month (WIP only) */
+  stats?: { totalRows: number; billableRows: number; nonBillableRows: number; totalValue: number; billableValue: number; nonBillableValue: number } | null;
+  /** True if this month includes current-week dates that were excluded from sync */
+  currentWeekExcluded?: boolean;
 };
 
 type DriftResult = {
@@ -157,8 +171,8 @@ const pageStyle = (isDarkMode: boolean): CSSProperties => ({
   minHeight: '100vh',
   padding: '32px 36px',
   background: isDarkMode
-    ? 'linear-gradient(160deg, #0f172a 0%, #1e293b 100%)'
-    : 'linear-gradient(160deg, #f8fafc 0%, #e2e8f0 100%)',
+    ? colours.dark.background
+    : colours.light.background,
   color: isDarkMode ? colours.dark.text : colours.light.text,
   display: 'flex',
   flexDirection: 'column',
@@ -184,7 +198,7 @@ const kickerStyle = (isDarkMode: boolean): CSSProperties => ({
   textTransform: 'uppercase',
   letterSpacing: 1,
   fontWeight: 700,
-  color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.8)',
+  color: isDarkMode ? colours.subtleGrey : colours.greyText,
 });
 
 const titleStyle: CSSProperties = {
@@ -205,9 +219,9 @@ const bannerStyle = (
       icon: '#22c55e',
     },
     loading: {
-      bg: isDarkMode ? 'rgba(59, 130, 246, 0.12)' : 'rgba(59, 130, 246, 0.08)',
-      border: isDarkMode ? 'rgba(59, 130, 246, 0.3)' : 'rgba(59, 130, 246, 0.2)',
-      icon: '#3b82f6',
+      bg: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
+      border: isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)',
+      icon: colours.blue,
     },
     error: {
       bg: isDarkMode ? 'rgba(239, 68, 68, 0.12)' : 'rgba(239, 68, 68, 0.08)',
@@ -229,18 +243,18 @@ const bannerStyle = (
 
 const bannerIconStyle = (variant: 'healthy' | 'loading' | 'error'): CSSProperties => ({
   fontSize: 18,
-  color: variant === 'healthy' ? '#22c55e' : variant === 'loading' ? '#3b82f6' : '#ef4444',
+  color: variant === 'healthy' ? '#22c55e' : variant === 'loading' ? colours.blue : '#ef4444',
 });
 
 const bannerTextStyle = (isDarkMode: boolean): CSSProperties => ({
   fontSize: 13,
   fontWeight: 600,
-  color: isDarkMode ? '#e2e8f0' : '#1e293b',
+  color: isDarkMode ? colours.dark.text : colours.light.text,
 });
 
 const bannerMetaStyle = (isDarkMode: boolean): CSSProperties => ({
   fontSize: 11,
-  color: isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(30, 41, 59, 0.6)',
+  color: isDarkMode ? `${colours.subtleGrey}99` : `${colours.greyText}99`,
   marginLeft: 'auto',
 });
 
@@ -253,14 +267,14 @@ const progressWrapStyle: CSSProperties = {
 const progressTrackStyle = (isDarkMode: boolean): CSSProperties => ({
   height: 6,
   borderRadius: 999,
-  background: isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.25)',
+  background: isDarkMode ? `${colours.dark.border}26` : `${colours.highlightNeutral}`,
   overflow: 'hidden',
 });
 
 const progressFillStyle = (isDarkMode: boolean, value: number): CSSProperties => ({
   height: '100%',
   width: `${Math.max(0, Math.min(100, value))}%`,
-  background: isDarkMode ? '#3b82f6' : '#2563eb',
+  background: colours.blue,
   transition: 'width 0.25s ease',
 });
 
@@ -268,7 +282,7 @@ const progressLabelStyle = (isDarkMode: boolean): CSSProperties => ({
   display: 'flex',
   justifyContent: 'space-between',
   fontSize: 11,
-  color: isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(30, 41, 59, 0.55)',
+  color: isDarkMode ? `${colours.subtleGrey}99` : `${colours.greyText}8C`,
 });
 
 const gridStyle: CSSProperties = {
@@ -283,15 +297,15 @@ const getDatePickerProps = (isDarkMode: boolean) => ({
     styles: {
       fieldGroup: {
         height: 36,
-        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(203, 213, 225, 0.8)'}`,
+        border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
         borderRadius: 8,
-        background: isDarkMode ? 'rgba(30, 41, 59, 0.5)' : '#ffffff',
+        background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
         transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
         selectors: {
           ':after': { border: 'none' },
           ':hover': {
-            borderColor: isDarkMode ? '#64748b' : '#94a3b8',
-            background: isDarkMode ? 'rgba(30, 41, 59, 0.8)' : '#f8fafc'
+            borderColor: isDarkMode ? colours.dark.borderColor : colours.subtleGrey,
+            background: isDarkMode ? colours.dark.cardHover : colours.grey
           },
           ':focus-within': {
             borderColor: '#3690CE',
@@ -303,13 +317,13 @@ const getDatePickerProps = (isDarkMode: boolean) => ({
         fontSize: 13,
         fontWeight: '600',
         padding: '0 12px',
-        color: isDarkMode ? '#f1f5f9' : '#0f172a'
+        color: isDarkMode ? colours.dark.text : colours.light.text
       },
       icon: {
         fontSize: 16,
         top: 10,
         right: 12,
-        color: isDarkMode ? '#64748b' : '#94a3b8'
+        color: isDarkMode ? colours.greyText : colours.subtleGrey
       },
     }
   }
@@ -318,9 +332,9 @@ const getDatePickerProps = (isDarkMode: boolean) => ({
 const cardStyle = (isDarkMode: boolean): CSSProperties => ({
   borderRadius: 14,
   padding: '18px 20px',
-  background: isDarkMode ? 'rgba(15, 23, 42, 0.7)' : 'rgba(255, 255, 255, 0.95)',
-  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(15, 23, 42, 0.06)'}`,
-  boxShadow: isDarkMode ? '0 8px 24px rgba(0,0,0,0.25)' : '0 4px 16px rgba(15, 23, 42, 0.06)',
+  background: reportingPanelBackground(isDarkMode, 'base'),
+  border: `1px solid ${reportingPanelBorder(isDarkMode, 'base')}`,
+  boxShadow: reportingPanelShadow(isDarkMode),
   display: 'flex',
   flexDirection: 'column',
   gap: 14,
@@ -346,12 +360,12 @@ const healthDotStyle = (health: 'ok' | 'loading' | 'error'): CSSProperties => ({
   width: 8,
   height: 8,
   borderRadius: 999,
-  background: health === 'ok' ? '#22c55e' : health === 'loading' ? '#3b82f6' : '#ef4444',
+  background: health === 'ok' ? '#22c55e' : health === 'loading' ? colours.blue : '#ef4444',
   boxShadow:
     health === 'ok'
       ? '0 0 6px rgba(34, 197, 94, 0.5)'
       : health === 'loading'
-        ? '0 0 6px rgba(59, 130, 246, 0.5)'
+        ? '0 0 6px rgba(54, 144, 206, 0.5)'
         : '0 0 6px rgba(239, 68, 68, 0.5)',
 });
 
@@ -361,8 +375,8 @@ const feedRowStyle = (isDarkMode: boolean): CSSProperties => ({
   justifyContent: 'space-between',
   padding: '8px 10px',
   borderRadius: 8,
-  background: isDarkMode ? 'rgba(30, 41, 59, 0.5)' : 'rgba(248, 250, 252, 0.9)',
-  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(15, 23, 42, 0.04)'}`,
+  background: reportingPanelBackground(isDarkMode, 'base'),
+  border: `1px solid ${reportingPanelBorder(isDarkMode, 'base')}`,
 });
 
 const feedNameStyle: CSSProperties = {
@@ -372,7 +386,7 @@ const feedNameStyle: CSSProperties = {
 
 const feedMetaStyle = (isDarkMode: boolean): CSSProperties => ({
   fontSize: 11,
-  color: isDarkMode ? 'rgba(226, 232, 240, 0.55)' : 'rgba(30, 41, 59, 0.5)',
+  color: isDarkMode ? `${colours.subtleGrey}8C` : `${colours.greyText}80`,
 });
 
 const statusDotStyle = (status: DatasetSummary['status']): CSSProperties => ({
@@ -383,10 +397,10 @@ const statusDotStyle = (status: DatasetSummary['status']): CSSProperties => ({
     status === 'ready'
       ? '#22c55e'
       : status === 'loading'
-        ? '#3b82f6'
+        ? colours.blue
         : status === 'error'
           ? '#ef4444'
-          : '#94a3b8',
+          : colours.subtleGrey,
 });
 
 /* ─────────────────────────────────────────────────────────────
@@ -424,6 +438,7 @@ const DataCentre: React.FC<DataCentreProps> = ({
 
   /* ─── Data Preview State ─── */
   const [previewTable, setPreviewTable] = React.useState<string | null>(null);
+  const [previewContextLabel, setPreviewContextLabel] = React.useState<string | null>(null);
   const [previewData, setPreviewData] = React.useState<TablePreview | null>(null);
   const [previewLoading, setPreviewLoading] = React.useState(false);
   
@@ -446,22 +461,24 @@ const DataCentre: React.FC<DataCentreProps> = ({
   const [wipConfirmChecked, setWipConfirmChecked] = React.useState(false);
   const [opsLog, setOpsLog] = React.useState<OperationLogEntry[]>([]);
   const [opsLogLoading, setOpsLogLoading] = React.useState(false);
-  const [opsCollapsed, setOpsCollapsed] = React.useState(() => {
-    const saved = localStorage.getItem('dataOpsCollapsed');
-    return saved === 'true';
-  });
-  const [opsChevronHovered, setOpsChevronHovered] = React.useState(false);
   const [activeOp, setActiveOp] = React.useState<'collected' | 'wip' | null>(null);
+  const [syncExpanded, setSyncExpanded] = React.useState(false);
+  const [wipWeekExclusionChecked, setWipWeekExclusionChecked] = React.useState(false);
 
   /* Month coverage side panel state */
-const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' | null>('collectedTime');
+const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' | null>(null);
   const [monthAuditData, setMonthAuditData] = React.useState<MonthAuditEntry[]>([]);
   const [monthAuditLoading, setMonthAuditLoading] = React.useState(false);
   const [coverageOpen, setCoverageOpen] = React.useState(true);
   const [backfillLog, setBackfillLog] = React.useState<Array<{ key: string; ts: string; status: string; rows?: number }>>([]);
+  const [expandedCoverageWindows, setExpandedCoverageWindows] = React.useState<Record<string, boolean>>({});
+  const [coverageVisibleCount, setCoverageVisibleCount] = React.useState(6);
+  const [windowPreviewOpen, setWindowPreviewOpen] = React.useState<Record<string, boolean>>({});
+  const [windowPreviewData, setWindowPreviewData] = React.useState<Record<string, TablePreview | null>>({});
+  const [windowPreviewLoadingKey, setWindowPreviewLoadingKey] = React.useState<string | null>(null);
 
   /* ─── Data Hub lazy-load state ─── */
-  const [dataHubLoaded, setDataHubLoaded] = React.useState(false);
+  const [dataHubLoaded, setDataHubLoaded] = React.useState(true);
   const [dataHubLoading, setDataHubLoading] = React.useState(false);
   const opsLogIntervalRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -496,12 +513,35 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
   const [backfillCurrent, setBackfillCurrent] = React.useState<string | null>(null);
   const [backfillDone, setBackfillDone] = React.useState<string[]>([]);
   const [backfillErrors, setBackfillErrors] = React.useState<string[]>([]);
+  const autoSyncAttemptedRef = React.useRef<Set<string>>(new Set());
 
   const syncMonthKey = React.useCallback(async (monthKey: string, op: 'collectedTime' | 'wip') => {
     const start = `${monthKey}-01`;
     const [y, mon] = monthKey.split('-').map(Number);
     const lastDay = new Date(y, mon, 0).getDate();
-    const end = `${monthKey}-${String(lastDay).padStart(2, '0')}`;
+    let end = `${monthKey}-${String(lastDay).padStart(2, '0')}`;
+
+    // For WIP: cap the current month at last Sunday to avoid current-week overlap
+    // (Management Dashboard sources current week live from Clio API)
+    if (op === 'wip') {
+      const now = new Date();
+      const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      if (monthKey === currentMonthKey) {
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const dayOfWeek = today.getDay(); // 0=Sun, 1=Mon...
+        const daysSinceMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+        const lastSunday = new Date(today);
+        lastSunday.setDate(today.getDate() - daysSinceMonday - 1);
+        // Only cap if last Sunday is within this month
+        if (lastSunday.getMonth() === now.getMonth()) {
+          end = lastSunday.toISOString().slice(0, 10);
+        } else {
+          // Current week started in a new month — skip this sync entirely
+          return { insertedRows: 0, skipped: true, message: 'Current week started at beginning of month — nothing to sync yet.' };
+        }
+      }
+    }
+
     const endpoint = op === 'collectedTime' ? '/api/data-operations/sync-collected' : '/api/data-operations/sync-wip';
 
     const res = await fetch(endpoint, {
@@ -635,7 +675,7 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
   /* ─── Monthly totals state ─── */
   const [monthlyCollected, setMonthlyCollected] = React.useState<MonthlyTotal[]>([]);
   const [monthlyWip, setMonthlyWip] = React.useState<MonthlyTotal[]>([]);
-  const [monthlyExpanded, setMonthlyExpanded] = React.useState<'collected' | 'wip' | null>('collected');
+  const [monthlyExpanded, setMonthlyExpanded] = React.useState<'collected' | 'wip' | null>(null);
 
   const fetchMonthlyTotals = React.useCallback(async (op: 'collected' | 'wip') => {
     const operation = op === 'collected' ? 'collectedTime' : 'wip';
@@ -673,27 +713,29 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
     if (syncingCollected || syncingWip) setLogsExpanded(true);
   }, [syncingCollected, syncingWip]);
 
-  // Auto-fetch coverage + monthly totals when an operation card is opened
+  // Auto-open coverage panel and sync to active operation card
   React.useEffect(() => {
-    if (!activeOp || !coverageOpen) return;
+    if (!activeOp) return;
     const opKey = activeOp === 'collected' ? 'collectedTime' as const : 'wip' as const;
-    // Fetch month audit if not already loaded
-    if (monthAuditData.length === 0 && !monthAuditLoading) {
-      setMonthAuditOp(opKey);
-      setMonthAuditLoading(true);
-      fetch(`/api/data-operations/month-audit?operation=${opKey}`)
-        .then(res => res.ok ? res.json() : null)
-        .then(data => { if (data) setMonthAuditData(data.months || []); })
-        .catch(e => console.warn('Coverage auto-fetch failed:', e))
-        .finally(() => setMonthAuditLoading(false));
-    }
+    // Always open coverage and switch to the correct operation
+    setCoverageOpen(true);
+    setMonthAuditOp(opKey);
+    // Fetch fresh month audit for the selected operation
+    setMonthAuditLoading(true);
+    setMonthAuditData([]);
+    setBackfillLog([]);
+    fetch(`/api/data-operations/month-audit?operation=${opKey}`)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => { if (data) setMonthAuditData(data.months || []); })
+      .catch(e => console.warn('Coverage auto-fetch failed:', e))
+      .finally(() => setMonthAuditLoading(false));
     // Fetch monthly totals if expanded but empty
     const totalsKey = activeOp;
     const totals = activeOp === 'collected' ? monthlyCollected : monthlyWip;
     if (monthlyExpanded === totalsKey && totals.length === 0) {
       fetchMonthlyTotals(totalsKey);
     }
-  }, [activeOp, coverageOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeOp]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* Helpers for per-operation range */
   const applyPreset = React.useCallback((operation: 'collected' | 'wip', preset: RangePreset) => {
@@ -811,8 +853,9 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
   }, []);
 
   /* Fetch preview data */
-  const fetchPreview = React.useCallback(async (table: string) => {
+  const fetchPreview = React.useCallback(async (table: string, contextLabel?: string) => {
     setPreviewTable(table);
+    setPreviewContextLabel(contextLabel || null);
     setPreviewLoading(true);
     setPreviewData(null);
     setSortConfig(null);
@@ -826,6 +869,24 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
       console.warn('Failed to fetch preview:', e);
     } finally {
       setPreviewLoading(false);
+    }
+  }, []);
+
+  const fetchWindowPreview = React.useCallback(async (monthKey: string, table: string) => {
+    setWindowPreviewLoadingKey(monthKey);
+    try {
+      const res = await fetch(`/api/data-operations/preview/${table}?limit=20`);
+      if (res.ok) {
+        const data = await res.json();
+        setWindowPreviewData((prev) => ({ ...prev, [monthKey]: data }));
+      } else {
+        setWindowPreviewData((prev) => ({ ...prev, [monthKey]: null }));
+      }
+    } catch (e) {
+      console.warn('Failed to fetch inline window preview:', e);
+      setWindowPreviewData((prev) => ({ ...prev, [monthKey]: null }));
+    } finally {
+      setWindowPreviewLoadingKey((current) => (current === monthKey ? null : current));
     }
   }, []);
 
@@ -863,11 +924,15 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
     }
   }, []);
 
-  /* Ops log + polling is started on-demand via loadDataHub — no auto-fetch on mount */
+  /* Auto-load ops data on mount */
   React.useEffect(() => {
+    fetchOpsStatus();
+    fetchOpsLog();
+    opsLogIntervalRef.current = setInterval(fetchOpsLog, 8000);
     return () => {
       if (opsLogIntervalRef.current) clearInterval(opsLogIntervalRef.current);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /* ─── Load Data Hub (user-invoked) ─── */
@@ -991,9 +1056,12 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
       });
       const data = await res.json();
       if (res.ok) {
+        const syncMessage = data?.message
+          ? String(data.message)
+          : `−${data.deletedRows?.toLocaleString() ?? 0} / +${data.insertedRows?.toLocaleString() ?? 0} rows in ${((data.durationMs ?? 0) / 1000).toFixed(1)}s`;
         setSyncResultWip({
           success: true,
-          message: `−${data.deletedRows?.toLocaleString() ?? 0} / +${data.insertedRows?.toLocaleString() ?? 0} rows in ${((data.durationMs ?? 0) / 1000).toFixed(1)}s`,
+          message: syncMessage,
         });
         fetchOpsStatus();
         onRefreshAll();
@@ -1024,14 +1092,6 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
     } catch (e) {
       alert('Failed to abort: ' + e);
     }
-  }, []);
-
-  const toggleOpsCollapse = React.useCallback(() => {
-    setOpsCollapsed(prev => {
-      const next = !prev;
-      localStorage.setItem('dataOpsCollapsed', String(next));
-      return next;
-    });
   }, []);
 
   const isSyncBusy = syncingCollected || syncingWip || isPlanning;
@@ -1078,13 +1138,6 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
       ? `${statusCount.error} feed${(statusCount.error ?? 0) > 1 ? 's' : ''} failed`
       : `All ${datasets.length} feeds healthy`;
 
-  const bannerIcon =
-    bannerVariant === 'healthy'
-      ? 'CompletedSolid'
-      : bannerVariant === 'loading'
-        ? 'Sync'
-        : 'ErrorBadge';
-
   /* Last sync info per operation */
   const collectedLastSync = React.useMemo(() => {
     const daily = opsStatus?.collectedTime?.lastDailySync ?? null;
@@ -1116,6 +1169,238 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
   }, [opsStatus, getStaleness]);
 
   const wipStaleness = React.useMemo(() => getStaleness(opsStatus?.wip?.lastSync?.ts ?? null), [opsStatus, getStaleness]);
+
+  const getMonthAge = React.useCallback((monthKey: string): number => {
+    const [yearStr, monthStr] = monthKey.split('-');
+    const year = Number(yearStr);
+    const month = Number(monthStr);
+    if (!year || !month) return 0;
+    const now = new Date();
+    return Math.max(0, (now.getFullYear() - year) * 12 + ((now.getMonth() + 1) - month));
+  }, []);
+
+  const getFreshnessCue = React.useCallback((monthKey: string, lastSyncTs?: number | string) => {
+    const monthAge = getMonthAge(monthKey);
+    const expectedDays = monthAge <= 2 ? 7 : monthAge <= 5 ? 30 : 120;
+    const isRecentWindow = monthAge <= 2;
+    const isMidWindow = monthAge > 2 && monthAge <= 5;
+
+    if (!lastSyncTs) {
+      if (isRecentWindow) return { label: 'Needs sync', color: '#ef4444', tint: 'rgba(239,68,68,0.12)' };
+      if (isMidWindow) return { label: 'Check cadence', color: '#f59e0b', tint: 'rgba(245,158,11,0.10)' };
+      return { label: 'Monitor', color: colours.greyText, tint: `${colours.greyText}1A` };
+    }
+
+    const syncMs = typeof lastSyncTs === 'string' ? new Date(lastSyncTs).getTime() : lastSyncTs;
+    const daysSince = Math.floor((Date.now() - syncMs) / 86400000);
+    if (daysSince <= Math.floor(expectedDays * 0.7)) {
+      return { label: 'Fresh', color: '#22c55e', tint: 'rgba(34,197,94,0.12)' };
+    }
+    if (daysSince <= expectedDays) {
+      return { label: 'Monitor', color: '#f59e0b', tint: 'rgba(245,158,11,0.10)' };
+    }
+    if (isRecentWindow) {
+      return { label: 'Overdue', color: '#ef4444', tint: 'rgba(239,68,68,0.12)' };
+    }
+    if (isMidWindow) {
+      return { label: 'Stale', color: '#f59e0b', tint: 'rgba(245,158,11,0.10)' };
+    }
+    return { label: 'Monitor', color: colours.greyText, tint: `${colours.greyText}1A` };
+  }, [getMonthAge]);
+
+  const shouldAutoSyncMonth = React.useCallback((entry: MonthAuditEntry): boolean => {
+    const monthAge = getMonthAge(entry.key);
+
+    if (!entry.lastSync) {
+      return true;
+    }
+
+    const syncMs = new Date(entry.lastSync.ts).getTime();
+    if (!Number.isFinite(syncMs)) {
+      return monthAge <= 2;
+    }
+
+    const daysSince = Math.floor((Date.now() - syncMs) / 86400000);
+    if (monthAge <= 2) {
+      return daysSince > 7;
+    }
+
+    if (monthAge <= 5) {
+      return daysSince > 30;
+    }
+
+    return daysSince > 120;
+  }, [getMonthAge]);
+
+  React.useEffect(() => {
+    if (!coverageOpen || !monthAuditOp || monthAuditLoading || backfillRunning || monthAuditData.length === 0) {
+      return;
+    }
+
+    const sortedByRecency = [...monthAuditData].sort((a, b) => a.key < b.key ? 1 : -1);
+    const unsyncedOrStale = sortedByRecency
+      .filter(shouldAutoSyncMonth)
+      .filter((entry) => !autoSyncAttemptedRef.current.has(`${monthAuditOp}:${entry.key}`));
+
+    const activeWindow = unsyncedOrStale.filter((entry) => getMonthAge(entry.key) <= 5);
+    const archiveWindow = unsyncedOrStale.filter((entry) => getMonthAge(entry.key) > 5);
+    const candidates = [...activeWindow.slice(0, 2), ...archiveWindow.slice(0, 1)];
+
+    if (candidates.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const runSmartAutoSync = async () => {
+      for (const month of candidates) {
+        if (cancelled) return;
+
+        const dedupeKey = `${monthAuditOp}:${month.key}`;
+        autoSyncAttemptedRef.current.add(dedupeKey);
+        setBackfillCurrent(month.key);
+        setBackfillRunning(true);
+        setBackfillDone((prev) => prev.filter((k) => k !== month.key));
+        setBackfillErrors((prev) => prev.filter((k) => k !== month.key));
+
+        try {
+          const result = await syncMonthKey(month.key, monthAuditOp);
+          const rows = result.insertedRows ?? result.totalInserted ?? 0;
+          if (cancelled) return;
+          setBackfillDone((prev) => [...prev, month.key]);
+          setBackfillLog((prev) => [...prev, { key: month.key, ts: new Date().toISOString(), status: 'completed', rows }]);
+          setMonthAuditData((prev) => prev.map((m) => (
+            m.key === month.key
+              ? {
+                  ...m,
+                  lastSync: { ts: new Date().toISOString(), status: 'completed', insertedRows: rows, invokedBy: 'system' },
+                  syncCount: m.syncCount + 1,
+                }
+              : m
+          )));
+        } catch {
+          if (cancelled) return;
+          setBackfillErrors((prev) => [...prev, month.key]);
+          setBackfillLog((prev) => [...prev, { key: month.key, ts: new Date().toISOString(), status: 'error' }]);
+        }
+      }
+
+      if (!cancelled) {
+        setBackfillCurrent(null);
+        setBackfillRunning(false);
+      }
+    };
+
+    void runSmartAutoSync();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [coverageOpen, monthAuditOp, monthAuditLoading, backfillRunning, monthAuditData, shouldAutoSyncMonth, syncMonthKey]);
+
+  const recentServerEntries = React.useMemo(() => {
+    const opToken = activeOp === 'wip' ? 'wip' : activeOp === 'collected' ? 'collected' : null;
+    if (!opToken) return [];
+    return opsLog
+      .filter((entry) => (entry.operation || '').toLowerCase().includes(opToken))
+      .slice(0, 6)
+      .map((entry) => ({
+        ...entry,
+        message: entry.message
+          ? entry.message
+          : (entry.operation || '')
+              .replace('sync', '')
+              .replace('CollectedTime', 'Collected')
+              .replace('Wip', 'WIP'),
+      }));
+  }, [opsLog, activeOp]);
+
+  const coverageMonthAuditLogMap = React.useMemo(() => {
+    if (!activeOp) return new Map<string, OperationLogEntry[]>();
+
+    const opToken = activeOp === 'wip' ? 'wip' : 'collected';
+    const parseDateRange = (entry: OperationLogEntry): { start: string; end: string } | null => {
+      if (entry.startDate && entry.endDate) {
+        const start = entry.startDate.slice(0, 10);
+        const end = entry.endDate.slice(0, 10);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(start) && /^\d{4}-\d{2}-\d{2}$/.test(end)) {
+          return { start, end };
+        }
+      }
+
+      const message = entry.message;
+      if (!message) return null;
+      const match = message.match(/(\d{4}-\d{2}-\d{2})\s*(?:→|->|to)\s*(\d{4}-\d{2}-\d{2})/i) || message.match(/(\d{4}-\d{2}-\d{2}).*?(\d{4}-\d{2}-\d{2})/);
+      if (!match) return null;
+      return { start: match[1], end: match[2] };
+    };
+    const toMonthKey = (isoDate?: string | null) => {
+      if (!isoDate) return null;
+      const parsed = new Date(isoDate);
+      if (Number.isNaN(parsed.getTime())) return null;
+      return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}`;
+    };
+
+    const isAutoEntry = (entry: OperationLogEntry) => {
+      const operationLower = (entry.operation || '').toLowerCase();
+      const messageLower = (entry.message || '').toLowerCase();
+      const sourceLower = (entry.triggeredBy || entry.invokedBy || '').toLowerCase();
+      return sourceLower === 'system'
+        || sourceLower === 'scheduler'
+        || sourceLower === 'timer'
+        || sourceLower === 'auto'
+        || operationLower.includes('scheduler')
+        || operationLower.includes('auto')
+        || messageLower.includes('auto-sync')
+        || messageLower.includes('scheduler')
+        || messageLower.includes('system');
+    };
+
+    const filtered = opsLog
+      .filter((entry) => (entry.operation || '').toLowerCase().includes(opToken))
+      .filter((entry) => {
+        const operationLower = (entry.operation || '').toLowerCase();
+        const sourceLower = (entry.triggeredBy || entry.invokedBy || '').toLowerCase();
+        if (activeOp === 'collected') {
+          return operationLower.includes('collected') || operationLower.includes('synccollectedtime') || sourceLower.includes('collected');
+        }
+        return operationLower.includes('wip') || operationLower.includes('syncwip') || sourceLower.includes('wip');
+      });
+
+    const monthMap = new Map<string, OperationLogEntry[]>();
+    filtered.forEach((entry) => {
+      let monthKey: string | null = null;
+      const range = parseDateRange(entry);
+      if (range) {
+        const startKey = toMonthKey(range.start);
+        const endKey = toMonthKey(range.end);
+        monthKey = startKey && endKey && startKey === endKey ? startKey : null;
+      }
+
+      if (!monthKey) {
+        const opMatch = (entry.operation || '').match(/(\d{4}-\d{2}-\d{2})/);
+        monthKey = opMatch ? toMonthKey(opMatch[1]) : null;
+      }
+
+      if (!monthKey) return;
+
+      const existing = monthMap.get(monthKey) || [];
+      monthMap.set(monthKey, [...existing, entry].sort((a, b) => (b.ts || 0) - (a.ts || 0)));
+    });
+
+    return monthMap;
+  }, [activeOp, opsLog]);
+
+  const wipWillExcludeCurrentWeek = React.useMemo(() => {
+    if (!wipRange.startDate || !wipRange.endDate) return false;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const dayOfWeek = today.getDay();
+    const daysSinceMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+    const currentWeekStart = new Date(today);
+    currentWeekStart.setDate(today.getDate() - daysSinceMonday);
+    return wipRange.endDate >= currentWeekStart;
+  }, [wipRange.startDate, wipRange.endDate]);
 
   /* Validator operation keys */
   const collectedValidatorOp = React.useMemo(() => {
@@ -1210,40 +1495,59 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
       {/* Header */}
       <div style={headerStyle(isDarkMode)}>
         <div style={titleBlockStyle}>
-          <span style={kickerStyle(isDarkMode)}>System</span>
-          <h1 style={titleStyle}>Data Hub</h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <h1 style={titleStyle}>Data Hub</h1>
+            {activeOp && (
+              <span style={{
+                fontSize: 11,
+                fontWeight: 700,
+                padding: '3px 8px',
+                borderRadius: 999,
+                border: `1px solid ${activeOp === 'collected' ? colours.blue : '#14b8a6'}`,
+                color: isDarkMode ? colours.dark.text : colours.light.text,
+                background: activeOp === 'collected'
+                  ? (isDarkMode ? 'rgba(54,144,206,0.2)' : 'rgba(54,144,206,0.12)')
+                  : (isDarkMode ? 'rgba(20,184,166,0.2)' : 'rgba(20,184,166,0.12)'),
+              }}>
+                {activeOp === 'collected' ? 'Collected lane' : 'WIP lane'}
+              </span>
+            )}
+          </div>
+          <span style={{ fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+            {activeOp ? 'Coverage windows, audit trail, and sync actions' : 'Choose a lane to enter coverage windows'}
+          </span>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <DefaultButton
-            text={isRefreshing ? 'Refreshing…' : 'Refresh all'}
+            text={isRefreshing ? 'Refreshing…' : 'Refresh'}
             onClick={onRefreshAll}
             disabled={isRefreshing}
             styles={{
               root: {
-                borderRadius: 6,
-                height: 34,
-                padding: '0 14px',
+                borderRadius: 4,
+                height: 30,
+                padding: '0 12px',
                 fontWeight: 700,
-                fontSize: 12,
-                border: `1px solid ${isDarkMode ? 'rgba(59, 130, 246, 0.4)' : 'rgba(59, 130, 246, 0.3)'}`,
-                background: isDarkMode ? 'rgba(59, 130, 246, 0.15)' : 'rgba(219, 234, 254, 0.9)',
-                color: isDarkMode ? '#bfdbfe' : '#1d4ed8',
+                fontSize: 11,
+                border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.55)' : 'rgba(54,144,206,0.45)'}`,
+                background: isDarkMode ? 'rgba(54,144,206,0.18)' : 'rgba(54,144,206,0.1)',
+                color: isDarkMode ? colours.dark.text : colours.helixBlue,
               },
             }}
           />
           <DefaultButton
-            text="← Back"
+            text="Exit Data Hub"
             onClick={onBack}
             styles={{
               root: {
-                borderRadius: 6,
-                height: 34,
+                borderRadius: 4,
+                height: 30,
                 padding: '0 12px',
-                fontWeight: 600,
-                fontSize: 12,
-                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)'}`,
-                background: 'transparent',
-                color: isDarkMode ? '#94a3b8' : '#64748b',
+                fontWeight: 700,
+                fontSize: 11,
+                border: `1px solid ${isDarkMode ? 'rgba(214,85,65,0.6)' : 'rgba(214,85,65,0.4)'}`,
+                background: isDarkMode ? 'rgba(214,85,65,0.14)' : 'rgba(214,85,65,0.08)',
+                color: isDarkMode ? colours.dark.text : colours.cta,
               },
             }}
           />
@@ -1251,79 +1555,28 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
       </div>
 
       {/* Status banner */}
+      {bannerVariant !== 'healthy' && (
       <div style={{
         display: 'flex',
         alignItems: 'center',
-        gap: 10,
-        padding: '8px 14px',
-        borderRadius: 6,
-        background: bannerVariant === 'healthy'
-          ? 'transparent'
-          : bannerStyle(bannerVariant, isDarkMode).background,
-        border: bannerVariant === 'healthy'
-          ? 'none'
-          : `1px solid ${isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'}`,
+        gap: 8,
+        padding: '6px 12px',
+        borderRadius: 4,
+        background: bannerStyle(bannerVariant, isDarkMode).background,
+        border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'}`,
+        fontSize: 11,
+        color: isDarkMode ? colours.subtleGrey : colours.greyText,
       }}>
-        <span style={{
-          width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
-          background: bannerVariant === 'healthy' ? '#22c55e' : bannerVariant === 'loading' ? '#3b82f6' : '#ef4444',
-          boxShadow: `0 0 4px ${bannerVariant === 'healthy' ? 'rgba(34,197,94,0.4)' : bannerVariant === 'loading' ? 'rgba(59,130,246,0.4)' : 'rgba(239,68,68,0.4)'}`,
-        }} />
-        <span style={{ fontSize: 11, fontWeight: 600, color: isDarkMode ? '#94a3b8' : '#64748b' }}>{bannerMessage}</span>
+        <span style={{ fontWeight: 600 }}>{bannerMessage}</span>
         {lastUpdatedLabel && !isRefreshing && (
-          <span style={{ fontSize: 10, color: isDarkMode ? 'rgba(148,163,184,0.5)' : 'rgba(100,116,139,0.5)', marginLeft: 'auto' }}>{lastUpdatedLabel}</span>
+          <span style={{ fontSize: 10, color: isDarkMode ? `${colours.subtleGrey}80` : `${colours.greyText}80`, marginLeft: 'auto' }}>{lastUpdatedLabel}</span>
         )}
-        {/* Token indicator — inline */}
-        {!tokenChecking && tokenCheck && (
-          <span style={{
-            display: 'inline-flex', alignItems: 'center', gap: 4,
-            marginLeft: lastUpdatedLabel ? 0 : 'auto',
-            fontSize: 9, fontWeight: 600,
-            color: tokenCheck.success ? (isDarkMode ? '#4ade80' : '#16a34a') : (isDarkMode ? '#f87171' : '#dc2626'),
-          }}>
-            <span style={{
-              width: 5, height: 5, borderRadius: '50%', flexShrink: 0,
-              background: tokenCheck.success ? '#22c55e' : '#ef4444',
-            }} />
-            {tokenCheck.success ? 'Clio' : 'Token error'}
+        {!tokenChecking && tokenCheck && !tokenCheck.success && (
+          <span style={{ fontSize: 9, fontWeight: 600, color: isDarkMode ? '#f87171' : '#dc2626', marginLeft: lastUpdatedLabel ? 0 : 'auto' }}>
+            Token error
           </span>
         )}
       </div>
-
-      {/* Load Data Hub prompt — shown until user invokes */}
-      {!dataHubLoaded && (
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
-          padding: '10px 14px',
-          borderRadius: 6,
-          background: isDarkMode ? 'rgba(59, 130, 246, 0.08)' : 'rgba(219, 234, 254, 0.7)',
-          border: `1px dashed ${isDarkMode ? 'rgba(59, 130, 246, 0.25)' : 'rgba(59, 130, 246, 0.2)'}`,
-        }}>
-          <FontIcon iconName="Database" style={{ fontSize: 14, color: isDarkMode ? '#60a5fa' : '#2563eb' }} />
-          <span style={{ fontSize: 11, fontWeight: 500, color: isDarkMode ? '#94a3b8' : '#64748b', flex: 1 }}>
-            {dataHubLoading ? 'Loading operations data…' : 'Operations data not loaded. Load to see sync status, coverage, and activity.'}
-          </span>
-          <button
-            className="ops-btn"
-            onClick={loadDataHub}
-            disabled={dataHubLoading}
-            style={{
-              padding: '4px 14px',
-              borderRadius: 4,
-              border: 'none',
-              background: isDarkMode ? 'rgba(59, 130, 246, 0.2)' : '#2563eb',
-              color: isDarkMode ? '#93c5fd' : '#ffffff',
-              fontSize: 11,
-              fontWeight: 700,
-              cursor: dataHubLoading ? 'not-allowed' : 'pointer',
-              opacity: dataHubLoading ? 0.6 : 1,
-            }}
-          >
-            {dataHubLoading ? 'Loading…' : 'Load'}
-          </button>
-        </div>
       )}
 
       {/* Progress bar (only during refresh) */}
@@ -1340,242 +1593,664 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
       )}
 
       {/* ─── Data Operations ─── */}
-      <style>{`
-        @keyframes ops-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
-        .ops-btn { transition: all 0.12s ease; }
-        .ops-btn:hover:not(:disabled) { opacity: 0.88; transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0,0,0,0.18); }
-        .ops-btn:active:not(:disabled) { transform: translateY(0); opacity: 1; }
-        .ops-card { transition: border-color 0.2s ease, box-shadow 0.2s ease; }
-        .ops-card:hover { box-shadow: ${isDarkMode ? '0 4px 16px rgba(0,0,0,0.35)' : '0 4px 16px rgba(15,23,42,0.1)'}; }
-        .ops-preset { transition: all 0.12s ease; cursor: pointer; }
-        .ops-preset:hover { opacity: 0.8; }
-        @keyframes ops-slideDown { from { opacity: 0; max-height: 0; transform: translateY(-4px); } to { opacity: 1; max-height: 60px; transform: translateY(0); } }
-      `}</style>
-      <section style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {/* Section Header — ImmediateActionsBar pattern */}
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          fontSize: 11,
-          fontWeight: 700,
-          textTransform: 'uppercase',
-          letterSpacing: '0.05em',
-          color: isDarkMode ? '#94a3b8' : '#64748b',
-        }}>
-          <button
-            onClick={toggleOpsCollapse}
-            onMouseEnter={() => setOpsChevronHovered(true)}
-            onMouseLeave={() => setOpsChevronHovered(false)}
-            aria-label={opsCollapsed ? 'Expand operations' : 'Collapse operations'}
-            aria-expanded={!opsCollapsed}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              width: 18,
-              height: 18,
-              padding: 0,
-              border: 'none',
-              borderRadius: 3,
-              background: opsChevronHovered
-                ? (isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)')
-                : 'transparent',
-              cursor: 'pointer',
-              transition: 'all 0.15s ease',
-            }}
-          >
-            <FontIcon
-              iconName={opsCollapsed ? 'ChevronRight' : 'ChevronDown'}
-              style={{
-                fontSize: 10,
-                color: opsChevronHovered
-                  ? (isDarkMode ? '#7dd3fc' : '#3690ce')
-                  : (isDarkMode ? '#94a3b8' : '#64748b'),
-                transition: 'color 0.15s ease',
-              }}
-            />
-          </button>
-          <FontIcon iconName="Database" style={{ fontSize: 13, color: isDarkMode ? '#60a5fa' : '#2563eb' }} />
-          Data Operations
-          {isSyncBusy && (
-            <span style={{
-              minWidth: 18,
-              height: 18,
-              padding: '0 5px',
-              background: isDarkMode ? 'rgba(59, 130, 246, 0.15)' : 'rgba(59, 130, 246, 0.1)',
-              color: isDarkMode ? '#93c5fd' : '#3b82f6',
-              fontSize: 10,
-              fontWeight: 700,
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              borderRadius: 2,
-            }}>
-              syncing
-            </span>
-          )}
-          <span style={{ marginLeft: 'auto', fontWeight: 400, fontSize: 10, textTransform: 'none', letterSpacing: 0 }}>Clio → SQL</span>
-        </div>
-
-        {!opsCollapsed && (
-        <>
-        {/* ─── Scheduler Dashboard Strip ─── */}
-        {schedulerStatus && activeOp === null && (
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px', fontSize: 9,
-            background: isDarkMode ? 'rgba(15,23,42,0.4)' : 'rgba(248,250,252,0.8)',
-            border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)'}`,
-            borderRadius: 2,
-            color: isDarkMode ? '#64748b' : '#94a3b8',
-          }}>
-            <FontIcon iconName="Clock" style={{ fontSize: 10, color: schedulerStatus.enabled ? '#22c55e' : '#ef4444' }} />
-            <span style={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Scheduler {schedulerStatus.enabled ? 'ON' : 'OFF'}
-            </span>
-            {schedulerStatus.enabled && schedulerStatus.tiers && (
-              <>
-                <span style={{ color: isDarkMode ? '#334155' : '#e2e8f0' }}>|</span>
-                {(['hot', 'warm', 'cold'] as const).map((tier) => {
-                  const ct = schedulerStatus.tiers.collected?.[tier];
-                  const hasRun = !!ct?.lastRun;
-                  const isErr = ct?.lastRun?.status === 'error';
-                  return (
-                    <span key={tier} style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                      <span style={{
-                        width: 5, height: 5, borderRadius: '50%',
-                        background: isErr ? '#ef4444' : hasRun ? '#22c55e' : (isDarkMode ? '#334155' : '#d1d5db'),
-                      }} />
-                      <span style={{ textTransform: 'capitalize', fontWeight: 600 }}>{tier}</span>
-                      {hasRun && (
-                        <span style={{ color: isDarkMode ? '#475569' : '#cbd5e1' }}>
-                          {new Date(ct!.lastRun!.ts).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
-                        </span>
-                      )}
-                    </span>
-                  );
-                })}
-              </>
-            )}
-            <button
-              onClick={fetchSchedulerStatus}
-              style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontSize: 9, padding: '0 2px' }}
-            >
-              <FontIcon iconName="Refresh" style={{ fontSize: 9 }} />
-            </button>
+      <section style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {/* Section Header */}
+        {!activeOp && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            {isSyncBusy && <Spinner size={SpinnerSize.xSmall} />}
           </div>
         )}
 
-        {/* ─── Operation Selector ─── */}
-        {activeOp === null ? (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            {/* Collected button */}
-            <button
-              onClick={() => setActiveOp('collected')}
-              style={{
-                padding: '28px 24px',
-                background: isDarkMode ? '#1e293b' : '#fff',
-                border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
-                borderRadius: 2,
-                cursor: 'pointer',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: 10,
-                transition: 'all 0.15s ease',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = isDarkMode ? 'rgba(59,130,246,0.4)' : 'rgba(59,130,246,0.3)';
-                e.currentTarget.style.background = isDarkMode ? 'rgba(59,130,246,0.06)' : 'rgba(59,130,246,0.03)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
-                e.currentTarget.style.background = isDarkMode ? '#1e293b' : '#fff';
-              }}
-            >
-              <FontIcon iconName="Money" style={{ fontSize: 24, color: '#3b82f6' }} />
-              <span style={{ fontSize: 14, fontWeight: 700, color: isDarkMode ? '#f1f5f9' : '#0f172a' }}>Collected</span>
-              <span style={{ fontSize: 10, color: isDarkMode ? '#6b7280' : '#9ca3af' }}>
-                {opsStatus?.collectedTime?.rowCount?.toLocaleString() ?? '—'} rows
-              </span>
-              {collectedStaleness && (
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, color: collectedStaleness.colour }}>
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: collectedStaleness.colour, display: 'inline-block' }} />
-                  {collectedStaleness.label}
-                </span>
-              )}
-            </button>
-
-            {/* Recorded (WIP) button */}
-            <button
-              onClick={() => setActiveOp('wip')}
-              style={{
-                padding: '28px 24px',
-                background: isDarkMode ? '#1e293b' : '#fff',
-                border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
-                borderRadius: 2,
-                cursor: 'pointer',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: 10,
-                transition: 'all 0.15s ease',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = isDarkMode ? 'rgba(20,184,166,0.4)' : 'rgba(20,184,166,0.3)';
-                e.currentTarget.style.background = isDarkMode ? 'rgba(20,184,166,0.06)' : 'rgba(20,184,166,0.03)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
-                e.currentTarget.style.background = isDarkMode ? '#1e293b' : '#fff';
-              }}
-            >
-              <FontIcon iconName="Clock" style={{ fontSize: 24, color: '#14b8a6' }} />
-              <span style={{ fontSize: 14, fontWeight: 700, color: isDarkMode ? '#f1f5f9' : '#0f172a' }}>Recorded</span>
-              <span style={{ fontSize: 10, color: isDarkMode ? '#6b7280' : '#9ca3af' }}>
-                {opsStatus?.wip?.rowCount?.toLocaleString() ?? '—'} rows
-              </span>
-              {wipStaleness && (
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, color: wipStaleness.colour }}>
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: wipStaleness.colour, display: 'inline-block' }} />
-                  {wipStaleness.label}
-                </span>
-              )}
-            </button>
+        {/* ─── Entry View — high-level position at a glance ─── */}
+        {!activeOp && (
+          <div style={{ display: 'flex', gap: 16 }}>
+            {(['collected', 'wip'] as const).map((op) => {
+              const label = op === 'collected' ? 'Collected Lane' : 'WIP Lane';
+              const accent = op === 'collected' ? colours.blue : '#14b8a6';
+              const rowCount = op === 'collected' ? opsStatus?.collectedTime?.rowCount : opsStatus?.wip?.rowCount;
+              const latestDate = op === 'collected' ? opsStatus?.collectedTime?.latestDate : opsStatus?.wip?.latestDate;
+              const staleness = op === 'collected' ? collectedStaleness : wipStaleness;
+              const purpose = op === 'collected'
+                ? 'Payments captured from Clio into SQL for reporting'
+                : 'Recorded work synced with current-week protection';
+              return (
+                <button
+                  key={op}
+                  onClick={() => setActiveOp(op)}
+                  style={{
+                    flex: 1,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 10,
+                    padding: '20px 24px',
+                    background: reportingPanelBackground(isDarkMode, 'elevated'),
+                    border: `1px solid ${reportingPanelBorder(isDarkMode, 'strong')}`,
+                    borderRadius: 6,
+                    boxShadow: reportingPanelShadow(isDarkMode),
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ width: 3, height: 14, borderRadius: 1, background: accent }} />
+                    <span style={{ fontSize: 13, fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>
+                      {label}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 28, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text, letterSpacing: '-0.02em' }}>
+                    {rowCount?.toLocaleString() ?? '—'}
+                    <span style={{ fontSize: 12, fontWeight: 400, color: isDarkMode ? colours.greyText : colours.subtleGrey, marginLeft: 4 }}>rows</span>
+                  </div>
+                  <div style={{ fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+                    {purpose}
+                  </div>
+                  {op === 'wip' && (
+                    <div style={{ fontSize: 10, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>
+                      Current week excluded from SQL · stitched from Clio API in dashboards
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', gap: 16, fontSize: 11, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+                    <span>{latestDate ? new Date(latestDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</span>
+                    {staleness && (
+                      <span style={{ color: staleness.colour, fontWeight: 500 }}>
+                        {staleness.label}
+                      </span>
+                    )}
+                    <span style={{ marginLeft: 'auto', fontWeight: 600, color: accent }}>Open lane</span>
+                  </div>
+                </button>
+              );
+            })}
           </div>
-        ) : (
-          <>
-          {/* Back to selector */}
-          <button
-            onClick={() => setActiveOp(null)}
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 4,
-              background: 'none', border: 'none', cursor: 'pointer',
-              fontSize: 10, fontWeight: 600, color: isDarkMode ? '#64748b' : '#94a3b8',
-              padding: 0, marginBottom: -4,
-            }}
-          >
-            <FontIcon iconName="ChevronLeft" style={{ fontSize: 8 }} />
-            Back
-          </button>
+        )}
 
-          {/* Flex row: card + side panel */}
-          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+        {/* ─── Drilled-in View ─── */}
+        {activeOp && (
+        <>
+        {/* Hub lane controls */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          padding: '6px 8px',
+          border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`,
+          background: isDarkMode ? 'rgba(15,23,42,0.3)' : 'rgba(248,250,252,0.7)',
+          borderRadius: 2,
+        }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
+            padding: 3,
+            border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
+            borderRadius: 2,
+            background: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+            minWidth: 220,
+          }}>
+            {(['collected', 'wip'] as const).map((lane) => {
+              const isActiveLane = activeOp === lane;
+              const laneAccent = lane === 'collected' ? colours.blue : '#14b8a6';
+              return (
+                <button
+                  key={lane}
+                  onClick={() => setActiveOp(lane)}
+                  style={{
+                    border: 'none',
+                    borderRadius: 2,
+                    cursor: 'pointer',
+                    padding: '6px 12px',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    flex: 1,
+                    color: isActiveLane
+                      ? (isDarkMode ? colours.dark.text : colours.light.text)
+                      : (isDarkMode ? colours.subtleGrey : colours.greyText),
+                    background: isActiveLane
+                      ? (isDarkMode ? `${laneAccent}2E` : `${laneAccent}20`)
+                      : 'transparent',
+                    boxShadow: isActiveLane ? (isDarkMode ? `inset 0 0 0 1px ${laneAccent}55` : `inset 0 0 0 1px ${laneAccent}44`) : 'none',
+                  }}
+                >
+                  {lane === 'collected' ? 'Collected' : 'WIP'}
+                </button>
+              );
+            })}
+          </div>
+          {schedulerStatus && (
+            <span style={{ marginLeft: 'auto', fontSize: 9, fontWeight: 500, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>
+              Scheduler {schedulerStatus.enabled ? 'on' : 'off'}
+            </span>
+          )}
+        </div>
 
-          {/* Left column: card + validator */}
-          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {/* ─── Main Layout: Integrity → Coverage → Custom Sync ─── */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
 
-          {/* ─── Collected Time Card ─── */}
+        {/* ─── Coverage: one-click compliance ─── */}
+        <div style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          gap: 8,
+          padding: '6px 8px',
+          border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)'}`,
+          background: isDarkMode ? 'rgba(15,23,42,0.2)' : 'rgba(248,250,252,0.6)',
+          borderRadius: 2,
+        }}>
+          <span style={{ fontSize: 10, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text }}>
+            Coverage Ledger
+          </span>
+          <span style={{ fontSize: 9, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>
+            Complete lane-scoped audit trail by month window
+          </span>
+        </div>
+
+        {/* ─── Coverage: one-click compliance + attributed audit trail ─── */}
+        {/* Loading */}
+        {monthAuditLoading && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: 8 }}>
+            <Spinner size={SpinnerSize.xSmall} />
+            <span style={{ fontSize: 9, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>Loading coverage…</span>
+          </div>
+        )}
+
+        {/* Month grid */}
+        {!monthAuditLoading && monthAuditData.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {[...monthAuditData]
+              .sort((a, b) => a.key < b.key ? 1 : -1)
+              .slice(0, coverageVisibleCount)
+              .map((m, idx) => {
+              const hasSynced = !!m.lastSync;
+              const isError = m.lastSync?.status === 'error';
+              const isStartedOnly = m.lastSync?.status === 'started';
+              const accent = monthAuditOp === 'collectedTime' ? colours.blue : '#14b8a6';
+              const isBackfilling = backfillRunning && backfillCurrent === m.key;
+              const hasFailed = backfillErrors.includes(m.key);
+              const stripe = idx % 2 === 0;
+              const isExpanded = expandedCoverageWindows[m.key] ?? idx < 2;
+              const freshnessCue = getFreshnessCue(m.key, m.lastSync?.ts);
+              const monthAuditEntries = coverageMonthAuditLogMap.get(m.key) || [];
+              const fallbackAudit = monthAuditEntries.length === 0 && m.lastSync
+                ? [{
+                    id: `${m.key}-fallback`,
+                    ts: new Date(m.lastSync.ts).getTime(),
+                    operation: monthAuditOp === 'collectedTime' ? 'syncCollectedTime' : 'syncWip',
+                    status: (m.lastSync.status as OperationLogEntry['status']) || 'completed',
+                    message: m.lastSync.message || `${m.label} coverage sync`,
+                  } as OperationLogEntry]
+                : [];
+              const visibleAuditEntries = monthAuditEntries.length > 0 ? monthAuditEntries : fallbackAudit;
+
+              /* Format the sync summary line */
+              const syncWho = m.lastSync?.invokedBy || null;
+              const syncDate = m.lastSync?.ts ? new Date(m.lastSync.ts) : null;
+              const syncDateStr = syncDate
+                ? syncDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+                : null;
+              const syncRows = m.lastSync?.insertedRows;
+              const hasStats = !!m.stats && m.stats.totalRows > 0;
+              const tableName = monthAuditOp === 'collectedTime' ? 'collectedTime' : 'wip';
+              const isPreviewOpen = windowPreviewOpen[m.key] ?? false;
+              const previewForWindow = windowPreviewData[m.key] ?? null;
+
+              const validationEntry: OperationLogEntry | null = m.lastValidate ? {
+                id: `${m.key}-validate-${m.lastValidate.ts}`,
+                ts: new Date(m.lastValidate.ts).getTime(),
+                operation: 'validate',
+                status: (m.lastValidate.status || '').toLowerCase().includes('error') ? 'error' : 'completed',
+                message: m.lastValidate.message || 'Validation completed',
+                invokedBy: m.lastValidate.invokedBy,
+              } : null;
+
+              const syncSnapshotEntry: OperationLogEntry | null = m.lastSync ? {
+                id: `${m.key}-sync-${m.lastSync.ts}`,
+                ts: new Date(m.lastSync.ts).getTime(),
+                operation: 'sync',
+                status: ((m.lastSync.status as OperationLogEntry['status']) || 'completed'),
+                message: m.lastSync.message || `${m.lastSync.insertedRows?.toLocaleString() ?? 0} rows synced`,
+                invokedBy: m.lastSync.invokedBy,
+              } : null;
+
+              const mergedLedgerEntries = [
+                ...visibleAuditEntries,
+                ...(validationEntry ? [validationEntry] : []),
+                ...(syncSnapshotEntry ? [syncSnapshotEntry] : []),
+              ]
+                .reduce((acc, entry) => {
+                  if (!acc.find((e) => e.id === entry.id)) acc.push(entry);
+                  return acc;
+                }, [] as OperationLogEntry[])
+                .sort((a, b) => (b.ts || 0) - (a.ts || 0));
+
+              return (
+                <div
+                  key={m.key}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 6,
+                    padding: '8px 10px',
+                    background: isBackfilling
+                      ? (isDarkMode ? 'rgba(54,144,206,0.1)' : 'rgba(54,144,206,0.05)')
+                      : stripe
+                        ? (isDarkMode ? 'rgba(15,23,42,0.3)' : 'rgba(248,250,252,0.5)')
+                        : 'transparent',
+                    fontSize: 9,
+                    border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.06)'}`,
+                    borderLeft: `3px solid ${isError ? colours.cta : isStartedOnly ? colours.orange : freshnessCue.color}`,
+                    borderRadius: 2,
+                  }}
+                >
+                  {/* Window header: month + state + freshness + actions */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <button
+                      onClick={() => setExpandedCoverageWindows((prev) => ({ ...prev, [m.key]: !isExpanded }))}
+                      style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: isDarkMode ? colours.greyText : colours.subtleGrey }}
+                      title={isExpanded ? 'Collapse window' : 'Expand window'}
+                    >
+                      <FontIcon iconName={isExpanded ? 'ChevronDown' : 'ChevronRight'} style={{ fontSize: 9 }} />
+                    </button>
+                    <span
+                      style={{
+                        width: 12,
+                        height: 12,
+                        borderRadius: 0,
+                        border: `1px solid ${hasSynced && !isError ? `${colours.green}88` : isError ? `${colours.cta}88` : (isDarkMode ? colours.dark.borderColor : colours.highlightNeutral)}`,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: 8,
+                        fontWeight: 700,
+                        color: hasSynced && !isError ? colours.green : isError ? colours.cta : (isDarkMode ? colours.greyText : colours.subtleGrey),
+                        flexShrink: 0,
+                      }}
+                    >
+                      {hasSynced && !isError ? '✓' : isError ? '!' : ''}
+                    </span>
+                    <span style={{ fontWeight: 600, fontSize: 10, minWidth: 60, color: isDarkMode ? colours.dark.text : colours.light.text }}>
+                      {m.label}
+                      {m.currentWeekExcluded && (
+                        <span title="Current week excluded — sourced live from Clio" style={{ marginLeft: 4, display: 'inline-flex', alignItems: 'center' }}>
+                          <FontIcon iconName="Info" style={{ fontSize: 9, color: colours.blue }} />
+                        </span>
+                      )}
+                    </span>
+
+                    <span style={{
+                      fontSize: 8,
+                      fontWeight: 600,
+                      color: freshnessCue.color,
+                      background: isDarkMode ? freshnessCue.tint : freshnessCue.tint,
+                      border: `1px solid ${freshnessCue.color}33`,
+                      borderRadius: 999,
+                      padding: '1px 6px',
+                    }}>
+                      {freshnessCue.label}
+                    </span>
+
+                    {isStartedOnly && (
+                      <span style={{ fontSize: 9, fontWeight: 500, color: colours.orange }}>⏳ syncing</span>
+                    )}
+                    {isError && (
+                      <span style={{ fontSize: 9, fontWeight: 500, color: colours.cta }}>error</span>
+                    )}
+
+                    {/* Inline sync info */}
+                    {hasSynced && !isStartedOnly && (
+                      <span style={{ fontSize: 9, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>
+                        {syncDateStr}{syncRows != null ? ` · ${syncRows.toLocaleString()}r` : ''}
+                      </span>
+                    )}
+
+                    {/* Inline stats */}
+                    {hasStats && monthAuditOp === 'wip' && m.stats && (
+                      <span style={{ fontSize: 9, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>
+                        {m.stats.billableRows.toLocaleString()}b / {m.stats.nonBillableRows.toLocaleString()}nb
+                        {m.stats.nonBillableRows === 0 && m.stats.totalRows > 0 && (
+                          <span style={{ color: colours.cta, marginLeft: 3 }} title="Verify non-billable entries exist in Clio">⚠</span>
+                        )}
+                      </span>
+                    )}
+                    {hasStats && monthAuditOp === 'collectedTime' && m.stats && (
+                      <span style={{ fontSize: 9, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>
+                        {m.stats.totalRows.toLocaleString()}r · £{m.stats.totalValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                      </span>
+                    )}
+
+                    <span style={{ flex: 1 }} />
+
+                    {/* Action cluster (separated from time metadata) */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <button
+                        onClick={() => {
+                          const nextOpen = !isPreviewOpen;
+                          setWindowPreviewOpen((prev) => ({ ...prev, [m.key]: nextOpen }));
+                          if (nextOpen && !previewForWindow && windowPreviewLoadingKey !== m.key) {
+                            void fetchWindowPreview(m.key, tableName);
+                          }
+                        }}
+                        style={{
+                          border: `1px solid ${isDarkMode ? 'rgba(75,85,99,0.35)' : colours.highlightNeutral}`,
+                          background: 'transparent',
+                          color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                          fontSize: 8,
+                          fontWeight: 600,
+                          padding: '2px 6px',
+                          cursor: 'pointer',
+                          borderRadius: 2,
+                        }}
+                        title={`Preview ${tableName} table`}
+                      >
+                        {isPreviewOpen ? 'Hide table' : 'Show table'}
+                      </button>
+
+                    {isBackfilling ? (
+                      <Spinner size={SpinnerSize.xSmall} />
+                    ) : hasFailed ? (
+                      <span style={{ fontSize: 9, color: colours.cta }}>✗</span>
+                    ) : (
+                      <button
+                        onClick={() => backfillSingleMonth(m.key)}
+                        disabled={backfillRunning}
+                        title={hasSynced ? `Re-sync ${m.label}` : `Sync ${m.label}`}
+                        style={{
+                          background: 'none', border: 'none', cursor: backfillRunning ? 'not-allowed' : 'pointer',
+                          padding: '1px 3px', display: 'flex', alignItems: 'center',
+                          color: hasSynced ? (isDarkMode ? colours.greyText : colours.highlightNeutral) : accent,
+                          opacity: backfillRunning ? 0.3 : 1,
+                        }}
+                      >
+                        <FontIcon iconName="Sync" style={{ fontSize: 9 }} />
+                      </button>
+                    )}
+                    </div>
+                  </div>
+
+                  {isExpanded && (
+                  <>
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    fontSize: 9,
+                    color: isDarkMode ? colours.greyText : colours.subtleGrey,
+                    padding: '4px 0 2px 18px',
+                  }}>
+                    <span>{syncWho ? `by ${syncWho}` : 'not yet synced'}</span>
+                    <span>{syncDateStr ? `at ${syncDateStr}` : 'no timestamp'}</span>
+                    {syncRows != null && <span>{syncRows.toLocaleString()} rows</span>}
+                    {hasStats && monthAuditOp === 'collectedTime' && m.stats && (
+                      <span>{m.stats.totalRows.toLocaleString()}r</span>
+                    )}
+                    <span style={{
+                      marginLeft: 'auto',
+                      fontSize: 9,
+                      fontWeight: 700,
+                      color: isDarkMode ? colours.dark.text : colours.light.text,
+                    }}>
+                      {mergedLedgerEntries.length} ledger event{mergedLedgerEntries.length === 1 ? '' : 's'}
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5, paddingLeft: 18 }}>
+                    {mergedLedgerEntries.length === 0 ? (
+                      <span style={{ fontSize: 8, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>
+                        No ledger events for this month window
+                      </span>
+                    ) : (
+                      mergedLedgerEntries.map((entry) => {
+                        const operationLower = (entry.operation || '').toLowerCase();
+                        const messageLower = (entry.message || '').toLowerCase();
+                        const sourceLower = (entry.triggeredBy || entry.invokedBy || '').toLowerCase();
+                        const isAuto = sourceLower === 'system' || sourceLower === 'scheduler' || sourceLower === 'timer' || sourceLower === 'auto' || operationLower.includes('scheduler') || operationLower.includes('auto') || messageLower.includes('auto-sync') || messageLower.includes('scheduler') || messageLower.includes('system');
+                        const statusColor = entry.status === 'completed'
+                          ? colours.green
+                          : entry.status === 'error'
+                            ? colours.cta
+                            : entry.status === 'started'
+                              ? colours.orange
+                              : (isDarkMode ? colours.subtleGrey : colours.greyText);
+                        const statusLabel = entry.status === 'progress' ? 'started' : entry.status;
+                        const eventType = operationLower.includes('validate') || messageLower.includes('validate')
+                          ? 'VALIDATION'
+                          : operationLower.includes('sync')
+                            ? 'SYNC'
+                            : 'AUDIT';
+                        return (
+                          <div key={entry.id} style={{
+                            display: 'flex', alignItems: 'center', gap: 6, fontSize: 8,
+                            padding: '5px 6px',
+                            border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)'}`,
+                            background: isDarkMode ? 'rgba(2,6,23,0.45)' : 'rgba(255,255,255,0.92)',
+                            borderRadius: 2,
+                          }}>
+                            <span style={{ width: 5, height: 5, borderRadius: '50%', background: statusColor, flexShrink: 0 }} />
+                            <span style={{ color: statusColor, fontWeight: 700, textTransform: 'uppercase', minWidth: 58 }}>
+                              {statusLabel}
+                            </span>
+                            <span style={{
+                              color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                              fontWeight: 700,
+                              textTransform: 'uppercase',
+                              minWidth: 70,
+                            }}>
+                              {eventType}
+                            </span>
+                            <span style={{
+                              color: isAuto ? (isDarkMode ? colours.blue : colours.helixBlue) : (isDarkMode ? colours.cta : colours.cta),
+                              fontWeight: 700,
+                              textTransform: 'uppercase',
+                              minWidth: 48,
+                            }}>
+                              {isAuto ? 'SYSTEM' : 'USER'}
+                            </span>
+                            <span style={{ color: isDarkMode ? colours.dark.text : colours.light.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 9 }}>
+                              {entry.message || entry.operation}
+                            </span>
+                            <span style={{ marginLeft: 'auto', color: isDarkMode ? colours.greyText : colours.subtleGrey }}>
+                              {new Date(entry.ts).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  {isPreviewOpen && (
+                    <div style={{
+                      marginLeft: 18,
+                      marginTop: 4,
+                      border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
+                      borderRadius: 2,
+                      background: isDarkMode ? 'rgba(2,6,23,0.4)' : 'rgba(255,255,255,0.9)',
+                      padding: '8px 10px',
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                        <span style={{ fontSize: 9, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text }}>
+                          Table sample · {tableName}
+                        </span>
+                        <span style={{ fontSize: 8, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>
+                          first 20 rows
+                        </span>
+                      </div>
+
+                      {windowPreviewLoadingKey === m.key ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 9, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+                          <Spinner size={SpinnerSize.xSmall} />
+                          Loading table sample…
+                        </div>
+                      ) : previewForWindow && previewForWindow.rows.length > 0 ? (
+                        <div style={{ overflowX: 'auto' as const }}>
+                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 8 }}>
+                            <thead>
+                              <tr>
+                                {previewForWindow.columns.slice(0, 6).map((col) => (
+                                  <th key={col} style={{ textAlign: 'left', padding: '4px 6px', borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`, color: isDarkMode ? colours.subtleGrey : colours.greyText, fontWeight: 700 }}>
+                                    {col}
+                                  </th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {previewForWindow.rows.slice(0, 8).map((row, rowIdx) => (
+                                <tr key={rowIdx}>
+                                  {previewForWindow.columns.slice(0, 6).map((col) => (
+                                    <td key={col} style={{ padding: '4px 6px', borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)'}`, color: isDarkMode ? colours.dark.text : colours.light.text, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={String((row as Record<string, unknown>)[col] ?? '—')}>
+                                      {String((row as Record<string, unknown>)[col] ?? '—')}
+                                    </td>
+                                  ))}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: 9, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+                          No sample rows available for this table.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  </>
+                  )}
+                </div>
+              );
+            })}
+
+            {monthAuditData.length > coverageVisibleCount && (
+              <button
+                onClick={() => setCoverageVisibleCount((prev) => prev + 6)}
+                style={{
+                  border: `1px solid ${isDarkMode ? 'rgba(75,85,99,0.35)' : colours.highlightNeutral}`,
+                  background: 'transparent',
+                  color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                  fontSize: 10,
+                  fontWeight: 600,
+                  padding: '6px 10px',
+                  borderRadius: 2,
+                  cursor: 'pointer',
+                  alignSelf: 'center',
+                }}
+              >
+                Show more windows ({monthAuditData.length - coverageVisibleCount} remaining)
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Empty state */}
+        {!monthAuditLoading && monthAuditData.length === 0 && (
+          <div style={{ padding: 10, textAlign: 'center', fontSize: 9, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>
+            No coverage data.
+          </div>
+        )}
+
+        {/* Backfill controls */}
+        {!monthAuditLoading && monthAuditData.some((m) => !m.lastSync) && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, borderTop: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`, paddingTop: 8 }}>
+            {backfillRunning ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Spinner size={SpinnerSize.xSmall} />
+                <span style={{ fontSize: 9, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+                  {backfillCurrent ?? '…'} — {backfillDone.length}/{monthAuditData.filter((m) => !m.lastSync || backfillDone.includes(m.key)).length}
+                </span>
+              </div>
+            ) : (
+              <button
+                onClick={backfillUncovered}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                  padding: '5px 8px',
+                  background: isDarkMode
+                    ? `${monthAuditOp === 'collectedTime' ? 'rgba(54,144,206,0.08)' : 'rgba(20,184,166,0.08)'}`
+                    : `${monthAuditOp === 'collectedTime' ? 'rgba(54,144,206,0.05)' : 'rgba(20,184,166,0.05)'}`,
+                  border: `1px solid ${isDarkMode
+                    ? `${monthAuditOp === 'collectedTime' ? 'rgba(54,144,206,0.2)' : 'rgba(20,184,166,0.2)'}`
+                    : `${monthAuditOp === 'collectedTime' ? 'rgba(54,144,206,0.15)' : 'rgba(20,184,166,0.15)'}`}`,
+                  borderRadius: 2,
+                  cursor: 'pointer',
+                  fontSize: 9,
+                  fontWeight: 600,
+                  color: monthAuditOp === 'collectedTime' ? colours.blue : '#14b8a6',
+                  width: '100%',
+                }}
+              >
+                <FontIcon iconName="Sync" style={{ fontSize: 9 }} />
+                Backfill {monthAuditData.filter((m) => !m.lastSync).length} uncovered
+              </button>
+            )}
+            {!backfillRunning && backfillDone.length > 0 && backfillErrors.length === 0 && (
+              <span style={{ fontSize: 8, color: colours.green, textAlign: 'center' }}>
+                ✓ {backfillDone.length} months done
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* ─── Custom Sync (debugging tool — collapsed by default) ─── */}
+        <button
+          onClick={() => setSyncExpanded(!syncExpanded)}
+          style={{
+            width: '100%',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '4px 8px',
+            background: 'none',
+            border: 'none',
+            borderTop: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)'}`,
+            borderRadius: 0,
+            cursor: 'pointer',
+            fontSize: 10,
+            fontWeight: 500,
+            color: isDarkMode ? colours.greyText : colours.subtleGrey,
+            marginTop: 4,
+          }}
+        >
+          <FontIcon iconName={syncExpanded ? 'ChevronDown' : 'ChevronRight'} style={{ fontSize: 7 }} />
+          Custom Sync
+          {isSyncBusy && <Spinner size={SpinnerSize.xSmall} style={{ marginLeft: 'auto' }} />}
+        </button>
+
+        {syncExpanded && (
+        <>
+        {/* ─── Integrity Validation (moved from top) ─── */}
+        {activeOp === 'collected' && (
+          <OperationValidator
+            operation={collectedValidatorOp}
+            startDate={collectedRange.startDate?.toISOString()}
+            endDate={collectedRange.endDate?.toISOString()}
+            label="Collected Integrity"
+            accentColor={colours.blue}
+            userName={userName}
+            liveLog={recentServerEntries}
+            isSyncing={syncingCollected}
+            mode="full"
+          />
+        )}
+        {activeOp === 'wip' && (
+          <OperationValidator
+            operation={wipValidatorOp}
+            startDate={wipRange.startDate?.toISOString()}
+            endDate={wipRange.endDate?.toISOString()}
+            label="WIP Integrity"
+            accentColor="#14b8a6"
+            userName={userName}
+            liveLog={recentServerEntries}
+            isSyncing={syncingWip}
+            mode="full"
+          />
+        )}
+
+        {/* ─── Collected Time Card ─── */}
           {activeOp === 'collected' && (
           <div
-            className="ops-card"
             style={{
-              padding: '16px 18px',
-              background: isDarkMode ? '#1e293b' : '#fff',
-              border: `1px solid ${syncingCollected
-                ? (isDarkMode ? 'rgba(59, 130, 246, 0.4)' : 'rgba(59, 130, 246, 0.3)')
-                : (isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)')}`,
-              borderRadius: 2,
+              padding: '14px 16px',
+              background: reportingPanelBackground(isDarkMode, 'elevated'),
+              border: `1px solid ${reportingPanelBorder(isDarkMode, 'strong')}`,
+              borderRadius: 4,
               display: 'flex',
               flexDirection: 'column',
               gap: 10,
@@ -1583,42 +2258,16 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
           >
             {/* Card Header */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{
-                  width: 6,
-                  height: 6,
-                  borderRadius: '50%',
-                  background: syncingCollected ? '#3b82f6' : (opsStatus?.collectedTime?.rowCount ? '#22c55e' : '#94a3b8'),
-                  animation: syncingCollected ? 'ops-pulse 1.5s infinite' : undefined,
-                  boxShadow: syncingCollected ? '0 0 6px rgba(59,130,246,0.5)' : (opsStatus?.collectedTime?.rowCount ? '0 0 4px rgba(34,197,94,0.4)' : 'none'),
-                }} />
-                <span style={{ fontWeight: 700, fontSize: 12 }}>Collected Time</span>
-              </div>
-              <span style={{ fontSize: 10, color: isDarkMode ? '#6b7280' : '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>collectedTime</span>
+              <span style={{ fontWeight: 600, fontSize: 12, color: isDarkMode ? colours.dark.text : colours.light.text }}>Custom Sync</span>
+              <span style={{ fontSize: 10, color: isDarkMode ? colours.greyText : colours.highlightNeutral }}>collectedTime</span>
             </div>
 
-            {/* Stats Row */}
-            <div style={{
-              display: 'flex',
-              gap: 20,
-              padding: '8px 12px',
-              background: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : 'rgba(248, 250, 252, 0.8)',
-              border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)'}`,
-              borderRadius: 2,
-            }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                <span style={{ fontSize: 16, fontWeight: 700, color: isDarkMode ? '#f9fafb' : '#111827' }}>{opsStatus?.collectedTime?.rowCount?.toLocaleString() ?? '—'}</span>
-                <span style={{ fontSize: 9, color: isDarkMode ? '#6b7280' : '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>rows</span>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                <span style={{ fontSize: 12, fontWeight: 600, color: isDarkMode ? '#d1d5db' : '#374151' }}>{opsStatus?.collectedTime?.latestDate ? new Date(opsStatus.collectedTime.latestDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</span>
-                <span style={{ fontSize: 9, color: isDarkMode ? '#6b7280' : '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>latest</span>
-              </div>
+            {/* Stats — compact single row */}
+            <div style={{ display: 'flex', gap: 16, fontSize: 11, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+              <span><strong style={{ color: isDarkMode ? colours.dark.text : colours.light.text }}>{opsStatus?.collectedTime?.rowCount?.toLocaleString() ?? '—'}</strong> rows</span>
+              <span>Latest: {opsStatus?.collectedTime?.latestDate ? new Date(opsStatus.collectedTime.latestDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) : '—'}</span>
               {collectedLastSync && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 1, marginLeft: 'auto', textAlign: 'right' }}>
-                  <span style={{ fontSize: 11, fontWeight: 500, color: isDarkMode ? '#d1d5db' : '#374151' }}>{new Date(collectedLastSync.ts).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
-                  <span style={{ fontSize: 9, color: isDarkMode ? '#6b7280' : '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>last sync</span>
-                </div>
+                <span style={{ marginLeft: 'auto' }}>Synced: {new Date(collectedLastSync.ts).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
               )}
             </div>
 
@@ -1627,7 +2276,7 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
               {(['today', 'yesterday', 'thisWeek', 'lastWeek', 'rolling7d', 'rolling14d', 'thisMonth', 'lastMonth', 'ytd', 'thisYear', 'lastYear', 'custom'] as RangePreset[]).map((preset) => (
                 <button
                   key={preset}
-                  className="ops-preset"
+                  
                   onClick={() => applyPreset('collected', preset)}
                   style={{
                     padding: '5px 10px',
@@ -1639,8 +2288,8 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
                       ? (isDarkMode ? '#4b5563' : '#fff')
                       : 'transparent',
                     color: collectedRange.preset === preset
-                      ? (isDarkMode ? '#93c5fd' : '#2563eb')
-                      : (isDarkMode ? '#6b7280' : '#9ca3af'),
+                      ? (isDarkMode ? colours.blue : colours.blue)
+                      : (isDarkMode ? colours.greyText : colours.subtleGrey),
                     boxShadow: collectedRange.preset === preset ? '0 1px 2px rgba(0,0,0,0.15)' : 'none',
                   }}
                 >
@@ -1653,7 +2302,7 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
             {collectedRange.preset === 'custom' && (
               <div style={{
                 display: 'flex', gap: 8, alignItems: 'center',
-                animation: 'ops-slideDown 0.15s ease',
+                
               }}>
                 <DatePicker
                   placeholder="Start"
@@ -1661,7 +2310,7 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
                   onSelectDate={(date) => setCustomDates('collected', date, collectedRange.endDate)}
                   {...getDatePickerProps(isDarkMode)}
                 />
-                <FontIcon iconName="Forward" style={{ fontSize: 10, color: isDarkMode ? '#475569' : '#cbd5e1' }} />
+                <FontIcon iconName="Forward" style={{ fontSize: 10, color: isDarkMode ? colours.greyText : colours.highlightNeutral }} />
                 <DatePicker
                   placeholder="End"
                   value={collectedRange.endDate || undefined}
@@ -1699,17 +2348,17 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
             {confirmingCollected && !syncingCollected ? (
               <div style={{
                 padding: '10px 12px',
-                background: isDarkMode ? 'rgba(59, 130, 246, 0.06)' : 'rgba(59, 130, 246, 0.03)',
-                border: `1px solid ${isDarkMode ? 'rgba(59, 130, 246, 0.2)' : 'rgba(59, 130, 246, 0.12)'}`,
+                background: isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.03)',
+                border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.12)'}`,
                 borderRadius: 2,
                 display: 'flex',
                 flexDirection: 'column',
                 gap: 8,
               }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: isDarkMode ? '#93c5fd' : '#1d4ed8' }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: isDarkMode ? colours.blue : colours.missedBlue }}>
                   Confirm Sync — Collected Time
                 </div>
-                <div style={{ fontSize: 10, color: isDarkMode ? '#cbd5e1' : '#475569', lineHeight: 1.5 }}>
+                <div style={{ fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText, lineHeight: 1.5 }}>
                   This will <strong>delete</strong> existing rows for the selected period and <strong>re-insert</strong> from Clio.
                 </div>
                 <div style={{
@@ -1722,32 +2371,32 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
                   border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)'}`,
                 }}>
                   <div>
-                    <span style={{ color: isDarkMode ? '#6b7280' : '#9ca3af', fontWeight: 700, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5 }}>Period</span>
-                    <div style={{ fontWeight: 600, color: isDarkMode ? '#f1f5f9' : '#0f172a' }}>
+                    <span style={{ color: isDarkMode ? colours.greyText : colours.subtleGrey, fontWeight: 700, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5 }}>Period</span>
+                    <div style={{ fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>
                       {collectedRange.startDate?.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' })} → {collectedRange.endDate?.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' })}
                     </div>
                   </div>
                   <div>
-                    <span style={{ color: isDarkMode ? '#6b7280' : '#9ca3af', fontWeight: 700, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5 }}>Mode</span>
-                    <div style={{ fontWeight: 600, color: isDarkMode ? '#f1f5f9' : '#0f172a' }}>{planModeLabel}</div>
+                    <span style={{ color: isDarkMode ? colours.greyText : colours.subtleGrey, fontWeight: 700, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5 }}>Mode</span>
+                    <div style={{ fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>{planModeLabel}</div>
                   </div>
                   <div>
-                    <span style={{ color: isDarkMode ? '#6b7280' : '#9ca3af', fontWeight: 700, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5 }}>Preset</span>
-                    <div style={{ fontWeight: 600, color: isDarkMode ? '#f1f5f9' : '#0f172a' }}>{PRESET_LABELS[collectedRange.preset]}</div>
+                    <span style={{ color: isDarkMode ? colours.greyText : colours.subtleGrey, fontWeight: 700, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5 }}>Preset</span>
+                    <div style={{ fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>{PRESET_LABELS[collectedRange.preset]}</div>
                   </div>
                 </div>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 10, color: isDarkMode ? '#e2e8f0' : '#374151' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 10, color: isDarkMode ? colours.dark.text : colours.dark.border }}>
                   <input
                     type="checkbox"
                     checked={collectedConfirmChecked}
                     onChange={(e) => setCollectedConfirmChecked(e.currentTarget.checked)}
-                    style={{ width: 14, height: 14, cursor: 'pointer', accentColor: '#3b82f6' }}
+                    style={{ width: 14, height: 14, cursor: 'pointer', accentColor: colours.blue }}
                   />
                   I understand this will replace data for the selected period
                 </label>
                 <div style={{ display: 'flex', gap: 6 }}>
                   <button
-                    className="ops-btn"
+                    
                     onClick={() => { setConfirmingCollected(false); setCollectedConfirmChecked(false); handleCollectedSync(); }}
                     disabled={!collectedConfirmChecked}
                     style={{
@@ -1756,8 +2405,8 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
                       border: 'none',
                       borderRadius: 0,
                       background: !collectedConfirmChecked
-                        ? (isDarkMode ? 'rgba(59, 130, 246, 0.25)' : 'rgba(59, 130, 246, 0.15)')
-                        : (isDarkMode ? '#3b82f6' : '#2563eb'),
+                        ? (isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.15)')
+                        : (colours.blue),
                       color: !collectedConfirmChecked
                         ? (isDarkMode ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.6)')
                         : '#fff',
@@ -1774,10 +2423,10 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
                     onClick={() => { setConfirmingCollected(false); setCollectedConfirmChecked(false); }}
                     style={{
                       height: 30,
-                      border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.3)' : '#e2e8f0'}`,
+                      border: `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.3)' : colours.highlightNeutral}`,
                       borderRadius: 0,
                       background: 'none',
-                      color: isDarkMode ? '#6b7280' : '#9ca3af',
+                      color: isDarkMode ? colours.greyText : colours.subtleGrey,
                       fontSize: 10,
                       fontWeight: 600,
                       padding: '0 12px',
@@ -1790,7 +2439,7 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
               </div>
             ) : (
               <button
-                className="ops-btn"
+                
                 onClick={() => { setConfirmingCollected(true); setCollectedConfirmChecked(false); }}
                 disabled={!collectedRange.startDate || !collectedRange.endDate || isSyncBusy}
                 style={{
@@ -1799,8 +2448,8 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
                   border: 'none',
                   borderRadius: 0,
                   background: (!collectedRange.startDate || !collectedRange.endDate || isSyncBusy)
-                    ? (isDarkMode ? 'rgba(59, 130, 246, 0.25)' : 'rgba(59, 130, 246, 0.15)')
-                    : (isDarkMode ? '#3b82f6' : '#2563eb'),
+                    ? (isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.15)')
+                    : (colours.blue),
                   color: (!collectedRange.startDate || !collectedRange.endDate || isSyncBusy)
                     ? (isDarkMode ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.6)')
                     : '#fff',
@@ -1820,44 +2469,17 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
               </button>
             )}
 
-            {/* Month Coverage toggle */}
-            <button
-              onClick={() => toggleCoverage('collectedTime')}
-              style={{
-                width: '100%',
-                height: 26,
-                border: `1px solid ${coverageOpen && monthAuditOp === 'collectedTime' ? 'rgba(59,130,246,0.25)' : (isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)')}`,
-                borderRadius: 0,
-                background: coverageOpen && monthAuditOp === 'collectedTime' ? (isDarkMode ? 'rgba(59,130,246,0.08)' : 'rgba(59,130,246,0.04)') : 'none',
-                color: coverageOpen && monthAuditOp === 'collectedTime' ? '#3b82f6' : (isDarkMode ? '#475569' : '#94a3b8'),
-                fontSize: 9,
-                fontWeight: 600,
-                textTransform: 'uppercase',
-                letterSpacing: '0.05em',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 5,
-              }}
-            >
-              <FontIcon iconName={coverageOpen && monthAuditOp === 'collectedTime' ? 'ChevronRight' : 'CalendarWeek'} style={{ fontSize: 10 }} />
-              {coverageOpen && monthAuditOp === 'collectedTime' ? 'Close Coverage' : 'Month Coverage'}
-            </button>
           </div>
           )}
 
           {/* ─── WIP Card ─── */}
           {activeOp === 'wip' && (
           <div
-            className="ops-card"
             style={{
-              padding: '16px 18px',
-              background: isDarkMode ? '#1e293b' : '#fff',
-              border: `1px solid ${syncingWip
-                ? (isDarkMode ? 'rgba(20, 184, 166, 0.4)' : 'rgba(20, 184, 166, 0.3)')
-                : (isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)')}`,
-              borderRadius: 2,
+              padding: '14px 16px',
+              background: reportingPanelBackground(isDarkMode, 'elevated'),
+              border: `1px solid ${reportingPanelBorder(isDarkMode, 'strong')}`,
+              borderRadius: 4,
               display: 'flex',
               flexDirection: 'column',
               gap: 10,
@@ -1865,42 +2487,17 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
           >
             {/* Card Header */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{
-                  width: 6,
-                  height: 6,
-                  borderRadius: '50%',
-                  background: syncingWip ? '#14b8a6' : (opsStatus?.wip?.rowCount ? '#22c55e' : '#94a3b8'),
-                  animation: syncingWip ? 'ops-pulse 1.5s infinite' : undefined,
-                  boxShadow: syncingWip ? '0 0 6px rgba(20,184,166,0.5)' : (opsStatus?.wip?.rowCount ? '0 0 4px rgba(34,197,94,0.4)' : 'none'),
-                }} />
-                <span style={{ fontWeight: 700, fontSize: 12 }}>Recorded Time (WIP)</span>
-              </div>
-              <span style={{ fontSize: 10, color: isDarkMode ? '#6b7280' : '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>wip</span>
+              <span style={{ fontWeight: 600, fontSize: 12, color: isDarkMode ? colours.dark.text : colours.light.text }}>Custom Sync</span>
+              <span style={{ fontSize: 10, color: isDarkMode ? colours.greyText : colours.highlightNeutral }}>wip</span>
             </div>
 
-            {/* Stats Row */}
-            <div style={{
-              display: 'flex',
-              gap: 20,
-              padding: '8px 12px',
-              background: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : 'rgba(248, 250, 252, 0.8)',
-              border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)'}`,
-              borderRadius: 2,
-            }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                <span style={{ fontSize: 16, fontWeight: 700, color: isDarkMode ? '#f9fafb' : '#111827' }}>{opsStatus?.wip?.rowCount?.toLocaleString() ?? '—'}</span>
-                <span style={{ fontSize: 9, color: isDarkMode ? '#6b7280' : '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>rows</span>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                <span style={{ fontSize: 12, fontWeight: 600, color: isDarkMode ? '#d1d5db' : '#374151' }}>{opsStatus?.wip?.latestDate ? new Date(opsStatus.wip.latestDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</span>
-                <span style={{ fontSize: 9, color: isDarkMode ? '#6b7280' : '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>latest</span>
-              </div>
+            {/* Stats — compact single row */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, fontSize: 11, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+              <span><strong style={{ color: isDarkMode ? colours.dark.text : colours.light.text }}>{opsStatus?.wip?.rowCount?.toLocaleString() ?? '—'}</strong> rows</span>
+              <span style={{ fontSize: 10, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>Current week excluded from SQL · stitched from Clio API in dashboards</span>
+              <span>Latest: {opsStatus?.wip?.latestDate ? new Date(opsStatus.wip.latestDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) : '—'}</span>
               {opsStatus?.wip?.lastSync && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 1, marginLeft: 'auto', textAlign: 'right' }}>
-                  <span style={{ fontSize: 11, fontWeight: 500, color: isDarkMode ? '#d1d5db' : '#374151' }}>{new Date(opsStatus.wip.lastSync.ts).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
-                  <span style={{ fontSize: 9, color: isDarkMode ? '#6b7280' : '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>last sync</span>
-                </div>
+                <span style={{ marginLeft: 'auto' }}>Synced: {new Date(opsStatus.wip.lastSync.ts).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
               )}
             </div>
 
@@ -1909,7 +2506,7 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
               {(['today', 'yesterday', 'thisWeek', 'lastWeek', 'rolling7d', 'rolling14d', 'thisMonth', 'lastMonth', 'ytd', 'thisYear', 'lastYear', 'custom'] as RangePreset[]).map((preset) => (
                 <button
                   key={preset}
-                  className="ops-preset"
+                  
                   onClick={() => applyPreset('wip', preset)}
                   style={{
                     padding: '5px 10px',
@@ -1922,7 +2519,7 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
                       : 'transparent',
                     color: wipRange.preset === preset
                       ? (isDarkMode ? '#5eead4' : '#0d9488')
-                      : (isDarkMode ? '#6b7280' : '#9ca3af'),
+                      : (isDarkMode ? colours.greyText : colours.subtleGrey),
                     boxShadow: wipRange.preset === preset ? '0 1px 2px rgba(0,0,0,0.15)' : 'none',
                   }}
                 >
@@ -1935,7 +2532,7 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
             {wipRange.preset === 'custom' && (
               <div style={{
                 display: 'flex', gap: 8, alignItems: 'center',
-                animation: 'ops-slideDown 0.15s ease',
+                
               }}>
                 <DatePicker
                   placeholder="Start"
@@ -1943,7 +2540,7 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
                   onSelectDate={(date) => setCustomDates('wip', date, wipRange.endDate)}
                   {...getDatePickerProps(isDarkMode)}
                 />
-                <FontIcon iconName="Forward" style={{ fontSize: 10, color: isDarkMode ? '#475569' : '#cbd5e1' }} />
+                <FontIcon iconName="Forward" style={{ fontSize: 10, color: isDarkMode ? colours.greyText : colours.highlightNeutral }} />
                 <DatePicker
                   placeholder="End"
                   value={wipRange.endDate || undefined}
@@ -1991,7 +2588,7 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
                 <div style={{ fontSize: 11, fontWeight: 600, color: isDarkMode ? '#5eead4' : '#0d9488' }}>
                   Confirm Sync — Recorded Time (WIP)
                 </div>
-                <div style={{ fontSize: 10, color: isDarkMode ? '#cbd5e1' : '#475569', lineHeight: 1.5 }}>
+                <div style={{ fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText, lineHeight: 1.5 }}>
                   This will <strong>delete</strong> existing WIP rows for the selected period and <strong>re-insert</strong> from Clio.
                 </div>
                 <div style={{
@@ -2004,17 +2601,17 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
                   border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)'}`,
                 }}>
                   <div>
-                    <span style={{ color: isDarkMode ? '#6b7280' : '#9ca3af', fontWeight: 700, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5 }}>Period</span>
-                    <div style={{ fontWeight: 600, color: isDarkMode ? '#f1f5f9' : '#0f172a' }}>
+                    <span style={{ color: isDarkMode ? colours.greyText : colours.subtleGrey, fontWeight: 700, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5 }}>Period</span>
+                    <div style={{ fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>
                       {wipRange.startDate?.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' })} → {wipRange.endDate?.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' })}
                     </div>
                   </div>
                   <div>
-                    <span style={{ color: isDarkMode ? '#6b7280' : '#9ca3af', fontWeight: 700, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5 }}>Preset</span>
-                    <div style={{ fontWeight: 600, color: isDarkMode ? '#f1f5f9' : '#0f172a' }}>{PRESET_LABELS[wipRange.preset]}</div>
+                    <span style={{ color: isDarkMode ? colours.greyText : colours.subtleGrey, fontWeight: 700, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5 }}>Preset</span>
+                    <div style={{ fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>{PRESET_LABELS[wipRange.preset]}</div>
                   </div>
                 </div>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 10, color: isDarkMode ? '#e2e8f0' : '#374151' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 10, color: isDarkMode ? colours.dark.text : colours.dark.border }}>
                   <input
                     type="checkbox"
                     checked={wipConfirmChecked}
@@ -2025,37 +2622,37 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
                 </label>
                 <div style={{ display: 'flex', gap: 6 }}>
                   <button
-                    className="ops-btn"
-                    onClick={() => { setConfirmingWip(false); setWipConfirmChecked(false); handleWipSync(); }}
-                    disabled={!wipConfirmChecked}
+                    
+                    onClick={() => { setConfirmingWip(false); setWipConfirmChecked(false); setWipWeekExclusionChecked(false); handleWipSync(); }}
+                    disabled={!wipConfirmChecked || (wipWillExcludeCurrentWeek && !wipWeekExclusionChecked)}
                     style={{
                       flex: 1,
                       height: 30,
                       border: 'none',
                       borderRadius: 0,
-                      background: !wipConfirmChecked
+                      background: (!wipConfirmChecked || (wipWillExcludeCurrentWeek && !wipWeekExclusionChecked))
                         ? (isDarkMode ? 'rgba(20, 184, 166, 0.25)' : 'rgba(20, 184, 166, 0.15)')
                         : (isDarkMode ? '#14b8a6' : '#0d9488'),
-                      color: !wipConfirmChecked
+                      color: (!wipConfirmChecked || (wipWillExcludeCurrentWeek && !wipWeekExclusionChecked))
                         ? (isDarkMode ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.6)')
                         : '#fff',
                       fontSize: 10,
                       fontWeight: 700,
                       textTransform: 'uppercase',
                       letterSpacing: '0.02em',
-                      cursor: !wipConfirmChecked ? 'not-allowed' : 'pointer',
+                      cursor: (!wipConfirmChecked || (wipWillExcludeCurrentWeek && !wipWeekExclusionChecked)) ? 'not-allowed' : 'pointer',
                     }}
                   >
                     Confirm & Sync
                   </button>
                   <button
-                    onClick={() => { setConfirmingWip(false); setWipConfirmChecked(false); }}
+                    onClick={() => { setConfirmingWip(false); setWipConfirmChecked(false); setWipWeekExclusionChecked(false); }}
                     style={{
                       height: 30,
-                      border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.3)' : '#e2e8f0'}`,
+                      border: `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.3)' : colours.highlightNeutral}`,
                       borderRadius: 0,
                       background: 'none',
-                      color: isDarkMode ? '#6b7280' : '#9ca3af',
+                      color: isDarkMode ? colours.greyText : colours.subtleGrey,
                       fontSize: 10,
                       fontWeight: 600,
                       padding: '0 12px',
@@ -2065,11 +2662,22 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
                     Cancel
                   </button>
                 </div>
+                {wipWillExcludeCurrentWeek && (
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 10, color: '#f59e0b' }}>
+                    <input
+                      type="checkbox"
+                      checked={wipWeekExclusionChecked}
+                      onChange={(e) => setWipWeekExclusionChecked(e.currentTarget.checked)}
+                      style={{ width: 14, height: 14, cursor: 'pointer', accentColor: '#f59e0b' }}
+                    />
+                    I understand current week (Mon→today) will not be written to SQL.
+                  </label>
+                )}
               </div>
             ) : (
               <button
-                className="ops-btn"
-                onClick={() => { setConfirmingWip(true); setWipConfirmChecked(false); }}
+                
+                onClick={() => { setConfirmingWip(true); setWipConfirmChecked(false); setWipWeekExclusionChecked(false); }}
                 disabled={!wipRange.startDate || !wipRange.endDate || isSyncBusy}
                 style={{
                   width: '100%',
@@ -2098,443 +2706,29 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
               </button>
             )}
 
-            {/* Month Coverage toggle */}
-            <button
-              onClick={() => toggleCoverage('wip')}
-              style={{
-                width: '100%',
-                height: 26,
-                border: `1px solid ${coverageOpen && monthAuditOp === 'wip' ? 'rgba(20,184,166,0.25)' : (isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)')}`,
-                borderRadius: 0,
-                background: coverageOpen && monthAuditOp === 'wip' ? (isDarkMode ? 'rgba(20,184,166,0.08)' : 'rgba(20,184,166,0.04)') : 'none',
-                color: coverageOpen && monthAuditOp === 'wip' ? '#14b8a6' : (isDarkMode ? '#475569' : '#94a3b8'),
-                fontSize: 9,
-                fontWeight: 600,
-                textTransform: 'uppercase',
-                letterSpacing: '0.05em',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 5,
-              }}
-            >
-              <FontIcon iconName={coverageOpen && monthAuditOp === 'wip' ? 'ChevronRight' : 'CalendarWeek'} style={{ fontSize: 10 }} />
-              {coverageOpen && monthAuditOp === 'wip' ? 'Close Coverage' : 'Month Coverage'}
-            </button>
           </div>
           )}
+          </>)}{/* end sync accordion */}
 
-          {/* ─── Integrity Validator (only for active operation) ─── */}
-          {activeOp === 'collected' && (
-            <OperationValidator
-              operation={collectedValidatorOp}
-              startDate={collectedRange.startDate?.toISOString()}
-              endDate={collectedRange.endDate?.toISOString()}
-              label="Collected Integrity"
-              accentColor="#3b82f6"
-              userName={userName}
-              liveLog={opsLog}
-              isSyncing={syncingCollected}
-            />
-          )}
-          {activeOp === 'wip' && (
-            <OperationValidator
-              operation={wipValidatorOp}
-              startDate={wipRange.startDate?.toISOString()}
-              endDate={wipRange.endDate?.toISOString()}
-              label="WIP Integrity"
-              accentColor="#14b8a6"
-              userName={userName}
-              liveLog={opsLog}
-              isSyncing={syncingWip}
-            />
-          )}
-
-          </div>{/* end left column */}
-
-          {/* ─── Coverage Side Panel ─── */}
-          {coverageOpen && (
-          <div
-            style={{
-              width: 300,
-              flexShrink: 0,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 6,
-              padding: '12px 14px',
-              background: isDarkMode ? '#0f172a' : '#fff',
-              border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
-              borderRadius: 2,
-              maxHeight: 'calc(100vh - 200px)',
-              overflowY: 'auto',
-              transition: 'all 0.2s ease',
-            }}
-          >
-            {/* Panel header */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <FontIcon iconName="CalendarWeek" style={{ fontSize: 12, color: monthAuditOp === 'collectedTime' ? '#3b82f6' : '#14b8a6' }} />
-                <span style={{ fontSize: 11, fontWeight: 700, color: isDarkMode ? '#f1f5f9' : '#0f172a' }}>
-                  {monthAuditOp === 'collectedTime' ? 'Collected' : 'Recorded'} Coverage
-                </span>
-              </div>
-              <button
-                onClick={() => setCoverageOpen(false)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: isDarkMode ? '#64748b' : '#94a3b8', fontSize: 12, padding: '2px 4px' }}
-              >✕</button>
-            </div>
-
-            {/* Toolbar: Team + 12m */}
-            {(() => {
-              const isCollected = monthAuditOp === 'collectedTime';
-              const opKey = isCollected ? 'collected' as const : 'wip' as const;
-              const accent = isCollected ? '#3b82f6' : '#14b8a6';
-              const monthlyData = isCollected ? monthlyCollected : monthlyWip;
-              const isMonthlyOpen = monthlyExpanded === opKey;
-              return (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <div style={{ display: 'flex', gap: 3 }}>
-                    <button
-                      onClick={() => fetchTeamBreakdown(opKey)}
-                      disabled={teamLoading}
-                      style={{
-                        flex: 1, height: 22, border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`,
-                        borderRadius: 0, background: teamOp === opKey && teamData.length > 0 ? (isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)') : 'none',
-                        fontSize: 8, fontWeight: 600, textTransform: 'uppercase',
-                        letterSpacing: '0.05em', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
-                        color: teamOp === opKey && teamData.length > 0 ? accent : (isDarkMode ? '#475569' : '#94a3b8'),
-                      }}
-                    >
-                      {teamLoading ? <Spinner size={SpinnerSize.xSmall} /> : <FontIcon iconName="People" style={{ fontSize: 9 }} />}
-                      Team
-                    </button>
-                    <button
-                      onClick={() => { setMonthlyExpanded(isMonthlyOpen ? null : opKey); if (monthlyData.length === 0) fetchMonthlyTotals(opKey); }}
-                      style={{
-                        flex: 1, height: 22, border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`,
-                        borderRadius: 0, background: isMonthlyOpen ? (isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)') : 'none',
-                        fontSize: 8, fontWeight: 600, textTransform: 'uppercase',
-                        letterSpacing: '0.05em', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
-                        color: isMonthlyOpen ? accent : (isDarkMode ? '#475569' : '#94a3b8'),
-                      }}
-                    >
-                      <FontIcon iconName="BarChartVertical" style={{ fontSize: 9 }} />
-                      12m
-                    </button>
-                  </div>
-
-                  {/* Team breakdown inline */}
-                  {teamOp === opKey && teamData.length > 0 && (
-                    <div style={{
-                      display: 'flex', flexDirection: 'column', gap: 1,
-                      maxHeight: 120, overflowY: 'auto',
-                      border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)'}`,
-                    }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 8px', fontSize: 8, fontWeight: 700, color: isDarkMode ? '#64748b' : '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                        <span>{isCollected ? 'Fee Earner' : 'User'}</span>
-                        <span>{isCollected ? 'Collected' : 'Value'}</span>
-                      </div>
-                      {teamData.map((member, i) => {
-                        const maxTotal = teamData[0]?.total || 1;
-                        const barWidth = Math.max(4, (member.total / maxTotal) * 100);
-                        return (
-                          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 8px', fontSize: 9, position: 'relative' }}>
-                            <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${barWidth}%`, background: isDarkMode ? `${accent}11` : `${accent}0a`, zIndex: 0 }} />
-                            <span style={{ flex: 1, fontWeight: 500, color: isDarkMode ? '#e2e8f0' : '#1e293b', position: 'relative', zIndex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{member.name}</span>
-                            <span style={{ fontWeight: 700, color: accent, fontSize: 9, position: 'relative', zIndex: 1 }}>£{member.total.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {/* Monthly totals inline */}
-                  {isMonthlyOpen && monthlyData.length > 0 && (
-                    <div style={{
-                      display: 'flex', flexDirection: 'column', gap: 1,
-                      maxHeight: 160, overflowY: 'auto',
-                      border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)'}`,
-                    }}>
-                      {monthlyData.map((mt) => {
-                        const maxTotal = Math.max(...monthlyData.map((x) => x.total), 1);
-                        const barWidth = Math.max(4, (mt.total / maxTotal) * 100);
-                        return (
-                          <div key={mt.month} style={{ display: 'flex', flexDirection: 'column', gap: 0, position: 'relative' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 8px', fontSize: 9, position: 'relative' }}>
-                              <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${barWidth}%`, background: isDarkMode ? `${accent}11` : `${accent}0a`, zIndex: 0 }} />
-                              <span style={{ fontWeight: 700, minWidth: 44, color: isDarkMode ? '#e2e8f0' : '#1e293b', position: 'relative', zIndex: 1 }}>{mt.month}</span>
-                              <span style={{ color: isDarkMode ? '#6b7280' : '#9ca3af', position: 'relative', zIndex: 1 }}>{mt.rows.toLocaleString()}r</span>
-                              {mt.hours != null && mt.hours > 0 && (
-                                <span style={{ color: isDarkMode ? '#6b7280' : '#9ca3af', position: 'relative', zIndex: 1 }}>{mt.hours.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}h</span>
-                              )}
-                              <span style={{ marginLeft: 'auto', fontWeight: 700, color: accent, position: 'relative', zIndex: 1 }}>£{mt.total.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
-                            </div>
-                            {mt.breakdown && mt.breakdown.length > 1 && (
-                              <div style={{ display: 'flex', gap: 8, padding: '0 8px 2px 52px', position: 'relative', zIndex: 1 }}>
-                                {mt.breakdown.map(b => (
-                                  <span key={b.kind} style={{ fontSize: 7, color: isDarkMode ? '#475569' : '#cbd5e1' }}>
-                                    {b.kind} £{b.total.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-                                  </span>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
-
-            {/* Loading */}
-            {monthAuditLoading && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: 8 }}>
-                <Spinner size={SpinnerSize.xSmall} />
-                <span style={{ fontSize: 9, color: isDarkMode ? '#64748b' : '#94a3b8' }}>Loading coverage…</span>
-              </div>
-            )}
-
-            {/* Month grid */}
-            {!monthAuditLoading && monthAuditData.length > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-                {monthAuditData.map((m, idx) => {
-                  const hasSynced = !!m.lastSync;
-                  const isError = m.lastSync?.status === 'error';
-                  const isStartedOnly = m.lastSync?.status === 'started';
-                  const accent = monthAuditOp === 'collectedTime' ? '#3b82f6' : '#14b8a6';
-                  const isBackfilling = backfillRunning && backfillCurrent === m.key;
-                  const hasFailed = backfillErrors.includes(m.key);
-                  const stripe = idx % 2 === 0;
-
-                  return (
-                    <div
-                      key={m.key}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 6,
-                        padding: '3px 6px',
-                        background: isBackfilling
-                          ? (isDarkMode ? 'rgba(59,130,246,0.1)' : 'rgba(59,130,246,0.05)')
-                          : stripe
-                            ? (isDarkMode ? 'rgba(15,23,42,0.3)' : 'rgba(248,250,252,0.5)')
-                            : 'transparent',
-                        fontSize: 9,
-                      }}
-                    >
-                      {/* Sync dot — only visual indicator */}
-                      <span style={{
-                        width: 4, height: 4, borderRadius: '50%', flexShrink: 0,
-                        background: isError ? '#ef4444' : isStartedOnly ? '#fbbf24' : hasSynced ? '#22c55e' : (isDarkMode ? '#272f3d' : '#e8ecf0'),
-                      }} />
-
-                      {/* Month label */}
-                      <span style={{ fontWeight: 600, fontSize: 9, minWidth: 44, color: isDarkMode ? '#cbd5e1' : '#374151' }}>
-                        {m.label}
-                      </span>
-
-                      {/* Sync info */}
-                      <span style={{ flex: 1, color: isDarkMode ? '#64748b' : '#9ca3af', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {hasSynced
-                          ? isStartedOnly
-                            ? `${new Date(m.lastSync!.ts).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })} · started`
-                            : `${new Date(m.lastSync!.ts).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}${m.lastSync!.insertedRows != null ? ` · ${m.lastSync!.insertedRows?.toLocaleString()}r` : ''}`
-                          : '—'}
-                      </span>
-
-                      {/* Per-row sync */}
-                      {isBackfilling ? (
-                        <Spinner size={SpinnerSize.xSmall} />
-                      ) : hasFailed ? (
-                        <span style={{ fontSize: 8, color: '#ef4444' }}>✗</span>
-                      ) : (
-                        <button
-                          onClick={() => backfillSingleMonth(m.key)}
-                          disabled={backfillRunning}
-                          title={hasSynced ? `Re-sync ${m.label}` : `Sync ${m.label}`}
-                          style={{
-                            background: 'none', border: 'none', cursor: backfillRunning ? 'not-allowed' : 'pointer',
-                            padding: '1px 2px', display: 'flex', alignItems: 'center',
-                            color: hasSynced ? (isDarkMode ? '#334155' : '#e2e8f0') : accent,
-                            opacity: backfillRunning ? 0.3 : 1,
-                          }}
-                        >
-                          <FontIcon iconName="Sync" style={{ fontSize: 8 }} />
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* Empty state */}
-            {!monthAuditLoading && monthAuditData.length === 0 && (
-              <div style={{ padding: 10, textAlign: 'center', fontSize: 9, color: isDarkMode ? '#475569' : '#94a3b8' }}>
-                No coverage data.
-              </div>
-            )}
-
-            {/* Backfill controls */}
-            {!monthAuditLoading && monthAuditData.some((m) => !m.lastSync) && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, borderTop: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`, paddingTop: 8 }}>
-                {backfillRunning ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <Spinner size={SpinnerSize.xSmall} />
-                    <span style={{ fontSize: 9, color: isDarkMode ? '#94a3b8' : '#64748b' }}>
-                      {backfillCurrent ?? '…'} — {backfillDone.length}/{monthAuditData.filter((m) => !m.lastSync || backfillDone.includes(m.key)).length}
-                    </span>
-                  </div>
-                ) : (
-                  <button
-                    onClick={backfillUncovered}
-                    style={{
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
-                      padding: '5px 8px',
-                      background: isDarkMode
-                        ? `${monthAuditOp === 'collectedTime' ? 'rgba(59,130,246,0.08)' : 'rgba(20,184,166,0.08)'}`
-                        : `${monthAuditOp === 'collectedTime' ? 'rgba(59,130,246,0.05)' : 'rgba(20,184,166,0.05)'}`,
-                      border: `1px solid ${isDarkMode
-                        ? `${monthAuditOp === 'collectedTime' ? 'rgba(59,130,246,0.2)' : 'rgba(20,184,166,0.2)'}`
-                        : `${monthAuditOp === 'collectedTime' ? 'rgba(59,130,246,0.15)' : 'rgba(20,184,166,0.15)'}`}`,
-                      borderRadius: 2,
-                      cursor: 'pointer',
-                      fontSize: 9,
-                      fontWeight: 600,
-                      color: monthAuditOp === 'collectedTime' ? '#3b82f6' : '#14b8a6',
-                      width: '100%',
-                    }}
-                  >
-                    <FontIcon iconName="Sync" style={{ fontSize: 9 }} />
-                    Backfill {monthAuditData.filter((m) => !m.lastSync).length} uncovered
-                  </button>
-                )}
-                {!backfillRunning && backfillDone.length > 0 && backfillErrors.length === 0 && (
-                  <span style={{ fontSize: 8, color: '#22c55e', textAlign: 'center' }}>
-                    ✓ {backfillDone.length} months done
-                  </span>
-                )}
-              </div>
-            )}
-
-            {/* Activity — DB ops + server logs side by side */}
-            {(backfillLog.length > 0 || opsLog.length > 0) && (
-              <div style={{ borderTop: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)'}`, paddingTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <span style={{ fontSize: 8, fontWeight: 700, color: isDarkMode ? '#64748b' : '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                  Activity
-                </span>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  {/* DB operations column */}
-                  <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 0 }}>
-                    <span style={{ fontSize: 7, fontWeight: 700, color: isDarkMode ? '#475569' : '#cbd5e1', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>DB Sync</span>
-                    <div style={{ maxHeight: 80, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 0 }}>
-                      {backfillLog.length > 0 ? backfillLog.slice(-6).map((entry, i) => (
-                        <div key={i} style={{
-                          display: 'flex', alignItems: 'center', gap: 4, padding: '2px 4px', fontSize: 8,
-                          background: i % 2 === 0 ? (isDarkMode ? 'rgba(15,23,42,0.3)' : 'rgba(248,250,252,0.5)') : 'transparent',
-                        }}>
-                          <span style={{ fontSize: 7, fontWeight: 700, color: entry.status === 'completed' ? '#22c55e' : '#ef4444', flexShrink: 0, width: 8, textAlign: 'center' }}>
-                            {entry.status === 'completed' ? '✓' : '✗'}
-                          </span>
-                          <span style={{ color: isDarkMode ? '#94a3b8' : '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{entry.key}</span>
-                          {entry.rows != null && <span style={{ color: isDarkMode ? '#475569' : '#cbd5e1', flexShrink: 0 }}>{entry.rows}r</span>}
-                        </div>
-                      )) : (
-                        <span style={{ fontSize: 8, color: isDarkMode ? '#334155' : '#d1d5db', padding: '2px 4px' }}>—</span>
-                      )}
-                    </div>
-                  </div>
-                  {/* Server log column */}
-                  <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 0 }}>
-                    <span style={{ fontSize: 7, fontWeight: 700, color: isDarkMode ? '#475569' : '#cbd5e1', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>Server</span>
-                    <div style={{ maxHeight: 80, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 0 }}>
-                      {opsLog.length > 0 ? opsLog.slice(0, 4).map((op) => (
-                        <div key={op.id} style={{
-                          display: 'flex', alignItems: 'center', gap: 4, padding: '2px 4px', fontSize: 8,
-                        }}>
-                          <span style={{ fontSize: 7, fontWeight: 700, flexShrink: 0, width: 8, textAlign: 'center', color: op.status === 'completed' ? '#22c55e' : op.status === 'error' ? '#ef4444' : (isDarkMode ? '#64748b' : '#94a3b8') }}>
-                            {op.status === 'completed' ? '✓' : op.status === 'error' ? '✗' : '·'}
-                          </span>
-                          <span style={{ color: isDarkMode ? '#94a3b8' : '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {op.operation?.replace('sync-', '').replace('collectedTime', 'collected')}
-                          </span>
-                          <span style={{ color: isDarkMode ? '#475569' : '#cbd5e1', marginLeft: 'auto', flexShrink: 0 }}>
-                            {new Date(op.ts).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
-                          </span>
-                        </div>
-                      )) : (
-                        <span style={{ fontSize: 8, color: isDarkMode ? '#334155' : '#d1d5db', padding: '2px 4px' }}>—</span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-          )}
-
-          </div>{/* end flex row */}
-          </>
-        )}
-
-        {/* Compact log summary — shown only when no operation card is active */}
-        {!activeOp && opsLog.length > 0 && (
-          <div style={{
-            padding: '6px 12px',
-            background: isDarkMode ? 'rgba(15, 23, 42, 0.25)' : 'rgba(248, 250, 252, 0.6)',
-            borderRadius: 2,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            fontSize: 10,
-          }}>
-            <FontIcon iconName="History" style={{ fontSize: 10, color: isDarkMode ? '#475569' : '#94a3b8' }} />
-            <span style={{ color: isDarkMode ? '#64748b' : '#94a3b8', fontWeight: 600 }}>
-              Last: {opsLog[0]?.operation?.replace('sync-', '').replace('collectedTime', 'collected')}
-            </span>
-            <span style={{
-              color: opsLog[0]?.status === 'completed' ? '#22c55e' : opsLog[0]?.status === 'error' ? '#ef4444' : (isDarkMode ? '#64748b' : '#94a3b8'),
-            }}>
-              {opsLog[0]?.status === 'completed' ? '✓' : opsLog[0]?.status === 'error' ? '✗' : '·'} {opsLog[0]?.message || opsLog[0]?.status}
-            </span>
-            <span style={{ marginLeft: 'auto', color: isDarkMode ? '#334155' : '#d1d5db' }}>
-              {opsLog[0]?.ts ? new Date(opsLog[0].ts).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : ''}
-            </span>
-          </div>
-        )}
+          </div>{/* end main layout */}
         </>
         )}
       </section>
 
-      {/* Feed groups — collapsed, planned for future operations */}
+      {/* Feed groups */}
       <div style={{
-        padding: '14px 18px',
-        background: isDarkMode ? 'rgba(30,41,59,0.4)' : 'rgba(248,250,252,0.6)',
+        padding: '10px 14px',
+        background: isDarkMode ? 'rgba(30,41,59,0.3)' : 'rgba(248,250,252,0.5)',
         border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)'}`,
-        borderRadius: 2,
+        borderRadius: 4,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <FontIcon iconName="Database" style={{ fontSize: 14, color: isDarkMode ? '#475569' : '#94a3b8' }} />
-          <span style={{ fontSize: 11, fontWeight: 600, color: isDarkMode ? '#64748b' : '#94a3b8' }}>Feeds</span>
-          <span style={{
-            fontSize: 9,
-            fontWeight: 700,
-            color: isDarkMode ? '#475569' : '#cbd5e1',
-            textTransform: 'uppercase',
-            letterSpacing: '0.05em',
-            padding: '2px 6px',
-            background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
-            borderRadius: 2,
-          }}>Planned</span>
-        </div>
-        <span style={{ fontSize: 9, color: isDarkMode ? '#475569' : '#cbd5e1' }}>
-          {feedGroups.reduce((n, g) => n + g.feeds.length, 0)} feeds across {feedGroups.length} groups — available in Reports
+        <span style={{ fontSize: 11, fontWeight: 500, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>
+          Feeds · {feedGroups.reduce((n, g) => n + g.feeds.length, 0)} across {feedGroups.length} groups
         </span>
+        <span style={{ fontSize: 10, color: isDarkMode ? colours.greyText : colours.highlightNeutral }}>planned</span>
       </div>
 
       {/* Data Preview Modal */}
@@ -2542,6 +2736,7 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
         isOpen={previewTable !== null}
         onDismiss={() => {
           setPreviewTable(null);
+          setPreviewContextLabel(null);
           setPreviewData(null);
           setSortConfig(null);
         }}
@@ -2552,8 +2747,8 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
             padding: 0,
             maxWidth: '90vw',
             maxHeight: '85vh',
-            background: isDarkMode ? '#1e293b' : '#ffffff',
-            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(15, 23, 42, 0.08)'}`,
+            background: isDarkMode ? colours.dark.sectionBackground : colours.light.cardBackground,
+            border: `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.15)' : 'rgba(6, 23, 51, 0.08)'}`,
             boxShadow: isDarkMode
               ? '0 25px 50px rgba(0, 0, 0, 0.5)'
               : '0 25px 50px rgba(15, 23, 42, 0.15)',
@@ -2576,7 +2771,7 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
                   margin: 0,
                   fontSize: 16,
                   fontWeight: 700,
-                  color: isDarkMode ? '#e2e8f0' : '#1e293b',
+                  color: isDarkMode ? colours.dark.text : colours.light.text,
                 }}
               >
                 {previewTable} preview
@@ -2591,6 +2786,7 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
               text="Close"
               onClick={() => {
                 setPreviewTable(null);
+                setPreviewContextLabel(null);
                 setPreviewData(null);
               }}
               styles={{
@@ -2600,9 +2796,9 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
                   padding: '0 14px',
                   fontWeight: 600,
                   fontSize: 11,
-                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)'}`,
+                  border: `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.2)' : 'rgba(75, 85, 99, 0.15)'}`,
                   background: 'transparent',
-                  color: isDarkMode ? '#94a3b8' : '#64748b',
+                  color: isDarkMode ? colours.subtleGrey : colours.greyText,
                 },
               }}
             />
@@ -2612,7 +2808,7 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
           {previewLoading && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 20 }}>
               <Spinner size={SpinnerSize.medium} />
-              <span style={{ color: isDarkMode ? '#94a3b8' : '#64748b' }}>Loading data…</span>
+              <span style={{ color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Loading data…</span>
             </div>
           )}
 
@@ -2624,7 +2820,7 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
                 overflowX: 'auto',
                 overflowY: 'auto',
                 borderRadius: 8,
-                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(15, 23, 42, 0.06)'}`,
+                border: `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.1)' : 'rgba(15, 23, 42, 0.06)'}`,
               }}
             >
               <table
@@ -2656,8 +2852,8 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
                           padding: '10px 12px',
                           textAlign: 'left',
                           fontWeight: 700,
-                          color: isDarkMode ? '#94a3b8' : '#64748b',
-                          borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(15, 23, 42, 0.06)'}`,
+                          color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                          borderBottom: `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.1)' : 'rgba(15, 23, 42, 0.06)'}`,
                           whiteSpace: 'nowrap',
                           cursor: 'pointer',
                           userSelect: 'none',
@@ -2706,8 +2902,8 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
                             key={col}
                             style={{
                               padding: '8px 12px',
-                              borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.05)' : 'rgba(15, 23, 42, 0.03)'}`,
-                              color: isDarkMode ? '#e2e8f0' : '#1e293b',
+                              borderBottom: `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.05)' : 'rgba(15, 23, 42, 0.03)'}`,
+                              color: isDarkMode ? colours.dark.text : colours.light.text,
                               maxWidth: 250,
                               overflow: 'hidden',
                               textOverflow: 'ellipsis',
@@ -2716,7 +2912,7 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
                             title={String(row[col] ?? '')}
                           >
                             {row[col] == null ? (
-                              <span style={{ color: isDarkMode ? '#475569' : '#cbd5e1' }}>null</span>
+                              <span style={{ color: isDarkMode ? colours.greyText : colours.highlightNeutral }}>null</span>
                             ) : (
                               String(row[col])
                             )}
@@ -2735,7 +2931,7 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
               style={{
                 padding: 40,
                 textAlign: 'center',
-                color: isDarkMode ? '#64748b' : '#94a3b8',
+                color: isDarkMode ? colours.greyText : colours.subtleGrey,
               }}
             >
               No rows in this table
@@ -2794,7 +2990,7 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
                    <strong>{planData.rowsToDelete.toLocaleString()}</strong>
                  </div>
                )}
-               <div style={{ marginTop: 8, fontStyle: 'italic', fontSize: 11, color: isDarkMode ? '#94a3b8' : '#64748b' }}>
+               <div style={{ marginTop: 8, fontStyle: 'italic', fontSize: 11, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
                  {planMode === 'delete'
                    ? `This will permanently delete all collected time records for ${planData.startDate} to ${planData.endDate}.`
                    : planMode === 'insert'

@@ -458,10 +458,25 @@ export function mergeMattersFromSources(
   // Process VNet matters - Always add/overwrite (priority to VNet/New)
   // This ensures that matters available in the new system are correctly tagged as 'vnet_direct'
   // allowing the UI to distinguishing them and apply the V2/Clio visual cues.
+  // When overwriting, merge: preserve legacy fields that VNet doesn't have (e.g. CCL_date).
   vnetMatters.forEach(matter => {
     const normalized = normalizeMatterData(matter, userFullName, 'vnet_direct');
     if (normalized.matterId) {
-      normalizedMatters.set(normalized.matterId, normalized);
+      const existing = normalizedMatters.get(normalized.matterId);
+      if (existing) {
+        // Shallow merge: VNet values win, but fall back to legacy for falsy VNet fields
+        const merged = { ...existing, ...normalized };
+        // Restore legacy values for fields VNet didn't populate
+        for (const key of Object.keys(existing) as (keyof NormalizedMatter)[]) {
+          if (key === 'dataSource' || key === '_raw') continue;
+          if (!merged[key] && existing[key]) {
+            (merged as any)[key] = existing[key];
+          }
+        }
+        normalizedMatters.set(normalized.matterId, merged);
+      } else {
+        normalizedMatters.set(normalized.matterId, normalized);
+      }
     }
   });
   

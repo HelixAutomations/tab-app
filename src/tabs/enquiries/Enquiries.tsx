@@ -6185,7 +6185,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       
       setContent(
         <FilterBanner
-          seamless
           dense
           collapsibleSearch
           sticky={false}

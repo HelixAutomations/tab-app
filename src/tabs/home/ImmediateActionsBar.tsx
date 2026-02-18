@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useTheme } from '../../app/functionality/ThemeContext';
+import { colours } from '../../app/styles/colours';
 import { ImmediateActionChip, ImmediateActionCategory } from './ImmediateActionChip';
 import { Icon } from '@fluentui/react/lib/Icon';
 
@@ -99,7 +100,7 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
 
 
   // Colors
-  const headerText = isDark ? '#94a3b8' : '#64748b';
+  const headerText = isDark ? colours.subtleGrey : colours.greyText;
 
   // Empty state
   if (immediateActionsReady && allowEmptyState && actions.length === 0) {
@@ -175,7 +176,7 @@ const SkeletonChip: React.FC<{ isDark: boolean }> = ({ isDark }) => (
     style={{
       height: 30,
       minWidth: 140,
-      borderRadius: 999,
+      borderRadius: 2,
       background: isDark ? 'rgba(54, 144, 206, 0.08)' : 'rgba(148, 163, 184, 0.15)',
     }}
   />
@@ -253,8 +254,8 @@ const CollapseChevron: React.FC<{
         style={{
           fontSize: 10,
           color: hovered 
-            ? (isDark ? '#7dd3fc' : '#3690ce')
-            : (isDark ? '#94a3b8' : '#64748b'),
+            ? (isDark ? colours.accent : colours.highlight)
+            : (isDark ? colours.subtleGrey : colours.greyText),
           transition: 'color 0.15s ease, transform 0.15s ease',
           transform: hovered ? 'scale(1.1)' : 'scale(1)',
         }}
@@ -295,16 +296,16 @@ const EmptyState: React.FC<{ isDark: boolean; collapsed?: boolean; children: Rea
       alignItems: 'center',
       justifyContent: 'center',
       padding: '24px 16px',
-      background: isDark ? 'rgba(34, 197, 94, 0.04)' : 'rgba(34, 197, 94, 0.06)',
+      background: isDark ? 'rgba(32, 178, 108, 0.04)' : 'rgba(32, 178, 108, 0.06)',
       borderRadius: '2px',
-      border: `1px dashed ${isDark ? 'rgba(34, 197, 94, 0.2)' : 'rgba(34, 197, 94, 0.25)'}`,
+      border: `1px dashed ${isDark ? 'rgba(32, 178, 108, 0.2)' : 'rgba(32, 178, 108, 0.25)'}`,
     }}>
       <svg 
         width="28" 
         height="28" 
         viewBox="0 0 24 24" 
         fill="none" 
-        stroke={isDark ? '#4ade80' : '#22c55e'}
+        stroke={colours.green}
         strokeWidth="2" 
         strokeLinecap="round"
         strokeLinejoin="round"
@@ -316,12 +317,12 @@ const EmptyState: React.FC<{ isDark: boolean; collapsed?: boolean; children: Rea
       <div style={{
         fontSize: 13,
         fontWeight: 600,
-        color: isDark ? '#4ade80' : '#16a34a',
+        color: colours.green,
         marginBottom: 2,
       }}>{children}</div>
       <div style={{
         fontSize: 11,
-        color: isDark ? 'rgba(74, 222, 128, 0.6)' : 'rgba(22, 163, 74, 0.7)',
+        color: isDark ? 'rgba(32, 178, 108, 0.5)' : 'rgba(32, 178, 108, 0.6)',
       }}>Nothing needs your attention</div>
     </div>
   </div>
@@ -332,7 +333,7 @@ const Spinner: React.FC<{ isDark: boolean }> = ({ isDark }) => (
     width: 12,
     height: 12,
     border: `2px solid ${isDark ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
-    borderTopColor: isDark ? '#60a5fa' : '#3b82f6',
+    borderTopColor: colours.highlight,
     borderRadius: '50%',
     animation: 'spin 0.8s linear infinite',
     marginLeft: 'auto',
@@ -340,7 +341,7 @@ const Spinner: React.FC<{ isDark: boolean }> = ({ isDark }) => (
 );
 
 const SuccessCheck: React.FC = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="3" style={{ marginLeft: 'auto' }}>
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={colours.green} strokeWidth="3" style={{ marginLeft: 'auto' }}>
     <path d="M20 6L9 17l-5-5" />
   </svg>
 );

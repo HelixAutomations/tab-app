@@ -754,6 +754,13 @@ async function syncWip(options = {}) {
   const { daysBack = 7, startDate: customStart, endDate: customEnd } = options;
   const startedAt = Date.now();
 
+  const toSqlDate = (date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   let operationKey = 'syncWipRolling7d';
   let startDateApi;
   let endDateApi;
@@ -805,6 +812,63 @@ async function syncWip(options = {}) {
       endDateApi = endDate.toISOString();
       startDateSql = startDate.toISOString().slice(0, 10);
       endDateSql = endDate.toISOString().slice(0, 10);
+    }
+
+    // Safety guard: never write current-week WIP into SQL.
+    // Current week is sourced live from Clio and merged separately in reporting.
+    const requestedStart = new Date(`${startDateSql}T00:00:00`);
+    const requestedEnd = new Date(`${endDateSql}T00:00:00`);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const dayOfWeek = today.getDay(); // 0=Sun, 1=Mon...
+    const daysSinceMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+    const currentWeekStart = new Date(today);
+    currentWeekStart.setDate(today.getDate() - daysSinceMonday);
+    const lastSunday = new Date(currentWeekStart);
+    lastSunday.setDate(currentWeekStart.getDate() - 1);
+
+    if (requestedEnd >= currentWeekStart) {
+      if (requestedStart > lastSunday) {
+        const durationMs = Date.now() - startedAt;
+        const skipMessage = `Skipped WIP sync for ${startDateSql} → ${endDateSql}: range is current week only.`;
+        logProgress(operationKey, `${skipMessage} Current week remains API-only until next week.`);
+        logOperation({
+          operation: operationKey,
+          status: 'skipped',
+          message: skipMessage,
+          durationMs,
+          triggeredBy: wipTriggeredBy,
+          invokedBy: wipInvokedBy,
+          startDate: startDateSql,
+          endDate: endDateSql,
+          deletedRows: 0,
+          insertedRows: 0,
+        });
+        trackEvent('DataOps.Wip.SkippedCurrentWeek', {
+          operation: operationKey,
+          triggeredBy: wipTriggeredBy,
+          startDate: startDateSql,
+          endDate: endDateSql,
+          durationMs,
+        });
+        return {
+          success: true,
+          deletedRows: 0,
+          insertedRows: 0,
+          skipped: true,
+          message: 'Current-week WIP is intentionally excluded from SQL sync.',
+        };
+      }
+
+      const cappedEnd = new Date(lastSunday);
+      cappedEnd.setHours(23, 59, 59, 999);
+      const previousEnd = endDateSql;
+      endDateSql = toSqlDate(lastSunday);
+      endDateApi = cappedEnd.toISOString();
+      logProgress(
+        operationKey,
+        `Capped WIP end date from ${previousEnd} to ${endDateSql} to exclude current week from SQL.`
+      );
     }
 
     // Fetch activities from Clio (paginated)
@@ -1152,6 +1216,13 @@ router.get('/status', async (req, res) => {
   try {
     const connStr = process.env.SQL_CONNECTION_STRING;
     const pool = connStr ? await getPool(connStr) : null;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const dayOfWeek = today.getDay(); // 0=Sun, 1=Mon...
+    const daysSinceMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+    const currentWeekStart = new Date(today);
+    currentWeekStart.setDate(today.getDate() - daysSinceMonday);
+    const currentWeekStartSql = `${currentWeekStart.getFullYear()}-${String(currentWeekStart.getMonth() + 1).padStart(2, '0')}-${String(currentWeekStart.getDate()).padStart(2, '0')}`;
 
     let collectedTimeCount = null;
     let wipCount = null;
@@ -1170,9 +1241,14 @@ router.get('/status', async (req, res) => {
       }
 
       try {
-        const wipResult = await pool.request().query(`
-          SELECT COUNT(*) as cnt, MAX(date) as latest FROM wip
-        `);
+        const wipResult = await pool
+          .request()
+          .input('currentWeekStart', currentWeekStartSql)
+          .query(`
+            SELECT COUNT(*) as cnt, MAX(date) as latest
+            FROM wip
+            WHERE date < @currentWeekStart
+          `);
         wipCount = wipResult.recordset[0]?.cnt || 0;
         wipLatest = wipResult.recordset[0]?.latest || null;
       } catch (e) {
@@ -1944,6 +2020,97 @@ router.get('/month-audit', async (req, res) => {
       });
     }
 
+    // For WIP: enrich months with billable/non-billable row counts from the wip table
+    if (operation === 'wip') {
+      try {
+        const connStr = process.env.SQL_CONNECTION_STRING;
+        if (connStr) {
+          const dataPool = await getPool(connStr);
+          const statsResult = await dataPool.request().query(`
+            SELECT
+              FORMAT(CAST(date AS DATE), 'yyyy-MM') AS month,
+              COUNT(*) AS totalRows,
+              SUM(CASE WHEN non_billable = 0 THEN 1 ELSE 0 END) AS billableRows,
+              SUM(CASE WHEN non_billable = 1 THEN 1 ELSE 0 END) AS nonBillableRows,
+              ISNULL(SUM(CAST(total AS DECIMAL(18,2))), 0) AS totalValue,
+              ISNULL(SUM(CASE WHEN non_billable = 0 THEN CAST(total AS DECIMAL(18,2)) ELSE 0 END), 0) AS billableValue,
+              ISNULL(SUM(CASE WHEN non_billable = 1 THEN CAST(total AS DECIMAL(18,2)) ELSE 0 END), 0) AS nonBillableValue
+            FROM wip
+            WHERE date >= DATEADD(MONTH, -24, GETDATE())
+            GROUP BY FORMAT(CAST(date AS DATE), 'yyyy-MM')
+          `);
+          const statsMap = {};
+          for (const r of statsResult.recordset) {
+            statsMap[r.month] = {
+              totalRows: r.totalRows,
+              billableRows: r.billableRows,
+              nonBillableRows: r.nonBillableRows,
+              totalValue: parseFloat(r.totalValue) || 0,
+              billableValue: parseFloat(r.billableValue) || 0,
+              nonBillableValue: parseFloat(r.nonBillableValue) || 0,
+            };
+          }
+          // Mark current-week exclusion for the current month
+          const today = new Date();
+          const currentMonthKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+          const dow = today.getDay();
+          const daysSinceMonday = dow === 0 ? 6 : dow - 1;
+          const lastSunday = new Date(today);
+          lastSunday.setDate(today.getDate() - daysSinceMonday - 1);
+
+          for (const m of months) {
+            m.stats = statsMap[m.key] || null;
+            m.currentWeekExcluded = m.key === currentMonthKey && lastSunday.getMonth() === today.getMonth();
+          }
+        }
+      } catch (statsErr) {
+        opsLogger.op('month-audit:stats:error', { error: statsErr.message });
+      }
+    }
+
+    // For Collected: enrich months with row counts + total value from collectedTime table
+    if (operation === 'collectedTime') {
+      try {
+        const connStr = process.env.SQL_CONNECTION_STRING;
+        if (connStr) {
+          const dataPool = await getPool(connStr);
+          const statsResult = await dataPool.request().query(`
+            ;WITH deduped AS (
+              SELECT *, ROW_NUMBER() OVER (
+                PARTITION BY id, user_id, kind, payment_allocated, date, payment_date
+                ORDER BY (SELECT NULL)
+              ) AS rn
+              FROM collectedTime
+              WHERE payment_date >= DATEADD(MONTH, -24, GETDATE())
+            )
+            SELECT
+              FORMAT(CAST(payment_date AS DATE), 'yyyy-MM') AS month,
+              COUNT(*) AS totalRows,
+              ISNULL(SUM(CAST(payment_allocated AS DECIMAL(18,2))), 0) AS totalValue
+            FROM deduped
+            WHERE rn = 1
+            GROUP BY FORMAT(CAST(payment_date AS DATE), 'yyyy-MM')
+          `);
+          const statsMap = {};
+          for (const r of statsResult.recordset) {
+            statsMap[r.month] = {
+              totalRows: r.totalRows,
+              billableRows: r.totalRows,
+              nonBillableRows: 0,
+              totalValue: parseFloat(r.totalValue) || 0,
+              billableValue: parseFloat(r.totalValue) || 0,
+              nonBillableValue: 0,
+            };
+          }
+          for (const m of months) {
+            m.stats = statsMap[m.key] || null;
+          }
+        }
+      } catch (statsErr) {
+        opsLogger.op('month-audit:collected-stats:error', { error: statsErr.message });
+      }
+    }
+
     res.json({ months });
   } catch (err) {
     console.error('[MonthAudit] failed:', err.message);
@@ -1955,6 +2122,7 @@ router.get('/month-audit', async (req, res) => {
  * GET /api/data-operations/ops-log
  * Returns recent dataOpsLog entries, optionally filtered by operation
  */
+
 router.get('/ops-log', async (req, res) => {
   const { operation, limit: rawLimit } = req.query;
   const limit = Math.min(parseInt(rawLimit) || 30, 100);

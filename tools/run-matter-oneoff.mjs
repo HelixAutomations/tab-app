@@ -121,7 +121,7 @@ function titleCase(value) {
     .join(' ');
 }
 
-function buildFormData(instruction, deal, instructionRef, prospectId, initials, options) {
+function buildFormData(instruction, deal, instructionRef, prospectId, initials, options, idVerification) {
   const feeEarner = options['fee-earner'] || initials;
   const originating = options.originating || feeEarner;
   const supervising = options.supervising || 'Alex';
@@ -164,7 +164,7 @@ function buildFormData(instruction, deal, instructionRef, prospectId, initials, 
         last_name: instruction?.LastName || '',
         email: instruction?.Email || '',
         best_number: instruction?.Phone || '',
-        type: 'individual',
+        type: (instruction?.ClientType || 'Individual').toLowerCase() === 'company' ? 'company' : 'individual',
         nationality: instruction?.Nationality || 'United Kingdom',
         date_of_birth: instruction?.DOB || null,
         address: {
@@ -175,11 +175,27 @@ function buildFormData(instruction, deal, instructionRef, prospectId, initials, 
           post_code: instruction?.Postcode || null,
           country: instruction?.Country || 'United Kingdom'
         },
-        company_details: null,
+        company_details: (instruction?.ClientType || 'Individual').toLowerCase() === 'company' && instruction?.CompanyName
+          ? {
+              name: instruction.CompanyName,
+              number: instruction.CompanyNumber || null,
+              phone: instruction.Phone || null,
+              address: {
+                house_number: instruction.CompanyHouseNumber || null,
+                street: instruction.CompanyStreet || null,
+                city: instruction.CompanyCity || null,
+                county: instruction.CompanyCounty || null,
+                post_code: instruction.CompanyPostcode || null,
+                country: instruction.CompanyCountry || 'United Kingdom'
+              }
+            }
+          : null,
         verification: {
-          check_result: null,
-          pep_sanctions_result: null,
-          address_verification_result: null
+          check_result: idVerification?.IdType || instruction?.IdType || null,
+          check_id: idVerification?.EIDCheckId || null,
+          check_expiry: idVerification?.CheckExpiry || null,
+          pep_sanctions_result: idVerification?.PEPAndSanctionsCheckResult || null,
+          address_verification_result: idVerification?.AddressVerificationResult || null
         }
       }
     ],
@@ -206,11 +222,11 @@ function buildFormData(instruction, deal, instructionRef, prospectId, initials, 
       payment_result: null,
       payment_amount: deal?.Amount || null,
       payment_timestamp: null,
-      eid_overall_result: null,
-      eid_check_id: null,
-      eid_status: null,
-      pep_sanctions_result: null,
-      address_verification_result: null,
+      eid_overall_result: idVerification?.EIDOverallResult || null,
+      eid_check_id: idVerification?.EIDCheckId || null,
+      eid_status: idVerification?.EIDStatus || null,
+      pep_sanctions_result: idVerification?.PEPAndSanctionsCheckResult || null,
+      address_verification_result: idVerification?.AddressVerificationResult || null,
       risk_assessment: null,
       document_count: 0,
       documents: [],
@@ -247,9 +263,20 @@ async function getInstructionAndDeal(pool, instructionRef, prospectId) {
       ORDER BY DealId DESC
     `);
 
+  const idvResult = await pool
+    .request()
+    .input('instructionRef2', sql.NVarChar(100), instructionRef)
+    .query(`
+      SELECT TOP 1 *
+      FROM IdVerifications
+      WHERE InstructionRef = @instructionRef2
+      ORDER BY InternalId DESC
+    `);
+
   return {
     instruction,
-    deal: dealResult.recordset?.[0] || null
+    deal: dealResult.recordset?.[0] || null,
+    idVerification: idvResult.recordset?.[0] || null
   };
 }
 
@@ -275,8 +302,8 @@ async function run() {
 
   const pool = await sql.connect(connectionString);
   try {
-    const { instruction, deal } = await getInstructionAndDeal(pool, parsedRef.instructionRef, parsedRef.prospectId);
-    const formData = buildFormData(instruction, deal, parsedRef.instructionRef, parsedRef.prospectId, initials, options);
+    const { instruction, deal, idVerification } = await getInstructionAndDeal(pool, parsedRef.instructionRef, parsedRef.prospectId);
+    const formData = buildFormData(instruction, deal, parsedRef.instructionRef, parsedRef.prospectId, initials, options, idVerification);
 
     if (options.dryRun) {
       console.log(JSON.stringify({ instructionRef: parsedRef.instructionRef, initials, baseUrl, formData }, null, 2));

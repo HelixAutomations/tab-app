@@ -410,7 +410,7 @@ const RiskAssessment: React.FC<RiskAssessmentProps> = ({
     const getPrimaryButtonStyles = (): IButtonStyles => ({
         root: {
             padding: '4px 12px',
-            backgroundColor: isDarkMode ? colours.dark.cta : colours.cta,
+            backgroundColor: colours.cta,
             border: 'none',
             height: '32px',
             fontWeight: '600',
@@ -446,7 +446,7 @@ const RiskAssessment: React.FC<RiskAssessmentProps> = ({
             border: 'none !important',
         },
         rootFocused: {
-            backgroundColor: isDarkMode ? colours.dark.cta : colours.cta,
+            backgroundColor: colours.cta,
             transform: 'none !important',
             outline: 'none !important',
             border: 'none !important',

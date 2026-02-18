@@ -4,6 +4,72 @@
     position: relative;
 }
 
+/* Command center modal entrance */
+@keyframes commandCenterIn {
+    from {
+        opacity: 0;
+        transform: scale(0.96) translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+}
+
+@keyframes backdropFadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes userBubbleToastIn {
+    from {
+        opacity: 0;
+        transform: translateY(-6px) scale(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+@keyframes userBubbleToastPulse {
+    0% { box-shadow: 0 4px 16px rgba(0, 3, 25, 0.35); }
+    100% { box-shadow: 0 6px 18px rgba(0, 3, 25, 0.45); }
+}
+
+.user-bubble-toast {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 2001;
+    padding: 7px 10px;
+    border-radius: 2px;
+    border: 1px solid rgba(75, 85, 99, 0.55);
+    background: rgba(6, 23, 51, 0.96);
+    color: #f3f4f6;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+    animation: userBubbleToastIn 0.16s ease forwards, userBubbleToastPulse 0.6s ease-in-out alternate 1;
+    pointer-events: none;
+}
+
+.user-bubble-toast-success {
+    border-color: rgba(32, 178, 108, 0.65);
+    color: #20b26c;
+}
+
+.user-bubble-toast-warning {
+    border-color: rgba(214, 85, 65, 0.6);
+    color: #D65541;
+}
+
+.user-bubble-toast-info {
+    border-color: rgba(54, 144, 206, 0.55);
+    color: #3690CE;
+}
+
+/* Legacy alias kept for any other consumers */
 @keyframes fadeInUp {
     from {
         opacity: 0;

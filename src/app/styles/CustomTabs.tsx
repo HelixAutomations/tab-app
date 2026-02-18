@@ -1,7 +1,6 @@
 // src/app/styles/CustomTabs.tsx
 
 import React from 'react';
-import { Pivot, PivotItem, IPivotStyles } from '@fluentui/react';
 import { AiOutlineHome, AiFillHome } from 'react-icons/ai';
 import {
   FaInbox,
@@ -23,10 +22,7 @@ import { isAdminUser } from '../../app/admin';
 
 interface CustomTabsProps {
   selectedKey: string;
-  onLinkClick: (
-    item?: PivotItem,
-    ev?: React.MouseEvent<HTMLElement> | React.KeyboardEvent<HTMLElement>
-  ) => void;
+  onTabSelect: (key: string) => void;
   tabs: Tab[];
   ariaLabel?: string;
   onHomeClick: () => void;
@@ -51,34 +47,14 @@ interface CustomTabsProps {
   onToggleDemoMode?: (enabled: boolean) => void;
 }
 
-const customPivotStyles = (isDarkMode: boolean): Partial<IPivotStyles> => ({
-  root: {
-    display: 'flex',
-    alignItems: 'center',
-    height: 48,
-  },
-  link: {
-    fontSize: 14,
-    fontWeight: 600,
-    color: isDarkMode ? 'rgba(255, 255, 255, 0.65)' : 'rgba(6, 23, 51, 0.75)',
-    padding: '0 12px',
-    lineHeight: 48,
-    position: 'relative',
-    transition: 'color 0.2s',
-    selectors: {
-      ':hover': {
-        color: isDarkMode ? '#7dd3fc' : colours.highlight,
-      },
-    },
-  },
-  linkIsSelected: {
-    color: colours.highlight,
-  },
-});
-
+/**
+ * CustomTabs — main app navigation bar.
+ * Follows the Helix design system: brand tokens, borderRadius: 0,
+ * accent for dark-mode active, blue for light-mode active.
+ */
 const CustomTabs: React.FC<CustomTabsProps> = ({
   selectedKey,
-  onLinkClick,
+  onTabSelect,
   tabs,
   ariaLabel,
   onHomeClick,
@@ -106,209 +82,221 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
   const [showReleaseNotesModal, setShowReleaseNotesModal] = React.useState(false);
   const canSeeReleaseNotes = Boolean(isLocalDev) || isAdminUser(user || null);
 
-  const pivotWrapRef = React.useRef<HTMLDivElement | null>(null);
+  // ── Responsive icon-only collapse ───────────────────────────
+  const tabsWrapRef = React.useRef<HTMLDivElement | null>(null);
   const [iconOnly, setIconOnly] = React.useState<boolean>(false);
   const lastFullWidthRef = React.useRef<number>(0);
-  const BUFFER = 24; // px hysteresis to avoid flicker
+  const BUFFER = 24;
 
   React.useEffect(() => {
     const measure = () => {
-      const el = pivotWrapRef.current;
+      const el = tabsWrapRef.current;
       if (!el) return;
       const scrollW = el.scrollWidth;
       const clientW = el.clientWidth;
 
       if (!iconOnly) {
-        // Record the last known full content width (labels visible)
         lastFullWidthRef.current = Math.max(lastFullWidthRef.current, scrollW);
-        if (scrollW > clientW + 1) {
-          setIconOnly(true);
-        }
+        if (scrollW > clientW + 1) setIconOnly(true);
       } else {
-        // Only exit icon-only when container is comfortably wider than last needed full width
         const target = Math.max(lastFullWidthRef.current - BUFFER, 0);
-        if (clientW >= target) {
-          setIconOnly(false);
-        }
+        if (clientW >= target) setIconOnly(false);
       }
     };
 
     measure();
-    const onResize = () => measure();
-    window.addEventListener('resize', onResize);
-
+    window.addEventListener('resize', measure);
     let ro: ResizeObserver | undefined;
-    if (typeof ResizeObserver !== 'undefined' && pivotWrapRef.current) {
-      ro = new ResizeObserver(() => measure());
-      ro.observe(pivotWrapRef.current);
+    if (typeof ResizeObserver !== 'undefined' && tabsWrapRef.current) {
+      ro = new ResizeObserver(measure);
+      ro.observe(tabsWrapRef.current);
     }
     return () => {
-      window.removeEventListener('resize', onResize);
+      window.removeEventListener('resize', measure);
       if (ro) ro.disconnect();
     };
-  }, [tabs.length, selectedKey]); // REMOVED iconOnly from dependencies to prevent infinite loop
+  }, [tabs.length, selectedKey]); // iconOnly intentionally excluded — prevents infinite loop
 
-  // Keep selection consistent when Home is active
-  const pivotSelectedKey = selectedKey;
+  // ── Derived tokens ──────────────────────────────────────────
+  const textResting = isDarkMode ? colours.subtleGrey : colours.greyText;
+  const textHover = isDarkMode ? colours.dark.text : colours.darkBlue;
+  const activeColour = isDarkMode ? colours.accent : colours.blue;
+  const borderCol = isDarkMode ? colours.dark.border : colours.highlightNeutral;
+  const homeColour = selectedKey === 'home'
+    ? activeColour
+    : (isDarkMode ? colours.dark.text : colours.darkBlue);
 
-  const handleClick = (
-    item?: PivotItem,
-    ev?: React.MouseEvent<HTMLElement> | React.KeyboardEvent<HTMLElement>
-  ) => {
-    const clickedTab = tabs.find((t) => t.key === item?.props.itemKey);
-    if (clickedTab?.disabled) {
-      if (clickedTab.key === 'forms' && onFormsClick) onFormsClick();
-      else if (clickedTab.key === 'resources' && onResourcesClick) onResourcesClick();
-      ev?.preventDefault();
+  const handleTabClick = (tab: Tab) => {
+    if (tab.disabled) {
+      if (tab.key === 'forms' && onFormsClick) onFormsClick();
+      else if (tab.key === 'resources' && onResourcesClick) onResourcesClick();
       return;
     }
-    onLinkClick(item, ev);
+    onTabSelect(tab.key);
   };
 
   const getTabIcon = (key: string) => {
     switch (key) {
-      case 'enquiries':
-        return <FaInbox size={16} />; // intake
-      case 'instructions':
-        return <FaClipboardList size={16} />; // triage/detail
-      case 'matters':
-        return <FaFolderOpen size={16} />; // execution
-      case 'forms':
-        return <FaWpforms size={16} />; // similar to resources but distinct
-      case 'resources':
-        return <FaBookOpen size={16} />; // knowledge base
-      case 'reporting':
-        return <FaChartLine size={16} />; // admin/analytics
-      default:
-        return <FaClipboardList size={16} />;
+      case 'enquiries':    return <FaInbox size={15} />;
+      case 'instructions': return <FaClipboardList size={15} />;
+      case 'matters':      return <FaFolderOpen size={15} />;
+      case 'forms':        return <FaWpforms size={15} />;
+      case 'resources':    return <FaBookOpen size={15} />;
+      case 'reporting':    return <FaChartLine size={15} />;
+      default:             return <FaClipboardList size={15} />;
     }
   };
 
   return (
     <div
-      className={`customTabsContainer ${iconOnly ? 'iconOnlyTabs' : ''}`}
+      className="customTabsContainer"
+      role="navigation"
+      aria-label={ariaLabel || 'Main Navigation'}
       style={{
-        // Ops dashboard: horizontal gradient left-to-right
-        background: isDarkMode
-          ? 'linear-gradient(90deg, rgba(8, 14, 28, 0.98) 0%, rgba(14, 24, 42, 0.98) 50%, rgba(10, 18, 34, 0.98) 100%)'
-          : '#f8fafc',
+        background: isDarkMode ? colours.websiteBlue : '#fff',
         display: 'flex',
         alignItems: 'center',
-        padding: '0 24px',
+        padding: '0 20px',
         height: 48,
-        borderBottom: isDarkMode 
-          ? '1px solid rgba(54, 144, 206, 0.18)' 
-          : '1px solid rgba(148, 163, 184, 0.12)',
-        boxShadow: isDarkMode
-          ? '0 2px 16px rgba(0, 0, 0, 0.4)'
-          : '0 2px 8px rgba(0, 0, 0, 0.04)',
+        borderBottom: isDarkMode
+          ? `1px solid ${colours.dark.border}66`
+          : `1px solid ${borderCol}`,
+        boxShadow: 'none',
         position: 'sticky',
         top: 0,
         zIndex: 2000,
-        transition: 'all 0.12s ease',
       }}
     >
-      <div
-        className={`home-icon icon-hover ${selectedKey === 'home' ? 'active' : ''}`}
+      {/* ── Home button ──────────────────────────────────────── */}
+      <button
+        className={`home-icon ${selectedKey === 'home' ? 'active' : ''}`}
         onClick={onHomeClick}
-        role="button"
-        tabIndex={0}
         aria-label="Home"
-        style={{ 
-          color: selectedKey === 'home' ? colours.highlight : (isDarkMode ? '#ffffff' : '#061733'), 
-          marginRight: '16px', 
-          display: 'flex', 
+        aria-current={selectedKey === 'home' ? 'page' : undefined}
+        style={{
+          color: homeColour,
+          marginRight: 14,
+          display: 'flex',
           alignItems: 'center',
-          width: '38px',
-          justifyContent: 'flex-start'
+          background: 'none',
+          border: 'none',
+          cursor: 'pointer',
+          padding: '0 4px',
+          height: 48,
         }}
       >
-        <div style={{ 
-          position: 'relative', 
-          display: 'flex', 
-          alignItems: 'center', 
-          justifyContent: 'center', 
-          width: '20px', 
-          height: '20px',
-          transition: 'transform 0.3s ease'
+        <div style={{
+          position: 'relative',
+          width: 20,
+          height: 20,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
         }}>
           <AiOutlineHome className="icon-outline" size={20} />
           <AiFillHome className="icon-filled" size={20} />
         </div>
+
+        {/* CTA notification dot */}
         <div
           style={{
-            width: '6px',
-            height: '6px',
-            backgroundColor: '#D65541',
-            borderRadius: '50%',
+            width: 6,
+            height: 6,
+            backgroundColor: colours.cta,
+            borderRadius: 999,
             animation: 'pulse-red 2s infinite',
-            marginLeft: '12px',
+            marginLeft: 10,
             flexShrink: 0,
             opacity: hasImmediateActions && selectedKey !== 'home' ? 1 : 0,
             transform: hasImmediateActions && selectedKey !== 'home' ? 'scale(1)' : 'scale(0)',
-            transition: 'opacity 0.3s ease, transform 0.3s ease'
+            transition: 'opacity 0.3s ease, transform 0.3s ease',
           }}
         />
-      </div>
-      {/* Vertical separator */}
-      <div
-        style={{
-          width: '1px',
-          height: '24px',
-          backgroundColor: isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)',
-          marginRight: '12px',
-          flexShrink: 0,
-        }}
-      />
-      <div ref={pivotWrapRef} style={{ flexGrow: 1, minWidth: 0 }}>
-        <Pivot
-          style={{ width: '100%' }}
-        selectedKey={pivotSelectedKey}
-        onLinkClick={handleClick}
-        aria-label={ariaLabel || 'Custom Tabs'}
-        styles={customPivotStyles(isDarkMode)}
-        className="customPivot"
-        overflowBehavior="none"
-        >
-        {/* Hidden item to occupy selection when Home is active */}
-        <PivotItem itemKey="home" headerText="Home" headerButtonProps={{ style: { display: 'none' } }} />
-        {tabs.map((tab, index) => (
-          <PivotItem
-            itemKey={tab.key}
-            key={tab.key}
-            headerText={tab.text}
-            onRenderItemLink={() => {
-              const icon = (
-                <span className="tab-icon" aria-hidden="true" style={{ display: 'inline-flex', alignItems: 'center' }}>
-                  {getTabIcon(tab.key)}
-                </span>
-              );
-              const label = (
-                <span className="tab-label" style={{ marginLeft: 8 }}>{tab.text}</span>
-              );
+      </button>
 
-              return (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, minHeight: 20 }}>
-                  {icon}
-                  {!iconOnly && label}
-                  {tab.key === 'instructions' && hasActiveMatter && selectedKey !== 'instructions' && (
-                    <div style={{ flexShrink: 0, width: 8, height: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <AnimatedPulsingDot show size={6} animationDuration={400} />
-                    </div>
-                  )}
-                </div>
-              );
-            }}
-            headerButtonProps={{
-              className: tab.disabled ? 'disabledTab' : '',
-              style: { '--animation-delay': `${index * 0.1}s` } as React.CSSProperties,
-              'aria-disabled': tab.disabled ? 'true' : undefined,
-              title: tab.text,
-            }}
-          />
-        ))}
-        </Pivot>
+      {/* ── Separator ────────────────────────────────────────── */}
+      <div style={{
+        width: 1,
+        height: 22,
+        flexShrink: 0,
+        marginRight: 10,
+        background: borderCol,
+      }} />
+
+      {/* ── Tab strip ────────────────────────────────────────── */}
+      <div
+        ref={tabsWrapRef}
+        role="tablist"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          flexGrow: 1,
+          minWidth: 0,
+          gap: 2,
+          overflow: 'hidden',
+        }}
+      >
+        {tabs.map((tab, index) => {
+          const active = selectedKey === tab.key;
+          return (
+            <button
+              key={tab.key}
+              role="tab"
+              aria-selected={active}
+              onClick={() => handleTabClick(tab)}
+              title={tab.text}
+              className={`custom-tab-btn${active ? ' custom-tab-active' : ''}`}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 7,
+                padding: '0 14px',
+                height: 48,
+                background: 'transparent',
+                border: 'none',
+                position: 'relative' as const,
+                color: active ? activeColour : textResting,
+                fontSize: 13,
+                fontWeight: active ? 600 : 500,
+                fontFamily: 'inherit',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
+                transition: 'color 0.18s ease, transform 0.1s ease, opacity 0.1s ease',
+                animationDelay: `${index * 0.06}s`,
+                // CSS custom properties for ::after underline colour
+                '--tab-underline-colour': activeColour,
+              } as React.CSSProperties}
+              onMouseEnter={(e) => {
+                if (!active) e.currentTarget.style.color = textHover;
+              }}
+              onMouseLeave={(e) => {
+                if (!active) e.currentTarget.style.color = textResting;
+              }}
+              onMouseDown={(e) => {
+                e.currentTarget.style.transform = 'scale(0.96)';
+                e.currentTarget.style.opacity = '0.75';
+              }}
+              onMouseUp={(e) => {
+                e.currentTarget.style.transform = 'scale(1)';
+                e.currentTarget.style.opacity = '1';
+              }}
+            >
+              <span style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
+                {getTabIcon(tab.key)}
+              </span>
+              {!iconOnly && <span>{tab.text}</span>}
+              {tab.key === 'instructions' && hasActiveMatter && selectedKey !== 'instructions' && (
+                <span style={{ flexShrink: 0, display: 'flex', alignItems: 'center' }}>
+                  <AnimatedPulsingDot show size={6} animationDuration={400} />
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
+
+      {/* ── User Bubble ──────────────────────────────────────── */}
       {(isLocalDev || user) && (
         <UserBubble
           user={

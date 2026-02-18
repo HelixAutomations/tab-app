@@ -14,6 +14,8 @@ const sql = require('mssql');
 const { chatCompletion, DEPLOYMENT } = require('../utils/aiClient');
 const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
 const { getPool } = require('../utils/db');
+const { saveCclAiTrace } = require('../utils/cclPersistence');
+const { resolveRequestActor } = require('../utils/requestActor');
 
 const router = express.Router();
 
@@ -615,6 +617,7 @@ router.post('/fill', async (req, res) => {
 
     const trackingId = Math.random().toString(36).slice(2, 10);
     const startMs = Date.now();
+    const actor = resolveRequestActor(req);
     // Aligned with enquiry-processing-v2: no max_tokens — let the model decide.
     const chatOptions = {
         temperature: 0.2,
@@ -686,6 +689,18 @@ router.post('/fill', async (req, res) => {
                 trackingId, matterId: String(matterId), practiceArea: paKey, durationMs: String(durationMs),
             });
 
+            // Persist AI trace (non-blocking)
+            saveCclAiTrace({
+                matterId, trackingId, aiStatus: 'partial', model: DEPLOYMENT, durationMs,
+                temperature: chatOptions.temperature,
+                systemPrompt: SYSTEM_PROMPT, userPrompt, userPromptLength: userPrompt.length,
+                aiOutputJson: stripEmpty(aiFields), generatedFieldCount: Object.keys(stripEmpty(aiFields)).length,
+                confidence: 'partial', dataSourcesJson: contextSources,
+                contextFieldsJson: debugContext.contextFields, contextSnippetsJson: debugContext.snippets,
+                fallbackReason: 'AI response was incomplete or unparsable; merged with defaults.',
+                createdBy: actor,
+            }).catch(err => console.warn('[CCL-AI] Trace persist failed:', err.message));
+
             return res.json({
                 ok: true,
                 fields: merged,
@@ -716,8 +731,22 @@ router.post('/fill', async (req, res) => {
             practiceArea: practiceArea || 'unknown',
             durationMs: String(durationMs),
             fieldCount: String(Object.keys(aiFields).length),
+            filledFieldCount: String(Object.keys(stripEmpty(aiFields)).length),
         });
         trackMetric('CCL.AiFill.Duration', durationMs, { practiceArea: practiceArea || 'unknown' });
+        trackMetric('CCL.AiFill.FieldCount', Object.keys(stripEmpty(aiFields)).length, { practiceArea: practiceArea || 'unknown' });
+        trackMetric('CCL.AiFill.ContextSources', contextSources ? contextSources.length : 0, { practiceArea: practiceArea || 'unknown' });
+
+        // Persist AI trace — full success (non-blocking)
+        saveCclAiTrace({
+            matterId, trackingId, aiStatus: 'complete', model: DEPLOYMENT, durationMs,
+            temperature: chatOptions.temperature,
+            systemPrompt: SYSTEM_PROMPT, userPrompt, userPromptLength: userPrompt.length,
+            aiOutputJson: aiFields, generatedFieldCount: Object.keys(stripEmpty(aiFields)).length,
+            confidence: 'full', dataSourcesJson: contextSources,
+            contextFieldsJson: debugContext.contextFields, contextSnippetsJson: debugContext.snippets,
+            createdBy: actor,
+        }).catch(err => console.warn('[CCL-AI] Trace persist failed:', err.message));
 
         return res.json({
             ok: true,
@@ -759,6 +788,15 @@ router.post('/fill', async (req, res) => {
         const defaults = PRACTICE_AREA_DEFAULTS[paKey] || PRACTICE_AREA_DEFAULTS['commercial'];
 
         const fallbackReason = formatFallbackReason(err.message);
+
+        // Persist AI trace — fallback (non-blocking)
+        saveCclAiTrace({
+            matterId, trackingId, aiStatus: 'fallback', model: 'none', durationMs,
+            temperature: chatOptions.temperature,
+            systemPrompt: SYSTEM_PROMPT, confidence: 'fallback',
+            fallbackReason, errorMessage: err.message,
+            createdBy: actor,
+        }).catch(err2 => console.warn('[CCL-AI] Trace persist failed:', err2.message));
 
         return res.json({
             ok: true,
@@ -809,6 +847,8 @@ router.post('/feedback', async (req, res) => {
     }
 
     try {
+        const user = req.headers['x-user-email'] || req.headers['x-ms-client-principal-name'] || 'unknown';
+
         // Log to Application Insights as structured event
         trackEvent('CCL.AiFill.Feedback', {
             matterId: String(matterId),
@@ -816,7 +856,7 @@ router.post('/feedback', async (req, res) => {
             comment: comment || '',
             fieldKey: fieldKey || 'overall',
             timestamp: timestamp || new Date().toISOString(),
-            user: req.headers['x-user-email'] || req.headers['x-ms-client-principal-name'] || 'unknown',
+            user,
         });
 
         console.log(`[CCL-AI] Feedback: ${rating} for matter ${matterId}${fieldKey ? ` (field: ${fieldKey})` : ''}${comment ? ` — "${comment}"` : ''}`);
@@ -837,6 +877,68 @@ router.get('/practice-defaults/:area', (req, res) => {
         return res.status(404).json({ error: `No defaults for practice area: ${req.params.area}` });
     }
     return res.json({ ok: true, fields: defaults, practiceArea: paKey });
+});
+
+// ─── POST /api/ccl-ai/context-preview ──────────────────────────────────────
+// Dry-run: gathers all context data without calling AI or saving a trace.
+// Shows the user what data would be fed into the prompt before committing.
+router.post('/context-preview', async (req, res) => {
+    const { matterId, instructionRef, practiceArea, description, clientName,
+        opponent, enquiryNotes, handlerName, handlerRole, handlerRate } = req.body || {};
+
+    if (!matterId) {
+        return res.status(400).json({ error: 'matterId is required' });
+    }
+
+    try {
+        const dbContext = await gatherFullContext(matterId, instructionRef);
+
+        const fullContext = {
+            practiceArea: practiceArea || dbContext.areaOfWork || '',
+            typeOfWork: dbContext.typeOfWork || '',
+            description,
+            clientName,
+            opponent,
+            handlerName,
+            handlerRole,
+            handlerRate,
+            clientType: dbContext.clientType || '',
+            clientGender: dbContext.clientGender || '',
+            company: dbContext.company || '',
+            source: dbContext.source || '',
+            enquiryValue: dbContext.enquiryValue || '',
+            instructionStage: dbContext.instructionStage || '',
+            initialCallNotes: dbContext.initialCallNotes || '',
+            enquiryNotes: enquiryNotes || dbContext.enquiryNotes || '',
+            instructionNotes: dbContext.instructionNotes || '',
+            dealServiceDescription: dbContext.dealServiceDescription || '',
+            dealAmount: dbContext.dealAmount || '',
+            dealPitchedBy: dbContext.dealPitchedBy || '',
+            pitchEmailBody: dbContext.pitchEmailBody || '',
+            pitchServiceDescription: dbContext.pitchServiceDescription || '',
+            pitchAmount: dbContext.pitchAmount || '',
+            pitchNotes: dbContext.pitchNotes || '',
+            callTranscripts: dbContext.callTranscripts || '',
+        };
+
+        const userPrompt = buildUserPrompt(fullContext);
+        const contextSources = summariseContextSources(dbContext);
+        const debugContext = buildDebugContext(fullContext, contextSources);
+
+        return res.json({
+            ok: true,
+            dataSources: contextSources,
+            contextFields: debugContext.contextFields,
+            snippets: debugContext.snippets,
+            userPrompt,
+            userPromptLength: userPrompt.length,
+            systemPromptLength: SYSTEM_PROMPT.length,
+        });
+    } catch (err) {
+        console.error('[CCL-AI] Context preview failed:', err.message);
+        trackException(err, { operation: 'CCL.AiFill.ContextPreview', matterId: String(matterId) });
+        return res.status(500).json({ error: 'Failed to gather context' });
+    }
 });
 
 // ─── Helpers ───────────────────────────────────────────────────────────────

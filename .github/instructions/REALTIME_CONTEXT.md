@@ -1,12 +1,12 @@
 # Realtime Context
 
-Auto-generated: 2026-02-10T08:17:58.001Z
+Auto-generated: 2026-02-17T22:29:36.020Z
 
 ## Git State
 
 - **Branch**: main
-- **Uncommitted changes**: 73
-- **Last commit**: 3278764e clients phase out, data hub, matters
+- **Uncommitted changes**: 92
+- **Last commit**: 120d9b67 CCL, roadmap items, forms, support
 
 ## Submodules
 
@@ -28,8 +28,10 @@ Auto-generated: 2026-02-10T08:17:58.001Z
 
 - .github/copilot-instructions.md
 - .github/instructions/ARCHITECTURE_DATA_FLOW.md
+- .github/instructions/CCL_ROADMAP.md
 - .github/instructions/CLIO_API_REFERENCE.md
 - .github/instructions/DATABASE_SCHEMA_REFERENCE.md
+- .github/instructions/DEMO_MODE_REFERENCE.md
 - .github/instructions/ENQUIRIES_TABLE_DESIGN_PATTERN.md
 - .github/instructions/README.md
 - .github/instructions/REALTIME_CONTEXT.md
@@ -39,13 +41,11 @@ Auto-generated: 2026-02-10T08:17:58.001Z
 - .gitignore
 - README.md
 - api/.deployment
-- api/src/functions/approveVerification.ts
-- api/src/functions/getAnnualLeave.ts
 - api/src/functions/getReleaseNotes.ts
 - api/src/functions/insertDeal.ts
 - api/src/functions/insertNotableCaseInfo.ts
 - api/src/index.ts
-- api/src/verificationHandlers.ts
+- build-and-deploy-staging.ps1
 
 ---
 *Run `node tools/sync-context.mjs` to refresh*

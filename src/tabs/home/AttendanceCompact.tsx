@@ -144,8 +144,8 @@ const snakeGroup = (isDark: boolean) =>
         minHeight: '40px',
         padding: '4px 8px',
         borderRadius: '20px',
-        border: `1px solid ${isDark ? 'rgba(125, 211, 252, 0.24)' : colours.light.border}`,
-        backgroundColor: isDark ? 'rgba(54,144,206,0.2)' : colours.highlightBlue,
+        border: `1px solid ${isDark ? 'rgba(54, 144, 206, 0.08)' : colours.light.border}`,
+        backgroundColor: isDark ? 'rgba(54,144,206,0.08)' : colours.highlightBlue,
     });
 
 const snakeContainer = mergeStyles({

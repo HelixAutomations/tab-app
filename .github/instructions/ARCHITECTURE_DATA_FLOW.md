@@ -406,10 +406,20 @@ The Data Centre is the operational control plane for Helix CRM data integrity. I
 
 | Component | Location | Purpose |
 |-----------|----------|---------|
-| Data Centre (frontend) | `src/tabs/Reporting/DataCentre.tsx` | Sync controls, date range pickers, status display |
-| Operation Validator | `src/tabs/Reporting/components/OperationValidator.tsx` | 3-layer integrity UI (confidence strip → timeline → explain) |
+| Data Centre (frontend) | `src/tabs/Reporting/DataCentre.tsx` | Coverage compliance, sync controls, integrity checks |
+| Operation Validator | `src/tabs/Reporting/components/OperationValidator.tsx` | Full validation UI inside Custom Sync (`mode="full"`) — confidence strip, metrics, deep-validate, explain |
 | Data Operations routes | `server/routes/dataOperations.js` | All sync, explain, sample, ops-log endpoints |
 | Scheduler | `server/utils/dataOperationsScheduler.js` | Automated syncs (daily at :03/:33, rolling 7d at 23:03) |
+
+### UI Hierarchy (CRITICAL — reflects operational priority)
+
+The Data Centre layout is **intentionally ordered** by importance to ops users:
+
+1. **Coverage + Audit panel** (primary) — one unified surface. The 24-month checklist grid is now the audit surface as well: each month row includes attributed operation events for that month window (with status/source filters and lane scoping). This avoids duplicated logs and keeps context tied to the coverage window.
+2. **Coverage controls** (secondary) — same compliance backbone and auto-sync intelligence: per-month sync, bulk backfill, freshness badges.
+3. **Custom Sync + Validation** (tertiary, collapsed by default) — contains `OperationValidator mode="full"` (confidence strip, metrics, deep-validate, explain panel) plus ad-hoc date-range sync controls. Validation tools live here because they relate to custom sync operations. Visually demoted: borderless toggle, smaller text, faint colour.
+
+**Design philosophy**: Coverage context first — audit should live beside the month window it affects. Lane-scoped filters keep only relevant operations visible (dataset type + source + status). Custom Sync + Validation remains the manual override for edge-case debugging and deep verification. The auto-sync policy (`shouldAutoSyncMonth`) handles the intelligence: recent months refresh at 7-day intervals, mid months at 30-day, archive months at 120-day.
 
 ### SQL Tables
 
@@ -492,7 +502,34 @@ Every sync operation logs:
 - **invokedBy**: user's full name (from `req.user.fullName` via userContext middleware) or `system` for auto-checks
 - **status**: `started` → `completed` → `validated` (auto-validation runs after every sync)
 
-### OperationValidator — 3-Layer UI
+### Current-Week Boundary (CRITICAL)
+
+The reporting layer (`server/routes/reporting.js`) splits WIP data sourcing:
+- **Historical**: SQL `wip` table — last 24 months **excluding the current ISO week** (Mon–Sun). Uses `getLast24MonthsExcludingCurrentWeek()` to compute the boundary.
+- **Current week**: Live from Clio API (`/api/v4/activities.json`). Frontend deduplicates by `id` when merging.
+- **Fallback**: If Clio is unavailable, `fetchWipDbCurrentWeek()` reads the current week from SQL instead.
+
+**Implication for Data Hub sync**: When the Coverage Panel syncs the current month for WIP, `syncMonthKey` in `DataCentre.tsx` **caps the end date at last Sunday** to avoid writing current-week data into SQL. This prevents double-counting on the Management Dashboard, which combines SQL historical data with Clio live current-week data.
+
+### Coverage Panel (Month Coverage)
+
+The coverage panel is the **compliance backbone + audit surface** in Data Centre and shows a **checklist-style** 24-month grid powered by `/api/data-operations/month-audit`:
+
+- **Auto-sync to active operation**: Coverage panel always shows the correct operation (collected/WIP) matching the active card. Switching cards refreshes the coverage data.
+- **Smart auto-sync policy**: The `shouldAutoSyncMonth` function determines when months need refreshing — recent months (≤2mo) at 7-day intervals, mid-range (≤6mo) at 30 days, archive at 120 days. This means one-click coverage is genuinely smart: it only re-syncs what's stale.
+- **Checklist rows**: Each month shows:
+  - Left border colour: green (synced), amber (started), red (error), grey (not synced)
+  - Status badge: `✓ synced`, `✗ error`, `⏳ started`, or `not synced`
+  - Attribution: who synced it and when (e.g. "Luke · 15 Feb · 1,234 rows")
+  - For WIP: billable/non-billable row counts with `⚠ check` warning if all entries are billable
+  - For Collected: total rows and £ value
+  - Current month shows ⚡ indicator when current-week dates are excluded
+- **Per-month sync**: Each row has a sync button to fill/re-fill individual months
+- **Bulk backfill**: "Sync all uncovered" button processes uncovered months sequentially
+
+### OperationValidator — 3-Layer UI (always visible, top of drilled-in view)
+The OperationValidator is always visible when drilled into Collected or WIP — it's the first thing below the breadcrumb. It provides the primary trust signal for the current data.
+
 1. **Confidence Strip** — traffic-light (green/amber/red) answering "Is this number right?" with plain-language explanation. WIP shows "activities" and hours; collected shows "payments" and splits.
 2. **Activity Timeline** — open by default, shows every operation with AUTO/USER tags, invoker name, timestamps, `✓ validated` entries. Last sync shows "via Activities API" (WIP) or "via Reports API" (collected).
 3. **Explain Panel** — clickable multi-row IDs open inline sample panels showing the actual rows and why they exist (split payments for collected; type breakdown for WIP).
@@ -622,6 +659,12 @@ customMetrics | where name startswith "MatterOpening" | summarize avg(value) by 
 5. Use `trackException` for catch blocks with `{ phase, entity, operation }` context
 6. Use `trackMetric` for durations and counts that should be graphable
 7. Properties must be strings — the helper auto-converts
+
+### CCL Audit Attribution (Critical)
+- For CCL generation/save/AI trace writes, `CreatedBy` must represent the real operator (never inferred fee earner data).
+- Actor precedence is strict: `req.user.initials` → body/query/header initials (`initials` / `x-helix-initials`) → trusted email headers.
+- Frontend CCL calls that persist versions or traces must include `initials` in payloads when available.
+- Never fall back to matter handler/fee-earner fields for audit identity.
 
 ---
 

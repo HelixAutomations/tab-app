@@ -961,6 +961,7 @@ const FlatMatterOpening: React.FC<FlatMatterOpeningProps> = ({
     const [processingSteps, setProcessingSteps] = useState<ProcessingStep[]>(initialSteps);
     const [processingLogs, setProcessingLogs] = useState<string[]>([]);
     const [generatedCclUrl, setGeneratedCclUrl] = useState<string>('');
+    const [backendCclQueuedAt, setBackendCclQueuedAt] = useState<string>('');
     const [operationEvents, setOperationEvents] = useState<Array<{ index: number; label: string; phase: string; url?: string; method?: string; status?: number; payloadSummary?: string; responseSummary?: string }>>([]);
     const [openedMatterId, setOpenedMatterId] = useState<string | null>(null);
 
@@ -2056,8 +2057,51 @@ const handleClearAll = () => {
             // Full success
             setProcessingLogs(prev => [...prev, '[ok] Matter opening completed successfully! (Demo)']);
             showToast({ type: 'success', title: 'Matter Opened (Demo)', message: 'Demo processing completed.' });
-            setOpenedMatterId('DEMO-MATTER-001');
+            setOpenedMatterId('HELIX01-01');
             completeMatterOpening();
+
+            // Fire real CCL endpoints against demo data so the user can preview a real CCL
+            try {
+                const formData = generateSampleJson();
+                const cclPayload = {
+                    matterId: '3311402',
+                    instructionRef: 'HELIX01-01',
+                    practiceArea: formData.matter_details?.practice_area || formData.matter_details?.area_of_work || 'Commercial',
+                    description: formData.matter_details?.description || 'Contract Dispute',
+                    clientName: (() => {
+                        const c = formData.client_information?.[0];
+                        return c ? [c.first_name, c.last_name].filter(Boolean).join(' ') : 'Demo Client';
+                    })(),
+                    opponent: (formData.opponent_details as any)?.opponent?.first_name
+                        ? `${(formData.opponent_details as any).opponent.first_name} ${(formData.opponent_details as any).opponent.last_name || ''}`.trim()
+                        : '',
+                    handlerName: formData.team_assignments?.fee_earner || '',
+                };
+                const fillResp = await fetch('/api/ccl-ai/fill', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(cclPayload),
+                });
+                if (fillResp.ok) {
+                    setProcessingLogs(prev => [...prev, '[ok] CCL AI Fill: fields populated (real)']);
+                }
+
+                const genResp = await fetch('/api/ccl', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ matterId: '3311402', draftJson: formData }),
+                });
+                if (genResp.ok) {
+                    const genData = await genResp.json();
+                    if (genData.url) {
+                        setGeneratedCclUrl(genData.url);
+                        setProcessingLogs(prev => [...prev, `[ok] Draft CCL Generated: ${genData.url} (real)`]);
+                    }
+                }
+            } catch (cclErr) {
+                console.warn('[Demo] CCL generation failed (non-blocking):', cclErr);
+                setProcessingLogs(prev => [...prev, `[!] CCL generation skipped: ${cclErr instanceof Error ? cclErr.message : 'unknown error'}`]);
+            }
         }
 
         hideToast('matter-processing');
@@ -2181,6 +2225,9 @@ const handleClearAll = () => {
                 setProcessingLogs(prev => [...prev, `[x] ${message}`]);
                 if (typeof result === 'object' && result.url) {
                     url = result.url;
+                }
+                if (typeof result === 'object' && result.cclQueuedAt) {
+                    setBackendCclQueuedAt(result.cclQueuedAt);
                 }
             }
 
@@ -2365,6 +2412,35 @@ ${JSON.stringify(debugInfo, null, 2)}
 
     // Determine if all processing steps completed successfully
     const allProcessingSucceeded = processingSteps.length > 0 && processingSteps.every(s => s.status === 'success');
+    const currentInstructionRecord = useMemo(() => {
+        if (!instructionRef || !Array.isArray(instructionRecords)) return null;
+        return (instructionRecords as any[]).find(r => r?.InstructionRef === instructionRef) || null;
+    }, [instructionRecords, instructionRef]);
+    const cclGeneratedAtRaw =
+        currentInstructionRecord?.CCL_date ||
+        currentInstructionRecord?.CCLDate ||
+        currentInstructionRecord?.ccl_date ||
+        currentInstructionRecord?.cclDate ||
+        '';
+    const cclGeneratedAtLabel = useMemo(() => {
+        if (!cclGeneratedAtRaw) return '';
+        const parsed = new Date(cclGeneratedAtRaw);
+        if (Number.isNaN(parsed.getTime())) return String(cclGeneratedAtRaw);
+        return parsed.toLocaleString('en-GB', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    }, [cclGeneratedAtRaw]);
+    const cclQueuedAtRaw = backendCclQueuedAt || '';
+    const cclStatusTimestamp = cclGeneratedAtLabel || cclQueuedAtRaw || '';
+    const cclWorkflowStatus: 'generated' | 'queued' | 'pending' = cclGeneratedAtRaw
+        ? 'generated'
+        : cclQueuedAtRaw
+            ? 'queued'
+            : 'pending';
 
 
 
@@ -2632,6 +2708,46 @@ ${JSON.stringify(debugInfo, null, 2)}
                         }
                         : undefined
                 }
+                rightActions={
+                    instructionRef ? (
+                        <div
+                            title={cclStatusTimestamp ? `Updated ${cclStatusTimestamp}` : 'CCL automation status'}
+                            style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 6,
+                                height: 28,
+                                padding: '0 10px',
+                                border: isDarkMode ? `1px solid ${colours.dark.border}` : '1px solid #e5e7eb',
+                                background: isDarkMode ? colours.dark.cardBackground : colours.grey,
+                                color: isDarkMode ? colours.dark.text : colours.darkBlue,
+                                borderRadius: 999,
+                                fontSize: 11,
+                                fontWeight: 600,
+                                whiteSpace: 'nowrap'
+                            }}
+                        >
+                            <span
+                                style={{
+                                    width: 8,
+                                    height: 8,
+                                    borderRadius: 999,
+                                    background:
+                                        cclWorkflowStatus === 'generated'
+                                            ? colours.green
+                                            : cclWorkflowStatus === 'queued'
+                                                ? colours.blue
+                                                : colours.subtleGrey
+                                }}
+                            />
+                            {cclWorkflowStatus === 'generated'
+                                ? 'CCL generated'
+                                : cclWorkflowStatus === 'queued'
+                                    ? 'CCL queued'
+                                    : 'CCL pending'}
+                        </div>
+                    ) : undefined
+                }
             />
         );
         
@@ -2639,7 +2755,7 @@ ${JSON.stringify(debugInfo, null, 2)}
         return () => {
             setContent(null);
         };
-    }, [setContent, currentStep, clientsStepComplete, matterStepComplete, summaryConfirmed, hasDataToClear, getFieldCount, showPoidSelection, pendingClientType, selectedPoidIds, poidSearchTerm, handleBackToClients, handleBackToForm, handleGoToReview, handleClearAll, handleGoBack, isDarkMode]);
+    }, [setContent, currentStep, clientsStepComplete, matterStepComplete, summaryConfirmed, hasDataToClear, getFieldCount, showPoidSelection, pendingClientType, selectedPoidIds, poidSearchTerm, handleBackToClients, handleBackToForm, handleGoToReview, handleClearAll, handleGoBack, isDarkMode, instructionRef, cclStatusTimestamp, cclWorkflowStatus]);
 
     // Render the horizontal sliding carousel
     return (
@@ -5139,6 +5255,30 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                                         <path d="M5 12h14m-6-6l6 6-6 6" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
                                                                     </svg>
                                                                 </button>
+                                                                {generatedCclUrl && (
+                                                                    <a
+                                                                        href={generatedCclUrl}
+                                                                        target="_blank"
+                                                                        rel="noopener noreferrer"
+                                                                        style={{
+                                                                            display: 'flex', alignItems: 'center', gap: 6,
+                                                                            padding: '8px 16px', borderRadius: 8,
+                                                                            background: `linear-gradient(135deg, ${colours.highlight} 0%, ${colours.helixBlue} 100%)`,
+                                                                            color: '#fff', border: 'none', cursor: 'pointer',
+                                                                            fontSize: 12, fontWeight: 700, fontFamily: 'inherit',
+                                                                            boxShadow: `0 2px 8px ${colours.highlight}4D`,
+                                                                            transition: 'all 0.2s ease',
+                                                                            flexShrink: 0,
+                                                                            whiteSpace: 'nowrap',
+                                                                            textDecoration: 'none',
+                                                                        }}
+                                                                        onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-1px)'; }}
+                                                                        onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; }}
+                                                                    >
+                                                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zM14 3.5L18.5 8H14V3.5zM8 13h8v2H8v-2zm0 4h8v2H8v-2zm0-8h3v2H8V9z"/></svg>
+                                                                        Preview CCL
+                                                                    </a>
+                                                                )}
                                                             </div>
                                                         </div>
                                                     )}

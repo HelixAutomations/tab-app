@@ -138,7 +138,7 @@ const App: React.FC<AppProps> = ({
     if (typeof document !== 'undefined') {
       const body = document.body;
       if (body) {
-        body.style.backgroundColor = isDarkMode ? '#020617' : colours.light.background;
+        body.style.backgroundColor = isDarkMode ? colours.websiteBlue : colours.light.background;
         body.style.transition = 'background-color 0.15s ease';
         body.dataset.theme = isDarkMode ? 'dark' : 'light';
         body.classList.toggle('theme-dark', isDarkMode);
@@ -1018,7 +1018,7 @@ const App: React.FC<AppProps> = ({
         <ToastProvider isDarkMode={isDarkMode} position="bottom-right">
         <div
           style={{
-            backgroundColor: isDarkMode ? '#020617' : colours.light.background,
+            backgroundColor: isDarkMode ? colours.websiteBlue : colours.light.background,
             height: '100vh',
             display: 'flex',
             flexDirection: 'column',
@@ -1028,7 +1028,7 @@ const App: React.FC<AppProps> = ({
         >
           <CustomTabs
             selectedKey={activeTab}
-            onLinkClick={(item) => setActiveTab(item?.props.itemKey || activeTab)}
+            onTabSelect={(key) => setActiveTab(key)}
             onHomeClick={() => setActiveTab('home')}
             tabs={tabs}
             ariaLabel="Main Navigation Tabs"

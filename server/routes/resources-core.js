@@ -1,23 +1,14 @@
 const express = require('express');
 const https = require('https');
-const { DefaultAzureCredential } = require('@azure/identity');
-const { SecretClient } = require('@azure/keyvault-secrets');
 const { URLSearchParams } = require('url');
 const { withRequest } = require('../utils/db');
 const { getSecret } = require('../utils/getSecret');
+const { getClioAccessToken, CLIO_API_BASE: clioApiBaseUrl } = require('../utils/clioAuth');
 
 const router = express.Router();
-
-const kvUri = 'https://helix-keys.vault.azure.net/';
-const clioRefreshTokenSecretName = 'clio-teamhubv1-refreshtoken';
-const clioSecretName = 'clio-teamhubv1-secret';
-const clioClientIdSecretName = 'clio-teamhubv1-clientid';
-const clioTokenUrl = 'https://eu.app.clio.com/oauth/token';
-const clioApiBaseUrl = 'https://eu.app.clio.com/api/v4';
 const ASANA_BASE_URL = 'https://app.asana.com/api/1.0';
 const ASANA_WORKSPACE_ID = process.env.ASANA_WORKSPACE_ID || '1203336123398249';
 
-let clioTokenCache = { token: null, exp: 0 };
 let netDocumentsTokenCache = { token: null, exp: 0 };
 
 async function safeGetSecret(name) {
@@ -235,55 +226,6 @@ async function resolveAsanaAccessToken({ email, initials, entraId }) {
   }
 
   return accessToken || null;
-}
-
-async function getClioAccessToken() {
-  const now = Math.floor(Date.now() / 1000);
-  if (clioTokenCache.token && clioTokenCache.exp - 120 > now) {
-    return clioTokenCache.token;
-  }
-
-  const credential = new DefaultAzureCredential({ additionallyAllowedTenants: ['*'] });
-  const secretClient = new SecretClient(kvUri, credential);
-
-  const [refreshTokenSecret, clientSecret, clientIdSecret] = await Promise.all([
-    secretClient.getSecret(clioRefreshTokenSecretName),
-    secretClient.getSecret(clioSecretName),
-    secretClient.getSecret(clioClientIdSecretName)
-  ]);
-
-  const refreshToken = refreshTokenSecret.value;
-  const clientSecretValue = clientSecret.value;
-  const clientId = clientIdSecret.value;
-
-  if (!refreshToken || !clientSecretValue || !clientId) {
-    throw new Error('Clio OAuth credentials are missing.');
-  }
-
-  const params = new URLSearchParams({
-    grant_type: 'refresh_token',
-    refresh_token: refreshToken,
-    client_id: clientId,
-    client_secret: clientSecretValue
-  });
-
-  const tokenResponse = await fetch(`${clioTokenUrl}?${params.toString()}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    timeout: 10000
-  });
-
-  if (!tokenResponse.ok) {
-    const errorText = await tokenResponse.text();
-    throw new Error(`Failed to refresh Clio access token: ${errorText}`);
-  }
-
-  const tokenData = await tokenResponse.json();
-  const accessToken = tokenData.access_token;
-  if (!accessToken) throw new Error('No access token returned from Clio.');
-
-  clioTokenCache = { token: accessToken, exp: now + (tokenData.expires_in || 3600) };
-  return accessToken;
 }
 
 // GET /api/resources/core/clio-contact?email=<email>

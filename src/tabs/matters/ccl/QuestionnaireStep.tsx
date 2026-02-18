@@ -51,7 +51,7 @@ const QuestionnaireStep: React.FC<QuestionnaireStepProps> = ({
             background: cardBg,
             backdropFilter: 'blur(16px)',
             border: `1px solid ${isExpanded ? (isDarkMode ? 'rgba(54,144,206,0.35)' : 'rgba(54,144,206,0.2)') : cardBorder}`,
-            borderLeft: `3px solid ${isComplete ? colours.green : accentBlue}`,
+            borderLeft: `3px solid ${accentBlue}`,
             borderRadius: 2,
             transition: 'all 0.12s ease',
           }}>
@@ -70,7 +70,7 @@ const QuestionnaireStep: React.FC<QuestionnaireStepProps> = ({
                 width: 24, height: 24, borderRadius: 2,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
-                color: isComplete ? colours.green : accentBlue,
+                color: accentBlue,
                 flexShrink: 0, transition: 'transform 0.12s ease',
               }}>
                 <Icon iconName={isComplete ? 'CheckMark' : section.icon} styles={{ root: { fontSize: 13 } }} />
@@ -86,10 +86,10 @@ const QuestionnaireStep: React.FC<QuestionnaireStepProps> = ({
                       marginLeft: 8, padding: '1px 6px',
                       fontSize: 10, fontWeight: 600, borderRadius: 2,
                       background: isComplete
-                        ? (isDarkMode ? 'rgba(34,197,94,0.15)' : 'rgba(34,197,94,0.1)')
+                        ? (isDarkMode ? 'rgba(54,144,206,0.15)' : 'rgba(54,144,206,0.1)')
                         : (isDarkMode ? 'rgba(148,163,184,0.12)' : 'rgba(100,116,139,0.08)'),
                       color: isComplete
-                        ? (isDarkMode ? '#4ade80' : '#16a34a')
+                        ? accentBlue
                         : (isDarkMode ? '#cbd5e1' : '#475569'),
                     }}>
                       {completion.filled}/{completion.total}

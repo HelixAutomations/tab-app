@@ -2,7 +2,7 @@
  * CCL Operations — support tickets, Clio upload, NetDocuments upload.
  *
  * POST /api/ccl-ops/report     → Submit a CCL support ticket (→ tech_problems + Asana)
- * POST /api/ccl-ops/upload-clio → Upload generated .docx to Clio matter (stub)
+ * POST /api/ccl-ops/upload-clio → Upload generated .docx to Clio matter (3-step presigned URL)
  * POST /api/ccl-ops/upload-nd   → Upload generated .docx to ND workspace (stub)
  * GET  /api/ccl-ops/integrations → Check which integrations are available for a matter
  */
@@ -11,7 +11,59 @@ const express = require('express');
 const router = express.Router();
 const path = require('path');
 const fs = require('fs');
-const { trackEvent, trackException } = require('../utils/appInsights');
+const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
+const { getClioAccessToken, CLIO_API_BASE } = require('../utils/clioAuth');
+const { generateWordFromJson } = require('../utils/wordGenerator.js');
+const { getCclContentById } = require('../utils/cclPersistence');
+
+// CCL docx lives in public/ccls/{matterId}.docx (matches ccl.js)
+const CCL_DIR = path.join(process.cwd(), 'public', 'ccls');
+
+function parseCandidateDate(raw) {
+  if (!raw || typeof raw !== 'string') return null;
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) return parsed;
+
+  const ukMatch = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (ukMatch) {
+    const day = Number(ukMatch[1]);
+    const month = Number(ukMatch[2]);
+    const year = Number(ukMatch[3]);
+    const candidate = new Date(Date.UTC(year, month - 1, day));
+    if (!Number.isNaN(candidate.getTime())) return candidate;
+  }
+  return null;
+}
+
+function getPitchExpiry(versionRow, fields) {
+  const explicitExpiry = [
+    fields?.pitch_expiry,
+    fields?.pitchExpiry,
+    fields?.insert_pitch_expiry,
+    fields?.insert_pitch_expiry_date,
+    fields?.insert_quote_expiry,
+    fields?.insert_quote_expiry_date,
+  ].find((v) => typeof v === 'string' && v.trim());
+
+  const explicitDate = parseCandidateDate(explicitExpiry || null);
+  if (explicitDate) {
+    return {
+      source: 'fields',
+      expiresAt: explicitDate.toISOString(),
+    };
+  }
+
+  const base = versionRow?.FinalizedAt || versionRow?.CreatedAt;
+  const baseDate = parseCandidateDate(base ? String(base) : null);
+  if (!baseDate) return { source: 'none', expiresAt: null };
+
+  const inferred = new Date(baseDate.getTime());
+  inferred.setUTCDate(inferred.getUTCDate() + 30);
+  return {
+    source: 'inferred_30d',
+    expiresAt: inferred.toISOString(),
+  };
+}
 
 // ─── CCL Support Ticket ───────────────────────────────────────────────────────
 // Adapts the TechProblemForm pattern for CCL-specific issues.
@@ -93,6 +145,7 @@ router.post('/report', async (req, res) => {
       submittedBy: submittedBy || '',
     });
 
+
     return res.json({
       ok: true,
       message: 'Support ticket created. The development team has been notified.',
@@ -168,50 +221,280 @@ router.get('/integrations', async (req, res) => {
 });
 
 
-// ─── Clio Document Upload (Stub) ─────────────────────────────────────────────
-// Will upload a generated CCL .docx to the Clio matter's documents.
-// Phase: awaiting integration testing.
+// ─── Reconstruct historical version for preview ────────────────────────────
+// Rebuilds a .docx from the exact FieldsJson snapshot in CclContent.
+// This supports one-click sent-letter verification in Ops.
+
+router.post('/reconstruct-version', async (req, res) => {
+  const { cclContentId } = req.body || {};
+  const started = Date.now();
+
+  if (!Number.isFinite(Number(cclContentId))) {
+    return res.status(400).json({ ok: false, error: 'cclContentId is required.' });
+  }
+
+  try {
+    const versionRow = await getCclContentById(Number(cclContentId));
+    if (!versionRow) {
+      return res.status(404).json({ ok: false, error: 'Version snapshot not found.' });
+    }
+
+    const fields = versionRow.FieldsJson ? JSON.parse(versionRow.FieldsJson) : {};
+    if (!fields || typeof fields !== 'object' || Object.keys(fields).length === 0) {
+      return res.status(400).json({ ok: false, error: 'Snapshot has no field payload to reconstruct.' });
+    }
+
+    fs.mkdirSync(CCL_DIR, { recursive: true });
+    const safeMatterId = String(versionRow.MatterId || 'matter').replace(/[^a-zA-Z0-9\-_]/g, '_');
+    const fileName = `${safeMatterId}-v${versionRow.Version || 'x'}-reconstructed.docx`;
+    const outPath = path.join(CCL_DIR, fileName);
+
+    trackEvent('CCL.Reconstruct.Started', {
+      matterId: String(versionRow.MatterId || ''),
+      cclContentId: String(versionRow.CclContentId || ''),
+      version: String(versionRow.Version || ''),
+    });
+
+    await generateWordFromJson(fields, outPath);
+
+    const { expiresAt, source } = getPitchExpiry(versionRow, fields);
+    const durationMs = Date.now() - started;
+
+    trackEvent('CCL.Reconstruct.Completed', {
+      matterId: String(versionRow.MatterId || ''),
+      cclContentId: String(versionRow.CclContentId || ''),
+      version: String(versionRow.Version || ''),
+      expirySource: source,
+      durationMs: String(durationMs),
+    });
+    trackMetric('CCL.Reconstruct.Duration', durationMs, {
+      matterId: String(versionRow.MatterId || ''),
+    });
+
+    return res.json({
+      ok: true,
+      url: `/ccls/${fileName}`,
+      fileName,
+      version: versionRow.Version,
+      cclContentId: versionRow.CclContentId,
+      matterId: versionRow.MatterId,
+      sent: {
+        uploadedToClio: Boolean(versionRow.UploadedToClio),
+        uploadedToNd: Boolean(versionRow.UploadedToNd),
+        clioDocId: versionRow.ClioDocId || null,
+        ndDocId: versionRow.NdDocId || null,
+        finalizedAt: versionRow.FinalizedAt || null,
+        finalizedBy: versionRow.FinalizedBy || null,
+      },
+      expiry: {
+        expiresAt,
+        source,
+        isExpired: expiresAt ? new Date(expiresAt).getTime() < Date.now() : null,
+      },
+    });
+  } catch (error) {
+    const durationMs = Date.now() - started;
+    trackException(error, {
+      operation: 'CCL.Reconstruct',
+      cclContentId: String(cclContentId || ''),
+    });
+    trackEvent('CCL.Reconstruct.Failed', {
+      cclContentId: String(cclContentId || ''),
+      error: error.message,
+      durationMs: String(durationMs),
+    });
+    return res.status(500).json({ ok: false, error: error.message || 'Failed to reconstruct CCL version.' });
+  }
+});
+
+
+// ─── Clio Document Upload (3-step presigned URL) ─────────────────────────────
+// Step 1: POST /documents → create record, get presigned put_url + headers
+// Step 2: PUT binary to the S3 put_url with returned headers
+// Step 3: PATCH /documents/{id} → confirm upload with uuid + fully_uploaded: true
 
 router.post('/upload-clio', async (req, res) => {
-  const { matterId, matterDisplayNumber, clioMatterId, fileName } = req.body;
+  const { matterId, matterDisplayNumber, clioMatterId, fileName, initials: bodyInitials, fields: liveFields } = req.body;
+  const startMs = Date.now();
+
+  // Resolve user initials: prefer middleware (req.user), then request body, then null (→ service account fallback)
+  const userInitials = req.user?.initials || bodyInitials || null;
+
+  console.log('[CCL Upload Clio] Request received:', { matterId, matterDisplayNumber, clioMatterId, fileName, userInitials, hasLiveFields: !!liveFields });
 
   if (!clioMatterId) {
     return res.status(400).json({ ok: false, error: 'Clio matter ID is required. Run integration check first.' });
   }
 
-  try {
-    // Locate the generated .docx file
-    const CCL_DIR = path.join(process.cwd(), 'build', 'ccls');
-    const docxPath = path.join(CCL_DIR, fileName || `CCL-${matterDisplayNumber || matterId || 'draft'}.docx`);
+  const docxName = fileName || `CCL-${matterDisplayNumber || matterId || 'draft'}.docx`;
+  const docxPath = path.join(CCL_DIR, `${matterId || matterDisplayNumber || 'draft'}.docx`);
+  const jsonFilePath = path.join(CCL_DIR, `${matterId || matterDisplayNumber || 'draft'}.json`);
 
-    if (!fs.existsSync(docxPath)) {
-      return res.status(404).json({ ok: false, error: 'Document not found. Generate the .docx first.' });
+  // Regenerate docx from live field values (sent by client) or latest disk JSON.
+  // This ensures the uploaded document always matches what the user sees on screen.
+  let regenSource = 'none';
+  try {
+    let draftJson = null;
+    if (liveFields && typeof liveFields === 'object' && Object.keys(liveFields).length > 0) {
+      // Prefer live fields from the editor — merge with disk JSON for any fields the client doesn't track
+      const diskJson = fs.existsSync(jsonFilePath) ? JSON.parse(fs.readFileSync(jsonFilePath, 'utf-8')) : {};
+      draftJson = { ...diskJson, ...liveFields };
+      regenSource = 'live';
+    } else if (fs.existsSync(jsonFilePath)) {
+      draftJson = JSON.parse(fs.readFileSync(jsonFilePath, 'utf-8'));
+      regenSource = 'disk';
+    }
+    if (draftJson) {
+      console.log('[CCL Upload Clio] Regenerating docx from', regenSource, 'fields before upload...');
+      await generateWordFromJson(draftJson, docxPath);
+      // Also persist the merged JSON so disk stays in sync
+      fs.writeFileSync(jsonFilePath, JSON.stringify(draftJson, null, 2));
+      console.log('[CCL Upload Clio] Docx regenerated successfully from', regenSource, 'fields.');
+    }
+  } catch (regenErr) {
+    console.warn('[CCL Upload Clio] Docx regeneration failed, will upload existing file if available:', regenErr.message);
+  }
+
+  console.log('[CCL Upload Clio] Resolved docxPath:', docxPath, '| exists:', fs.existsSync(docxPath));
+
+  if (!fs.existsSync(docxPath)) {
+    return res.status(404).json({ ok: false, error: 'Document not found. Generate the .docx first.' });
+  }
+
+  try {
+    // Use per-user credentials for audit trail; falls back to service account if not provisioned
+    console.log('[CCL Upload Clio] Getting Clio access token for:', userInitials || 'service account');
+    const accessToken = await getClioAccessToken(userInitials);
+    console.log('[CCL Upload Clio] Token acquired, reading file...');
+    const fileBuffer = fs.readFileSync(docxPath);
+    console.log('[CCL Upload Clio] File read OK, size:', fileBuffer.length, 'bytes. Starting Step 1...');
+
+    trackEvent('CCL.Upload.Clio.Started', {
+      matterId: matterDisplayNumber || matterId,
+      clioMatterId: String(clioMatterId),
+      fileSizeBytes: String(fileBuffer.length),
+      uploadedBy: userInitials || 'service',
+    });
+
+    // Step 1: Create document record in Clio → get presigned upload URL
+    const createResp = await fetch(
+      `${CLIO_API_BASE}/documents.json?fields=id,latest_document_version{uuid,put_url,put_headers}`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          data: {
+            name: docxName,
+            parent: {
+              id: Number(clioMatterId),
+              type: 'Matter',
+            },
+          },
+        }),
+      }
+    );
+
+    if (!createResp.ok) {
+      const errText = await createResp.text();
+      throw new Error(`Clio document create failed (${createResp.status}): ${errText}`);
     }
 
-    // TODO: Phase 2 — Clio v4 document upload
-    // Uses POST /api/v4/documents.json with multipart form data:
-    //   - document[name]: fileName
-    //   - document[parent][id]: clioMatterId
-    //   - document[parent][type]: "Matter"
-    //   - file: the .docx binary
-    //
-    // Token: getClioAccessToken() from resources-core.js pattern
-    // Reference: https://docs.developers.clio.com/api-reference/#operation/Document#create
+    const createData = await createResp.json();
+    const docId = createData.data?.id;
+    const docVersion = createData.data?.latest_document_version;
+    const putUrl = docVersion?.put_url;
+    const putHeaders = docVersion?.put_headers || [];
+    const uuid = docVersion?.uuid;
 
-    trackEvent('CCL.Upload.Clio.Attempted', {
-      matterId: matterDisplayNumber || matterId,
-      clioMatterId,
-      status: 'stub',
+    if (!docId || !putUrl || !uuid) {
+      throw new Error('Clio returned document but missing put_url or uuid');
+    }
+
+    console.log('[CCL Upload Clio] Step 1 complete. docId:', docId, 'uuid:', uuid);
+    console.log('[CCL Upload Clio] Starting Step 2: PUT to S3...');
+
+    // Step 2: PUT the binary file to the presigned S3 URL
+    const uploadHeaders = {};
+    for (const h of putHeaders) {
+      if (h.name && h.value) {
+        uploadHeaders[h.name] = h.value;
+      }
+    }
+    // Ensure content type is set for .docx
+    if (!uploadHeaders['Content-Type']) {
+      uploadHeaders['Content-Type'] = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    }
+
+    const putResp = await fetch(putUrl, {
+      method: 'PUT',
+      headers: uploadHeaders,
+      body: fileBuffer,
     });
 
-    return res.status(501).json({
-      ok: false,
-      error: 'Clio upload is not yet active. The document has been generated — upload it manually to Clio for now.',
-      clioMatterId,
-      docxPath: `/ccls/${path.basename(docxPath)}`,
+    if (!putResp.ok) {
+      const putErr = await putResp.text();
+      throw new Error(`S3 upload failed (${putResp.status}): ${putErr}`);
+    }
+
+    console.log('[CCL Upload Clio] Step 2 complete. S3 upload OK.');
+    console.log('[CCL Upload Clio] Starting Step 3: Confirm upload...');
+
+    // Step 3: Confirm upload to Clio
+    const confirmResp = await fetch(
+      `${CLIO_API_BASE}/documents/${docId}.json?fields=id,latest_document_version{fully_uploaded}`,
+      {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          data: {
+            uuid: uuid,
+            fully_uploaded: true,
+          },
+        }),
+      }
+    );
+
+    if (!confirmResp.ok) {
+      const confirmErr = await confirmResp.text();
+      throw new Error(`Clio upload confirmation failed (${confirmResp.status}): ${confirmErr}`);
+    }
+
+    const confirmData = await confirmResp.json();
+    const durationMs = Date.now() - startMs;
+
+    console.log('[CCL Upload Clio] Step 3 complete. All 3 steps succeeded in', durationMs, 'ms. Clio doc ID:', docId);
+
+    trackEvent('CCL.Upload.Clio.Completed', {
+      matterId: matterDisplayNumber || matterId,
+      clioMatterId: String(clioMatterId),
+      clioDocumentId: String(docId),
+      durationMs: String(durationMs),
+      fileSizeBytes: String(fileBuffer.length),
+    });
+    trackMetric('CCL.Upload.Clio.Duration', durationMs, { matterId: matterDisplayNumber || matterId });
+
+    return res.json({
+      ok: true,
+      message: `Document uploaded to Clio matter successfully.`,
+      clioDocumentId: docId,
+      fullyUploaded: confirmData.data?.latest_document_version?.fully_uploaded ?? true,
     });
   } catch (error) {
-    trackException(error, { operation: 'CCL.Upload.Clio', matterId: matterDisplayNumber || matterId });
+    const durationMs = Date.now() - startMs;
+    console.error('[CCL Upload Clio] FAILED after', durationMs, 'ms:', error.message);
+    trackException(error, { operation: 'CCL.Upload.Clio', matterId: matterDisplayNumber || matterId, clioMatterId: String(clioMatterId) });
+    trackEvent('CCL.Upload.Clio.Failed', {
+      matterId: matterDisplayNumber || matterId,
+      clioMatterId: String(clioMatterId),
+      error: error.message,
+      durationMs: String(durationMs),
+    });
     return res.status(500).json({ ok: false, error: error.message || 'Clio upload failed.' });
   }
 });
@@ -229,8 +512,7 @@ router.post('/upload-nd', async (req, res) => {
   }
 
   try {
-    const CCL_DIR = path.join(process.cwd(), 'build', 'ccls');
-    const docxPath = path.join(CCL_DIR, fileName || `CCL-${matterDisplayNumber || matterId || 'draft'}.docx`);
+    const docxPath = path.join(CCL_DIR, `${matterId || matterDisplayNumber || 'draft'}.docx`);
 
     if (!fs.existsSync(docxPath)) {
       return res.status(404).json({ ok: false, error: 'Document not found. Generate the .docx first.' });

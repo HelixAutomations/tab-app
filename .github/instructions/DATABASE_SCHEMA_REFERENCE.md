@@ -549,6 +549,77 @@ SELECT * FROM dataOpsLog WHERE entity = 'collectedTime' AND status = 'completed'
 
 ---
 
+## CCL Persistence Layer (Instructions DB)
+
+Three tables powering the CCL audit trail, content versioning, and AI trace history.
+
+### CclDrafts (legacy — basic draft persistence)
+| Column    | Type         | Notes |
+|-----------|-------------|-------|
+| MatterId  | NVARCHAR(50) | PK (upsert via MERGE) |
+| DraftJson | NVARCHAR(MAX)| Full field JSON blob |
+| UpdatedAt | DATETIME2    | Last save time |
+
+### CclContent (versioned content snapshots)
+| Column              | Type           | Notes |
+|---------------------|---------------|-------|
+| CclContentId        | INT IDENTITY  | PK |
+| MatterId            | NVARCHAR(50)  | Indexed |
+| InstructionRef      | NVARCHAR(100) | Nullable, indexed |
+| ClientName          | NVARCHAR(200) | Denormalised for admin queries |
+| ClientEmail         | NVARCHAR(200) | |
+| ClientAddress       | NVARCHAR(500) | |
+| MatterDescription   | NVARCHAR(500) | |
+| FeeEarner           | NVARCHAR(100) | |
+| FeeEarnerEmail      | NVARCHAR(200) | |
+| SupervisingPartner  | NVARCHAR(100) | |
+| PracticeArea        | NVARCHAR(100) | |
+| FieldsJson          | NVARCHAR(MAX) | All template field values |
+| ProvenanceJson      | NVARCHAR(MAX) | `{ field: 'ai'|'auto'|'user'|'default' }` |
+| Version             | INT           | Auto-increments per matter |
+| Status              | NVARCHAR(20)  | draft / final / uploaded |
+| UploadedToClio      | BIT           | |
+| UploadedToNd        | BIT           | |
+| ClioDocId           | NVARCHAR(100) | |
+| NdDocId             | NVARCHAR(100) | |
+| CreatedBy           | NVARCHAR(50)  | User initials |
+| CreatedAt           | DATETIME2     | Default SYSDATETIME() |
+| FinalizedAt         | DATETIME2     | When uploaded/sent |
+| FinalizedBy         | NVARCHAR(50)  | |
+
+### CclAiTrace (AI fill audit trail)
+| Column              | Type           | Notes |
+|---------------------|---------------|-------|
+| CclAiTraceId        | INT IDENTITY  | PK |
+| MatterId            | NVARCHAR(50)  | Indexed |
+| TrackingId          | NVARCHAR(20)  | 8-char random ID, indexed |
+| AiStatus            | NVARCHAR(20)  | complete / partial / fallback |
+| Model               | NVARCHAR(50)  | Deployment name |
+| DurationMs          | INT           | |
+| Temperature         | FLOAT         | |
+| SystemPrompt        | NVARCHAR(MAX) | Full text, never truncated |
+| UserPrompt          | NVARCHAR(MAX) | Full text |
+| UserPromptLength    | INT           | |
+| AiOutputJson        | NVARCHAR(MAX) | Raw AI response fields |
+| GeneratedFieldCount | INT           | |
+| Confidence          | NVARCHAR(20)  | full / partial / fallback |
+| DataSourcesJson     | NVARCHAR(MAX) | Array of source names |
+| ContextFieldsJson   | NVARCHAR(MAX) | Structured context |
+| ContextSnippetsJson | NVARCHAR(MAX) | Text chunks |
+| FallbackReason      | NVARCHAR(500) | |
+| ErrorMessage        | NVARCHAR(500) | |
+| CreatedBy           | NVARCHAR(50)  | |
+| CreatedAt           | DATETIME2     | Default SYSDATETIME() |
+
+### Implementation Reference
+- **Migration**: `tools/db/migrate-ccl-persistence.sql` (idempotent, run via `tools/db/run-ccl-migration.mjs`)
+- **Persistence utility**: `server/utils/cclPersistence.js` — saveCclContent, saveCclAiTrace, getCclStats, listAllCcls, saveCclAssessment, etc.
+- **Admin API**: `server/routes/ccl-admin.js` — GET stats, list matters, traces, assessments
+- **Wiring**: `server/routes/ccl.js` (POST/PATCH save CclContent), `server/routes/ccl-ai.js` (POST /fill saves CclAiTrace)
+- **Frontend**: `src/tabs/matters/ccl/CclOpsPanel.tsx` — admin ops panel with assessment system in PreviewStep
+
+---
+
 ## Related Files
 
 - Backend queries: `server/routes/instructions.js`, `server/routes/matter-operations.js`

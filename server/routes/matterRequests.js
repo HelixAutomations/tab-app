@@ -169,6 +169,7 @@ router.patch('/:matterId', async (req, res) => {
         displayNumber: body.displayNumber ?? null,
         clioMatterId: body.clioMatterId ?? null
     };
+    const cclQueuedAt = new Date().toISOString();
 
     if (!updates.instructionRef && !updates.clientId && !updates.displayNumber && !updates.clioMatterId) {
         trackEvent('MatterOpening.MatterRequestPatch.ValidationFailed', {
@@ -221,10 +222,11 @@ router.patch('/:matterId', async (req, res) => {
             matterId: String(matterId || ''),
             updated: String(result.rowsAffected[0] || 0),
             durationMs: String(durationMs),
+            cclQueuedAt,
             traceId: String(traceId || ''),
         });
         trackMetric('MatterOpening.MatterRequestPatch.Duration', durationMs, {});
-        return res.json({ ok: true, updated: result.rowsAffected[0] });
+        return res.json({ ok: true, updated: result.rowsAffected[0], cclQueuedAt });
     } catch (err) {
         console.error('[matter-requests] Patch error:', err);
         trackException(err, {

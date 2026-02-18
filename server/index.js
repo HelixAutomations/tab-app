@@ -118,6 +118,7 @@ const riskAssessmentsRouter = require('./routes/riskAssessments');
 const bundleRouter = require('./routes/bundle');
 const { router: cclRouter, CCL_DIR } = require('./routes/ccl');
 const cclAiRouter = require('./routes/ccl-ai');
+const cclAdminRouter = require('./routes/ccl-admin');
 
 const updateEnquiryPOCRouter = require('./routes/updateEnquiryPOC');
 const pitchesRouter = require('./routes/pitches');
@@ -285,6 +286,7 @@ app.use('/api/getAllMatters', (req, res) => {
 });
 app.use('/api/ccl', cclRouter);
 app.use('/api/ccl-ai', cclAiRouter);
+app.use('/api/ccl-admin', cclAdminRouter);
 app.use('/api/ccl-ops', cclOpsRouter);
 app.use('/api/enquiries-unified', enquiriesUnifiedRouter);
 app.use('/api/home-wip', homeWipRouter);

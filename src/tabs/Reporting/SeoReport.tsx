@@ -15,6 +15,7 @@ import {
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';
 import { debugLog, debugWarn } from '../../utils/debug';
+import { reportingPanelBackground, reportingPanelBorder, reportingPanelShadow, reportingShellBackground } from './styles/reportingFoundation';
 import './ManagementDashboard.css';
 
 interface Ga4Row {
@@ -291,6 +292,43 @@ const formatDateTag = (date: Date | null): string => {
   return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
 };
 
+const formatRelativeTime = (timestamp?: number): string => {
+  if (!timestamp) {
+    return 'unknown';
+  }
+
+  const diffMs = Date.now() - timestamp;
+  if (!Number.isFinite(diffMs)) {
+    return 'unknown';
+  }
+
+  const absMs = Math.abs(diffMs);
+  const minute = 60 * 1000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  const week = 7 * day;
+  const month = 30 * day;
+  const year = 365 * day;
+
+  const units: { ms: number; label: string }[] = [
+    { ms: year, label: 'y' },
+    { ms: month, label: 'mo' },
+    { ms: week, label: 'w' },
+    { ms: day, label: 'd' },
+    { ms: hour, label: 'h' },
+    { ms: minute, label: 'm' },
+  ];
+
+  for (const unit of units) {
+    if (absMs >= unit.ms) {
+      const value = Math.round(absMs / unit.ms);
+      return diffMs >= 0 ? `${value}${unit.label} ago` : `in ${value}${unit.label}`;
+    }
+  }
+
+  return 'just now';
+};
+
 const dateStampButtonStyle = (isDarkMode: boolean): CSSProperties => ({
   display: 'flex',
   flexDirection: 'column',
@@ -321,6 +359,7 @@ const SeoReport: React.FC<SeoReportProps> = ({
   cachedDeviceData = [],
 }) => {
   const { isDarkMode } = useTheme();
+  const lastSyncLabel = useMemo(() => formatRelativeTime(lastRefreshTimestamp), [lastRefreshTimestamp]);
   const [{ start: rangeStart, end: rangeEnd }, setRangeState] = useState(() => computeRange('all'));
   const [rangeKey, setRangeKey] = useState<RangeKey>('all');
   const [startDate, setStartDate] = useState<Date | undefined>(undefined);
@@ -422,34 +461,54 @@ const SeoReport: React.FC<SeoReportProps> = ({
   const activePresetKey = rangeKey !== 'custom' ? rangeKey : null;
   const formattedFromLabel = formatDateTag(rangeStart);
   const formattedToLabel = formatDateTag(rangeEnd);
+  const rangeSummaryLabel = rangeKey === 'all' ? 'All time' : `${formattedFromLabel} → ${formattedToLabel}`;
 
   return (
-    <div style={{ padding: '0', minHeight: '100vh' }}>
-      {/* Header */}
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'center', 
-        marginBottom: 24 
+    <div style={{ padding: '0', minHeight: '100vh', background: reportingShellBackground(isDarkMode) }}>
+      <div style={{
+        marginBottom: 16,
+        borderRadius: 12,
+        padding: '12px 14px',
+        background: reportingPanelBackground(isDarkMode, 'base'),
+        border: `1px solid ${reportingPanelBorder(isDarkMode)}`,
+        boxShadow: reportingPanelShadow(isDarkMode),
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        gap: 12,
+        flexWrap: 'wrap',
       }}>
-        <div>
-          <h1 style={{ 
-            margin: 0, 
-            fontSize: 28, 
-            fontWeight: 700, 
-            color: isDarkMode ? '#E2E8F0' : colours.missedBlue,
-            fontFamily: 'Raleway, sans-serif'
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', opacity: 0.68, letterSpacing: 0.35 }}>
+            SEO Report
+          </span>
+          <span style={{ fontSize: 13, opacity: 0.85 }}>
+            Organic search traffic and conversion performance
+          </span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span style={{
+            padding: '4px 10px',
+            borderRadius: 999,
+            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.28)' : 'rgba(13, 47, 96, 0.14)'}`,
+            background: isDarkMode ? 'rgba(15, 23, 42, 0.75)' : 'rgba(255, 255, 255, 0.92)',
+            fontSize: 11,
+            fontWeight: 600,
+            opacity: 0.9,
           }}>
-            SEO Analytics Report
-          </h1>
-          <p style={{ 
-            margin: '4px 0 0 0', 
-            fontSize: 14, 
-            opacity: 0.7,
-            color: isDarkMode ? '#E2E8F0' : colours.missedBlue
+            Range: {rangeSummaryLabel}
+          </span>
+          <span style={{
+            padding: '4px 10px',
+            borderRadius: 999,
+            border: `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.4)' : 'rgba(16, 185, 129, 0.3)'}`,
+            background: isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(16, 185, 129, 0.08)',
+            fontSize: 11,
+            fontWeight: 600,
+            color: isDarkMode ? '#86efac' : colours.green,
           }}>
-            Organic search traffic performance and insights
-          </p>
+            Sync {lastSyncLabel}
+          </span>
         </div>
       </div>
 

@@ -7,6 +7,7 @@ module.exports = function(app) {
     '/api/home-metrics',
     '/api/ccl-date',
     '/api/enquiries-unified/stream',
+    '/api/logs/stream',
   ];
 
   app.use(

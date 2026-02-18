@@ -1,10 +1,12 @@
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
-import { Icon } from '@fluentui/react';
+import { Icon, Spinner, SpinnerSize } from '@fluentui/react';
 import { colours } from '../../../app/styles/colours';
 import type { NormalizedMatter } from '../../../app/functionality/types';
 import type { AiStatus } from './CCLEditor';
 import { submitAiFeedback, submitCclSupportTicket, checkCclIntegrations, uploadToClio, uploadToNetDocuments, type AiDebugTrace, type CclSupportTicket, type CclIntegrations } from './cclAiService';
 import { CCL_SECTIONS } from './cclSections';
+import CclOpsPanel from './CclOpsPanel';
+import { ADMIN_USERS } from '../../../app/admin';
 
 interface PreviewSection {
   id: string;
@@ -107,7 +109,7 @@ const AiFeedbackWidget: React.FC<AiFeedbackWidgetProps> = ({
             </div>
           )}
           {submitted && (
-            <Icon iconName="SkypeCheck" styles={{ root: { fontSize: 13, color: isDarkMode ? '#4ade80' : '#16a34a' } }} />
+            <Icon iconName="SkypeCheck" styles={{ root: { fontSize: 13, color: accentBlue } }} />
           )}
         </div>
 
@@ -210,6 +212,8 @@ export interface PreviewStepProps {
   updateField?: (key: string, value: string) => void;
   /** Keys the user has manually edited — shown with 'user' provenance (purple) */
   userEditedKeys?: Set<string>;
+  /** Current user's initials — used for per-user Clio auth on uploads (audit trail) */
+  userInitials?: string;
   aiStatus?: AiStatus;
   aiSource?: string;
   aiDurationMs?: number;
@@ -223,6 +227,8 @@ export interface PreviewStepProps {
   onBack: () => void;
   onClose?: () => void;
   onAdvancedMode?: () => void;
+  /** Trigger AI fill — must be explicitly invoked (no auto-fire on mount) */
+  onTriggerAiFill?: () => void;
 }
 
 // Fallback: if the server doesn't return the system prompt (older deployment),
@@ -304,7 +310,7 @@ COST ACCURACY RULES:
 
 Respond with ONLY a JSON object containing these fields. No markdown, no explanation, just the JSON object.`;
 
-const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, matter, fields, updateField, userEditedKeys, aiStatus, aiSource, aiDurationMs, aiDataSources, aiContextSummary, aiUserPrompt, aiSystemPrompt: aiSystemPromptRaw, aiFallbackReason, aiDebugTrace, isDarkMode, onBack: _onBack, onClose, onAdvancedMode }) => {
+const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, matter, fields, updateField, userEditedKeys, userInitials, aiStatus, aiSource, aiDurationMs, aiDataSources, aiContextSummary, aiUserPrompt, aiSystemPrompt: aiSystemPromptRaw, aiFallbackReason, aiDebugTrace, isDarkMode, onBack: _onBack, onClose, onAdvancedMode, onTriggerAiFill }) => {
   // Use server-returned system prompt if available, otherwise canonical fallback
   const aiSystemPrompt = aiSystemPromptRaw || CANONICAL_SYSTEM_PROMPT;
   const text = isDarkMode ? '#f1f5f9' : '#1e293b';
@@ -323,7 +329,12 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
   const [generating, setGenerating] = useState(false);
   const [sending, setSending] = useState(false);
   const [status, setStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
-  // viewMode removed — always review mode in doc-first UX
+  const [showOpsPanel, setShowOpsPanel] = useState(false);
+  const isOpsAdmin = useMemo(() => {
+    if (!userInitials) return false;
+    return (ADMIN_USERS as readonly string[]).includes(userInitials.toUpperCase());
+  }, [userInitials]);
+  const [documentMode, setDocumentMode] = useState<'preview' | 'edit'>('preview');
   // showAiTrace removed — replaced by showAiDetails dropdown
 
   // Boilerplate sections collapse by default — user-relevant sections stay expanded
@@ -350,7 +361,7 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
     const resp = await fetch('/api/ccl', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ matterId, draftJson: fields }),
+      body: JSON.stringify({ matterId, draftJson: fields, initials: userInitials || '' }),
     });
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({ error: 'Server error' }));
@@ -358,7 +369,7 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
     }
     const data = await resp.json();
     return data.url || null;
-  }, [matter, fields]);
+  }, [matter, fields, userInitials]);
 
   const handleDownload = useCallback(async () => {
     setGenerating(true);
@@ -415,8 +426,15 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
   const HELIX_ADDRESS = 'Helix Law Ltd. Second Floor, Britannia House, 21 Station Street, Brighton, BN1 4DE';
   const HELIX_PHONE = '0345 314 2044';
   const HELIX_WEB = 'helix-law.com';
-  const headingColor = isDarkMode ? '#94a3b8' : '#0D2F60';
-  const tableBorder = isDarkMode ? 'rgba(54,144,206,0.15)' : '#e2e8f0';
+  const headingColor = isDarkMode ? '#3690CE' : '#0D2F60';
+  const tableBorder = isDarkMode ? 'rgba(54,144,206,0.22)' : 'rgba(13,47,96,0.12)';
+  const paperAreaBg = isDarkMode
+    ? '#061733'
+    : '#c9daea';
+  const paperBg = isDarkMode
+    ? '#0a1e3a'
+    : '#f4f7fb';
+  const paperOutline = isDarkMode ? 'rgba(54,144,206,0.35)' : 'rgba(13,47,96,0.22)';
 
   // ─── Sidebar/editing state (hoisted so parsedSections can reference them) ───
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -435,12 +453,33 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
   const [integrationsLoading, setIntegrationsLoading] = useState(false);
   const [uploadingClio, setUploadingClio] = useState(false);
   const [uploadingNd, setUploadingNd] = useState(false);
+  const [showUploadMenu, setShowUploadMenu] = useState(false);
+  const uploadMenuRef = useRef<HTMLDivElement | null>(null);
+  const [showClioConfirm, setShowClioConfirm] = useState(false);
+
+  useEffect(() => {
+    if (documentMode === 'preview') {
+      setEditingField(null);
+      setSidebarOpen(false);
+    }
+  }, [documentMode]);
 
   // ─── Handlers: support report, integration check, uploads ───
   const matterId = matter.matterId || matter.displayNumber || '';
 
+  // Demo matter detection — bypass server calls entirely
+  const isDemoMatter = matterId === 'DEMO-3311402' || matterId === '3311402' || matter.displayNumber === 'HELIX01-01';
+
   const handleCheckIntegrations = useCallback(async () => {
     if (!matterId || integrationsLoading) return;
+    // Demo matters: inject mock integrations directly (no server call)
+    if (isDemoMatter) {
+      setIntegrations({
+        clio: { available: true, matterId: '3311402', description: 'Admin (demo)' },
+        nd: { available: false, workspaceId: null, workspaceName: '' },
+      });
+      return;
+    }
     setIntegrationsLoading(true);
     try {
       const result = await checkCclIntegrations(matterId);
@@ -448,7 +487,27 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
     } finally {
       setIntegrationsLoading(false);
     }
-  }, [matterId, integrationsLoading]);
+  }, [matterId, integrationsLoading, isDemoMatter]);
+
+  // Auto-check integrations on mount (silent — no UI if unavailable)
+  useEffect(() => {
+    if (matterId && !integrations && !integrationsLoading) {
+      handleCheckIntegrations();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matterId]);
+
+  // Close upload menu on click-outside
+  useEffect(() => {
+    if (!showUploadMenu) return;
+    const handler = (e: MouseEvent) => {
+      if (uploadMenuRef.current && !uploadMenuRef.current.contains(e.target as Node)) {
+        setShowUploadMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showUploadMenu]);
 
   const handleSubmitSupportTicket = useCallback(async (ticket: CclSupportTicket) => {
     setSupportSubmitting(true);
@@ -479,21 +538,24 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
   }, [matterId, matter.displayNumber, fields, aiStatus, aiSource, aiDurationMs, aiDataSources, aiFallbackReason, aiDebugTrace]);
 
   const handleUploadClio = useCallback(async () => {
-    if (!integrations?.clio?.available || !integrations.clio.matterId) return;
+    const clioId = integrations?.clio?.matterId || (isDemoMatter ? '3311402' : null);
+    if (!clioId) return;
     setUploadingClio(true);
     try {
       const result = await uploadToClio({
         matterId,
         matterDisplayNumber: matter.displayNumber || '',
-        clioMatterId: integrations.clio.matterId,
+        clioMatterId: clioId,
+        initials: userInitials,
+        fields,
       });
       setStatus(result.ok
-        ? { type: 'success', message: 'Uploaded to Clio matter' }
-        : { type: 'error', message: result.error || 'Clio upload not yet available (coming soon)' });
+        ? { type: 'success', message: isDemoMatter ? 'Uploaded to Clio (HELIX01-01)' : 'Uploaded to Clio matter' }
+        : { type: 'error', message: result.error || 'Clio upload failed' });
     } finally {
       setUploadingClio(false);
     }
-  }, [matterId, matter.displayNumber, integrations]);
+  }, [matterId, matter.displayNumber, integrations, isDemoMatter, userInitials, fields]);
 
   const handleUploadNd = useCallback(async () => {
     if (!integrations?.nd?.available || !integrations.nd.workspaceId) return;
@@ -536,11 +598,11 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
   }, [fields, aiStatus, AUTO_FILL_KEYS, userEditedKeys]);
 
   const provColours = useMemo(() => ({
-    ai: { border: isDarkMode ? '#4ade80' : '#16a34a', bg: isDarkMode ? 'rgba(34,197,94,0.06)' : 'rgba(34,197,94,0.04)', bgHover: isDarkMode ? 'rgba(34,197,94,0.12)' : 'rgba(34,197,94,0.08)' },
+    ai: { border: accentBlue, bg: isDarkMode ? 'rgba(54,144,206,0.06)' : 'rgba(54,144,206,0.04)', bgHover: isDarkMode ? 'rgba(54,144,206,0.12)' : 'rgba(54,144,206,0.08)' },
     'auto-fill': { border: accentBlue, bg: isDarkMode ? 'rgba(54,144,206,0.06)' : 'rgba(54,144,206,0.04)', bgHover: isDarkMode ? 'rgba(54,144,206,0.12)' : 'rgba(54,144,206,0.08)' },
     empty: { border: isDarkMode ? 'rgba(234,179,8,0.5)' : 'rgba(234,179,8,0.6)', bg: isDarkMode ? 'rgba(234,179,8,0.04)' : 'rgba(234,179,8,0.03)', bgHover: isDarkMode ? 'rgba(234,179,8,0.1)' : 'rgba(234,179,8,0.08)' },
     default: { border: isDarkMode ? 'rgba(148,163,184,0.3)' : 'rgba(148,163,184,0.25)', bg: 'transparent', bgHover: isDarkMode ? 'rgba(148,163,184,0.08)' : 'rgba(148,163,184,0.05)' },
-    user: { border: isDarkMode ? '#a78bfa' : '#7c3aed', bg: isDarkMode ? 'rgba(167,139,250,0.06)' : 'rgba(124,58,237,0.04)', bgHover: isDarkMode ? 'rgba(167,139,250,0.12)' : 'rgba(124,58,237,0.08)' },
+    user: { border: isDarkMode ? colours.blue : colours.missedBlue, bg: isDarkMode ? 'rgba(54,144,206,0.06)' : 'rgba(13,47,96,0.04)', bgHover: isDarkMode ? 'rgba(54,144,206,0.12)' : 'rgba(13,47,96,0.08)' },
   }), [isDarkMode, accentBlue]);
 
   // Use template with placeholders for the A4 surface (inline-editable fields).
@@ -572,10 +634,10 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
       }
       const fk = match[1];
       const val = fields[fk] || '';
-      const isEmpty = !val.trim();
       const prov = fieldProvenance[fk] || 'empty';
       const pc = provColours[prov] || provColours.default;
-      const isEditing = editingField === fk;
+      const canEdit = documentMode === 'edit' && typeof updateField === 'function';
+      const isEditing = canEdit && editingField === fk;
 
       if (isEditing) {
         // Inline textarea on the document surface — wraps naturally like a real document
@@ -609,28 +671,19 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
           />
         );
       } else {
-        // Clickable span showing the field value (or placeholder label)
-        const label = fieldLabelMap[fk] || fk.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        // Final-document preview: render clean text without provenance chrome.
+        // Click still enters edit mode for the field.
         parts.push(
           <span
             key={`${keyPrefix}-${fk}-${partIdx}`}
             data-ccl-field={fk}
-            onClick={() => setEditingField(fk)}
-            title={`Click to edit — ${prov === 'ai' ? 'AI-generated' : prov === 'auto-fill' ? 'Auto-filled' : isEmpty ? 'Empty' : 'Default'}`}
+            onClick={canEdit ? () => setEditingField(fk) : undefined}
+            title={canEdit ? 'Click to edit' : undefined}
             style={{
-              cursor: 'text',
-              borderBottom: `2px ${isEmpty ? 'dashed' : 'solid'} ${pc.border}`,
-              padding: '1px 3px',
-              borderRadius: 2,
-              background: pc.bg,
-              transition: 'all 0.12s ease',
-              color: isEmpty ? (isDarkMode ? '#facc15' : '#ca8a04') : 'inherit',
-              fontStyle: isEmpty ? 'italic' : 'normal',
+              cursor: canEdit ? 'text' : 'inherit',
             }}
-            onMouseEnter={e => { e.currentTarget.style.background = pc.bgHover; }}
-            onMouseLeave={e => { e.currentTarget.style.background = pc.bg; }}
           >
-            {isEmpty ? `[${label}]` : val}
+            {val}
           </span>
         );
       }
@@ -641,7 +694,7 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
       parts.push(text.slice(lastIndex));
     }
     return <>{parts}</>;
-  }, [fields, fieldProvenance, provColours, editingField, updateField, isDarkMode, text, fieldLabelMap]);
+  }, [fields, fieldProvenance, provColours, editingField, updateField, documentMode]);
 
   /** Parse template text into grouped sections for collapsible rendering */
   const parsedSections = useMemo((): PreviewSection[] => {
@@ -1132,6 +1185,7 @@ ${htmlBody}
 
   // Open sidebar and focus a specific field for editing
   const openFieldEditor = useCallback((fieldKey: string) => {
+    setDocumentMode('edit');
     setSidebarOpen(true);
     setSidebarTab('fields');
     // Highlight animation
@@ -1140,10 +1194,27 @@ ${htmlBody}
     highlightTimerRef.current = setTimeout(() => setHighlightedField(null), 1500);
     // Small delay so sidebar renders before scroll
     setTimeout(() => {
-      const el = document.getElementById(`ccl-qf-${fieldKey}`);
+      const el = document.querySelector(`[data-ccl-qf="${fieldKey}"]`) as HTMLElement | null;
       if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.focus(); }
     }, 100);
   }, []);
+
+  const QUICK_FIELD_ALIASES: Record<string, string[]> = useMemo(() => ({
+    insert_clients_name: ['insert_clients_name', 'client_name', 'clientName', 'client'],
+    insert_heading_eg_matter_description: ['insert_heading_eg_matter_description', 'matter', 'matter_description'],
+    name_of_person_handling_matter: ['name_of_person_handling_matter', 'name_of_handler', 'handler_name', 'fee_earner'],
+    identify_the_other_party_eg_your_opponents: ['identify_the_other_party_eg_your_opponents', 'opponent', 'opponents', 'other_party'],
+    figure: ['figure', 'state_amount'],
+    next_steps: ['next_steps', 'insert_next_step_you_would_like_client_to_take'],
+  }), []);
+
+  const CCL_SECTION_TO_DOC_SECTIONS: Record<string, string[]> = useMemo(() => ({
+    client: ['1'],
+    handler: ['1'],
+    scope: ['2', '3'],
+    costs: ['4', '4.1', '4.2', '4.3', '6'],
+    actions: ['18'],
+  }), []);
 
   // Sync: when editing a field on the A4 surface AND sidebar is open, highlight in sidebar
   useEffect(() => {
@@ -1152,7 +1223,7 @@ ${htmlBody}
       setHighlightedField(editingField);
       highlightTimerRef.current = setTimeout(() => setHighlightedField(null), 1500);
       setTimeout(() => {
-        const el = document.getElementById(`ccl-qf-${editingField}`);
+        const el = document.querySelector(`[data-ccl-qf="${editingField}"]`) as HTMLElement | null;
         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }, 50);
     }
@@ -1160,9 +1231,43 @@ ${htmlBody}
 
   // Scroll the A4 paper to show where a field appears in the document
   const scrollFieldToDocument = useCallback((fieldKey: string) => {
-    const el = document.querySelector(`[data-ccl-field="${fieldKey}"]`);
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }, []);
+    setDocumentMode('edit');
+    setSidebarOpen(true);
+    const candidates = QUICK_FIELD_ALIASES[fieldKey] || [fieldKey];
+    const cclSectionId = fieldSectionMap[fieldKey]?.sectionId;
+    const docSections = cclSectionId ? (CCL_SECTION_TO_DOC_SECTIONS[cclSectionId] || []) : [];
+
+    if (docSections.length > 0) {
+      setCollapsedSections(prev => {
+        const next = new Set(prev);
+        docSections.forEach(sectionId => next.delete(sectionId));
+        return next;
+      });
+    }
+
+    const runJump = () => {
+      for (const candidateKey of candidates) {
+        const target = document.querySelector(`[data-ccl-field="${candidateKey}"]`) as HTMLElement | null;
+        if (target) {
+          setEditingField(candidateKey);
+          target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          return;
+        }
+      }
+
+      if (docSections.length > 0) {
+        const sectionEl = sectionRefs.current[docSections[0]];
+        if (sectionEl) {
+          sectionEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }
+
+      openFieldEditor(fieldKey);
+      setStatus({ type: 'error', message: `Field not placed in visible letter clause yet: ${fieldLabelMap[fieldKey] || fieldKey}` });
+    };
+
+    setTimeout(runJump, 120);
+  }, [CCL_SECTION_TO_DOC_SECTIONS, QUICK_FIELD_ALIASES, fieldLabelMap, fieldSectionMap, openFieldEditor]);
 
   // Inline editable field rendered on the document surface (used by recipient block)
   const InlineField: React.FC<{
@@ -1385,13 +1490,29 @@ ${htmlBody}
         </div>
       )}
 
-      {/* ═══ Floating Toolbar ═══ */}
+      {/* ═══ Toolbar ═══ */}
       <div style={{
-        display: 'flex', alignItems: 'center', gap: 8,
-        padding: '8px 16px',
+        display: 'flex', alignItems: 'center', gap: 6,
+        padding: '6px 16px',
         borderBottom: `1px solid ${cardBorder}`,
-        background: isDarkMode ? '#0f172a' : '#ffffff',
+        background: isDarkMode ? '#061733' : '#e8eff7',
+        minHeight: 36,
       }}>
+        {/* Generate AI Draft button — shown when AI hasn't been triggered yet */}
+        {(!aiStatus || aiStatus === 'idle') && onTriggerAiFill && (
+          <button type="button" onClick={onTriggerAiFill} style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            padding: '4px 14px', borderRadius: 3, height: 26,
+            background: isDarkMode ? 'rgba(54,144,206,0.18)' : 'rgba(54,144,206,0.1)',
+            border: `1px solid ${accentBlue}`,
+            color: accentBlue, fontSize: 10, fontWeight: 700,
+            cursor: 'pointer', transition: 'all 0.15s ease',
+          }}>
+            <Icon iconName="LightningBolt" styles={{ root: { fontSize: 11 } }} />
+            Generate AI Draft
+          </button>
+        )}
+
         {/* AI status chip */}
         {aiStatus && aiStatus !== 'idle' && aiStatus !== 'loading' && (
           <div
@@ -1402,18 +1523,18 @@ ${htmlBody}
               fontSize: 10, fontWeight: 600, cursor: 'pointer',
               transition: 'all 0.12s ease',
               background: aiStatus === 'complete'
-                ? (isDarkMode ? 'rgba(34,197,94,0.12)' : 'rgba(34,197,94,0.08)')
+                ? (isDarkMode ? 'rgba(54,144,206,0.16)' : 'rgba(54,144,206,0.1)')
                 : aiStatus === 'partial'
                   ? (isDarkMode ? 'rgba(234,179,8,0.12)' : 'rgba(234,179,8,0.08)')
                   : (isDarkMode ? 'rgba(148,163,184,0.12)' : 'rgba(148,163,184,0.08)'),
               color: aiStatus === 'complete'
-                ? (isDarkMode ? '#4ade80' : '#16a34a')
+                ? accentBlue
                 : aiStatus === 'partial'
                   ? (isDarkMode ? '#facc15' : '#ca8a04')
                   : textMuted,
               border: `1px solid ${
                 aiStatus === 'complete'
-                  ? (isDarkMode ? 'rgba(34,197,94,0.25)' : 'rgba(34,197,94,0.15)')
+                  ? (isDarkMode ? 'rgba(54,144,206,0.32)' : 'rgba(54,144,206,0.2)')
                   : aiStatus === 'partial'
                     ? (isDarkMode ? 'rgba(234,179,8,0.25)' : 'rgba(234,179,8,0.15)')
                     : cardBorder
@@ -1431,64 +1552,67 @@ ${htmlBody}
 
         <div style={{ flex: 1 }} />
 
-        {/* Edit toggle */}
-        <button type="button" onClick={() => setSidebarOpen(!sidebarOpen)} style={{
-          display: 'inline-flex', alignItems: 'center', gap: 5,
-          padding: '4px 12px', borderRadius: 2,
-          background: sidebarOpen ? (isDarkMode ? 'rgba(54,144,206,0.15)' : 'rgba(54,144,206,0.1)') : 'transparent',
-          border: `1px solid ${sidebarOpen ? accentBlue : cardBorder}`,
-          color: sidebarOpen ? accentBlue : text, fontSize: 10, fontWeight: 600,
-          cursor: 'pointer', transition: 'all 0.12s ease',
+        {/* Preview / Edit mode */}
+        <div style={{
+          display: 'inline-flex', alignItems: 'center', height: 26,
+          border: `1px solid ${cardBorder}`, borderRadius: 3, overflow: 'hidden',
+          marginRight: 4,
         }}>
-          <Icon iconName="Edit" styles={{ root: { fontSize: 10 } }} />
-          Edit
-          {remainingPlaceholders > 0 && (
-            <span style={{
-              fontSize: 8, fontWeight: 800, lineHeight: 1,
-              padding: '2px 5px', borderRadius: 8,
-              background: isDarkMode ? 'rgba(234,179,8,0.2)' : 'rgba(234,179,8,0.15)',
-              color: isDarkMode ? '#facc15' : '#ca8a04',
-            }}>
-              {remainingPlaceholders}
-            </span>
-          )}
-        </button>
-
-        {/* AI Trace modal — shows full processing transparency */}
-        <button type="button" onClick={() => setShowTraceModal(true)} title="View AI processing details"
-          style={{
-            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-            width: 28, height: 28, borderRadius: 2,
-            background: 'transparent', border: `1px solid ${cardBorder}`,
-            color: textMuted, cursor: 'pointer', transition: 'all 0.12s ease',
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.color = accentBlue; }}
-          onMouseLeave={(e) => { e.currentTarget.style.color = textMuted; }}
-        >
-          <Icon iconName="TestBeaker" styles={{ root: { fontSize: 11 } }} />
-        </button>
-
-        {/* Advanced mode — questionnaire */}
-        {onAdvancedMode && (
-          <button type="button" onClick={onAdvancedMode} title="Advanced fields (questionnaire)" style={{
-            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-            width: 28, height: 28, borderRadius: 2,
-            background: 'transparent', border: `1px solid ${cardBorder}`,
-            color: textMuted, cursor: 'pointer', transition: 'all 0.12s ease',
-          }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = accentBlue; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = textMuted; }}
+          <button
+            type="button"
+            onClick={() => setDocumentMode('preview')}
+            style={{
+              border: 'none', padding: '0 10px', height: '100%',
+              background: documentMode === 'preview'
+                ? (isDarkMode ? 'rgba(54,144,206,0.15)' : 'rgba(54,144,206,0.1)')
+                : 'transparent',
+              color: documentMode === 'preview' ? accentBlue : text,
+              fontSize: 10, fontWeight: 700, cursor: 'pointer',
+            }}
           >
-            <Icon iconName="Settings" styles={{ root: { fontSize: 11 } }} />
+            Preview
+          </button>
+          <div style={{ width: 1, height: '100%', background: cardBorder }} />
+          <button
+            type="button"
+            onClick={() => {
+              setDocumentMode('edit');
+              setSidebarOpen(true);
+            }}
+            style={{
+              border: 'none', padding: '0 10px', height: '100%',
+              background: documentMode === 'edit'
+                ? (isDarkMode ? 'rgba(54,144,206,0.15)' : 'rgba(54,144,206,0.1)')
+                : 'transparent',
+              color: documentMode === 'edit' ? accentBlue : text,
+              fontSize: 10, fontWeight: 700, cursor: 'pointer',
+            }}
+          >
+            Edit
+          </button>
+        </div>
+
+        {/* Ops panel toggle (admin only) */}
+        {isOpsAdmin && (
+          <button type="button" onClick={() => setShowOpsPanel(!showOpsPanel)} title="CCL Operations Panel" style={{
+            display: 'inline-flex', alignItems: 'center', gap: 5,
+            padding: '4px 10px', borderRadius: 3, height: 26,
+            background: showOpsPanel ? (isDarkMode ? 'rgba(54,144,206,0.15)' : 'rgba(54,144,206,0.1)') : 'transparent',
+            border: `1px solid ${showOpsPanel ? colours.blue : cardBorder}`,
+            color: showOpsPanel ? colours.blue : text, fontSize: 10, fontWeight: 600,
+            cursor: 'pointer', transition: 'all 0.12s ease',
+          }}>
+            <Icon iconName="Shield" styles={{ root: { fontSize: 10 } }} />
+            Ops
           </button>
         )}
 
-        <div style={{ width: 1, height: 18, background: cardBorder, margin: '0 4px' }} />
+        <div style={{ width: 1, height: 16, background: cardBorder, margin: '0 2px' }} />
 
-        {/* Export buttons */}
-        <button type="button" onClick={handlePrintPdf} style={{
+        {/* Export group — consistent height */}
+        <button type="button" onClick={handlePrintPdf} title="Print as PDF" style={{
           display: 'inline-flex', alignItems: 'center', gap: 4,
-          padding: '4px 10px', borderRadius: 2,
+          padding: '4px 10px', borderRadius: 3, height: 26,
           background: 'transparent', border: `1px solid ${cardBorder}`,
           color: text, fontSize: 10, fontWeight: 600,
           cursor: 'pointer', transition: 'all 0.12s ease',
@@ -1496,9 +1620,9 @@ ${htmlBody}
           <Icon iconName="PDF" styles={{ root: { fontSize: 10 } }} />
           PDF
         </button>
-        <button type="button" onClick={handleDownload} disabled={generating} style={{
+        <button type="button" onClick={handleDownload} disabled={generating} title="Download .docx" style={{
           display: 'inline-flex', alignItems: 'center', gap: 4,
-          padding: '4px 10px', borderRadius: 2,
+          padding: '4px 10px', borderRadius: 3, height: 26,
           background: 'transparent', border: `1px solid ${cardBorder}`,
           color: text, fontSize: 10, fontWeight: 600,
           cursor: generating ? 'wait' : 'pointer',
@@ -1508,11 +1632,11 @@ ${htmlBody}
           .docx
         </button>
         <button type="button" onClick={handleSend} disabled={sending || remainingPlaceholders > 0}
-          title={remainingPlaceholders > 0 ? 'Complete all fields before sending' : 'Generate and email'}
+          title={remainingPlaceholders > 0 ? `Complete ${remainingPlaceholders} field${remainingPlaceholders > 1 ? 's' : ''} before sending` : 'Generate and email'}
           style={{
-            display: 'inline-flex', alignItems: 'center', gap: 5,
-            padding: '4px 14px', borderRadius: 2,
-            background: remainingPlaceholders > 0 ? (isDarkMode ? 'rgba(148,163,184,0.2)' : '#e2e8f0') : accentBlue,
+            display: 'inline-flex', alignItems: 'center', gap: 4,
+            padding: '4px 14px', borderRadius: 3, height: 26,
+            background: remainingPlaceholders > 0 ? (isDarkMode ? 'rgba(148,163,184,0.15)' : '#e2e8f0') : accentBlue,
             color: remainingPlaceholders > 0 ? textMuted : '#fff',
             border: 'none', fontSize: 10, fontWeight: 700,
             textTransform: 'uppercase' as const, letterSpacing: '0.04em',
@@ -1524,75 +1648,152 @@ ${htmlBody}
           Send
         </button>
 
-        <div style={{ width: 1, height: 18, background: cardBorder, margin: '0 4px' }} />
+        <div style={{ width: 1, height: 16, background: cardBorder, margin: '0 2px' }} />
 
-        {/* ─── Integration buttons ─── */}
-        <button type="button" onClick={handleCheckIntegrations}
-          disabled={integrationsLoading}
-          title={integrations ? 'Refresh integration status' : 'Check Clio & NetDocuments availability'}
-          style={{
-            display: 'inline-flex', alignItems: 'center', gap: 4,
-            padding: '4px 10px', borderRadius: 2,
-            background: 'transparent', border: `1px solid ${cardBorder}`,
-            color: integrations ? (integrations.clio.available || integrations.nd.available ? (isDarkMode ? '#4ade80' : '#16a34a') : textMuted) : textMuted,
-            fontSize: 10, fontWeight: 600,
-            cursor: integrationsLoading ? 'wait' : 'pointer',
-            opacity: integrationsLoading ? 0.6 : 1, transition: 'all 0.12s ease',
-          }}
-        >
-          <Icon iconName={integrationsLoading ? 'ProgressRingDots' : 'PlugConnected'} styles={{ root: { fontSize: 10 } }} />
-          {integrations
-            ? `${[integrations.clio.available && 'Clio', integrations.nd.available && 'ND'].filter(Boolean).join(' · ') || 'No integrations'}`
-            : 'Check'}
-        </button>
-
-        {integrations?.clio?.available && (
-          <button type="button" onClick={handleUploadClio} disabled={uploadingClio}
-            title={`Upload to Clio matter: ${integrations.clio.description}`}
+        {/* Upload dropdown — always visible, shows Clio/ND availability */}
+        <div ref={uploadMenuRef} style={{ position: 'relative' }}>
+          <button type="button"
+            onClick={() => setShowUploadMenu(!showUploadMenu)}
+            title="Upload to Clio or NetDocuments"
             style={{
               display: 'inline-flex', alignItems: 'center', gap: 4,
-              padding: '4px 10px', borderRadius: 2,
-              background: 'transparent', border: `1px solid ${cardBorder}`,
-              color: isDarkMode ? '#60a5fa' : '#2563eb', fontSize: 10, fontWeight: 600,
-              cursor: uploadingClio ? 'wait' : 'pointer',
-              opacity: uploadingClio ? 0.6 : 1, transition: 'all 0.12s ease',
+              padding: '4px 10px', borderRadius: 3, height: 26,
+              background: showUploadMenu ? (isDarkMode ? 'rgba(54,144,206,0.15)' : 'rgba(54,144,206,0.1)') : 'transparent',
+              border: `1px solid ${showUploadMenu ? accentBlue : cardBorder}`,
+              color: showUploadMenu ? accentBlue : text, fontSize: 10, fontWeight: 600,
+              cursor: 'pointer', transition: 'all 0.12s ease',
             }}
           >
-            <Icon iconName={uploadingClio ? 'ProgressRingDots' : 'CloudUpload'} styles={{ root: { fontSize: 10 } }} />
-            Clio
+            <Icon iconName="CloudUpload" styles={{ root: { fontSize: 10 } }} />
+            Upload
+            <Icon iconName={showUploadMenu ? 'ChevronUp' : 'ChevronDown'} styles={{ root: { fontSize: 8 } }} />
           </button>
-        )}
 
-        {integrations?.nd?.available && (
-          <button type="button" onClick={handleUploadNd} disabled={uploadingNd}
-            title={`Upload to NetDocuments: ${integrations.nd.workspaceName}`}
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 4,
-              padding: '4px 10px', borderRadius: 2,
-              background: 'transparent', border: `1px solid ${cardBorder}`,
-              color: isDarkMode ? '#60a5fa' : '#2563eb', fontSize: 10, fontWeight: 600,
-              cursor: uploadingNd ? 'wait' : 'pointer',
-              opacity: uploadingNd ? 0.6 : 1, transition: 'all 0.12s ease',
-            }}
-          >
-            <Icon iconName={uploadingNd ? 'ProgressRingDots' : 'CloudUpload'} styles={{ root: { fontSize: 10 } }} />
-            ND
-          </button>
-        )}
+          {showUploadMenu && (
+            <div style={{
+              position: 'absolute', top: '100%', right: 0, marginTop: 4,
+              width: 260,
+              background: isDarkMode ? '#0f172a' : '#ffffff',
+              border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.25)' : 'rgba(148,163,184,0.2)'}`,
+              borderRadius: 4,
+              boxShadow: isDarkMode ? '0 8px 32px rgba(0,0,0,0.5)' : '0 8px 32px rgba(0,0,0,0.12)',
+              zIndex: 100, overflow: 'hidden',
+              animation: 'cclFadeIn 0.1s ease',
+            }}>
+              <div style={{ padding: '8px 12px', borderBottom: `1px solid ${cardBorder}` }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: textMuted, textTransform: 'uppercase' as const, letterSpacing: '0.04em' }}>
+                  Upload document to
+                </div>
+              </div>
 
-        {/* ─── Support report button ─── */}
-        <button type="button" onClick={() => setShowSupportModal(true)}
-          title="Report an issue with this CCL"
+              {/* Clio row */}
+              <button type="button"
+                onClick={() => { setShowUploadMenu(false); setShowClioConfirm(true); }}
+                disabled={!(integrations?.clio?.available || isDemoMatter) || uploadingClio}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+                  padding: '10px 12px', border: 'none', cursor: (integrations?.clio?.available || isDemoMatter) ? 'pointer' : 'default',
+                  background: 'transparent', textAlign: 'left' as const,
+                  opacity: (integrations?.clio?.available || isDemoMatter) ? 1 : 0.5,
+                  transition: 'background 0.1s ease',
+                }}
+                onMouseEnter={(e) => { if (integrations?.clio?.available || isDemoMatter) e.currentTarget.style.background = isDarkMode ? 'rgba(54,144,206,0.08)' : 'rgba(54,144,206,0.04)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+              >
+                <div style={{
+                  width: 28, height: 28, borderRadius: 4, flexShrink: 0,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  background: isDarkMode ? 'rgba(96,165,250,0.1)' : 'rgba(37,99,235,0.06)',
+                  border: `1px solid ${isDarkMode ? 'rgba(96,165,250,0.2)' : 'rgba(37,99,235,0.12)'}`,
+                }}>
+                  <Icon iconName="CloudUpload" styles={{ root: { fontSize: 12, color: isDarkMode ? '#60a5fa' : '#2563eb' } }} />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: text }}>Clio</div>
+                  <div style={{ fontSize: 9, color: textMuted, whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {integrationsLoading ? 'Checking...'
+                      : (integrations?.clio?.available || isDemoMatter) ? `Matter: ${integrations?.clio?.description || 'Admin (demo)'}`
+                      : integrations ? 'No matching matter found' : 'Checking availability...'}
+                  </div>
+                </div>
+                {(integrations?.clio?.available || isDemoMatter) && (
+                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: accentBlue, flexShrink: 0 }} />
+                )}
+              </button>
+
+              {/* ND row */}
+              <button type="button"
+                onClick={() => { setShowUploadMenu(false); handleUploadNd(); }}
+                disabled={!integrations?.nd?.available || uploadingNd}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+                  padding: '10px 12px', border: 'none', cursor: integrations?.nd?.available ? 'pointer' : 'default',
+                  background: 'transparent', textAlign: 'left' as const,
+                  opacity: integrations?.nd?.available ? 1 : 0.5,
+                  transition: 'background 0.1s ease',
+                  borderTop: `1px solid ${cardBorder}`,
+                }}
+                onMouseEnter={(e) => { if (integrations?.nd?.available) e.currentTarget.style.background = isDarkMode ? 'rgba(54,144,206,0.08)' : 'rgba(54,144,206,0.04)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+              >
+                <div style={{
+                  width: 28, height: 28, borderRadius: 4, flexShrink: 0,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  background: isDarkMode ? 'rgba(96,165,250,0.1)' : 'rgba(37,99,235,0.06)',
+                  border: `1px solid ${isDarkMode ? 'rgba(96,165,250,0.2)' : 'rgba(37,99,235,0.12)'}`,
+                }}>
+                  <Icon iconName="CloudUpload" styles={{ root: { fontSize: 12, color: isDarkMode ? '#60a5fa' : '#2563eb' } }} />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: text }}>NetDocuments</div>
+                  <div style={{ fontSize: 9, color: textMuted, whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {integrationsLoading ? 'Checking...'
+                      : integrations?.nd?.available ? `Workspace: ${integrations.nd.workspaceName || matterId}`
+                      : integrations ? 'No matching workspace found' : 'Checking availability...'}
+                  </div>
+                </div>
+                {integrations?.nd?.available && (
+                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: colours.highlight, flexShrink: 0 }} />
+                )}
+              </button>
+
+              {/* Footer note */}
+              <div style={{
+                padding: '6px 12px', borderTop: `1px solid ${cardBorder}`,
+                fontSize: 9, color: textMuted, lineHeight: 1.4,
+                background: isDarkMode ? 'rgba(15,23,42,0.5)' : 'rgba(248,250,252,0.8)',
+              }}>
+                Upload requires a generated .docx. Clio upload is live; NetDocuments coming soon.
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Utility icons — consistent 26×26, muted */}
+        <div style={{ width: 1, height: 16, background: cardBorder, margin: '0 2px' }} />
+        <button type="button" onClick={() => setShowTraceModal(true)} title="AI processing trace"
           style={{
             display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-            width: 28, height: 28, borderRadius: 2,
-            background: 'transparent', border: `1px solid ${cardBorder}`,
-            color: textMuted, cursor: 'pointer', transition: 'all 0.12s ease',
+            width: 26, height: 26, borderRadius: 3,
+            background: 'transparent', border: 'none',
+            color: textMuted, cursor: 'pointer', transition: 'color 0.12s ease',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = accentBlue; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = textMuted; }}
+        >
+          <Icon iconName="TestBeaker" styles={{ root: { fontSize: 12 } }} />
+        </button>
+        <button type="button" onClick={() => setShowSupportModal(true)} title="Report an issue"
+          style={{
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            width: 26, height: 26, borderRadius: 3,
+            background: 'transparent', border: 'none',
+            color: textMuted, cursor: 'pointer', transition: 'color 0.12s ease',
           }}
           onMouseEnter={(e) => { e.currentTarget.style.color = isDarkMode ? '#f87171' : '#dc2626'; }}
           onMouseLeave={(e) => { e.currentTarget.style.color = textMuted; }}
         >
-          <Icon iconName="Bug" styles={{ root: { fontSize: 11 } }} />
+          <Icon iconName="Feedback" styles={{ root: { fontSize: 12 } }} />
         </button>
       </div>
 
@@ -1653,7 +1854,7 @@ ${htmlBody}
         {/* ═══ A4 Paper — full width when sidebar closed ═══ */}
         <div style={{
           flex: 1, overflow: 'auto',
-          background: isDarkMode ? '#1e293b' : '#e2e8f0',
+          background: paperAreaBg,
           padding: '24px 20px 24px 24px',
           display: 'flex', justifyContent: 'center',
           transition: 'all 0.2s ease',
@@ -1662,10 +1863,10 @@ ${htmlBody}
             width: 794,
             minHeight: 1123,
             flexShrink: 0,
-            background: isDarkMode ? '#0f172a' : '#ffffff',
+            background: paperBg,
             boxShadow: isDarkMode
-              ? '0 4px 24px rgba(0,0,0,0.4), 0 0 0 1px rgba(54,144,206,0.15)'
-              : '0 2px 16px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.04)',
+              ? `0 8px 32px rgba(0,0,0,0.45), 0 0 0 1px ${paperOutline}`
+              : `0 3px 18px rgba(0,0,0,0.12), 0 0 0 1px ${paperOutline}`,
             padding: '56px 64px 48px 64px',
             fontFamily: "'Raleway', Arial, Helvetica, sans-serif",
             fontSize: 13, lineHeight: 1.7,
@@ -1677,7 +1878,7 @@ ${htmlBody}
             <div style={{
               display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
               marginBottom: 28, paddingBottom: 16,
-              borderBottom: `1.5px solid ${isDarkMode ? 'rgba(13,47,96,0.5)' : '#0D2F60'}`,
+              borderBottom: `1.5px solid ${isDarkMode ? 'rgba(54,144,206,0.4)' : '#0D2F60'}`,
             }}>
               <div>
                 <img src={HELIX_LOGO} alt="Helix Law" style={{ width: 170, height: 'auto', display: 'block' }} />
@@ -1714,7 +1915,7 @@ ${htmlBody}
               </div>
             </div>
 
-            {/* Letter body — always review mode (collapsible sections) */}
+            {/* Letter body — clean document surface for Preview/Edit modes */}
             <div>
               {parsedSections.map(section => {
                 // The intro section contains "Dear {{name}}", "{{heading}}", and "Thank you..."
@@ -1724,60 +1925,19 @@ ${htmlBody}
                   const remaining = section.elements.slice(2);
                   return remaining.length > 0 ? <div key="intro">{remaining}</div> : null;
                 }
-                const isCollapsed = collapsedSections.has(section.number);
                 return (
-                  <div key={section.id} ref={el => { sectionRefs.current[section.number] = el; }} style={{ marginBottom: isCollapsed ? 2 : 8 }}>
-                    <div onClick={() => toggleSection(section.number)} style={{
-                      display: 'flex', alignItems: 'center', gap: 8,
-                      padding: isCollapsed ? '5px 0' : '0',
+                  <div key={section.id} ref={el => { sectionRefs.current[section.number] = el; }} style={{ marginBottom: 10 }}>
+                    <div style={{
                       marginTop: section.isSubsection ? 8 : 16,
-                      marginBottom: isCollapsed ? 0 : 4,
-                      cursor: 'pointer', userSelect: 'none' as const, transition: 'all 0.12s ease',
-                    }}
-                      onMouseEnter={e => {
-                        (e.currentTarget.querySelector('.chev') as HTMLElement)?.style && ((e.currentTarget.querySelector('.chev') as HTMLElement).style.opacity = '1');
-                        const editBtn = e.currentTarget.querySelector('.section-edit') as HTMLElement;
-                        if (editBtn) editBtn.style.opacity = '1';
-                      }}
-                      onMouseLeave={e => {
-                        (e.currentTarget.querySelector('.chev') as HTMLElement)?.style && ((e.currentTarget.querySelector('.chev') as HTMLElement).style.opacity = '0.5');
-                        const editBtn = e.currentTarget.querySelector('.section-edit') as HTMLElement;
-                        if (editBtn) editBtn.style.opacity = '0';
-                      }}
-                    >
-                      <Icon className="chev" iconName={isCollapsed ? 'ChevronRight' : 'ChevronDown'} styles={{ root: { fontSize: 9, color: textMuted, opacity: 0.5, transition: 'all 0.12s ease', flexShrink: 0 } }} />
-                      <span style={{
-                        fontSize: section.isSubsection ? 13 : 14, fontWeight: 700,
-                        color: isCollapsed ? textMuted : headingColor, letterSpacing: '0.01em', flex: 1,
-                      }}>
-                        {section.number}&ensp;{section.title}
-                      </span>
-                      {isCollapsed && <span style={{ fontSize: 9, color: isDarkMode ? '#475569' : '#94a3b8', fontWeight: 500, fontStyle: 'italic' }}>Standard clause</span>}
-                      <span
-                        className="section-edit"
-                        onClick={e => {
-                          e.stopPropagation();
-                          setSidebarOpen(true);
-                          setSidebarTab('fields');
-                          // Map template section number to CCL section and scroll sidebar
-                          const sectionMap: Record<string, string> = { '1': 'client', '2': 'scope', '3': 'scope', '4': 'costs', '4.1': 'costs', '4.2': 'costs', '4.3': 'costs', '6': 'costs', '18': 'actions' };
-                          const cclSectionId = sectionMap[section.number] || 'client';
-                          setTimeout(() => {
-                            const el = document.getElementById(`ccl-sidebar-section-${cclSectionId}`);
-                            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                          }, 120);
-                        }}
-                        title="Edit section fields"
-                        style={{
-                          opacity: 0, transition: 'opacity 0.12s ease', cursor: 'pointer',
-                          display: 'inline-flex', alignItems: 'center', padding: '2px 4px', borderRadius: 2,
-                          color: accentBlue, fontSize: 9,
-                        }}
-                      >
-                        <Icon iconName="Edit" styles={{ root: { fontSize: 9 } }} />
-                      </span>
+                      marginBottom: 4,
+                      fontSize: section.isSubsection ? 13 : 14,
+                      fontWeight: 700,
+                      color: headingColor,
+                      letterSpacing: '0.01em',
+                    }}>
+                      {section.number}&ensp;{section.title}
                     </div>
-                    {!isCollapsed && <div style={{ paddingLeft: section.isSubsection ? 28 : 20, marginTop: 2 }}>{section.elements}</div>}
+                    <div style={{ paddingLeft: section.isSubsection ? 28 : 20, marginTop: 2 }}>{section.elements}</div>
                   </div>
                 );
               })}
@@ -1801,7 +1961,7 @@ ${htmlBody}
           <div style={{
             width: 320, flexShrink: 0,
             display: 'flex', flexDirection: 'column',
-            background: isDarkMode ? '#0f172a' : '#ffffff',
+            background: isDarkMode ? '#071a36' : '#f0f4f9',
             borderLeft: `1px solid ${cardBorder}`,
             overflow: 'hidden',
             animation: 'cclFadeIn 0.15s ease',
@@ -1867,7 +2027,7 @@ ${htmlBody}
                     return (
                       <div key={section.id} style={{ marginBottom: 4 }}>
                         {/* Section header */}
-                        <div id={`ccl-sidebar-section-${section.id}`} style={{
+                        <div data-ccl-sidebar-section={section.id} style={{
                           display: 'flex', alignItems: 'center', gap: 6,
                           padding: '7px 14px 5px',
                           background: isDarkMode ? 'rgba(54,144,206,0.04)' : 'rgba(54,144,206,0.02)',
@@ -1878,7 +2038,7 @@ ${htmlBody}
                           <span style={{ fontSize: 9, fontWeight: 700, color: headingColor, textTransform: 'uppercase' as const, letterSpacing: '0.05em', flex: 1 }}>
                             {section.title}
                           </span>
-                          <span style={{ fontSize: 8, color: filledCount === sectionFields.length ? (isDarkMode ? '#4ade80' : '#16a34a') : textMuted, fontWeight: 600 }}>
+                          <span style={{ fontSize: 8, color: filledCount === sectionFields.length ? colours.highlight : textMuted, fontWeight: 600 }}>
                             {filledCount}/{sectionFields.length}
                           </span>
                         </div>
@@ -1928,7 +2088,7 @@ ${htmlBody}
                                 </label>
                                 {f.type === 'textarea' ? (
                                   <textarea
-                                    id={`ccl-qf-${f.key}`}
+                                    data-ccl-qf={f.key}
                                     value={fields[f.key] || ''}
                                     onChange={e => {
                                       updateField?.(f.key, e.target.value);
@@ -1956,7 +2116,7 @@ ${htmlBody}
                                   />
                                 ) : (
                                   <input
-                                    id={`ccl-qf-${f.key}`}
+                                    data-ccl-qf={f.key}
                                     type="text"
                                     value={fields[f.key] || ''}
                                     onChange={e => updateField?.(f.key, e.target.value)}
@@ -2105,7 +2265,7 @@ ${htmlBody}
           borderRadius: 2,
           fontSize: 11, fontWeight: 600,
           color: status.type === 'success'
-            ? (isDarkMode ? '#4ade80' : '#16a34a')
+            ? colours.highlight
             : (isDarkMode ? '#f0a090' : colours.cta),
         }}>
           <Icon iconName={status.type === 'success' ? 'CheckMark' : 'ErrorBadge'} styles={{ root: { fontSize: 12 } }} />
@@ -2113,14 +2273,128 @@ ${htmlBody}
         </div>
       )}
 
+      {/* ═══ Clio Upload Confirmation Modal ═══ */}
+      {showClioConfirm && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 1000,
+          display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+          paddingTop: 80,
+          background: isDarkMode ? 'rgba(0,0,0,0.7)' : 'rgba(0,0,0,0.45)',
+          backdropFilter: 'blur(3px)',
+          animation: 'cclFadeIn 0.15s ease',
+        }} onClick={() => { if (!uploadingClio) setShowClioConfirm(false); }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            width: 420, maxWidth: '90vw',
+            background: isDarkMode ? '#0f172a' : '#ffffff',
+            border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.25)' : 'rgba(148,163,184,0.2)'}`,
+            borderRadius: 6,
+            boxShadow: isDarkMode ? '0 12px 40px rgba(0,0,0,0.6)' : '0 12px 40px rgba(0,0,0,0.15)',
+            overflow: 'hidden',
+          }}>
+            {/* Header */}
+            <div style={{
+              padding: '16px 20px 12px', borderBottom: `1px solid ${cardBorder}`,
+              display: 'flex', alignItems: 'center', gap: 10,
+            }}>
+              <div style={{
+                width: 32, height: 32, borderRadius: 6, flexShrink: 0,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                background: isDarkMode ? 'rgba(54,144,206,0.1)' : 'rgba(54,144,206,0.06)',
+                border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.2)' : 'rgba(54,144,206,0.12)'}`,
+              }}>
+                <Icon iconName="CloudUpload" styles={{ root: { fontSize: 14, color: accentBlue } }} />
+              </div>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: text }}>Upload to Clio</div>
+                <div style={{ fontSize: 10, color: textMuted }}>Confirm document upload</div>
+              </div>
+            </div>
+
+            {/* Body */}
+            <div style={{ padding: '16px 20px' }}>
+              <div style={{ fontSize: 11, color: text, lineHeight: 1.6, marginBottom: 16 }}>
+                This will upload the generated Client Care Letter to the Clio matter as a document.
+              </div>
+
+              <div style={{
+                padding: '10px 14px', borderRadius: 4,
+                background: isDarkMode ? 'rgba(54,144,206,0.06)' : 'rgba(54,144,206,0.03)',
+                border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.15)' : 'rgba(54,144,206,0.08)'}`,
+                marginBottom: 16,
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <span style={{ fontSize: 10, color: textMuted, fontWeight: 600 }}>Document</span>
+                  <span style={{ fontSize: 10, color: text }}>CCL-{matter.displayNumber || 'draft'}.docx</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <span style={{ fontSize: 10, color: textMuted, fontWeight: 600 }}>Matter</span>
+                  <span style={{ fontSize: 10, color: text }}>{integrations?.clio?.description || (isDemoMatter ? 'Admin (demo)' : matter.displayNumber || matterId)}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: 10, color: textMuted, fontWeight: 600 }}>Clio ID</span>
+                  <span style={{ fontSize: 10, color: text }}>{integrations?.clio?.matterId || (isDemoMatter ? '3311402' : '—')}</span>
+                </div>
+              </div>
+
+              {uploadingClio && (
+                <div style={{ fontSize: 10, color: accentBlue, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Spinner size={SpinnerSize.xSmall} />
+                  Uploading to Clio...
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div style={{
+              padding: '12px 20px', borderTop: `1px solid ${cardBorder}`,
+              display: 'flex', justifyContent: 'flex-end', gap: 8,
+              background: isDarkMode ? 'rgba(15,23,42,0.5)' : 'rgba(248,250,252,0.8)',
+            }}>
+              <button type="button"
+                disabled={uploadingClio}
+                onClick={() => setShowClioConfirm(false)}
+                style={{
+                  padding: '6px 16px', borderRadius: 3, height: 28,
+                  background: 'transparent', border: `1px solid ${cardBorder}`,
+                  color: textMuted, fontSize: 11, fontWeight: 600,
+                  cursor: uploadingClio ? 'not-allowed' : 'pointer',
+                  opacity: uploadingClio ? 0.5 : 1,
+                }}
+              >
+                Cancel
+              </button>
+              <button type="button"
+                disabled={uploadingClio || !(integrations?.clio?.available || isDemoMatter)}
+                onClick={async () => {
+                  await handleUploadClio();
+                  setShowClioConfirm(false);
+                }}
+                style={{
+                  padding: '6px 16px', borderRadius: 3, height: 28,
+                  background: uploadingClio ? (isDarkMode ? 'rgba(54,144,206,0.2)' : 'rgba(54,144,206,0.1)') : accentBlue,
+                  border: 'none',
+                  color: '#ffffff', fontSize: 11, fontWeight: 600,
+                  cursor: (uploadingClio || !(integrations?.clio?.available || isDemoMatter)) ? 'not-allowed' : 'pointer',
+                  opacity: (uploadingClio || !(integrations?.clio?.available || isDemoMatter)) ? 0.6 : 1,
+                }}
+              >
+                {uploadingClio ? 'Uploading...' : 'Upload to Clio'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ═══ AI Trace Modal ═══ */}
       {showTraceModal && (
         <div style={{
           position: 'fixed', inset: 0, zIndex: 1000,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+          paddingTop: 40,
           background: isDarkMode ? 'rgba(0,0,0,0.7)' : 'rgba(0,0,0,0.45)',
           backdropFilter: 'blur(3px)',
           animation: 'cclFadeIn 0.15s ease',
+          overflowY: 'auto',
         }} onClick={() => setShowTraceModal(false)}>
           <div onClick={e => e.stopPropagation()} style={{
             width: '92%', maxWidth: 900, maxHeight: '90vh',
@@ -2150,7 +2424,7 @@ ${htmlBody}
                       ? (isDarkMode ? 'rgba(214,85,65,0.12)' : 'rgba(214,85,65,0.08)')
                       : (isDarkMode ? 'rgba(148,163,184,0.12)' : 'rgba(148,163,184,0.08)'),
                 color: aiStatus === 'complete'
-                  ? (isDarkMode ? '#4ade80' : '#16a34a')
+                  ? colours.highlight
                   : aiStatus === 'partial'
                     ? (isDarkMode ? '#facc15' : '#ca8a04')
                     : aiStatus === 'error'
@@ -2239,7 +2513,7 @@ ${htmlBody}
                               : step.status === 'loading' ? (isDarkMode ? 'rgba(54,144,206,0.15)' : 'rgba(54,144,206,0.1)')
                               : (isDarkMode ? 'rgba(148,163,184,0.08)' : 'rgba(148,163,184,0.05)'),
                             border: `1.5px solid ${
-                              step.status === 'done' ? (isDarkMode ? '#4ade80' : '#16a34a')
+                              step.status === 'done' ? colours.highlight
                               : step.status === 'partial' ? (isDarkMode ? '#facc15' : '#ca8a04')
                               : step.status === 'error' ? (isDarkMode ? '#f0a090' : colours.cta)
                               : step.status === 'loading' ? accentBlue
@@ -2249,7 +2523,7 @@ ${htmlBody}
                           }}>
                             <Icon iconName={step.icon} styles={{ root: {
                               fontSize: 12,
-                              color: step.status === 'done' ? (isDarkMode ? '#4ade80' : '#16a34a')
+                              color: step.status === 'done' ? colours.highlight
                                 : step.status === 'partial' ? (isDarkMode ? '#facc15' : '#ca8a04')
                                 : step.status === 'error' ? (isDarkMode ? '#f0a090' : colours.cta)
                                 : step.status === 'loading' ? accentBlue
@@ -2479,7 +2753,7 @@ ${htmlBody}
                 {/* Legend */}
                 <div style={{ fontSize: 9, color: textMuted, marginBottom: 10, display: 'flex', gap: 14, flexWrap: 'wrap' as const }}>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                    <span style={{ width: 8, height: 8, borderRadius: 2, background: isDarkMode ? '#4ade80' : '#16a34a' }} /> AI-generated
+                    <span style={{ width: 8, height: 8, borderRadius: 2, background: colours.highlight }} /> AI-generated
                   </span>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                     <span style={{ width: 8, height: 8, borderRadius: 2, background: accentBlue }} /> Auto-filled
@@ -2506,14 +2780,14 @@ ${htmlBody}
                         <span style={{ fontSize: 10, fontWeight: 700, color: text, flex: 1 }}>{section.title}</span>
                         <span style={{ fontSize: 8, color: textMuted }}>
                           {filledCount}/{sectionFields.length} filled
-                          {aiCount > 0 && <span style={{ color: isDarkMode ? '#4ade80' : '#16a34a', marginLeft: 6 }}>{aiCount} AI</span>}
+                          {aiCount > 0 && <span style={{ color: colours.highlight, marginLeft: 6 }}>{aiCount} AI</span>}
                           {autoCount > 0 && <span style={{ color: accentBlue, marginLeft: 6 }}>{autoCount} auto</span>}
                         </span>
                       </div>
                       <div style={{ borderRadius: '0 0 4px 4px', overflow: 'hidden', border: `1px solid ${cardBorder}` }}>
                         {sectionFields.map((key, i) => {
                           const prov = fieldProvenance[key] || 'empty';
-                          const provColor = prov === 'ai' ? (isDarkMode ? '#4ade80' : '#16a34a')
+                          const provColor = prov === 'ai' ? colours.highlight
                             : prov === 'auto-fill' ? accentBlue
                             : (isDarkMode ? '#475569' : '#cbd5e1');
                           const valStr = (fields[key] || '').trim();
@@ -2576,7 +2850,7 @@ ${htmlBody}
                       <div style={{ borderRadius: '0 0 4px 4px', overflow: 'hidden', border: `1px solid ${cardBorder}` }}>
                         {unmapped.map((key, i) => {
                           const prov = fieldProvenance[key] || 'empty';
-                          const provColor = prov === 'ai' ? (isDarkMode ? '#4ade80' : '#16a34a') : prov === 'auto-fill' ? accentBlue : (isDarkMode ? '#475569' : '#cbd5e1');
+                          const provColor = prov === 'ai' ? colours.highlight : prov === 'auto-fill' ? accentBlue : (isDarkMode ? '#475569' : '#cbd5e1');
                           return (
                             <div key={key} style={{
                               display: 'flex', alignItems: 'flex-start', gap: 8, padding: '5px 12px',
@@ -2619,10 +2893,12 @@ ${htmlBody}
           return (
             <div style={{
               position: 'fixed', inset: 0, zIndex: 1001,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+              paddingTop: 40,
               background: isDarkMode ? 'rgba(0,0,0,0.7)' : 'rgba(0,0,0,0.45)',
               backdropFilter: 'blur(3px)',
               animation: 'cclFadeIn 0.15s ease',
+              overflowY: 'auto',
             }} onClick={() => setShowSupportModal(false)}>
               <div onClick={e => e.stopPropagation()} style={{
                 width: '92%', maxWidth: 520,
@@ -2772,6 +3048,17 @@ ${htmlBody}
         };
         return <SupportForm />;
       })()}
+
+      {/* ═══ CCL Ops Panel (admin only) ═══ */}
+      {isOpsAdmin && showOpsPanel && (
+        <CclOpsPanel
+          matterId={matter.matterId || matter.displayNumber || ''}
+          isDarkMode={isDarkMode}
+          onClose={() => setShowOpsPanel(false)}
+          userInitials={userInitials}
+          instructionRef={matter.instructionRef || matter.displayNumber || ''}
+        />
+      )}
     </div>
   );
 };

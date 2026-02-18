@@ -48,9 +48,9 @@ const QuestionCard: React.FC<QuestionCardProps> = ({
         } else if (labelLower.includes('transaction risk')) {
             return 'https://drive.google.com/file/d/1sTRII8MFU3JLpMiUcz-Y6KBQ1pP1nKgT/view?usp=sharing';
         } else if (labelLower.includes('sanctions')) {
-            return 'https://drive.google.com/file/d/1Wx-dHdfXuN0-A2YmBYb-OO-Bz2wXevl9/view?usp=sharing';
+            return 'https://drive.google.com/file/d/1y7fTLI_Dody00y9v42ohltQU-hnnYJ9P/view?usp=sharing';
         } else if (labelLower.includes('aml policy')) {
-            return 'https://drive.google.com/file/d/1TcBlV0Pf0lYlNkmdOGRfpx--DcTEC7na/view?usp=sharing';
+            return 'https://drive.google.com/file/d/1opiC3TbEsdEH4ExDjckIhQzzsI3_wYYB/view?usp=sharing';
         }
         return '#';
     };

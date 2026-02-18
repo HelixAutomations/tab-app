@@ -104,6 +104,31 @@ router.get('/details/:instructionRef', async (req, res) => {
 
 router.get('/:id', async (req, res) => {
     const { id } = req.params;
+
+    // Demo matter — return synthetic data instead of hitting Clio
+    if (id === 'DEMO-3311402' || id === '3311402') {
+        return res.json({
+            ok: true,
+            matterId: '3311402',
+            display_number: 'HELIX01-01',
+            displayNumber: 'HELIX01-01',
+            number: 'HELIX01-01',
+            data: {
+                id: 3311402,
+                display_number: 'HELIX01-01',
+                number: 'HELIX01-01',
+                description: 'Admin',
+                status: 'Open',
+                open_date: new Date().toISOString().split('T')[0],
+                client: { id: 5257922, name: 'Helix administration' },
+                responsible_attorney: { name: 'Luke Watson' },
+                originating_attorney: { name: 'Luke Watson' },
+                supervising_attorney: { name: 'Luke Watson' },
+                practice_area: { name: 'Commercial' },
+            },
+        });
+    }
+
     try {
         const initials = (process.env.CLIO_USER_INITIALS || 'lz').toLowerCase();
         const cid = await getSecret(`${initials}-clio-v1-clientid`);

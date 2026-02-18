@@ -54,6 +54,7 @@ import ThemedSpinner from '../../components/ThemedSpinner';
 import { ModalSkeleton } from '../../components/ModalSkeleton';
 import { getProxyBaseUrl } from '../../utils/getProxyBaseUrl';
 import OperationStatusToast from '../enquiries/pitch-builder/OperationStatusToast';
+import ReleaseNotesModal from '../../components/ReleaseNotesModal';
 
 import FormCard from '../forms/FormCard';
 import ResourceCard from '../resources/ResourceCard';
@@ -336,7 +337,7 @@ const quickActions: QuickLink[] = [
 // Subtle Helix watermark (three rounded ribbons) as inline SVG, Teams-like subtlety
 const helixWatermarkSvg = (dark: boolean) => {
   const fill = dark ? '%23FFFFFF' : '%23061733';
-  const opacity = dark ? '0.06' : '0.035';
+  const opacity = dark ? '0.08' : '0.035';
   const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='900' height='900' viewBox='0 0 900 900'>
     <g transform='rotate(-12 450 450)'>
       <path d='M160 242 C160 226 176 210 200 210 L560 210 Q640 235 560 274 L200 274 C176 274 160 258 160 242 Z' fill='${fill}' fill-opacity='${opacity}'/>
@@ -351,16 +352,16 @@ const containerStyle = (isDarkMode: boolean) =>
   mergeStyles({
     // Operations dashboard aesthetic: deep dark backgrounds with subtle brand gradients
     background: isDarkMode
-      ? '#0a0e1a'
+      ? colours.websiteBlue
       : '#f8fafc',
     backgroundImage: isDarkMode
-      ? 'radial-gradient(ellipse at top, rgba(13, 47, 96, 0.15) 0%, transparent 50%), radial-gradient(ellipse at bottom right, rgba(54, 144, 206, 0.08) 0%, transparent 50%)'
+      ? 'radial-gradient(ellipse at top, rgba(13, 47, 96, 0.18) 0%, transparent 45%), radial-gradient(ellipse at bottom right, rgba(54, 144, 206, 0.08) 0%, transparent 45%)'
       : 'radial-gradient(ellipse at top, rgba(54, 144, 206, 0.06) 0%, transparent 50%), radial-gradient(ellipse at bottom right, rgba(135, 243, 243, 0.04) 0%, transparent 50%)',
     backgroundAttachment: 'fixed',
     color: isDarkMode ? '#f1f5f9' : '#1e293b',
-    minHeight: '100vh',
     boxSizing: 'border-box',
     position: 'relative',
+    overflowX: 'hidden',
     '&::before': {
       content: '""',
       position: 'fixed',
@@ -461,6 +462,10 @@ const peopleGridStyle = mergeStyles({
   gap: '16px',
   alignItems: 'center',
   width: '100%',
+  '@media (max-width: 600px)': {
+    paddingLeft: '0',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(90px, 1fr))',
+  },
 });
 
 const sectionContainerStyle = (isDarkMode: boolean) =>
@@ -773,6 +778,7 @@ const CognitoForm: React.FC<{ dataKey: string; dataForm: string }> = ({ dataKey,
 
 const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: providedMatters, instructionData: propInstructionData, onAllMattersFetched, onOutstandingBalancesFetched, onPOID6YearsFetched, onTransactionsFetched, teamData, onBoardroomBookingsFetched, onSoundproofBookingsFetched, isInMatterOpeningWorkflow = false, onImmediateActionsChange, originalAdminUser, featureToggles = {}, demoModeEnabled = false, isSwitchingUser = false }) => {
   const { isDarkMode, toggleTheme } = useTheme();
+  const [showReleaseNotes, setShowReleaseNotes] = useState(false);
   const { setContent } = useNavigatorActions();
   const inTeams = isInTeams();
   const useLocalData =
@@ -4447,6 +4453,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         userDisplayName={currentUserName}
         userIdentifier={currentUserEmail}
         onToggleTheme={toggleTheme}
+        onOpenReleaseNotes={['LZ', 'AC'].includes(userInitials.toUpperCase()) || checkIsLocalDev() ? () => setShowReleaseNotes(true) : undefined}
         loading={!quickActionsReady}
       />
     );
@@ -4606,7 +4613,6 @@ const conversionRate = displayEnquiriesMonthToDate
       )}
 
       {/* Modern Time Metrics V2 - directly on page background */}
-      <div style={{ paddingTop: '16px' }}>
         <TimeMetricsV2 
           metrics={displayTimeMetrics}
           enquiryMetrics={[
@@ -4636,10 +4642,9 @@ const conversionRate = displayEnquiriesMonthToDate
         isLoadingEnquiryMetrics={isLoadingEnquiryMetrics}
         viewAsProd={featureToggles.viewAsProd}
       />
-      </div>
 
       {/* Attendance placed outside dashboard container, directly below TimeMetricsV2 */}
-      {!isBespokePanelOpen && (
+      {!isBespokePanelOpen && featureToggles.showAttendance && (
         <div style={{ margin: '12px 16px 0 16px' }}>
           <SectionCard 
             title="Attendance" 
@@ -4692,19 +4697,7 @@ const conversionRate = displayEnquiriesMonthToDate
         </div>
       )}
 
-      {/* Separator after the top sections */}
-      <div 
-        style={{
-          height: '1px',
-          background: isDarkMode 
-            ? 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.1) 50%, transparent 100%)'
-            : 'linear-gradient(90deg, transparent 0%, rgba(0,0,0,0.1) 50%, transparent 100%)',
-          margin: '12px 16px',
-        }}
-      />
-
-
-  {/* Contexts Panel */}
+      {/* Contexts Panel */}
       <BespokePanel
         isOpen={isContextPanelOpen}
         onClose={() => {
@@ -4841,6 +4834,12 @@ const conversionRate = displayEnquiriesMonthToDate
       />
 
   {/* Removed version and info button per request */}
+
+      <ReleaseNotesModal
+        isOpen={showReleaseNotes}
+        onClose={() => setShowReleaseNotes(false)}
+        isDarkMode={isDarkMode}
+      />
     </div>
   );
 };

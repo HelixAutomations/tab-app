@@ -23,28 +23,31 @@ import { checkIsLocalDev } from '../../utils/useIsLocalDev';
 // Debugger removed: MatterApiDebugger was deleted
 
 // Synthetic demo matter — shared between list injection and pending-matter auto-select
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const DEMO_MATTER_CLIO_ID = '3311402'; // Real Clio matter ID for upload demo
+
 const DEMO_MATTER: NormalizedMatter = {
-  matterId: 'DEMO-MATTER-001',
-  matterName: 'Test Client \u2014 Business Contract Dispute',
-  displayNumber: 'HLX-DEMO-00001',
-  instructionRef: 'HLX-DEMO-00001',
+  matterId: 'DEMO-3311402',
+  matterName: 'Helix administration \u2014 Admin',
+  displayNumber: 'HELIX01-01',
+  instructionRef: 'HELIX01-01',
   openDate: new Date().toISOString().split('T')[0],
   closeDate: null,
   status: 'active',
   originalStatus: 'Active',
-  clientId: 'DEMO-CLIENT-001',
-  clientName: 'Test Client',
-  clientPhone: '07700 900123',
-  clientEmail: 'test.client@example.com',
-  description: 'Business Contract Dispute \u2014 Demo Matter',
+  clientId: '5257922',
+  clientName: 'Helix administration',
+  clientPhone: '0345 314 2044',
+  clientEmail: 'info@helix-law.com',
+  description: 'Admin',
   practiceArea: 'Commercial',
-  source: 'Search',
+  source: 'Demo',
   responsibleSolicitor: 'Luke',
   originatingSolicitor: 'Luke',
   supervisingPartner: 'Luke',
-  opponent: 'Acme Industries Ltd',
+  opponent: '',
   role: 'responsible',
-  dataSource: 'legacy_user',
+  dataSource: 'vnet_direct',
 };
 
 interface MattersProps {
@@ -280,7 +283,7 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
           : ['legacy_all', 'legacy_user']
     );
     if (allowedSources.size > 0) {
-      result = result.filter((m) => allowedSources.has(m.dataSource));
+      result = result.filter((m) => m.matterId === DEMO_MATTER.matterId || m.displayNumber === DEMO_MATTER.displayNumber || allowedSources.has(m.dataSource));
     } else {
       // If no sources selected, show nothing
       result = [];
@@ -612,7 +615,6 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
 
       setContent(
         <FilterBanner
-          seamless
           dense
           collapsibleSearch
           primaryFilter={(

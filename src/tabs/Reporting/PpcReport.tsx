@@ -19,6 +19,7 @@ import { initializeIcons } from '@fluentui/react/lib/Icons';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';
 import { debugLog, debugWarn } from '../../utils/debug';
+import { reportingPanelBackground, reportingPanelBorder, reportingPanelShadow, reportingShellBackground } from './styles/reportingFoundation';
 import './ManagementDashboard.css';
 
 // Ensure Fluent UI icons are available (fixes warnings for 'target', 'trendingup', etc.)
@@ -1034,17 +1035,65 @@ const PpcReport: React.FC<PpcReportProps> = ({
   const activePresetKey = rangeKey !== 'custom' ? rangeKey : null;
   const formattedFromLabel = formatDateTag(rangeStart);
   const formattedToLabel = formatDateTag(rangeEnd);
+  const rangeSummaryLabel = rangeKey === 'all' ? 'All time' : `${formattedFromLabel} → ${formattedToLabel}`;
 
   const dashboardThemeClass = isDarkMode ? 'dark-theme' : 'light-theme';
 
   return (
     <div style={{ 
       padding: 0, 
-      background: 'transparent',
+      background: reportingShellBackground(isDarkMode),
       minHeight: '100vh'
     }}>
+      <div style={{
+        marginBottom: 16,
+        borderRadius: 12,
+        padding: '12px 14px',
+        background: reportingPanelBackground(isDarkMode, 'base'),
+        border: `1px solid ${reportingPanelBorder(isDarkMode)}`,
+        boxShadow: reportingPanelShadow(isDarkMode),
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        gap: 12,
+        flexWrap: 'wrap',
+      }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', opacity: 0.68, letterSpacing: 0.35 }}>
+            PPC Report
+          </span>
+          <span style={{ fontSize: 13, opacity: 0.85 }}>
+            Paid acquisition spend, conversion, and income performance
+          </span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span style={{
+            padding: '4px 10px',
+            borderRadius: 999,
+            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.28)' : 'rgba(13, 47, 96, 0.14)'}`,
+            background: isDarkMode ? 'rgba(15, 23, 42, 0.75)' : 'rgba(255, 255, 255, 0.92)',
+            fontSize: 11,
+            fontWeight: 600,
+            opacity: 0.9,
+          }}>
+            Range: {rangeSummaryLabel}
+          </span>
+          <span style={{
+            padding: '4px 10px',
+            borderRadius: 999,
+            border: `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.4)' : 'rgba(16, 185, 129, 0.3)'}`,
+            background: isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(16, 185, 129, 0.08)',
+            fontSize: 11,
+            fontWeight: 600,
+            color: isDarkMode ? '#86efac' : colours.green,
+          }}>
+            Sync {lastSyncLabel}
+          </span>
+        </div>
+      </div>
+
       {/* Data Source System Stamp + Params - positioned above date ranges */}
-      <div style={{ marginBottom: 24 }}>
+      <div style={{ marginBottom: 20 }}>
         <div style={{
           padding: 8,
           borderRadius: 8,

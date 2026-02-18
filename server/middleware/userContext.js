@@ -114,10 +114,10 @@ async function getUserByEmailOrInitials(email, initials) {
 async function userContextMiddleware(req, res, next) {
   const startTime = Date.now();
   
-  // Extract user identifiers from query/body
-  const entraId = req.query.entraId || req.body?.entraId;
-  const email = req.query.email || req.body?.email;
-  const initials = req.query.initials || req.body?.initials;
+  // Extract user identifiers from query/body/headers
+  const entraId = req.query.entraId || req.body?.entraId || req.headers?.['x-helix-entra-id'];
+  const email = req.query.email || req.body?.email || req.headers?.['x-user-email'] || req.headers?.['x-ms-client-principal-name'];
+  const initials = req.query.initials || req.body?.initials || req.headers?.['x-helix-initials'];
 
   // Try to get user details
   let user = null;

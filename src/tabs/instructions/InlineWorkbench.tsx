@@ -612,11 +612,11 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
       return { color: '#eab308', label: '' }; // Yellow for < 1 year
     }
     
-    // Gradient from yellow (1 year) to green (3 years)
+    // Gradient from yellow (1 year) to blue (3 years)
     const ratio = Math.min(diffDays / maxDays, 1);
-    if (ratio >= 0.9) return { color: '#22c55e', label: '' }; // Full green
-    if (ratio >= 0.66) return { color: '#84cc16', label: '' }; // Lime
-    return { color: '#a3e635', label: '' }; // Light green
+    if (ratio >= 0.9) return { color: colours.highlight, label: '' }; // Full blue
+    if (ratio >= 0.66) return { color: colours.blue, label: '' }; // Mid blue
+    return { color: colours.missedBlue, label: '' }; // Deep blue
   };
   
   // Address
@@ -1252,9 +1252,9 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
   const getStatusColors = React.useCallback((status: StageStatus) => {
     if (status === 'complete') return { 
-      bg: isDarkMode ? 'rgba(34, 197, 94, 0.12)' : 'rgba(34, 197, 94, 0.08)',
-      border: '#22c55e',
-      text: '#22c55e'
+      bg: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
+      border: colours.highlight,
+      text: colours.highlight
     };
     if (status === 'review') return {
       bg: isDarkMode ? 'rgba(239, 68, 68, 0.12)' : 'rgba(239, 68, 68, 0.08)',
@@ -1458,10 +1458,10 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   // Palette helper for tab/timeline statuses
   const getStagePalette = (stage: (typeof timelineStages)[number]) => {
     if (stage.status === 'complete') return { 
-      bg: isDarkMode ? 'rgba(34, 197, 94, 0.15)' : 'rgba(34, 197, 94, 0.1)',
-      border: isDarkMode ? 'rgba(34, 197, 94, 0.4)' : 'rgba(34, 197, 94, 0.35)',
-      text: '#22c55e',
-      line: '#22c55e',
+      bg: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)',
+      border: isDarkMode ? 'rgba(54, 144, 206, 0.4)' : 'rgba(54, 144, 206, 0.35)',
+      text: colours.highlight,
+      line: colours.highlight,
     };
     if (stage.status === 'review') return {
       bg: isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)',
@@ -1565,11 +1565,11 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
   // Status pill
   const StatusPill = ({ status, label }: { status: 'pass' | 'fail' | 'pending' | 'warn'; label: string }) => {
-    const bg = status === 'pass' ? 'rgba(34, 197, 94, 0.12)' 
+    const bg = status === 'pass' ? 'rgba(54, 144, 206, 0.12)' 
       : status === 'fail' ? 'rgba(239, 68, 68, 0.12)'
       : status === 'warn' ? 'rgba(239, 68, 68, 0.12)'
       : 'rgba(148, 163, 184, 0.1)';
-    const color = status === 'pass' ? colours.green 
+    const color = status === 'pass' ? colours.highlight 
       : status === 'fail' ? colours.cta
       : status === 'warn' ? colours.cta
       : (isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)');
@@ -1592,11 +1592,11 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   // Payment Journey Step component - matches pipeline chip style
   const JourneyStep = ({ label, isActive, isComplete }: { label: string; isActive: boolean; isComplete: boolean }) => {
     const getColors = () => {
-      // Complete steps (including when active AND complete) show green
+      // Complete steps (including when active AND complete) show blue
       if (isComplete || (isActive && label === 'Succeeded')) return { 
-        bg: isDarkMode ? 'rgba(34, 197, 94, 0.15)' : 'rgba(34, 197, 94, 0.1)',
-        border: '#22c55e',
-        text: '#22c55e'
+        bg: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)',
+        border: colours.highlight,
+        text: colours.highlight
       };
       // Active but not complete (e.g. requires_action) shows amber
       if (isActive) return {
@@ -1655,8 +1655,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
       <div style={{
         marginBottom: 12,
         padding: '10px 14px',
-        background: isDarkMode ? 'rgba(34, 197, 94, 0.08)' : 'rgba(34, 197, 94, 0.05)',
-        border: `1px dashed ${isDarkMode ? 'rgba(34, 197, 94, 0.3)' : 'rgba(34, 197, 94, 0.25)'}`,
+        background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.05)',
+        border: `1px dashed ${isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.25)'}`,
         borderRadius: 6,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 9, color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)', textTransform: 'uppercase', letterSpacing: '0.3px', fontWeight: 700, marginBottom: 8 }}>
@@ -1688,7 +1688,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
             onClick={(e) => { e.stopPropagation(); void handleConfirm(); }}
             style={{
               padding: '6px 14px',
-              background: confirmDate ? '#22c55e' : (isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(0, 0, 0, 0.08)'),
+              background: confirmDate ? colours.highlight : (isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(0, 0, 0, 0.08)'),
               color: confirmDate ? '#ffffff' : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)'),
               border: 'none',
               borderRadius: 3,
@@ -2003,7 +2003,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                       padding: '0 8px',
                       borderRadius: 0,
                       background: isSuccess 
-                        ? (isDarkMode ? 'rgba(34, 197, 94, 0.15)' : 'rgba(34, 197, 94, 0.1)')
+                        ? (isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)')
                         : isFailed 
                           ? (isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)')
                           : (isDarkMode ? 'rgba(245, 158, 11, 0.15)' : 'rgba(245, 158, 11, 0.1)'),
@@ -2132,7 +2132,6 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
       style={{
         background: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
         border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-        borderBottom: 'none',
         borderRadius: 4,
         overflow: 'hidden',
         marginBottom: 0,
@@ -2184,7 +2183,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
             // Connector Logic - connector lights up when the PREVIOUS stage is complete
             // This shows the progression/link between stages has been achieved
             const connectorColor = prevStage?.isComplete 
-              ? '#22c55e'  // Green when previous stage is complete
+              ? colours.highlight  // Blue when previous stage is complete
               : (isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)'); // Gray otherwise
 
             // Click Handler
@@ -2219,7 +2218,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
             return (
               <React.Fragment key={stage.key}>
-                {/* Connector line - lights up green when previous stage is complete */}
+                {/* Connector line - lights up blue when previous stage is complete */}
                 {idx > 0 && (
                   <div style={{ 
                     display: 'flex',
@@ -2229,7 +2228,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                       height: 1.5,
                       width: 10,
                       background: isConnectorLit 
-                        ? 'rgba(34, 197, 94, 0.7)'
+                        ? 'rgba(54, 144, 206, 0.7)'
                         : (isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.25)'),
                       borderRadius: 1,
                       margin: '0 2px',
@@ -2294,7 +2293,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                     </span>
                   ) : stage.isComplete ? (
                     <FaCheck size={9} style={{ 
-                      color: '#22c55e', 
+                      color: colours.highlight, 
                       marginLeft: 2,
                     }} />
                   ) : stage.hasIssue ? (
@@ -2316,13 +2315,13 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         padding: '18px 20px 20px 20px',
         minHeight: 96,
         border: `1px solid ${isTabbedContent ? activeTabPalette.border : (isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.12)')}`,
-        borderTop: isTabbedContent ? `1px solid ${activeTabPalette.border}` : (isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.12)'),
+        borderTop: 'none',
         borderRadius: 4,
-        marginTop: -1,
+        marginTop: 0,
         marginBottom: 0,
         boxShadow: 'none',
-        transform: isTabbedContent ? 'translateY(0)' : 'translateY(-1px)',
-        transition: 'border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease',
+        transform: 'none',
+        transition: 'border-color 0.2s ease, box-shadow 0.2s ease',
       }}>
         {/* Details Tab - Client/Entity information landing page */}
         {activeTab === 'details' && (
@@ -2452,7 +2451,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                           const aowAccent = resolveAowAccent(areaOfWork);
                           
                           // Determine rating styling
-                          const ratingColor = enquiryRating === 'Good' ? '#22c55e' : enquiryRating === 'Poor' ? '#ef4444' : (isDarkMode ? 'rgba(148, 163, 184, 0.6)' : '#64748b');
+                          const ratingColor = enquiryRating === 'Good' ? colours.highlight : enquiryRating === 'Poor' ? '#ef4444' : (isDarkMode ? 'rgba(148, 163, 184, 0.6)' : '#64748b');
                           
                           // Claim timestamp for new space enquiries (from enquiry record or enrichment data)
                           const claimTimestampRaw = getValue(['claim', 'Claim', 'ClaimTimestamp', 'claim_timestamp', 'AllocatedAt', 'allocated_at', 'ClaimedAt', 'claimed_at']);
@@ -3111,8 +3110,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                         
                         // Status color based on stage
                         const instStatusColor = (() => {
-                          if (hasMatter) return '#22c55e'; // Green for matter created
-                          if (instructionStage.toLowerCase().includes('complet')) return '#22c55e';
+                          if (hasMatter) return colours.highlight;
+                          if (instructionStage.toLowerCase().includes('complet')) return colours.highlight;
                           if (instructionStage.toLowerCase().includes('active') || instructionStage.toLowerCase().includes('progress')) return colours.highlight;
                           return colours.highlight;
                         })();
@@ -3149,14 +3148,14 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                   style={{ 
                                     display: 'flex', alignItems: 'center', gap: 6,
                                     padding: '5px 10px', borderRadius: 4,
-                                    background: isDarkMode ? 'rgba(34, 197, 94, 0.12)' : 'rgba(34, 197, 94, 0.08)',
-                                    border: `1px solid ${isDarkMode ? 'rgba(34, 197, 94, 0.25)' : 'rgba(34, 197, 94, 0.15)'}`,
+                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
+                                    border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.15)'}`,
                                     cursor: 'default',
                                     transition: 'all 0.15s ease'
                                   }}
                                 >
-                                  <FaClock size={10} style={{ color: '#22c55e' }} />
-                                  <span style={{ fontSize: 10, fontWeight: 600, color: '#22c55e' }}>Instructed {instructionDateTime}</span>
+                                  <FaClock size={10} style={{ color: colours.highlight }} />
+                                  <span style={{ fontSize: 10, fontWeight: 600, color: colours.highlight }}>Instructed {instructionDateTime}</span>
                                 </div>
                               )}
                                 
@@ -3265,7 +3264,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                               {/* Payment Status */}
                               <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
                                 <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Payment</span>
-                                <span style={{ fontSize: 12, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 5, color: instPaymentStatus === 'Paid' ? '#22c55e' : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
+                                <span style={{ fontSize: 12, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 5, color: instPaymentStatus === 'Paid' ? colours.highlight : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
                                   {instPaymentStatus === 'Paid' && (
                                     instPaymentIsCard ? <FaCreditCard size={10} style={{ opacity: 0.8 }} /> 
                                     : instPaymentIsBank ? <FaBuilding size={10} style={{ opacity: 0.8 }} /> 
@@ -3281,7 +3280,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                               {/* Consent */}
                               <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
                                 <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Consent</span>
-                                <span style={{ fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4, color: '#22c55e' }}>
+                                <span style={{ fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4, color: colours.highlight }}>
                                   <FaCheck size={9} />
                                   Given
                                 </span>
@@ -3856,7 +3855,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                     const isPass = overallValue.toLowerCase().includes('pass') || overallValue.toLowerCase().includes('clear') || overallValue.toLowerCase() === 'approved';
                     const isWarn = overallValue.toLowerCase().includes('review') || overallValue.toLowerCase().includes('refer');
                     const isFail = overallValue.toLowerCase().includes('fail');
-                    const resultColor = isPass ? '#22c55e' : (isFail || isWarn) ? colours.cta : (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b');
+                    const resultColor = isPass ? colours.highlight : (isFail || isWarn) ? colours.cta : (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b');
                     const isOverallNeedsAction = isFail || isWarn;
                     return (
                       <div 
@@ -3882,7 +3881,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                     const isPass = pepValue.toLowerCase().includes('pass') || pepValue.toLowerCase().includes('clear') || pepValue.toLowerCase().includes('no match');
                     const isWarn = pepValue.toLowerCase().includes('review') || pepValue.toLowerCase().includes('refer');
                     const isFail = pepValue.toLowerCase().includes('fail') || pepValue.toLowerCase().includes('match');
-                    const resultColor = isPass ? '#22c55e' : (isFail || isWarn) ? colours.cta : (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b');
+                    const resultColor = isPass ? colours.highlight : (isFail || isWarn) ? colours.cta : (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b');
                     return (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
                         <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>PEP/Sanctions</span>
@@ -3903,7 +3902,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                     const isPass = addrValue.toLowerCase().includes('pass') || addrValue.toLowerCase().includes('verified');
                     const isWarn = addrValue.toLowerCase().includes('review') || addrValue.toLowerCase().includes('refer');
                     const isFail = addrValue.toLowerCase().includes('fail');
-                    const resultColor = isPass ? '#22c55e' : (isFail || isWarn) ? colours.cta : (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b');
+                    const resultColor = isPass ? colours.highlight : (isFail || isWarn) ? colours.cta : (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b');
                     return (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
                         <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Address</span>
@@ -4074,18 +4073,18 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                 alignItems: 'center',
                                 gap: 12,
                                 padding: '12px 14px',
-                                background: isDarkMode ? 'rgba(34, 197, 94, 0.08)' : 'rgba(34, 197, 94, 0.05)',
-                                border: `1px solid ${isDarkMode ? 'rgba(34, 197, 94, 0.25)' : 'rgba(34, 197, 94, 0.2)'}`,
+                                background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.05)',
+                                border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)'}`,
                                 borderRadius: 6,
                                 cursor: 'pointer',
                                 textAlign: 'left',
                               }}
                             >
-                              <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'rgba(34, 197, 94, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                <FaCheck size={12} color="#22c55e" />
+                              <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'rgba(54, 144, 206, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                <FaCheck size={12} color={colours.highlight} />
                               </div>
                               <div>
-                                <div style={{ fontSize: 12, fontWeight: 700, color: '#22c55e' }}>Approve</div>
+                                <div style={{ fontSize: 12, fontWeight: 700, color: colours.highlight }}>Approve</div>
                                 <div style={{ fontSize: 10, color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)', marginTop: 2 }}>Mark ID as verified (result is acceptable)</div>
                               </div>
                             </button>
@@ -4170,8 +4169,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                           onClick={(e) => e.stopPropagation()}
                         >
                           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-                            <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(34, 197, 94, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                              <FaCheck size={16} color="#22c55e" />
+                            <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(54, 144, 206, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                              <FaCheck size={16} color={colours.highlight} />
                             </div>
                             <div>
                               <div style={{ fontSize: 14, fontWeight: 700, color: isDarkMode ? '#e2e8f0' : '#0f172a' }}>Approve ID Verification</div>
@@ -4190,8 +4189,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
                           <div style={{
                             padding: 10,
-                            background: isDarkMode ? 'rgba(34, 197, 94, 0.08)' : 'rgba(34, 197, 94, 0.05)',
-                            border: `1px solid ${isDarkMode ? 'rgba(34, 197, 94, 0.2)' : 'rgba(34, 197, 94, 0.15)'}`,
+                            background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.05)',
+                            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)'}`,
                             borderRadius: 4,
                             fontSize: 11,
                             color: isDarkMode ? 'rgba(226, 232, 240, 0.75)' : 'rgba(15, 23, 42, 0.7)',
@@ -4235,7 +4234,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                               }}
                               style={{
                                 padding: '8px 14px',
-                                background: '#22c55e',
+                                background: colours.highlight,
                                 color: '#ffffff',
                                 border: 'none',
                                 borderRadius: 4,
@@ -4542,12 +4541,12 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                           {/* Confirmation Summary Box */}
                           <div style={{
                             padding: 12,
-                            background: isDarkMode ? 'rgba(34, 197, 94, 0.06)' : 'rgba(34, 197, 94, 0.04)',
-                            border: `1.5px solid ${isDarkMode ? 'rgba(34, 197, 94, 0.25)' : 'rgba(34, 197, 94, 0.2)'}`,
+                            background: isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.04)',
+                            border: `1.5px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)'}`,
                             borderRadius: 6,
                             marginBottom: 14,
                           }}>
-                            <div style={{ fontSize: 10, fontWeight: 700, color: colours.green, textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 8 }}>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: colours.highlight, textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 8 }}>
                               ✓ Ready to create draft
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -4744,12 +4743,12 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                     <div style={{
                                       width: 14, height: 14, borderRadius: '50%',
                                       background: c.ready
-                                        ? (isDarkMode ? 'rgba(34, 197, 94, 0.15)' : 'rgba(34, 197, 94, 0.1)')
+                                        ? (isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)')
                                         : (isDarkMode ? 'rgba(239, 68, 68, 0.12)' : 'rgba(239, 68, 68, 0.08)'),
                                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                                     }}>
                                       {c.ready
-                                        ? <FaCheck size={7} color="#22c55e" />
+                                        ? <FaCheck size={7} color={colours.highlight} />
                                         : <span style={{ width: 6, height: 1.5, background: '#ef4444', borderRadius: 1 }} />}
                                     </div>
                                     <span style={{ fontSize: 10, fontWeight: 600, color: c.ready ? (isDarkMode ? 'rgba(226, 232, 240, 0.8)' : 'rgba(15, 23, 42, 0.7)') : (isDarkMode ? 'rgba(239, 68, 68, 0.7)' : 'rgba(239, 68, 68, 0.6)') }}>
@@ -5335,8 +5334,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                       {[
                         { label: 'Client Risk', value: clientRiskConsidered ? 'Considered' : null, docUrl: 'https://drive.google.com/file/d/1_7dX2qSlvuNmOiirQCxQb8NDs6iUSAhT/view?usp=sharing' },
                         { label: 'Transaction Risk', value: transactionRiskConsidered ? 'Considered' : null, docUrl: 'https://drive.google.com/file/d/1sTRII8MFU3JLpMiUcz-Y6KBQ1pP1nKgT/view?usp=sharing' },
-                        { label: 'Sanctions', value: firmWideSanctionsConsidered ? 'Considered' : null, docUrl: 'https://drive.google.com/file/d/1Wx-dHdfXuN0-A2YmBYb-OO-Bz2wXevl9/view?usp=sharing' },
-                        { label: 'AML Policy', value: firmWideAMLConsidered ? 'Considered' : null, docUrl: 'https://drive.google.com/file/d/1TcBlV0Pf0lYlNkmdOGRfpx--DcTEC7na/view?usp=sharing' },
+                        { label: 'Sanctions', value: firmWideSanctionsConsidered ? 'Considered' : null, docUrl: 'https://drive.google.com/file/d/1y7fTLI_Dody00y9v42ohltQU-hnnYJ9P/view?usp=sharing' },
+                        { label: 'AML Policy', value: firmWideAMLConsidered ? 'Considered' : null, docUrl: 'https://drive.google.com/file/d/1opiC3TbEsdEH4ExDjckIhQzzsI3_wYYB/view?usp=sharing' },
                       ].map((item, idx, arr) => (
                         <React.Fragment key={idx}>
                           <div style={{ display: 'flex', alignItems: 'stretch', gap: 8, padding: '0 14px' }}>
@@ -5676,6 +5675,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
             )}
           </div>
         )}
+
       </div>
 
       {/* Payment Link Request Modal */}
@@ -5764,13 +5764,13 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                 <div style={{
                   padding: 12,
-                  background: isDarkMode ? 'rgba(34, 197, 94, 0.1)' : 'rgba(34, 197, 94, 0.08)',
-                  border: `1px solid ${colours.green}`,
+                  background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.08)',
+                  border: `1px solid ${colours.highlight}`,
                   borderRadius: 0,
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                    <FaCheckCircle size={14} style={{ color: colours.green }} />
-                    <span style={{ fontSize: 12, fontWeight: 600, color: colours.green }}>
+                    <FaCheckCircle size={14} style={{ color: colours.highlight }} />
+                    <span style={{ fontSize: 12, fontWeight: 600, color: colours.highlight }}>
                       Payment link created
                     </span>
                   </div>
@@ -5965,9 +5965,9 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                         gap: 10,
                         padding: '12px',
                         background: paymentLinkIncludesVat 
-                          ? (isDarkMode ? 'rgba(34, 197, 94, 0.08)' : 'rgba(34, 197, 94, 0.06)')
+                          ? (isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)')
                           : (isDarkMode ? 'rgba(0, 0, 0, 0.1)' : 'rgba(0, 0, 0, 0.02)'),
-                        border: `1px solid ${paymentLinkIncludesVat ? colours.green : (isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(0, 0, 0, 0.08)')}`,
+                        border: `1px solid ${paymentLinkIncludesVat ? colours.highlight : (isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(0, 0, 0, 0.08)')}`,
                         borderRadius: 0,
                         cursor: 'pointer',
                         transition: 'all 0.15s ease',
@@ -6278,6 +6278,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         </div>,
         document.body
       )}
+
     </div>
   );
 };

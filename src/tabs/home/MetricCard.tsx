@@ -95,7 +95,7 @@ const cardStyle = (isDarkMode: boolean) =>
     color: isDarkMode ? colours.dark.text : colours.light.text,
     padding: '12px 16px 12px 20px',
     borderLeft: `4px solid ${colours.highlight}`,
-    borderRadius: 0,
+    borderRadius: 2,
     boxShadow: isDarkMode ? '0 2px 6px rgba(0, 0, 0, 0.3)' : `0 2px 6px ${colours.light.border}`,
     transition: 'background-color 0.2s, box-shadow 0.2s, transform 0.2s, border 0.2s',
     display: 'flex',

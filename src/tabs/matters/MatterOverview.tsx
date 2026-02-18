@@ -230,10 +230,10 @@ const PipelineSection: React.FC<PipelineSectionProps> = ({
     const isCurrent = stage.status === 'current';
     const hasIssue = stage.status === 'review';
 
-    const statusColor = isCompleted ? '#22c55e'
-      : hasIssue ? '#ef4444'
+    const statusColor = isCompleted ? colours.highlight
+      : hasIssue ? colours.cta
       : isCurrent ? colours.highlight
-      : (isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.8)');
+      : (isDarkMode ? colours.subtleGrey : colours.greyText);
 
     const workbenchTab: WorkbenchTabKeyType = stage.key === 'id' ? 'identity'
       : stage.key === 'payment' ? 'payment'
@@ -269,7 +269,7 @@ const PipelineSection: React.FC<PipelineSectionProps> = ({
       borderRadius: 4,
       overflow: 'hidden',
       fontFamily: 'Raleway, sans-serif',
-      boxShadow: isDarkMode ? '0 12px 28px rgba(0,0,0,0.35)' : '0 10px 24px rgba(15,23,42,0.08)',
+      boxShadow: isDarkMode ? '0 4px 16px rgba(0, 0, 0, 0.4)' : '0 4px 12px rgba(6, 23, 51, 0.08)',
     }}>
       {/* Pipeline pill bar — identical to EnquiryTimeline TIER 3 */}
       <div style={{
@@ -294,8 +294,8 @@ const PipelineSection: React.FC<PipelineSectionProps> = ({
                     height: 1.5,
                     width: 10,
                     background: isConnectorLit
-                      ? 'rgba(34, 197, 94, 0.7)'
-                      : (isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.25)'),
+                      ? 'rgba(54, 144, 206, 0.7)'
+                      : (isDarkMode ? 'rgba(55, 65, 81, 0.28)' : 'rgba(160, 160, 160, 0.25)'),
                     borderRadius: 1,
                     margin: '0 2px',
                   }} />
@@ -325,11 +325,11 @@ const PipelineSection: React.FC<PipelineSectionProps> = ({
                   padding: '6px 12px',
                   borderRadius: '16px',
                   background: stage.isActive
-                    ? 'rgba(125, 211, 252, 0.12)'
+                    ? (isDarkMode ? 'rgba(54, 144, 206, 0.14)' : 'rgba(54, 144, 206, 0.08)')
                     : (isDarkMode ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)'),
                   border: stage.isActive
-                    ? '1px solid rgba(125, 211, 252, 0.45)'
-                    : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)'}`,
+                    ? `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.45)' : 'rgba(54, 144, 206, 0.3)'}`
+                    : `1px solid ${isDarkMode ? 'rgba(55, 65, 81, 0.28)' : 'rgba(160, 160, 160, 0.33)'}`,
                   cursor: 'pointer',
                   color: stage.statusColor,
                   fontSize: 11,
@@ -362,18 +362,19 @@ const PipelineSection: React.FC<PipelineSectionProps> = ({
                     display: 'flex',
                     alignItems: 'center',
                     borderRadius: '999px',
-                    background: 'rgba(148, 163, 184, 0.18)',
-                    color: 'rgba(226, 232, 240, 0.8)',
+                    background: isDarkMode ? 'rgba(55, 65, 81, 0.28)' : 'rgba(148, 163, 184, 0.25)',
+                    color: isDarkMode ? colours.dark.text : colours.light.text,
+                    opacity: 0.8,
                     marginLeft: 2,
                   }}>
                     {stage.detail}
                   </span>
                 )}
                 {stage.status === 'complete' && stage.key !== 'documents' && (
-                  <FaCheck size={9} style={{ color: '#22c55e', marginLeft: 2 }} />
+                  <FaCheck size={9} style={{ color: colours.highlight, marginLeft: 2 }} />
                 )}
                 {stage.hasIssue && (
-                  <FaExclamationTriangle size={9} style={{ color: '#ef4444', marginLeft: 2 }} />
+                  <FaExclamationTriangle size={9} style={{ color: colours.cta, marginLeft: 2 }} />
                 )}
               </button>
             </React.Fragment>
@@ -894,17 +895,17 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
     {
       role: 'Responsible',
       name: matter.responsibleSolicitor,
-      color: '#22c55e',
+      color: colours.highlight,
     },
     {
       role: 'Originating',
       name: matter.originatingSolicitor,
-      color: '#0ea5e9',
+      color: colours.missedBlue,
     },
     {
       role: 'Supervising',
       name: matter.supervisingPartner,
-      color: '#f59e0b',
+      color: colours.accent,
     },
   ].filter((m) => m.name && m.name.trim());
 
@@ -971,14 +972,14 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
         <section style={{
           padding: '8px 24px 10px',
           backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-          borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.15)'}`,
+          borderTop: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
           borderBottom: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
         }}>
           <div style={{
             display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6,
             fontSize: 11, fontWeight: 700, textTransform: 'uppercase' as const,
             letterSpacing: '0.05em',
-            color: isDarkMode ? '#94a3b8' : '#64748b',
+            color: isDarkMode ? colours.subtleGrey : colours.greyText,
           }}>
             Next Steps
           </div>
@@ -1002,6 +1003,7 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
           matter={matter}
           teamData={teamData}
           demoModeEnabled={demoModeEnabled}
+          userInitials={userInitials}
           onClose={() => setShowCCLEditor(false)}
         />
         </div>
@@ -1056,7 +1058,7 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
               ) : (
                 <span
                   className={metricValueStyle(isDarkMode)}
-                  style={{ color: outstandingBalance > 0 ? '#ef4444' : undefined }}
+                  style={{ color: outstandingBalance > 0 ? colours.cta : undefined }}
                 >
                   {fmtCurrency(outstandingBalance)}
                 </span>
@@ -1092,7 +1094,7 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
               ) : (
                 <span
                   className={metricValueStyle(isDarkMode)}
-                  style={{ color: clientFunds > 0 ? '#22c55e' : undefined }}
+                  style={{ color: clientFunds > 0 ? colours.highlight : undefined }}
                 >
                   {fmtCurrency(clientFunds)}
                 </span>
@@ -1331,9 +1333,9 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
                     height: 28,
                     padding: '0 12px',
                     borderRadius: 14,
-                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(100, 116, 139, 0.3)'}`,
-                    background: isDarkMode ? 'rgba(15, 23, 42, 0.6)' : 'rgba(255,255,255,0.7)',
-                    color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1f2937',
+                    border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                    background: isDarkMode ? colours.dark.cardBackground : colours.light.sectionBackground,
+                    color: isDarkMode ? colours.dark.text : colours.light.text,
                     fontSize: 11,
                     fontWeight: 600,
                     cursor: (!matter.clientId || !userInitials || clioClientStatus === 'loading') ? 'not-allowed' : 'pointer',
@@ -1433,7 +1435,7 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
                             styles={{
                               root: {
                                 fontSize: 10,
-                                color: copiedContact === 'email' ? '#10B981' : undefined,
+                                color: copiedContact === 'email' ? colours.highlight : undefined,
                               },
                             }}
                           />
@@ -1472,7 +1474,7 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
                             styles={{
                               root: {
                                 fontSize: 10,
-                                color: copiedContact === 'phone' ? '#10B981' : undefined,
+                                color: copiedContact === 'phone' ? colours.highlight : undefined,
                               },
                             }}
                           />
@@ -1656,9 +1658,9 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
                     style={{
                       color:
                         matter.rating === 'Good'
-                          ? '#22c55e'
+                          ? colours.highlight
                           : matter.rating === 'Poor'
-                          ? '#ef4444'
+                          ? colours.cta
                           : undefined,
                     }}
                   >
@@ -1681,7 +1683,7 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
                   onClick={onToggleAudit}
                   style={{
                     border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-                    background: auditEnabled ? (isDarkMode ? 'rgba(56, 189, 248, 0.12)' : 'rgba(56, 189, 248, 0.08)') : 'transparent',
+                    background: auditEnabled ? (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)') : 'transparent',
                     color: isDarkMode ? colours.dark.text : colours.light.text,
                     padding: '4px 10px',
                     borderRadius: 12,
@@ -1719,10 +1721,10 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
                     const status = field?.status || 'match';
                     const colour =
                       status === 'mismatch'
-                        ? '#f59e0b'
+                        ? colours.yellow
                         : status === 'missing'
                         ? (isDarkMode ? colours.dark.subText : colours.greyText)
-                        : '#22c55e';
+                        : colours.highlight;
                     return (
                       <div
                         key={field?.key || field?.label}
@@ -1757,9 +1759,7 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
           <div
             style={{
               padding: '8px 12px',
-              backgroundColor: isDarkMode
-                ? 'rgba(54, 144, 206, 0.1)'
-                : 'rgba(54, 144, 206, 0.05)',
+              backgroundColor: 'transparent',
               borderRadius: BADGE_RADIUS,
               fontSize: 11,
               color: isDarkMode ? colours.dark.subText : colours.greyText,
@@ -1778,13 +1778,13 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
                   gap: 6,
                   padding: '2px 6px',
                   borderRadius: 999,
-                  border: `1px solid ${isDarkMode ? 'rgba(56, 189, 248, 0.35)' : 'rgba(56, 189, 248, 0.25)'}`,
+                  border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                   background: isDarkMode
-                    ? 'linear-gradient(135deg, rgba(14, 116, 144, 0.22), rgba(30, 41, 59, 0.45))'
-                    : 'linear-gradient(135deg, rgba(224, 242, 254, 0.9), rgba(255, 255, 255, 0.95))',
+                    ? colours.dark.cardBackground
+                    : colours.light.sectionBackground,
                   fontSize: 10,
                   fontWeight: 600,
-                  color: isDarkMode ? 'rgba(186, 230, 253, 0.95)' : 'rgba(8, 145, 178, 0.85)',
+                  color: isDarkMode ? colours.dark.subText : colours.greyText,
                   cursor: 'default',
                   marginLeft: 6,
                 }}
@@ -1800,7 +1800,9 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
 
       {/* ─── Origin & Pipeline (full-width, pill bar + InlineWorkbench — matches EnquiryTimeline exactly) ─── */}
       {isPipelineLinked && (
-        <div style={{ padding: '0 24px 24px' }}>
+        <div style={{
+          padding: '24px 24px 24px',
+        }}>
           {derivedWorkbenchItem ? (
             <PipelineSection
               derivedWorkbenchItem={derivedWorkbenchItem}

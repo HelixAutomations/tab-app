@@ -19,6 +19,9 @@ export const CCL_SECTIONS: CCLSection[] = [
     icon: 'Contact',
     fields: [
       { key: 'insert_clients_name', label: 'Client Name', type: 'text', required: true, autoFilled: true },
+      { key: 'client_address', label: 'Client Postal Address', type: 'text', placeholder: 'e.g. 123 High Street, Brighton, BN1 1AA' },
+      { key: 'client_email', label: 'Client Email', type: 'text', autoFilled: true, placeholder: 'e.g. client@example.com' },
+      { key: 'letter_date', label: 'Letter Date', type: 'text', autoFilled: true },
       { key: 'matter', label: 'Matter Type / Description', type: 'text', required: true, autoFilled: true },
       { key: 'insert_heading_eg_matter_description', label: 'Letter Heading', type: 'text', required: true },
     ],
@@ -110,6 +113,11 @@ export function autoFillFromMatter(matter: NormalizedMatter, teamData?: TeamData
   const fields: Record<string, string> = {};
 
   fields.insert_clients_name = matter.clientName || '';
+  fields.client_email = matter.clientEmail || '';
+  // Format date as verbose British style (e.g. "18 June 2025")
+  const now = new Date();
+  const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  fields.letter_date = `${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()}`;
   fields.matter = matter.description || matter.practiceArea || '';
 
   let solicitorName = matter.responsibleSolicitor || '';
@@ -147,29 +155,36 @@ export function autoFillFromMatter(matter: NormalizedMatter, teamData?: TeamData
       fields.fee_earner_phone = '0345 314 2044';
 
       // Derive handler pronoun (he/she/they) from first name
+      // Source: team table active + recent members (Feb 2025)
       const pronounMap: Record<string, string> = {
-        'luke': 'he', 'rory': 'he', 'alex': 'he', 'ryan': 'he', 'jack': 'he',
-        'james': 'he', 'chris': 'he', 'christopher': 'he', 'daniel': 'he', 'dan': 'he',
-        'bianca': 'she', 'katie': 'she', 'jessica': 'she', 'jess': 'she',
-        'laura': 'she', 'francesca': 'she', 'charlotte': 'she', 'sarah': 'she',
-        'helen': 'she', 'emma': 'she', 'rachel': 'she', 'caroline': 'she',
-        'kerry': 'she', 'lisa': 'she', 'anna': 'she', 'naomi': 'she',
+        'alex': 'he', 'brendan': 'he', 'christopher': 'he', 'chris': 'he',
+        'edwin': 'he', 'jonathan': 'he', 'joshua': 'he', 'josh': 'he',
+        'lukasz': 'he', 'luke': 'he', 'richard': 'he', 'ryan': 'he',
+        'sam': 'he', 'thaddeus': 'he', 'tristan': 'he', 'finlay': 'he',
+        'jamie': 'he', 'gaige': 'he', 'billy': 'he', 'edward': 'he', 'ed': 'he',
+        'bianca': 'she', 'fiona': 'she', 'fi': 'she', 'harkiran': 'she',
+        'imogen': 'she', 'immy': 'she', 'laura': 'she', 'paris': 'she',
+        'sophie': 'she', 'zoe-ann': 'she', 'cass': 'she', 'kanchel': 'she',
+        'jennifer': 'she', 'jenny': 'she', 'anouszka': 'she', 'nush': 'she',
+        'indie': 'she',
       };
       const firstName = (member['First'] || solicitorName.split(' ')[0] || '').toLowerCase().trim();
-      fields.handler = pronounMap[firstName] || 'they';
+      const nickname = ((member as Record<string, unknown>)['Nickname'] as string || '').toLowerCase().trim();
+      fields.handler = pronounMap[firstName] || pronounMap[nickname] || 'they';
 
       // Set hourly rate based on role
       const rateMap: Record<string, string> = {
-        'Partner': '395', 'Senior Partner': '395', 'Senior Associate': '395',
-        'Associate': '325', 'Solicitor': '285', 'Consultant': '395',
-        'Trainee Solicitor': '195',
+        'Senior Partner': '475', 'Partner': '425',
+        'Associate Solicitor': '350', 'Solicitor': '310',
+        'Paralegal': '210', 'Trainee Solicitor': '210',
+        'Consultant': '425',
       };
-      fields.handler_hourly_rate = rateMap[role] || '395';
+      fields.handler_hourly_rate = rateMap[role] || '425';
     }
   }
 
   // Default hourly rate if not set from team data
-  if (!fields.handler_hourly_rate) fields.handler_hourly_rate = '395';
+  if (!fields.handler_hourly_rate) fields.handler_hourly_rate = '425';
 
   // Default cost paragraphs (user should review/edit)
   fields.costs_other_party_paragraph = matter.opponent
@@ -213,6 +228,9 @@ export function autoFillFromMatter(matter: NormalizedMatter, teamData?: TeamData
 
 export const DEMO_FIELDS: Record<string, string> = {
   insert_clients_name: 'Mr Luke Test',
+  client_address: '123 Test Street\nBrighton\nBN1 1AA',
+  client_email: 'luke.test@example.com',
+  letter_date: '18 June 2025',
   matter: 'Commercial Dispute',
   insert_heading_eg_matter_description: 'Commercial Dispute — Mr Luke Test v Acme Corp',
   name_of_person_handling_matter: 'Rory McBride',
@@ -253,7 +271,7 @@ export const DEMO_FIELDS: Record<string, string> = {
   describe_first_document_or_information_you_need_from_your_client: 'Copy of the contract with Acme Corp',
   describe_second_document_or_information_you_need_from_your_client: 'All correspondence with the other party',
   describe_third_document_or_information_you_need_from_your_client: 'Any invoices or payment evidence',
-  matter_number: 'HLX-DEMO-00001',
+  matter_number: 'HELIX01-01',
 };
 
 export type EditorStepType = 'questionnaire' | 'editor' | 'preview';
