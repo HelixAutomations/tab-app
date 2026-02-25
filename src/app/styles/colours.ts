@@ -37,7 +37,7 @@ export const colours = {
 
   // ── Light-mode surfaces ─────────────────────────────────────
   sectionBackground: '#FFFFFF',
-  highlightBlue: '#d6e8ff',    // Lightest brand blue — light-mode highlights, hover rows
+  highlightBlue: '#d6e8ff',    // Light tint surface token only (light-mode hovers/selected rows). Not the primary highlight blue.
   highlightYellow: '#ffefc1',  // Placeholder highlighting in pitch emails
   highlightNeutral: '#e1e1e1', // Neutral borders, light-mode backgrounds
 

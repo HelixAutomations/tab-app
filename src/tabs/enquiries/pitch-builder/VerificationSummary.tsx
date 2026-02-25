@@ -19,6 +19,8 @@ export interface VerificationSummaryProps {
   dealStatus?: 'idle' | 'processing' | 'ready' | 'error';
   dealCreationInProgress?: boolean;
   onCaptureDealForLink?: () => Promise<string | null>;
+  noAmountMode?: boolean;
+  onNoAmountModeChange?: (value: boolean) => void;
 }
 
 /**
@@ -39,6 +41,8 @@ export const VerificationSummary: React.FC<VerificationSummaryProps> = ({
   dealStatus,
   dealCreationInProgress,
   onCaptureDealForLink,
+  noAmountMode,
+  onNoAmountModeChange,
 }) => {
   const isHeaderLoading = isLoading ?? !enquiry?.ID;
 
@@ -60,6 +64,8 @@ export const VerificationSummary: React.FC<VerificationSummaryProps> = ({
         dealStatus={dealStatus}
         dealCreationInProgress={dealCreationInProgress}
         onCaptureDealForLink={onCaptureDealForLink}
+        noAmountMode={noAmountMode}
+        onNoAmountModeChange={onNoAmountModeChange}
         showFeeEarnerToggle
       />
 

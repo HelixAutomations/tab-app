@@ -121,7 +121,6 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
   const textResting = isDarkMode ? colours.subtleGrey : colours.greyText;
   const textHover = isDarkMode ? colours.dark.text : colours.darkBlue;
   const activeColour = isDarkMode ? colours.accent : colours.blue;
-  const borderCol = isDarkMode ? colours.dark.border : colours.highlightNeutral;
   const homeColour = selectedKey === 'home'
     ? activeColour
     : (isDarkMode ? colours.dark.text : colours.darkBlue);
@@ -147,21 +146,25 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
     }
   };
 
+  const hasFormsTab = tabs.some(tab => tab.key === 'forms');
+  const hasReportingTab = tabs.some(tab => tab.key === 'reporting');
+
   return (
     <div
       className="customTabsContainer"
       role="navigation"
       aria-label={ariaLabel || 'Main Navigation'}
       style={{
-        background: isDarkMode ? colours.websiteBlue : '#fff',
+        background: isDarkMode ? 'rgba(0, 3, 25, 0.88)' : 'rgba(255, 255, 255, 0.92)',
+        backdropFilter: 'blur(20px) saturate(1.5)',
+        WebkitBackdropFilter: 'blur(20px) saturate(1.5)',
         display: 'flex',
         alignItems: 'center',
+        gap: 4,
         padding: '0 20px',
         height: 48,
-        borderBottom: isDarkMode
-          ? `1px solid ${colours.dark.border}66`
-          : `1px solid ${borderCol}`,
-        boxShadow: 'none',
+        borderBottom: `0.5px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.06)'}`,
+        boxShadow: isDarkMode ? '0 1px 0 rgba(255, 255, 255, 0.03)' : '0 1px 3px rgba(0, 0, 0, 0.04)',
         position: 'sticky',
         top: 0,
         zIndex: 2000,
@@ -173,16 +176,32 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
         onClick={onHomeClick}
         aria-label="Home"
         aria-current={selectedKey === 'home' ? 'page' : undefined}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = isDarkMode ? 'rgba(135, 243, 243, 0.10)' : 'rgba(54, 144, 206, 0.06)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = selectedKey === 'home'
+            ? (isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.05)')
+            : 'transparent';
+        }}
         style={{
           color: homeColour,
-          marginRight: 14,
           display: 'flex',
           alignItems: 'center',
-          background: 'none',
+          justifyContent: 'center',
+          background: selectedKey === 'home'
+            ? (isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.05)')
+            : 'transparent',
           border: 'none',
+          borderRadius: 2,
           cursor: 'pointer',
-          padding: '0 4px',
-          height: 48,
+          padding: 0,
+          width: 36,
+          height: 36,
+          minWidth: 36,
+          position: 'relative',
+          flexShrink: 0,
+          transition: 'background 0.2s ease',
         }}
       >
         <div style={{
@@ -205,8 +224,9 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
             backgroundColor: colours.cta,
             borderRadius: 999,
             animation: 'pulse-red 2s infinite',
-            marginLeft: 10,
-            flexShrink: 0,
+            position: 'absolute',
+            top: 7,
+            right: 7,
             opacity: hasImmediateActions && selectedKey !== 'home' ? 1 : 0,
             transform: hasImmediateActions && selectedKey !== 'home' ? 'scale(1)' : 'scale(0)',
             transition: 'opacity 0.3s ease, transform 0.3s ease',
@@ -214,14 +234,21 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
         />
       </button>
 
-      {/* ── Separator ────────────────────────────────────────── */}
-      <div style={{
-        width: 1,
-        height: 22,
-        flexShrink: 0,
-        marginRight: 10,
-        background: borderCol,
-      }} />
+      <span
+        aria-hidden="true"
+        title="Home separator"
+        style={{
+          color: isDarkMode ? 'rgba(135, 243, 243, 0.45)' : 'rgba(54, 144, 206, 0.4)',
+          fontSize: 16,
+          fontWeight: 600,
+          lineHeight: 1,
+          marginRight: 10,
+          userSelect: 'none',
+          flexShrink: 0,
+        }}
+      >
+        |
+      </span>
 
       {/* ── Tab strip ────────────────────────────────────────── */}
       <div
@@ -238,60 +265,95 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
       >
         {tabs.map((tab, index) => {
           const active = selectedKey === tab.key;
+          const showSeparatorAfter =
+            (tab.key === 'matters' && hasFormsTab) ||
+            (tab.key === 'resources' && hasReportingTab);
+
           return (
-            <button
-              key={tab.key}
-              role="tab"
-              aria-selected={active}
-              onClick={() => handleTabClick(tab)}
-              title={tab.text}
-              className={`custom-tab-btn${active ? ' custom-tab-active' : ''}`}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 7,
-                padding: '0 14px',
-                height: 48,
-                background: 'transparent',
-                border: 'none',
-                position: 'relative' as const,
-                color: active ? activeColour : textResting,
-                fontSize: 13,
-                fontWeight: active ? 600 : 500,
-                fontFamily: 'inherit',
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-                flexShrink: 0,
-                transition: 'color 0.18s ease, transform 0.1s ease, opacity 0.1s ease',
-                animationDelay: `${index * 0.06}s`,
-                // CSS custom properties for ::after underline colour
-                '--tab-underline-colour': activeColour,
-              } as React.CSSProperties}
-              onMouseEnter={(e) => {
-                if (!active) e.currentTarget.style.color = textHover;
-              }}
-              onMouseLeave={(e) => {
-                if (!active) e.currentTarget.style.color = textResting;
-              }}
-              onMouseDown={(e) => {
-                e.currentTarget.style.transform = 'scale(0.96)';
-                e.currentTarget.style.opacity = '0.75';
-              }}
-              onMouseUp={(e) => {
-                e.currentTarget.style.transform = 'scale(1)';
-                e.currentTarget.style.opacity = '1';
-              }}
-            >
-              <span style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
-                {getTabIcon(tab.key)}
-              </span>
-              {!iconOnly && <span>{tab.text}</span>}
-              {tab.key === 'instructions' && hasActiveMatter && selectedKey !== 'instructions' && (
-                <span style={{ flexShrink: 0, display: 'flex', alignItems: 'center' }}>
-                  <AnimatedPulsingDot show size={6} animationDuration={400} />
+            <React.Fragment key={tab.key}>
+              <button
+                role="tab"
+                aria-selected={active}
+                onClick={() => handleTabClick(tab)}
+                title={tab.text}
+                className={`custom-tab-btn${active ? ' custom-tab-active' : ''}`}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 7,
+                  padding: '0 16px',
+                  height: 48,
+                  background: 'transparent',
+                  border: 'none',
+                  position: 'relative' as const,
+                  color: active ? activeColour : textResting,
+                  fontSize: 13,
+                  fontWeight: active ? 600 : 500,
+                  fontFamily: 'inherit',
+                  letterSpacing: '0.01em',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                  flexShrink: 0,
+                  transition: 'color 0.2s ease, background 0.2s ease, transform 0.1s ease, opacity 0.1s ease',
+                  animationDelay: `${index * 0.06}s`,
+                  // CSS custom properties for ::after underline colour
+                  '--tab-underline-colour': activeColour,
+                  '--tab-hover-fill': isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.05)',
+                  '--tab-active-fill': active
+                    ? (isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(54, 144, 206, 0.08)')
+                    : 'transparent',
+                } as React.CSSProperties}
+                onMouseEnter={(e) => {
+                  if (!active) {
+                    e.currentTarget.style.color = textHover;
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!active) {
+                    e.currentTarget.style.color = textResting;
+                  }
+                }}
+                onMouseDown={(e) => {
+                  e.currentTarget.style.transform = 'scale(0.96)';
+                  e.currentTarget.style.opacity = '0.75';
+                }}
+                onMouseUp={(e) => {
+                  e.currentTarget.style.transform = 'scale(1)';
+                  e.currentTarget.style.opacity = '1';
+                }}
+              >
+                <span style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
+                  {getTabIcon(tab.key)}
+                </span>
+                {!iconOnly && <span>{tab.text}</span>}
+                {tab.key === 'instructions' && hasActiveMatter && selectedKey !== 'instructions' && (
+                  <span style={{ flexShrink: 0, display: 'flex', alignItems: 'center' }}>
+                    <AnimatedPulsingDot show size={6} animationDuration={400} />
+                  </span>
+                )}
+              </button>
+
+              {showSeparatorAfter && (
+                <span
+                  aria-hidden="true"
+                  style={{
+                    color: isDarkMode ? 'rgba(135, 243, 243, 0.40)' : 'rgba(54, 144, 206, 0.35)',
+                    fontSize: 16,
+                    fontWeight: 600,
+                    lineHeight: 1,
+                    margin: '0 4px',
+                    userSelect: 'none',
+                    flexShrink: 0,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    height: 48,
+                  }}
+                >
+                  |
                 </span>
               )}
-            </button>
+            </React.Fragment>
           );
         })}
       </div>

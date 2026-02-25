@@ -1,8 +1,8 @@
 {
   "insert_clients_name": "",
   "client_email": "info@helix-law.com",
-  "letter_date": "17 February 2026",
-  "matter": "",
+  "letter_date": "24 February 2026",
+  "matter": "HELIX01-01",
   "name_of_person_handling_matter": "",
   "name_of_handler": "",
   "handler_hourly_rate": "425",
@@ -36,5 +36,6 @@
   "instructions_link": "",
   "charges_estimate_paragraph": "",
   "client_address": "",
-  "disbursements_paragraph": ""
+  "disbursements_paragraph": "",
+  "display_number": "HELIX01-01"
 }

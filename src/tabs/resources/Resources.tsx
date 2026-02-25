@@ -20,9 +20,11 @@ import BespokePanel from '../../app/functionality/BespokePanel';
 import ResourceCard from './ResourceCard';
 import { sharedSearchBoxContainerStyle, sharedSearchBoxStyle } from '../../app/styles/FilterStyles';
 import { useTheme } from '../../app/functionality/ThemeContext';
+import { useNavigatorActions } from '../../app/functionality/NavigatorContext';
 import { isInTeams } from '../../app/functionality/isInTeams';
 import type { UserData } from '../../app/functionality/types';
 import '../../app/styles/ResourceCard.css';
+import NavigatorDetailBar from '../../components/NavigatorDetailBar';
 
 // Import Custom SVG Icons
 import asanaIcon from '../../assets/asana.svg';
@@ -180,13 +182,11 @@ const mainContentStyle = (isDarkMode: boolean) =>
 const sectionStyle = (isDarkMode: boolean) =>
   mergeStyles({
     backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-    border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-    borderRadius: '8px',
+    border: `0.5px solid ${isDarkMode ? colours.dark.borderColor : colours.light.border}`,
+    borderRadius: 0,
     padding: '20px',
     boxSizing: 'border-box',
-    boxShadow: isDarkMode
-      ? '0 4px 12px rgba(255, 255, 255, 0.1)'
-      : '0 4px 12px rgba(0, 0, 0, 0.1)',
+    boxShadow: 'none',
     transition: 'background-color 0.3s, border 0.3s, box-shadow 0.3s',
     marginBottom: '40px',
 
@@ -217,7 +217,8 @@ const footerStyle = (isDarkMode: boolean) =>
   mergeStyles({
     padding: '20px',
     backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-    borderRadius: '8px',
+    borderRadius: 0,
+    border: `0.5px solid ${isDarkMode ? colours.dark.borderColor : colours.light.border}`,
     marginTop: 'auto',
     display: 'flex',
     flexDirection: 'column',
@@ -233,6 +234,7 @@ interface ResourcesProps {
 
 const Resources: React.FC<ResourcesProps> = ({ userData }) => {
   const { isDarkMode } = useTheme();
+  const { setContent } = useNavigatorActions();
   const [favorites, setFavorites] = useState<Resource[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [copySuccess, setCopySuccess] = useState<string | null>(null);
@@ -567,6 +569,26 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
     };
     void openLink();
   }, []);
+
+  const handleBackFromDetail = useCallback(() => {
+    setSelectedResource(null);
+  }, []);
+
+  useEffect(() => {
+    if (selectedResource) {
+      setContent(
+        <NavigatorDetailBar
+          onBack={handleBackFromDetail}
+          backLabel="Back"
+          staticLabel={`Resources · ${selectedResource.title}`}
+        />,
+      );
+    } else {
+      setContent(null);
+    }
+
+    return () => setContent(null);
+  }, [selectedResource, handleBackFromDetail, setContent]);
 
   // Filtered Sections based on search query and excluding favorites from WithIcons/WithoutIcons
   const filteredSections: ResourcesSections = useMemo(() => {
@@ -1221,7 +1243,7 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
           }}>
             <div style={{
               padding: 16,
-              borderRadius: 12,
+              borderRadius: 0,
               border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
               background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
             }}>
@@ -1229,8 +1251,8 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
                 <div style={{
                   width: 36,
                   height: 36,
-                  borderRadius: 8,
-                  background: isDarkMode ? 'rgba(54,144,206,0.2)' : 'rgba(54,144,206,0.12)',
+                  borderRadius: 0,
+                  background: isDarkMode ? `${colours.highlight}33` : `${colours.highlight}1F`,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -1244,14 +1266,14 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
                   </FluentLink>
                 </div>
               </div>
-              <Text style={{ fontSize: 12, color: isDarkMode ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.55)' }}>
+              <Text style={{ fontSize: 12, color: isDarkMode ? '#d1d5db' : '#374151' }}>
                 Use the operations panel to open, copy, or pin this resource.
               </Text>
             </div>
 
             <div style={{
               padding: 16,
-              borderRadius: 12,
+              borderRadius: 0,
               border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
               background: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
             }}>
@@ -1266,10 +1288,10 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
                       onClick={() => setAsanaOperation('silos')}
                       styles={{
                         root: {
-                          borderRadius: 8,
+                          borderRadius: 0,
                           border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                           background: asanaOperation === 'silos'
-                            ? (isDarkMode ? colours.dark.cardBackground : '#ffffff')
+                            ? (isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground)
                             : 'transparent',
                         },
                       }}
@@ -1279,10 +1301,10 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
                       onClick={() => setAsanaOperation('users')}
                       styles={{
                         root: {
-                          borderRadius: 8,
+                          borderRadius: 0,
                           border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                           background: asanaOperation === 'users'
-                            ? (isDarkMode ? colours.dark.cardBackground : '#ffffff')
+                            ? (isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground)
                             : 'transparent',
                         },
                       }}
@@ -1292,10 +1314,10 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
                       onClick={() => setAsanaOperation('task')}
                       styles={{
                         root: {
-                          borderRadius: 8,
+                          borderRadius: 0,
                           border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                           background: asanaOperation === 'task'
-                            ? (isDarkMode ? colours.dark.cardBackground : '#ffffff')
+                            ? (isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground)
                             : 'transparent',
                         },
                       }}
@@ -1304,10 +1326,10 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
 
                   {asanaOperation === 'task' && (
                     <div style={{
-                      borderRadius: 10,
+                      borderRadius: 0,
                       border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                       padding: 12,
-                      background: isDarkMode ? colours.dark.cardBackground : '#fff',
+                      background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
                       display: 'grid',
                       gap: 8
                     }}>
@@ -1322,10 +1344,10 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
                           style={{
                             flex: '1 1 160px',
                             height: 32,
-                            borderRadius: 6,
+                            borderRadius: 0,
                             border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                             padding: '0 10px',
-                            background: isDarkMode ? colours.dark.sectionBackground : '#fff',
+                            background: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
                             color: isDarkMode ? colours.dark.text : colours.light.text,
                             fontSize: 12,
                             fontFamily: 'Raleway, sans-serif',
@@ -1339,20 +1361,20 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
                         />
                       </div>
                       {asanaTaskError && (
-                        <Text style={{ fontSize: 12, color: isDarkMode ? 'rgba(248,113,113,0.9)' : '#b91c1c' }}>
+                        <Text style={{ fontSize: 12, color: colours.cta }}>
                           {asanaTaskError}
                         </Text>
                       )}
                       {asanaTaskResult && (
                         <div style={{ display: 'grid', gap: 4 }}>
-                          <Text style={{ fontSize: 12, color: isDarkMode ? 'rgba(255,255,255,0.75)' : 'rgba(0,0,0,0.65)' }}>
+                          <Text style={{ fontSize: 12, color: isDarkMode ? colours.dark.text : colours.light.text }}>
                             <strong>{asanaTaskResult.name || '—'}</strong>
                           </Text>
-                          <Text style={{ fontSize: 12, color: isDarkMode ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.6)' }}>
+                          <Text style={{ fontSize: 12, color: isDarkMode ? '#d1d5db' : '#374151' }}>
                             {asanaTaskResult.completed ? 'Completed' : 'Open'}{asanaTaskResult.dueOn ? ` • Due ${asanaTaskResult.dueOn}` : ''}
                           </Text>
                           {asanaTaskResult.assigneeName && (
-                            <Text style={{ fontSize: 12, color: isDarkMode ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.6)' }}>
+                            <Text style={{ fontSize: 12, color: isDarkMode ? '#d1d5db' : '#374151' }}>
                               {asanaTaskResult.assigneeName}
                             </Text>
                           )}
@@ -1371,10 +1393,10 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
 
                   {asanaOperation === 'users' && (
                     <div style={{
-                      borderRadius: 10,
+                      borderRadius: 0,
                       border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                       padding: 12,
-                      background: isDarkMode ? colours.dark.cardBackground : '#fff',
+                      background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
                       display: 'grid',
                       gap: 8
                     }}>
@@ -1382,7 +1404,7 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
                         Team users
                       </Text>
                       {asanaTeamsError && (
-                        <Text style={{ fontSize: 12, color: isDarkMode ? 'rgba(248,113,113,0.9)' : '#b91c1c' }}>
+                        <Text style={{ fontSize: 12, color: colours.cta }}>
                           {asanaTeamsError}
                         </Text>
                       )}
@@ -1396,10 +1418,10 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
                           style={{
                             flex: '1 1 220px',
                             height: 32,
-                            borderRadius: 6,
+                            borderRadius: 0,
                             border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                             padding: '0 10px',
-                            background: isDarkMode ? colours.dark.sectionBackground : '#fff',
+                            background: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
                             color: isDarkMode ? colours.dark.text : colours.light.text,
                             fontSize: 12,
                             fontFamily: 'Raleway, sans-serif',
@@ -1420,7 +1442,7 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
                         />
                       </div>
                       {asanaUsersError && (
-                        <Text style={{ fontSize: 12, color: isDarkMode ? 'rgba(248,113,113,0.9)' : '#b91c1c' }}>
+                        <Text style={{ fontSize: 12, color: colours.cta }}>
                           {asanaUsersError}
                         </Text>
                       )}
@@ -1429,19 +1451,19 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
                           {asanaUsers.map((user) => (
                             <div key={user.id} style={{
                               padding: '6px 8px',
-                              borderRadius: 8,
+                              borderRadius: 0,
                               border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-                              background: isDarkMode ? colours.dark.sectionBackground : '#f8fafc',
+                              background: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
                             }}>
-                              <Text style={{ fontSize: 12, color: isDarkMode ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.75)' }}>
+                              <Text style={{ fontSize: 12, color: isDarkMode ? colours.dark.text : colours.light.text }}>
                                 <strong>{user.name || 'Unknown'}</strong>
                               </Text>
                               {user.email && (
-                                <Text style={{ fontSize: 11, color: isDarkMode ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.55)' }}>
+                                <Text style={{ fontSize: 11, color: isDarkMode ? '#d1d5db' : '#374151' }}>
                                   {user.email}
                                 </Text>
                               )}
-                              <Text style={{ fontSize: 11, color: isDarkMode ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)' }}>
+                              <Text style={{ fontSize: 11, color: isDarkMode ? '#d1d5db' : '#374151' }}>
                                 {user.id}
                               </Text>
                             </div>
@@ -1453,10 +1475,10 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
 
                   {asanaOperation === 'silos' && (
                     <div style={{
-                      borderRadius: 10,
+                      borderRadius: 0,
                       border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                       padding: 12,
-                      background: isDarkMode ? colours.dark.cardBackground : '#fff',
+                      background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
                       display: 'grid',
                       gap: 8
                     }}>
@@ -1464,7 +1486,7 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
                         Project silos
                       </Text>
                       {asanaTeamsError && (
-                        <Text style={{ fontSize: 12, color: isDarkMode ? 'rgba(248,113,113,0.9)' : '#b91c1c' }}>
+                        <Text style={{ fontSize: 12, color: colours.cta }}>
                           {asanaTeamsError}
                         </Text>
                       )}
@@ -1481,10 +1503,10 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
                           style={{
                             flex: '1 1 200px',
                             height: 32,
-                            borderRadius: 6,
+                            borderRadius: 0,
                             border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                             padding: '0 10px',
-                            background: isDarkMode ? colours.dark.sectionBackground : '#fff',
+                            background: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
                             color: isDarkMode ? colours.dark.text : colours.light.text,
                             fontSize: 12,
                             fontFamily: 'Raleway, sans-serif',
@@ -1505,7 +1527,7 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
                         />
                       </div>
                       {asanaProjectsError && (
-                        <Text style={{ fontSize: 12, color: isDarkMode ? 'rgba(248,113,113,0.9)' : '#b91c1c' }}>
+                        <Text style={{ fontSize: 12, color: colours.cta }}>
                           {asanaProjectsError}
                         </Text>
                       )}
@@ -1521,10 +1543,10 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
                           }}
                           style={{
                             height: 32,
-                            borderRadius: 6,
+                            borderRadius: 0,
                             border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                             padding: '0 10px',
-                            background: isDarkMode ? colours.dark.sectionBackground : '#fff',
+                            background: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
                             color: isDarkMode ? colours.dark.text : colours.light.text,
                             fontSize: 12,
                             fontFamily: 'Raleway, sans-serif',
@@ -1539,12 +1561,12 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
                         </select>
                       )}
                       {asanaSectionsLoading && (
-                        <Text style={{ fontSize: 12, color: isDarkMode ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.6)' }}>
+                        <Text style={{ fontSize: 12, color: isDarkMode ? '#d1d5db' : '#374151' }}>
                           Loading silos…
                         </Text>
                       )}
                       {asanaSectionsError && (
-                        <Text style={{ fontSize: 12, color: isDarkMode ? 'rgba(248,113,113,0.9)' : '#b91c1c' }}>
+                        <Text style={{ fontSize: 12, color: colours.cta }}>
                           {asanaSectionsError}
                         </Text>
                       )}
@@ -1559,42 +1581,42 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
                             <div key={section.id} style={{
                               minWidth: 220,
                               maxWidth: 260,
-                              borderRadius: 10,
+                              borderRadius: 0,
                               border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-                              background: isDarkMode ? colours.dark.sectionBackground : '#f1f5f9',
+                              background: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
                               padding: 10,
                               display: 'grid',
                               gap: 8
                             }}>
-                              <Text style={{ fontSize: 12, fontWeight: 600, color: isDarkMode ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.75)' }}>
+                              <Text style={{ fontSize: 12, fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>
                                 {section.name || 'Untitled'}
                               </Text>
                               {section.error && (
-                                <Text style={{ fontSize: 12, color: isDarkMode ? 'rgba(248,113,113,0.9)' : '#b91c1c' }}>
+                                <Text style={{ fontSize: 12, color: colours.cta }}>
                                   {section.error}
                                 </Text>
                               )}
                               {section.tasks && section.tasks.length > 0 ? (
                                 section.tasks.map((task) => (
                                   <div key={task.id} style={{
-                                    borderRadius: 8,
+                                    borderRadius: 0,
                                     border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-                                    background: isDarkMode ? colours.dark.cardBackground : '#fff',
+                                    background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
                                     padding: '6px 8px',
                                     display: 'grid',
                                     gap: 4
                                   }}>
-                                    <Text style={{ fontSize: 12, color: isDarkMode ? 'rgba(255,255,255,0.8)' : 'rgba(0,0,0,0.7)' }}>
+                                    <Text style={{ fontSize: 12, color: isDarkMode ? colours.dark.text : colours.light.text }}>
                                       {task.name}
                                     </Text>
                                     {task.assigneeName && (
-                                      <Text style={{ fontSize: 11, color: isDarkMode ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}>
+                                      <Text style={{ fontSize: 11, color: isDarkMode ? '#d1d5db' : '#374151' }}>
                                         {task.assigneeName}
                                       </Text>
                                     )}
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                       {task.dueOn && (
-                                        <Text style={{ fontSize: 11, color: isDarkMode ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)' }}>
+                                        <Text style={{ fontSize: 11, color: isDarkMode ? '#d1d5db' : '#374151' }}>
                                           Due {task.dueOn}
                                         </Text>
                                       )}
@@ -1610,7 +1632,7 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
                                   </div>
                                 ))
                               ) : (
-                                <Text style={{ fontSize: 12, color: isDarkMode ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.55)' }}>
+                                <Text style={{ fontSize: 12, color: isDarkMode ? '#d1d5db' : '#374151' }}>
                                   No open tasks.
                                 </Text>
                               )}
@@ -1626,7 +1648,7 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
                 <div style={{ marginTop: 12, display: 'grid', gap: 12 }}>
                   <div style={{
                     border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-                    borderRadius: 10,
+                    borderRadius: 0,
                     padding: 12,
                     background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
                     display: 'grid',
@@ -1640,12 +1662,12 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
                       disabled={netDocumentsUserLoading}
                     />
                     {netDocumentsUserError && (
-                      <Text style={{ fontSize: 12, color: isDarkMode ? 'rgba(248,113,113,0.9)' : '#b91c1c' }}>
+                      <Text style={{ fontSize: 12, color: colours.cta }}>
                         {netDocumentsUserError}
                       </Text>
                     )}
                     {netDocumentsUserResult && (
-                      <Text style={{ fontSize: 12, color: isDarkMode ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.6)' }}>
+                      <Text style={{ fontSize: 12, color: isDarkMode ? '#d1d5db' : '#374151' }}>
                         Membership loaded.
                       </Text>
                     )}
@@ -1653,7 +1675,7 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
 
                   <div style={{
                     border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-                    borderRadius: 10,
+                    borderRadius: 0,
                     padding: 12,
                     background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
                     display: 'grid',
@@ -1668,16 +1690,16 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
                         style={{
                           flex: '0 1 120px',
                           height: 32,
-                          borderRadius: 6,
+                          borderRadius: 0,
                           border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                           padding: '0 10px',
-                          background: isDarkMode ? colours.dark.cardBackground : '#fff',
+                          background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
                           color: isDarkMode ? colours.dark.text : colours.light.text,
                           fontSize: 12,
                           fontFamily: 'Raleway, sans-serif',
                         }}
                       />
-                      <Text style={{ fontSize: 14, color: isDarkMode ? '#64748b' : '#94a3b8' }}>/</Text>
+                      <Text style={{ fontSize: 14, color: isDarkMode ? '#d1d5db' : '#374151' }}>/</Text>
                       <input
                         value={netDocumentsMatterKey}
                         onChange={(e) => setNetDocumentsMatterKey(e.target.value)}
@@ -1685,10 +1707,10 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
                         style={{
                           flex: '1 1 140px',
                           height: 32,
-                          borderRadius: 6,
+                          borderRadius: 0,
                           border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                           padding: '0 10px',
-                          background: isDarkMode ? colours.dark.cardBackground : '#fff',
+                          background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
                           color: isDarkMode ? colours.dark.text : colours.light.text,
                           fontSize: 12,
                           fontFamily: 'Raleway, sans-serif',
@@ -1702,7 +1724,7 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
                       />
                     </div>
                     {netDocumentsWorkspaceError && (
-                      <Text style={{ fontSize: 12, color: isDarkMode ? 'rgba(248,113,113,0.9)' : '#b91c1c' }}>
+                      <Text style={{ fontSize: 12, color: colours.cta }}>
                         {netDocumentsWorkspaceError}
                       </Text>
                     )}
@@ -1712,12 +1734,12 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
                           {netDocumentsWorkspaceResult.name || 'Workspace'}
                         </Text>
                         {netDocumentsWorkspaceResult.client && (
-                          <Text style={{ fontSize: 12, color: isDarkMode ? 'rgba(255,255,255,0.75)' : 'rgba(0,0,0,0.65)' }}>
+                          <Text style={{ fontSize: 12, color: isDarkMode ? '#d1d5db' : '#374151' }}>
                             Client: {netDocumentsWorkspaceResult.client} ({netDocumentsWorkspaceResult.clientId})
                           </Text>
                         )}
                         {netDocumentsWorkspaceResult.matter && (
-                          <Text style={{ fontSize: 12, color: isDarkMode ? 'rgba(255,255,255,0.75)' : 'rgba(0,0,0,0.65)' }}>
+                          <Text style={{ fontSize: 12, color: isDarkMode ? '#d1d5db' : '#374151' }}>
                             Matter: {netDocumentsWorkspaceResult.matter} ({netDocumentsWorkspaceResult.matterKey})
                           </Text>
                         )}
@@ -1746,7 +1768,7 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
 
                   <div style={{
                     border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-                    borderRadius: 10,
+                    borderRadius: 0,
                     padding: 12,
                     background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
                     display: 'grid',
@@ -1761,10 +1783,10 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
                         style={{
                           flex: '1 1 200px',
                           height: 32,
-                          borderRadius: 6,
+                          borderRadius: 0,
                           border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                           padding: '0 10px',
-                          background: isDarkMode ? colours.dark.cardBackground : '#fff',
+                          background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
                           color: isDarkMode ? colours.dark.text : colours.light.text,
                           fontSize: 12,
                           fontFamily: 'Raleway, sans-serif',
@@ -1778,7 +1800,7 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
                       />
                     </div>
                     {netDocumentsContainerError && (
-                      <Text style={{ fontSize: 12, color: isDarkMode ? 'rgba(248,113,113,0.9)' : '#b91c1c' }}>
+                      <Text style={{ fontSize: 12, color: colours.cta }}>
                         {netDocumentsContainerError}
                       </Text>
                     )}
@@ -1821,7 +1843,7 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
 
                   <div style={{
                     border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-                    borderRadius: 10,
+                    borderRadius: 0,
                     padding: 12,
                     background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
                     display: 'grid',
@@ -1836,10 +1858,10 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
                         style={{
                           flex: '1 1 180px',
                           height: 32,
-                          borderRadius: 6,
+                          borderRadius: 0,
                           border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                           padding: '0 10px',
-                          background: isDarkMode ? colours.dark.cardBackground : '#fff',
+                          background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
                           color: isDarkMode ? colours.dark.text : colours.light.text,
                           fontSize: 12,
                           fontFamily: 'Raleway, sans-serif',
@@ -1860,10 +1882,10 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
                         style={{
                           width: 80,
                           height: 32,
-                          borderRadius: 6,
+                          borderRadius: 0,
                           border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                           padding: '0 10px',
-                          background: isDarkMode ? colours.dark.cardBackground : '#fff',
+                          background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
                           color: isDarkMode ? colours.dark.text : colours.light.text,
                           fontSize: 12,
                           fontFamily: 'Raleway, sans-serif',
@@ -1877,7 +1899,7 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
                       />
                     </div>
                     {netDocumentsSubError && (
-                      <Text style={{ fontSize: 12, color: isDarkMode ? 'rgba(248,113,113,0.9)' : '#b91c1c' }}>
+                      <Text style={{ fontSize: 12, color: colours.cta }}>
                         {netDocumentsSubError}
                       </Text>
                     )}
@@ -1901,7 +1923,7 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
 
                   <div style={{
                     border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-                    borderRadius: 10,
+                    borderRadius: 0,
                     padding: 12,
                     background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
                     display: 'grid',
@@ -1916,10 +1938,10 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
                         style={{
                           flex: '1 1 200px',
                           height: 32,
-                          borderRadius: 6,
+                          borderRadius: 0,
                           border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                           padding: '0 10px',
-                          background: isDarkMode ? colours.dark.cardBackground : '#fff',
+                          background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
                           color: isDarkMode ? colours.dark.text : colours.light.text,
                           fontSize: 12,
                           fontFamily: 'Raleway, sans-serif',
@@ -1933,7 +1955,7 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
                       />
                     </div>
                     {netDocumentsDocumentError && (
-                      <Text style={{ fontSize: 12, color: isDarkMode ? 'rgba(248,113,113,0.9)' : '#b91c1c' }}>
+                      <Text style={{ fontSize: 12, color: colours.cta }}>
                         {netDocumentsDocumentError}
                       </Text>
                     )}
@@ -1955,7 +1977,7 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
 
                   <div style={{
                     border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-                    borderRadius: 10,
+                    borderRadius: 0,
                     padding: 12,
                     background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
                     display: 'grid',
@@ -1970,10 +1992,10 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
                         style={{
                           flex: '1 1 240px',
                           height: 32,
-                          borderRadius: 6,
+                          borderRadius: 0,
                           border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                           padding: '0 10px',
-                          background: isDarkMode ? colours.dark.cardBackground : '#fff',
+                          background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
                           color: isDarkMode ? colours.dark.text : colours.light.text,
                           fontSize: 12,
                           fontFamily: 'Raleway, sans-serif',
@@ -1987,10 +2009,10 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
                           style={{
                             flex: '1 1 200px',
                             height: 32,
-                            borderRadius: 6,
+                            borderRadius: 0,
                             border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                             padding: '0 10px',
-                            background: isDarkMode ? colours.dark.cardBackground : '#fff',
+                            background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
                             color: isDarkMode ? colours.dark.text : colours.light.text,
                             fontSize: 12,
                             fontFamily: 'Raleway, sans-serif',
@@ -2003,10 +2025,10 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
                           style={{
                             width: 80,
                             height: 32,
-                            borderRadius: 6,
+                            borderRadius: 0,
                             border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                             padding: '0 10px',
-                            background: isDarkMode ? colours.dark.cardBackground : '#fff',
+                            background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
                             color: isDarkMode ? colours.dark.text : colours.light.text,
                             fontSize: 12,
                             fontFamily: 'Raleway, sans-serif',
@@ -2021,7 +2043,7 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
                       </div>
                     </div>
                     {netDocumentsSearchError && (
-                      <Text style={{ fontSize: 12, color: isDarkMode ? 'rgba(248,113,113,0.9)' : '#b91c1c' }}>
+                      <Text style={{ fontSize: 12, color: colours.cta }}>
                         {netDocumentsSearchError}
                       </Text>
                     )}
@@ -2092,10 +2114,10 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
                       style={{
                         flex: '1 1 180px',
                         height: 32,
-                        borderRadius: 6,
+                        borderRadius: 0,
                         border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                         padding: '0 10px',
-                        background: isDarkMode ? colours.dark.cardBackground : '#fff',
+                        background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
                         color: isDarkMode ? colours.dark.text : colours.light.text,
                         fontSize: 12,
                         fontFamily: 'Raleway, sans-serif',
@@ -2109,14 +2131,14 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
                     />
                   </div>
                   {azureUserError && (
-                    <Text style={{ fontSize: 12, marginTop: 8, color: isDarkMode ? 'rgba(248,113,113,0.9)' : '#b91c1c' }}>
+                    <Text style={{ fontSize: 12, marginTop: 8, color: colours.cta }}>
                       {azureUserError}
                     </Text>
                   )}
                   {azureUserResult && (
                     <div style={{ marginTop: 10, display: 'grid', gap: 4 }}>
                       {Object.entries(azureUserResult).map(([label, value]) => (
-                        <Text key={label} style={{ fontSize: 12, color: isDarkMode ? 'rgba(255,255,255,0.75)' : 'rgba(0,0,0,0.65)' }}>
+                        <Text key={label} style={{ fontSize: 12, color: isDarkMode ? '#d1d5db' : '#374151' }}>
                           <strong>{label}:</strong> {value}
                         </Text>
                       ))}
@@ -2139,10 +2161,10 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
                         style={{
                           flex: '1 1 180px',
                           height: 32,
-                          borderRadius: 6,
+                          borderRadius: 0,
                           border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                           padding: '0 10px',
-                          background: isDarkMode ? colours.dark.cardBackground : '#fff',
+                          background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
                           color: isDarkMode ? colours.dark.text : colours.light.text,
                           fontSize: 12,
                           fontFamily: 'Raleway, sans-serif',
@@ -2156,19 +2178,19 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
                       />
                     </div>
                     {clioContactError && (
-                      <Text style={{ fontSize: 12, color: isDarkMode ? 'rgba(248,113,113,0.9)' : '#b91c1c' }}>
+                      <Text style={{ fontSize: 12, color: colours.cta }}>
                         {clioContactError}
                       </Text>
                     )}
                     {clioContactResult && (
                       <div style={{ display: 'grid', gap: 4 }}>
                         {clioContactResult.length === 0 && (
-                          <Text style={{ fontSize: 12, color: isDarkMode ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.6)' }}>
+                          <Text style={{ fontSize: 12, color: isDarkMode ? '#d1d5db' : '#374151' }}>
                             No contacts found.
                           </Text>
                         )}
                         {clioContactResult.map((contact) => (
-                          <Text key={contact.id} style={{ fontSize: 12, color: isDarkMode ? 'rgba(255,255,255,0.75)' : 'rgba(0,0,0,0.65)' }}>
+                          <Text key={contact.id} style={{ fontSize: 12, color: isDarkMode ? '#d1d5db' : '#374151' }}>
                             <strong>{contact.name || 'Unknown'}</strong> — {contact.email || 'No email'}
                           </Text>
                         ))}
@@ -2183,10 +2205,10 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
                         style={{
                           flex: '1 1 180px',
                           height: 32,
-                          borderRadius: 6,
+                          borderRadius: 0,
                           border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                           padding: '0 10px',
-                          background: isDarkMode ? colours.dark.cardBackground : '#fff',
+                          background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
                           color: isDarkMode ? colours.dark.text : colours.light.text,
                           fontSize: 12,
                           fontFamily: 'Raleway, sans-serif',
@@ -2200,19 +2222,19 @@ const Resources: React.FC<ResourcesProps> = ({ userData }) => {
                       />
                     </div>
                     {clioMatterError && (
-                      <Text style={{ fontSize: 12, color: isDarkMode ? 'rgba(248,113,113,0.9)' : '#b91c1c' }}>
+                      <Text style={{ fontSize: 12, color: colours.cta }}>
                         {clioMatterError}
                       </Text>
                     )}
                     {clioMatterResult && (
                       <div style={{ display: 'grid', gap: 4 }}>
                         {clioMatterResult.length === 0 && (
-                          <Text style={{ fontSize: 12, color: isDarkMode ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.6)' }}>
+                          <Text style={{ fontSize: 12, color: isDarkMode ? '#d1d5db' : '#374151' }}>
                             No matters found.
                           </Text>
                         )}
                         {clioMatterResult.map((matter) => (
-                          <Text key={matter.id} style={{ fontSize: 12, color: isDarkMode ? 'rgba(255,255,255,0.75)' : 'rgba(0,0,0,0.65)' }}>
+                          <Text key={matter.id} style={{ fontSize: 12, color: isDarkMode ? '#d1d5db' : '#374151' }}>
                             <strong>{matter.displayNumber || 'No ref'}</strong> — {matter.description || 'No description'}
                           </Text>
                         ))}

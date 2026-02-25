@@ -18,11 +18,11 @@ interface IconAreaFilterProps {
 
 // Area configuration with colors and emojis (matching table display)
 const areaConfig: Record<string, AreaOption> = {
-  'Commercial': { key: 'Commercial', label: 'Commercial', emoji: '🏢', color: '#3690CE' },
-  'Property': { key: 'Property', label: 'Property', emoji: '🏠', color: '#10b981' },
-  'Construction': { key: 'Construction', label: 'Construction', emoji: '🏗️', color: '#f97316' },
-  'Employment': { key: 'Employment', label: 'Employment', emoji: '👩🏻‍💼', color: '#f59e0b' },
-  'Other/Unsure': { key: 'Other/Unsure', label: 'Other', emoji: 'ℹ️', color: '#6b7280' },
+  'Commercial': { key: 'Commercial', label: 'Commercial', emoji: '🏢', color: colours.blue },
+  'Property': { key: 'Property', label: 'Property', emoji: '🏠', color: colours.green },
+  'Construction': { key: 'Construction', label: 'Construction', emoji: '🏗️', color: colours.orange },
+  'Employment': { key: 'Employment', label: 'Employment', emoji: '👩🏻‍💼', color: colours.yellow },
+  'Other/Unsure': { key: 'Other/Unsure', label: 'Other', emoji: 'ℹ️', color: colours.greyText },
 };
 
 /**
@@ -60,13 +60,13 @@ const IconAreaFilter: React.FC<IconAreaFilterProps> = ({
       style={{
         display: 'flex',
         alignItems: 'center',
-        gap: 4,
-        height: 32,
-        padding: '4px',
-        background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-        borderRadius: 16,
+        gap: 2,
+        height: 30,
+        padding: 2,
+        background: isDarkMode ? colours.dark.sectionBackground : 'rgba(0,0,0,0.03)',
+        borderRadius: 0,
         fontFamily: 'Raleway, sans-serif',
-        pointerEvents: 'auto', // Ensure container allows pointer events
+        pointerEvents: 'auto',
       }}
     >
       {/* Individual area buttons */}
@@ -90,30 +90,30 @@ const IconAreaFilter: React.FC<IconAreaFilterProps> = ({
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              width: 24,
-              height: 24,
-              background: isSelected 
-                ? (isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.9)')
-                : 'transparent',
-              border: isSelected ? `1px solid ${area.color}40` : '1px solid transparent',
-              borderRadius: 12,
+              width: 26,
+              height: 26,
+              background: isSelected
+                ? (isDarkMode ? colours.dark.cardBackground : '#fff')
+                : (isDarkMode ? 'rgba(6,23,51,0.5)' : 'rgba(13,47,96,0.03)'),
+              border: isSelected ? `1px solid ${area.color}` : `1px solid ${isDarkMode ? 'rgba(55,65,81,0.3)' : 'rgba(13,47,96,0.08)'}`,
+              borderRadius: 0,
               cursor: 'pointer',
-              transition: 'all 200ms ease',
-              opacity: noneSelected || isSelected ? 1 : 0.4,
+              transition: 'all 180ms ease',
+              opacity: noneSelected || isSelected ? 1 : 0.45,
               boxShadow: isSelected 
                 ? (isDarkMode
-                    ? '0 1px 2px rgba(0,0,0,0.2)'
+                    ? '0 1px 3px rgba(0,0,0,0.25)'
                     : '0 1px 2px rgba(0,0,0,0.06)')
                 : 'none',
               pointerEvents: 'auto',
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.transform = 'scale(1.1)';
+              e.currentTarget.style.transform = 'scale(1.08)';
               e.currentTarget.style.opacity = '1';
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.transform = 'scale(1)';
-              e.currentTarget.style.opacity = noneSelected || isSelected ? '1' : '0.4';
+              e.currentTarget.style.opacity = noneSelected || isSelected ? '1' : '0.45';
             }}
           >
             <span

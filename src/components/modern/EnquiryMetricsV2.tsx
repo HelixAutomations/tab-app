@@ -7,6 +7,9 @@ interface EnquiryMetric {
   title: string;
   count?: number;
   prevCount?: number;
+  elapsedPrevCount?: number;
+  pitchedCount?: number;
+  prevPitchedCount?: number;
   percentage?: number;
   prevPercentage?: number;
   isPercentage?: boolean;
@@ -77,8 +80,8 @@ const SkeletonBox: React.FC<{ width: string; height: string; isDarkMode: boolean
     borderRadius: '4px',
     background: isDarkMode 
       ? (animate
-        ? 'linear-gradient(90deg, rgba(54, 144, 206, 0.08) 0%, rgba(54, 144, 206, 0.15) 50%, rgba(54, 144, 206, 0.08) 100%)'
-        : 'rgba(54, 144, 206, 0.12)')
+        ? 'linear-gradient(90deg, rgba(135, 243, 243, 0.06) 0%, rgba(135, 243, 243, 0.12) 50%, rgba(135, 243, 243, 0.06) 100%)'
+        : 'rgba(135, 243, 243, 0.08)')
       : (animate
         ? 'linear-gradient(90deg, rgba(148, 163, 184, 0.15) 0%, rgba(148, 163, 184, 0.25) 50%, rgba(148, 163, 184, 0.15) 100%)'
         : 'rgba(148, 163, 184, 0.2)'),
@@ -94,13 +97,12 @@ const SkeletonMetricCard: React.FC<{ isDarkMode: boolean; index: number; showPro
   <div
     style={{
       background: isDarkMode
-        ? 'rgba(0, 3, 25, 0.28)'
+        ? colours.websiteBlue
         : 'rgba(255, 255, 255, 0.66)',
       borderRadius: '0',
       padding: '8px',
-      borderLeft: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.45)' : 'rgba(54, 144, 206, 0.55)'}`,
       border: isDarkMode 
-        ? '1px solid rgba(54, 144, 206, 0.06)'
+        ? '1px solid rgba(135, 243, 243, 0.1)'
         : '1px solid rgba(148, 163, 184, 0.12)',
       boxShadow: 'none',
       opacity: 1,
@@ -157,7 +159,7 @@ const Toast: React.FC<{ message: string; type: 'info' | 'success' | 'error'; vis
   );
 };
 
-const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode, userEmail, userInitials, headerActions, title, refreshAnimationKey, isLoading, breakdown, showPreviousPeriod = true, viewAsProd = false, embedded = false }) => {
+const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode, userEmail, userInitials, headerActions, title, refreshAnimationKey, isLoading, breakdown, showPreviousPeriod = false, viewAsProd = false, embedded = false }) => {
   const isSessionStorageAvailable = React.useMemo(() => {
     try {
       const key = '__emv2_storage_test__';
@@ -168,31 +170,49 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
       return false;
     }
   }, []);
-  // Show details feature only in local dev when NOT viewing as production
-  const showDetailsFeature = !viewAsProd;
+  // Conversion metric breakdown should be available in normal use
+  const showDetailsFeature = true;
 
   const sectionRailStyle = React.useMemo<React.CSSProperties>(() => ({
-    background: isDarkMode ? 'rgba(6, 23, 51, 0.35)' : 'rgba(248, 250, 252, 0.68)',
-    border: isDarkMode ? '1px solid rgba(54, 144, 206, 0.08)' : '1px solid rgba(148, 163, 184, 0.16)',
+    background: isDarkMode ? 'rgba(6, 23, 51, 0.35)' : 'linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(244, 244, 246, 0.96) 100%)',
+    border: isDarkMode ? '1px solid rgba(54, 144, 206, 0.08)' : `1px solid ${colours.highlightNeutral}`,
     padding: '3px',
   }), [isDarkMode]);
 
   const metricBlockStyle = React.useMemo<React.CSSProperties>(() => ({
-    background: isDarkMode ? 'rgba(0, 3, 25, 0.28)' : 'rgba(255, 255, 255, 0.66)',
-    border: isDarkMode ? '1px solid rgba(54, 144, 206, 0.06)' : '1px solid rgba(148, 163, 184, 0.12)',
-    borderLeft: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.45)' : 'rgba(54, 144, 206, 0.55)'}`,
+    background: isDarkMode ? 'rgba(0, 3, 25, 0.28)' : colours.grey,
+    border: isDarkMode ? '1px solid rgba(54, 144, 206, 0.06)' : `1px solid ${colours.highlightBlue}`,
+    borderLeft: 'none',
     borderRadius: '0',
     padding: '8px',
     boxShadow: 'none',
   }), [isDarkMode]);
 
-  // Inject keyframes
+  const animatedComparisonStyle = React.useCallback((visible: boolean): React.CSSProperties => ({
+    maxHeight: visible ? '92px' : '0px',
+    opacity: visible ? 1 : 0,
+    transform: visible ? 'translateY(0)' : 'translateY(-4px)',
+    overflow: 'hidden',
+    transition: 'max-height 240ms ease, opacity 220ms ease, transform 220ms ease',
+    willChange: 'max-height, opacity, transform',
+  }), []);
+
+  // Inject keyframes + responsive styles
   React.useEffect(() => {
     const styleId = 'enquiry-metrics-refresh-keyframes';
     if (!document.getElementById(styleId)) {
       const styleEl = document.createElement('style');
       styleEl.id = styleId;
-      styleEl.textContent = metricRefreshKeyframes;
+      styleEl.textContent = metricRefreshKeyframes + `
+        /* EnquiryMetricsV2 responsive (standalone, not dependent on TimeMetricsV2) */
+        @media (max-width: 640px) {
+          .metricsGridThree { grid-template-columns: 1fr !important; }
+          .metricsGridTwo { grid-template-columns: 1fr !important; }
+        }
+        @media (min-width: 641px) and (max-width: 900px) {
+          .metricsGridThree { grid-template-columns: repeat(2, 1fr) !important; }
+        }
+      `;
       document.head.appendChild(styleEl);
     }
   }, []);
@@ -211,6 +231,16 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
 
   // Hover help for what the delta compares against (only shown on Current view)
   const [hoveredTrendKey, setHoveredTrendKey] = React.useState<string | null>(null);
+  const [enquiryComparisonModeByTitle, setEnquiryComparisonModeByTitle] = React.useState<Record<string, 'previous' | 'elapsed'>>({});
+
+  const hasBreakdownData = React.useMemo(() => {
+    if (!breakdown || typeof breakdown !== 'object') return false;
+    const breakdownObj = breakdown as Record<string, unknown>;
+    return ['today', 'weekToDate', 'monthToDate'].some((key) => {
+      const periodObj = breakdownObj[key];
+      return periodObj && typeof periodObj === 'object';
+    });
+  }, [breakdown]);
 
   const getDisplayTitle = React.useCallback((rawTitle: string): string => {
     return rawTitle;
@@ -249,6 +279,12 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
     if (titleLower.includes('this month')) return 'monthToDate';
     return null;
   }, []);
+
+  const canOpenMetricBreakdown = React.useCallback((metric: EnquiryMetric) => {
+    if (!showDetailsFeature) return false;
+    if (!getPeriodKey(metric.title)) return false;
+    return hasBreakdownData || Boolean(userEmail || userInitials);
+  }, [showDetailsFeature, getPeriodKey, hasBreakdownData, userEmail, userInitials]);
 
   const getAowTop = React.useCallback((periodKey: 'today' | 'weekToDate' | 'monthToDate' | null): AowTopItem[] => {
     if (!periodKey) return [];
@@ -335,40 +371,69 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
       );
     }
 
+    const visibleRecords = records.slice(0, 8);
+    const hiddenCount = Math.max(0, records.length - visibleRecords.length);
+
     return (
-      <div style={{ display: 'grid', gap: 6 }}>
-        {records.map((row, index) => {
+      <div style={{ display: 'grid', gap: 8 }}>
+        {visibleRecords.map((row, index) => {
           const date = typeof row.date === 'string' ? row.date : '';
           const poc = typeof row.poc === 'string' ? row.poc : '';
           const aow = typeof row.aow === 'string' ? row.aow : '';
           const source = typeof row.source === 'string' ? row.source : '';
-          const label = [date, poc || '—', aow || '—'].filter(Boolean).join(' · ');
+          const label = [date || '—', poc || '—'].filter(Boolean).join(' · ');
           return (
-            <div key={`${source}-${index}`} style={{ display: 'flex', gap: 8, fontSize: 12 }}>
+            <div key={`${source}-${index}`} style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 10,
+              fontSize: 12,
+              padding: '8px 10px',
+              border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(15, 23, 42, 0.1)'}`,
+              background: isDarkMode ? 'rgba(6, 23, 51, 0.45)' : 'rgba(255, 255, 255, 0.7)',
+            }}>
+              <span style={{ color: isDarkMode ? colours.dark.text : colours.light.text, lineHeight: 1.3, minWidth: 0, flex: 1 }}>
+                {label}
+              </span>
               <span style={{
                 padding: '2px 6px',
                 borderRadius: 999,
                 fontSize: 10,
                 fontWeight: 700,
-                textTransform: 'uppercase',
-                letterSpacing: 0.5,
+                letterSpacing: 0.4,
                 color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)',
                 background: isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.12)',
                 border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.25)'}`,
-                minWidth: 64,
-                textAlign: 'center',
+                whiteSpace: 'nowrap',
               }}>
-                {source || 'unknown'}
-              </span>
-              <span style={{ color: isDarkMode ? colours.dark.text : colours.light.text, lineHeight: 1.3 }}>
-                {label}
+                {aow || 'Other'}
               </span>
             </div>
           );
         })}
+        {hiddenCount > 0 && (
+          <div style={{
+            fontSize: 11,
+            fontWeight: 500,
+            color: isDarkMode ? 'rgba(148, 163, 184, 0.78)' : 'rgba(100, 116, 139, 0.82)',
+            textAlign: 'right',
+          }}>
+            +{hiddenCount} more records in this window
+          </div>
+        )}
       </div>
     );
   }, [isDarkMode]);
+
+  // Show toast notification
+  const showToast = React.useCallback((message: string, type: 'info' | 'success' | 'error', duration: number = 2500) => {
+    setToast({ message, type, visible: true });
+    setTimeout(() => {
+      setToast(prev => prev ? { ...prev, visible: false } : null);
+      setTimeout(() => setToast(null), 200);
+    }, duration);
+  }, []);
 
   const openMetricDetails = React.useCallback((metric: EnquiryMetric) => {
     if (!showDetailsFeature) return;
@@ -385,6 +450,7 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
       rows: [],
     });
     setIsMetricDetailsOpen(true);
+    showToast('Loading enquiry breakdown…', 'info', 1200);
 
     if (!periodKey) return;
     const requestId = Date.now();
@@ -405,29 +471,177 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
       })
       .then((payload) => {
         if (detailsRequestRef.current !== requestId) return;
+        const currentRecords = Array.isArray(payload?.current?.records) ? payload.current.records : [];
+        const previousRecords = Array.isArray(payload?.previous?.records) ? payload.previous.records : [];
         setDetailsPayload({
           periodKey,
           currentRange: payload?.currentRange,
           previousRange: payload?.previousRange,
-          current: Array.isArray(payload?.current?.records) ? payload.current.records : [],
-          previous: Array.isArray(payload?.previous?.records) ? payload.previous.records : [],
+          current: currentRecords,
+          previous: previousRecords,
           filters: payload?.filters || undefined,
           limit: payload?.limit,
         });
         setDetailsLoading(false);
+        showToast(`Breakdown ready · ${currentRecords.length} current vs ${previousRecords.length} previous`, 'success', 2200);
       })
       .catch((err) => {
         if (detailsRequestRef.current !== requestId) return;
         setDetailsError(err?.message || 'Failed to load records.');
         setDetailsLoading(false);
+        showToast('Could not load breakdown. Please retry.', 'error', 2600);
       });
-  }, [showDetailsFeature, getDisplayTitle, getPeriodKey, userEmail, userInitials]);
+  }, [showDetailsFeature, getDisplayTitle, getPeriodKey, userEmail, userInitials, showToast]);
+
+  const detailsChipStyle: React.CSSProperties = React.useMemo(() => ({
+    fontSize: 10,
+    fontWeight: 700,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    color: isDarkMode ? 'rgba(148, 163, 184, 0.9)' : 'rgba(100, 116, 139, 0.95)',
+    border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(15, 23, 42, 0.10)'}`,
+    background: isDarkMode ? 'rgba(135, 243, 243, 0.06)' : 'rgba(255, 255, 255, 0.7)',
+    padding: '3px 8px',
+    borderRadius: 999,
+    lineHeight: 1,
+  }), [isDarkMode]);
 
   React.useEffect(() => {
     if (!selectedMetric || !isMetricDetailsOpen) return;
 
     const metric = selectedMetric;
+    const currentRecords = detailsPayload?.current || [];
+    const previousRecords = detailsPayload?.previous || [];
+    const currentCount = currentRecords.length;
+    const previousCount = previousRecords.length;
+    const delta = currentCount - previousCount;
+    const deltaDirection = delta > 0 ? 'up' : delta < 0 ? 'down' : 'flat';
+    const deltaText = delta > 0 ? `+${delta}` : `${delta}`;
+    const isEnquiryCard = isEnquiryPeriodMetric(metric);
+    const pitchedCount = Number(metric.pitchedCount || 0);
+    const unpitchedCount = Math.max(0, Math.round(getCurrentValue(metric)) - Math.round(pitchedCount));
+    const topAow = getAowTop(getPeriodKey(metric.title)).slice(0, 3);
+
+    const pitchCue = isEnquiryCard
+      ? (unpitchedCount > 0
+        ? `${unpitchedCount} enquiry${unpitchedCount === 1 ? '' : 'ies'} have no recorded pitch in this window. Prioritise these first.`
+        : 'All enquiries in this window have a recorded pitch. Focus on conversion follow-up.')
+      : 'Use this breakdown to identify priority follow-up and conversion opportunities.';
+
     const rows: MetricDetails['rows'] = [
+      {
+        label: 'Snapshot',
+        value: (
+          <div style={{ display: 'grid', gap: 10 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
+              {[{
+                label: 'Current',
+                value: String(currentCount),
+                hint: detailsPayload?.currentRange || 'Current window',
+              }, {
+                label: 'Previous',
+                value: String(previousCount),
+                hint: detailsPayload?.previousRange || 'Previous window',
+              }, {
+                label: 'Delta',
+                value: deltaText,
+                hint: deltaDirection === 'up' ? 'Above previous' : deltaDirection === 'down' ? 'Below previous' : 'No change',
+              }].map((item) => (
+                <div key={item.label} style={{
+                  border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(15, 23, 42, 0.1)'}`,
+                  background: isDarkMode ? 'rgba(6, 23, 51, 0.45)' : 'rgba(255, 255, 255, 0.7)',
+                  padding: '10px 10px',
+                }}>
+                  <div style={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    letterSpacing: 0.4,
+                    textTransform: 'uppercase',
+                    color: isDarkMode ? 'rgba(148, 163, 184, 0.8)' : 'rgba(100, 116, 139, 0.82)',
+                  }}>
+                    {item.label}
+                  </div>
+                  <div style={{
+                    marginTop: 4,
+                    fontSize: 18,
+                    fontWeight: 700,
+                    color: item.label === 'Delta'
+                      ? (deltaDirection === 'up' ? colours.green : deltaDirection === 'down' ? colours.cta : (isDarkMode ? colours.dark.text : colours.light.text))
+                      : (isDarkMode ? colours.dark.text : colours.light.text),
+                    fontVariantNumeric: 'tabular-nums',
+                  }}>
+                    {item.value}
+                  </div>
+                  <div style={{
+                    marginTop: 3,
+                    fontSize: 10,
+                    color: isDarkMode ? 'rgba(148, 163, 184, 0.78)' : 'rgba(100, 116, 139, 0.85)',
+                  }}>
+                    {item.hint}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ),
+      },
+      {
+        label: 'Pitch Cue',
+        value: (
+          <div style={{
+            border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.22)' : 'rgba(54, 144, 206, 0.24)'}`,
+            background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
+            padding: '10px 12px',
+            display: 'grid',
+            gap: 6,
+          }}>
+            <div style={{
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: 0.35,
+              textTransform: 'uppercase',
+              color: isDarkMode ? colours.accent : colours.highlight,
+            }}>
+              Next Step
+            </div>
+            <div style={{
+              fontSize: 13,
+              fontWeight: 500,
+              color: isDarkMode ? colours.dark.text : colours.light.text,
+              lineHeight: 1.45,
+            }}>
+              {pitchCue}
+            </div>
+            {isEnquiryCard && (
+              <div style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 6,
+              }}>
+                <span style={detailsChipStyle}>Enquiries {Math.round(getCurrentValue(metric))}</span>
+                <span style={detailsChipStyle}>Pitched {Math.round(pitchedCount)}</span>
+                <span style={detailsChipStyle}>Awaiting pitch {unpitchedCount}</span>
+              </div>
+            )}
+          </div>
+        ),
+      },
+      {
+        label: 'Area Focus',
+        value: topAow.length > 0 ? (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {topAow.map((item) => (
+              <span key={item.key} style={detailsChipStyle}>
+                {item.key} {item.count}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <div style={{ fontSize: 12, color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.75)' }}>
+            No dominant area-of-work signal in this window yet.
+          </div>
+        ),
+      },
       {
         label: 'Records',
         value: (
@@ -443,12 +657,12 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
               </div>
             )}
             {!detailsLoading && !detailsError && detailsPayload && (
-              <div style={{ display: 'grid', gap: 16 }}>
+              <div style={{ display: 'grid', gap: 12 }}>
                 <div style={{ display: 'grid', gap: 8 }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text }}>
                     Current window ({detailsPayload.currentRange || '—'})
                   </div>
-                  <div style={{ maxHeight: 260, overflowY: 'auto', paddingRight: 6 }}>
+                  <div style={{ maxHeight: 220, overflowY: 'auto', paddingRight: 6 }}>
                     {renderRecordList(detailsPayload.current, 'No records returned for this window.')}
                   </div>
                 </div>
@@ -456,15 +670,10 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
                   <div style={{ fontSize: 12, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text }}>
                     Previous window ({detailsPayload.previousRange || '—'})
                   </div>
-                  <div style={{ maxHeight: 260, overflowY: 'auto', paddingRight: 6 }}>
+                  <div style={{ maxHeight: 220, overflowY: 'auto', paddingRight: 6 }}>
                     {renderRecordList(detailsPayload.previous, 'No records returned for this window.')}
                   </div>
                 </div>
-                {detailsPayload.filters && (
-                  <div style={{ fontSize: 11, color: isDarkMode ? 'rgba(148, 163, 184, 0.75)' : 'rgba(100, 116, 139, 0.8)' }}>
-                    Filters: {JSON.stringify(detailsPayload.filters)}
-                  </div>
-                )}
               </div>
             )}
           </div>
@@ -477,31 +686,9 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
       subtitle: undefined,
       rows,
     });
-  }, [selectedMetric, isMetricDetailsOpen, detailsLoading, detailsError, detailsPayload, getPeriodKey, getDisplayTitle, isDarkMode, renderRecordList]);
-
-  const detailsChipStyle: React.CSSProperties = React.useMemo(() => ({
-    fontSize: 10,
-    fontWeight: 700,
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
-    color: isDarkMode ? 'rgba(148, 163, 184, 0.9)' : 'rgba(100, 116, 139, 0.95)',
-    border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(15, 23, 42, 0.10)'}`,
-    background: isDarkMode ? 'rgba(6, 23, 51, 0.4)' : 'rgba(255, 255, 255, 0.7)',
-    padding: '3px 8px',
-    borderRadius: 999,
-    lineHeight: 1,
-  }), [isDarkMode]);
+  }, [selectedMetric, isMetricDetailsOpen, detailsLoading, detailsError, detailsPayload, getPeriodKey, getDisplayTitle, isDarkMode, renderRecordList, detailsChipStyle, getAowTop]);
 
   // No click-to-inspect breakdown or sidepane modals.
-  
-  // Show toast notification
-  const showToast = React.useCallback((message: string, type: 'info' | 'success' | 'error', duration: number = 2500) => {
-    setToast({ message, type, visible: true });
-    setTimeout(() => {
-      setToast(prev => prev ? { ...prev, visible: false } : null);
-      setTimeout(() => setToast(null), 200);
-    }, duration);
-  }, []);
   
   // Detect data landing (loading → not loading transition)
   React.useEffect(() => {
@@ -671,6 +858,120 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
     return metric.isPercentage ? (metric.prevPercentage || 0) : (metric.prevCount || 0);
   };
 
+  const isEnquiryPeriodMetric = (metric: EnquiryMetric) => {
+    const title = (metric.title || '').toLowerCase();
+    return title === 'enquiries today' || title === 'enquiries this week' || title === 'enquiries this month';
+  };
+
+  const formatComparisonValue = (metric: EnquiryMetric, value: number): string => {
+    if (metric.isPercentage) return `${value.toFixed(1)}%`;
+    return `${Math.round(value)}`;
+  };
+
+  const renderComparisonRows = (metric: EnquiryMetric) => {
+    const titleLower = (metric.title || '').toLowerCase();
+    const titleKey = metric.title || '';
+    const isTodayCard = titleLower === 'enquiries today';
+    const isWeekCard = titleLower === 'enquiries this week';
+    const isMonthCard = titleLower === 'enquiries this month';
+    const isConversionRateCard = titleLower.includes('conversion rate');
+    const canToggleElapsed = !isTodayCard && typeof metric.elapsedPrevCount === 'number';
+    const mode = enquiryComparisonModeByTitle[titleKey] || 'previous';
+    const previousValue = canToggleElapsed && mode === 'elapsed'
+      ? Number(metric.elapsedPrevCount || 0)
+      : Number(metric.isPercentage ? metric.prevPercentage : metric.prevCount);
+    const hasPreviousValue = Number.isFinite(previousValue);
+    const currentValue = Number(getCurrentValue(metric) || 0);
+    const currentLabel = isTodayCard
+      ? 'Today'
+      : isWeekCard
+        ? 'This Week'
+        : isMonthCard
+          ? 'This Month'
+          : isConversionRateCard
+            ? 'This Month'
+            : 'Current';
+    const previousLabel = isTodayCard
+      ? 'Yesterday'
+      : isWeekCard
+        ? (canToggleElapsed && mode === 'elapsed' ? 'Last Week (to date)' : 'Last Week')
+        : isMonthCard
+          ? (canToggleElapsed && mode === 'elapsed' ? 'Last Month (to date)' : 'Last Month')
+          : 'Previous';
+    const conversionEnquiries = Number(metric.context?.enquiriesMonthToDate || 0);
+    const conversionOpened = Number(metric.context?.mattersOpenedMonthToDate || 0);
+
+    return (
+      <div style={{ marginTop: '7px', display: 'grid', gap: '3px' }}>
+        {canToggleElapsed && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '8px', marginBottom: '1px' }}>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setEnquiryComparisonModeByTitle((prev) => ({
+                  ...prev,
+                  [titleKey]: (prev[titleKey] || 'previous') === 'previous' ? 'elapsed' : 'previous',
+                }));
+              }}
+              onKeyDown={(e) => e.stopPropagation()}
+              style={{
+                border: 'none',
+                background: 'transparent',
+                color: isDarkMode ? 'rgba(135, 243, 243, 0.72)' : 'rgba(54, 144, 206, 0.82)',
+                fontSize: '10px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                lineHeight: 1.2,
+                padding: 0,
+                opacity: 0.9,
+                borderBottom: `1px dotted ${isDarkMode ? 'rgba(135, 243, 243, 0.45)' : 'rgba(54, 144, 206, 0.45)'}`,
+              }}
+              aria-label="Toggle enquiry comparison mode"
+              title={`${isWeekCard ? 'Last Week' : 'Last Month'} comparison (${mode === 'previous' ? 'full period' : 'to date'}) — click to toggle`}
+            >
+              <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: '5px' }}>
+                <span>
+                  {isWeekCard
+                    ? (mode === 'previous' ? 'Last Week (full)' : 'Last Week (to date)')
+                    : (mode === 'previous' ? 'Last Month (full)' : 'Last Month (to date)')}
+                </span>
+                <span style={{ fontSize: '8px', fontWeight: 600, opacity: 0.5, letterSpacing: '0.1px' }} aria-hidden="true">⇄</span>
+              </span>
+            </button>
+          </div>
+        )}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+          <span style={{ fontSize: '9px', fontWeight: 600, letterSpacing: '0.18px', color: isDarkMode ? 'rgba(255, 255, 255, 0.45)' : 'rgba(15, 23, 42, 0.55)' }}>
+            {currentLabel}
+          </span>
+          <span style={{ fontSize: '10px', fontWeight: 600, color: isDarkMode ? 'rgba(255, 255, 255, 0.78)' : 'rgba(15, 23, 42, 0.82)', fontVariantNumeric: 'tabular-nums' }}>
+            {formatComparisonValue(metric, currentValue)}
+          </span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+          <span style={{ fontSize: '9px', fontWeight: 600, letterSpacing: '0.18px', color: isDarkMode ? 'rgba(255, 255, 255, 0.45)' : 'rgba(15, 23, 42, 0.55)' }}>
+            {previousLabel}
+          </span>
+          <span style={{ fontSize: '10px', fontWeight: 600, color: isDarkMode ? 'rgba(255, 255, 255, 0.66)' : 'rgba(15, 23, 42, 0.74)', fontVariantNumeric: 'tabular-nums' }}>
+            {hasPreviousValue ? formatComparisonValue(metric, previousValue) : '—'}
+          </span>
+        </div>
+        {isConversionRateCard && (
+          <div style={{
+            marginTop: '2px',
+            fontSize: '9px',
+            fontWeight: 500,
+            color: isDarkMode ? 'rgba(255, 255, 255, 0.46)' : 'rgba(15, 23, 42, 0.56)',
+            letterSpacing: '0.06px',
+          }}>
+            This month: {conversionOpened} opened / {conversionEnquiries} enquiries
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const formatValue = (metric: EnquiryMetric): string => {
     if (metric.isPercentage) {
       return `${(metric.percentage || 0).toFixed(1)}%`;
@@ -689,7 +990,7 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
     }}>
       <div style={embedded ? { width: '100%' } : {
         background: isDarkMode 
-          ? colours.websiteBlue
+          ? 'transparent'
           : 'rgba(255, 255, 255, 0.98)',
         borderRadius: '0',
         border: 'none',
@@ -775,17 +1076,17 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
         
         {/* Metrics Content — 3:2 dashboard grid */}
         <div style={{
-          padding: embedded ? '0' : '10px 10px 10px 10px',
+          padding: embedded ? '0 12px 10px 12px' : '10px 10px 10px 10px',
         }}>
           {/* Skeleton loading state */}
           {isLoading && (
-            <div>
+            <div style={sectionRailStyle}>
               {/* Skeleton row 1: 3 across */}
-              <div className="metricsGridThree" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0' }}>
+              <div className="metricsGridThree" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px' }}>
                 {[0,1,2].map(i => (
                   <div key={i} style={{
-                    padding: '10px 10px',
-                    borderRight: i < 2 ? `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(148, 163, 184, 0.08)'}` : 'none',
+                    padding: '12px 12px',
+                    borderRight: i < 2 ? `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.06)' : 'transparent'}` : 'none',
                   }}>
                     <SkeletonBox width="70px" height="9px" isDarkMode={isDarkMode} animate={false} />
                     <div style={{ marginTop: '6px' }}>
@@ -794,13 +1095,13 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
                   </div>
                 ))}
               </div>
-              <div style={{ borderTop: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(148, 163, 184, 0.08)'}` }} />
+              <div style={{ height: '4px' }} />
               {/* Skeleton row 2: 2 across */}
-              <div className="metricsGridTwo" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0' }}>
+              <div className="metricsGridTwo" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '4px' }}>
                 {[0,1].map(i => (
                   <div key={i} style={{
-                    padding: '10px 10px',
-                    borderRight: i < 1 ? `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(148, 163, 184, 0.08)'}` : 'none',
+                    padding: '12px 12px',
+                    borderRight: i < 1 ? `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.06)' : 'transparent'}` : 'none',
                   }}>
                     <SkeletonBox width="90px" height="9px" isDarkMode={isDarkMode} animate={false} />
                     <div style={{ marginTop: '6px' }}>
@@ -819,30 +1120,33 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
           
           {/* Data loaded state — 3:2 grid */}
           {!isLoading && (
-            <div style={{ padding: '4px 0' }}>
+            <div style={{ padding: '0' }}>
+              <div style={sectionRailStyle}>
               {/* Row 1: first 3 metrics */}
               <div className="metricsGridThree" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px' }}>
                 {metrics.slice(0, 3).map((metric, index) => {
                   const currentValue = getCurrentValue(metric);
-                  const prevValue = getPrevValue(metric);
                   const displayValue = currentValue;
-                  const trend = getTrendDirection(currentValue, prevValue);
-                  const trendColor = getTrendColor(trend);
+                  const canOpenBreakdown = canOpenMetricBreakdown(metric);
+                  const isEnquiryPeriodCard = isEnquiryPeriodMetric(metric);
+                  const lightModeBorderColor = colours.highlightBlue;
 
                   return (
                     <div
                       key={`${metric.title}-${index}`}
                       style={{
-                        padding: '10px 12px 12px 12px',
+                        padding: '12px 12px',
                         background: isDarkMode
                           ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.08) 0%, rgba(54, 144, 206, 0.00) 60%), rgba(6, 23, 51, 0.45)'
-                          : 'linear-gradient(135deg, rgba(54, 144, 206, 0.05) 0%, rgba(54, 144, 206, 0.00) 60%), rgba(255, 255, 255, 0.55)',
-                        border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(148, 163, 184, 0.16)'}`,
-                        boxShadow: isDarkMode
-                          ? 'inset 0 1px 0 rgba(54, 144, 206, 0.06), 0 1px 3px rgba(0, 3, 25, 0.20)'
-                          : 'inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 1px 3px rgba(0, 0, 0, 0.04)',
-                        cursor: showDetailsFeature ? 'pointer' : 'default',
-                        transition: 'background 180ms ease, border-color 180ms ease, transform 180ms ease, box-shadow 180ms ease',
+                          : colours.grey,
+                        border: isDarkMode ? metricBlockStyle.border : `1px solid ${lightModeBorderColor}`,
+                        borderLeft: isDarkMode ? metricBlockStyle.borderLeft : `1px solid ${lightModeBorderColor}`,
+                        borderRight: isDarkMode
+                          ? (index < 2 ? '1px solid rgba(135, 243, 243, 0.06)' : 'none')
+                          : `1px solid ${lightModeBorderColor}`,
+                        boxShadow: 'none',
+                        cursor: canOpenBreakdown ? 'pointer' : 'default',
+                        transition: 'background 180ms ease, border-color 180ms ease',
                         borderRadius: '0',
                         animation: dataLanded 
                           ? `dataLanded 0.5s ease ${index * 0.06}s both`
@@ -853,50 +1157,73 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
                       }}
                       role="button"
                       tabIndex={0}
-                      onClick={() => openMetricDetails(metric)}
+                      onClick={() => {
+                        if (!canOpenBreakdown) return;
+                        openMetricDetails(metric);
+                      }}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openMetricDetails(metric); }
+                        if ((e.key === 'Enter' || e.key === ' ') && canOpenBreakdown) {
+                          e.preventDefault();
+                          openMetricDetails(metric);
+                        }
                       }}
                       onMouseEnter={(e) => {
                         e.currentTarget.style.background = isDarkMode
                           ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.14) 0%, rgba(54, 144, 206, 0.02) 60%), rgba(6, 23, 51, 0.55)'
-                          : 'linear-gradient(135deg, rgba(54, 144, 206, 0.08) 0%, rgba(54, 144, 206, 0.00) 60%), rgba(255, 255, 255, 0.75)';
-                        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.22)';
-                        e.currentTarget.style.transform = 'translateY(-1px)';
-                        e.currentTarget.style.boxShadow = isDarkMode
-                          ? '0 6px 16px rgba(0, 3, 25, 0.35)'
-                          : '0 4px 12px rgba(6, 23, 51, 0.08)';
+                          : colours.grey;
                       }}
                       onMouseLeave={(e) => {
                         e.currentTarget.style.background = isDarkMode
                           ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.08) 0%, rgba(54, 144, 206, 0.00) 60%), rgba(6, 23, 51, 0.45)'
-                          : 'linear-gradient(135deg, rgba(54, 144, 206, 0.05) 0%, rgba(54, 144, 206, 0.00) 60%), rgba(255, 255, 255, 0.55)';
-                        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(148, 163, 184, 0.16)';
-                        e.currentTarget.style.transform = 'translateY(0)';
-                        e.currentTarget.style.boxShadow = isDarkMode
-                          ? 'inset 0 1px 0 rgba(54, 144, 206, 0.06), 0 1px 3px rgba(0, 3, 25, 0.20)'
-                          : 'inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 1px 3px rgba(0, 0, 0, 0.04)';
+                          : colours.grey;
                       }}
                     >
                       {/* Label */}
-                      <div style={{
-                        fontSize: '10px',
-                        fontWeight: 500,
-                        color: isDarkMode ? 'rgba(243, 244, 246, 0.55)' : 'rgba(15, 23, 42, 0.50)',
-                        marginBottom: '4px',
-                        whiteSpace: 'nowrap' as const,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                      }}>
-                        {getDisplayTitle(metric.title)}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '4px' }}>
+                        <div style={{
+                          fontSize: '10px',
+                          fontWeight: 500,
+                          color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(15, 23, 42, 0.50)',
+                          whiteSpace: 'nowrap' as const,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          minWidth: 0,
+                          flex: 1,
+                        }}>
+                          {getDisplayTitle(metric.title)}
+                        </div>
+                        {isEnquiryPeriodCard && typeof metric.pitchedCount === 'number' && (
+                          <span style={{
+                            fontSize: '8px',
+                            fontWeight: 600,
+                            color: isDarkMode ? 'rgba(255, 255, 255, 0.34)' : 'rgba(15, 23, 42, 0.36)',
+                            letterSpacing: '0.2px',
+                            textTransform: 'uppercase',
+                            whiteSpace: 'nowrap',
+                          }}>
+                            pitched {Math.max(0, Math.round(metric.pitchedCount || 0))}
+                          </span>
+                        )}
+                        {canOpenBreakdown && (
+                          <span style={{
+                            fontSize: '8px',
+                            fontWeight: 600,
+                            color: isDarkMode ? 'rgba(255, 255, 255, 0.34)' : 'rgba(15, 23, 42, 0.36)',
+                            letterSpacing: '0.24px',
+                            textTransform: 'uppercase',
+                            whiteSpace: 'nowrap',
+                          }}>
+                            breakdown
+                          </span>
+                        )}
                       </div>
 
                       {/* Value row */}
                       <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
                         <span style={{
-                          fontSize: '18px',
+                          fontSize: '20px',
                           fontWeight: 700,
-                          color: isDarkMode ? '#F9FAFB' : '#0f172a',
+                          color: isDarkMode ? '#ffffff' : '#0f172a',
                           letterSpacing: '-0.03em',
                           fontVariantNumeric: 'tabular-nums',
                           lineHeight: 1.1,
@@ -909,23 +1236,10 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
                             enabled={enableAnimationThisMount}
                           />
                         </span>
+                      </div>
 
-                        {/* Previous period delta */}
-                        {prevValue > 0 && (
-                          <span style={{
-                            display: 'inline-flex', alignItems: 'center', gap: '2px',
-                            fontSize: '10px', fontWeight: 500,
-                            color: trend !== 'neutral' ? trendColor : (isDarkMode ? colours.subtleGrey : colours.greyText),
-                            opacity: 0.8,
-                            overflow: 'hidden',
-                            whiteSpace: 'nowrap' as const, fontVariantNumeric: 'tabular-nums',
-                          }}>
-                            {trend !== 'neutral' && metric.showTrend !== false && (
-                              <FiTrendingUp size={9} style={{ transform: trend === 'down' ? 'rotate(180deg)' : 'none', flexShrink: 0 }} />
-                            )}
-                            <span>{prevValue}</span>
-                          </span>
-                        )}
+                      <div style={animatedComparisonStyle(showPreviousPeriod)}>
+                        {renderComparisonRows(metric)}
                       </div>
                     </div>
                   );
@@ -933,29 +1247,32 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
               </div>
 
               {/* Row 2: last 2 metrics */}
-              <div className="metricsGridTwo" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '4px', marginTop: '4px' }}>
+              <div className="metricsGridTwo" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '4px', marginTop: '4px', borderTop: 'none' }}>
                 {metrics.slice(3).map((metric, index) => {
                   const currentValue = getCurrentValue(metric);
-                  const prevValue = getPrevValue(metric);
                   const displayValue = currentValue;
                   const displayPercentage = metric.percentage || 0;
-                  const trend = getTrendDirection(currentValue, prevValue);
-                  const trendColor = getTrendColor(trend);
+                  const canOpenBreakdown = canOpenMetricBreakdown(metric);
+                  const isEnquiryPeriodCard = isEnquiryPeriodMetric(metric);
+                  const progressIndicatorColor = displayPercentage >= 80 ? colours.green : colours.accent;
+                  const lightModeBorderColor = metric.isPercentage ? `${progressIndicatorColor}66` : colours.highlightBlue;
 
                   return (
                     <div
                       key={`${metric.title}-${index}`}
                       style={{
-                        padding: '10px 12px 12px 12px',
+                        padding: '12px 12px',
                         background: isDarkMode
                           ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.08) 0%, rgba(54, 144, 206, 0.00) 60%), rgba(6, 23, 51, 0.45)'
-                          : 'linear-gradient(135deg, rgba(54, 144, 206, 0.05) 0%, rgba(54, 144, 206, 0.00) 60%), rgba(255, 255, 255, 0.55)',
-                        border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(148, 163, 184, 0.16)'}`,
-                        boxShadow: isDarkMode
-                          ? 'inset 0 1px 0 rgba(54, 144, 206, 0.06), 0 1px 3px rgba(0, 3, 25, 0.20)'
-                          : 'inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 1px 3px rgba(0, 0, 0, 0.04)',
-                        cursor: showDetailsFeature ? 'pointer' : 'default',
-                        transition: 'background 180ms ease, border-color 180ms ease, transform 180ms ease, box-shadow 180ms ease',
+                          : colours.grey,
+                        border: isDarkMode ? metricBlockStyle.border : `1px solid ${lightModeBorderColor}`,
+                        borderLeft: isDarkMode ? metricBlockStyle.borderLeft : `1px solid ${lightModeBorderColor}`,
+                        borderRight: isDarkMode
+                          ? (index < 1 ? '1px solid rgba(135, 243, 243, 0.06)' : 'none')
+                          : `1px solid ${lightModeBorderColor}`,
+                        boxShadow: 'none',
+                        cursor: canOpenBreakdown ? 'pointer' : 'default',
+                        transition: 'background 180ms ease, border-color 180ms ease',
                         borderRadius: '0',
                         animation: dataLanded 
                           ? `dataLanded 0.5s ease ${(index + 3) * 0.06}s both`
@@ -966,50 +1283,73 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
                       }}
                       role="button"
                       tabIndex={0}
-                      onClick={() => openMetricDetails(metric)}
+                      onClick={() => {
+                        if (!canOpenBreakdown) return;
+                        openMetricDetails(metric);
+                      }}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openMetricDetails(metric); }
+                        if ((e.key === 'Enter' || e.key === ' ') && canOpenBreakdown) {
+                          e.preventDefault();
+                          openMetricDetails(metric);
+                        }
                       }}
                       onMouseEnter={(e) => {
                         e.currentTarget.style.background = isDarkMode
                           ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.14) 0%, rgba(54, 144, 206, 0.02) 60%), rgba(6, 23, 51, 0.55)'
-                          : 'linear-gradient(135deg, rgba(54, 144, 206, 0.08) 0%, rgba(54, 144, 206, 0.00) 60%), rgba(255, 255, 255, 0.75)';
-                        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.22)';
-                        e.currentTarget.style.transform = 'translateY(-1px)';
-                        e.currentTarget.style.boxShadow = isDarkMode
-                          ? '0 6px 16px rgba(0, 3, 25, 0.35)'
-                          : '0 4px 12px rgba(6, 23, 51, 0.08)';
+                          : colours.grey;
                       }}
                       onMouseLeave={(e) => {
                         e.currentTarget.style.background = isDarkMode
                           ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.08) 0%, rgba(54, 144, 206, 0.00) 60%), rgba(6, 23, 51, 0.45)'
-                          : 'linear-gradient(135deg, rgba(54, 144, 206, 0.05) 0%, rgba(54, 144, 206, 0.00) 60%), rgba(255, 255, 255, 0.55)';
-                        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(148, 163, 184, 0.16)';
-                        e.currentTarget.style.transform = 'translateY(0)';
-                        e.currentTarget.style.boxShadow = isDarkMode
-                          ? 'inset 0 1px 0 rgba(54, 144, 206, 0.06), 0 1px 3px rgba(0, 3, 25, 0.20)'
-                          : 'inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 1px 3px rgba(0, 0, 0, 0.04)';
+                          : colours.grey;
                       }}
                     >
                       {/* Label */}
-                      <div style={{
-                        fontSize: '10px',
-                        fontWeight: 500,
-                        color: isDarkMode ? 'rgba(243, 244, 246, 0.55)' : 'rgba(15, 23, 42, 0.50)',
-                        marginBottom: '4px',
-                        whiteSpace: 'nowrap' as const,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                      }}>
-                        {getDisplayTitle(metric.title)}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '4px' }}>
+                        <div style={{
+                          fontSize: '10px',
+                          fontWeight: 500,
+                          color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(15, 23, 42, 0.50)',
+                          whiteSpace: 'nowrap' as const,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          minWidth: 0,
+                          flex: 1,
+                        }}>
+                          {getDisplayTitle(metric.title)}
+                        </div>
+                        {isEnquiryPeriodCard && typeof metric.pitchedCount === 'number' && (
+                          <span style={{
+                            fontSize: '8px',
+                            fontWeight: 600,
+                            color: isDarkMode ? 'rgba(255, 255, 255, 0.34)' : 'rgba(15, 23, 42, 0.36)',
+                            letterSpacing: '0.2px',
+                            textTransform: 'uppercase',
+                            whiteSpace: 'nowrap',
+                          }}>
+                            pitched {Math.max(0, Math.round(metric.pitchedCount || 0))}
+                          </span>
+                        )}
+                        {canOpenBreakdown && (
+                          <span style={{
+                            fontSize: '8px',
+                            fontWeight: 600,
+                            color: isDarkMode ? 'rgba(255, 255, 255, 0.34)' : 'rgba(15, 23, 42, 0.36)',
+                            letterSpacing: '0.24px',
+                            textTransform: 'uppercase',
+                            whiteSpace: 'nowrap',
+                          }}>
+                            breakdown
+                          </span>
+                        )}
                       </div>
 
                       {/* Value row */}
                       <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
                         <span style={{
-                          fontSize: '18px',
+                          fontSize: '20px',
                           fontWeight: 700,
-                          color: isDarkMode ? '#F9FAFB' : '#0f172a',
+                          color: isDarkMode ? '#ffffff' : '#0f172a',
                           letterSpacing: '-0.03em',
                           fontVariantNumeric: 'tabular-nums',
                           lineHeight: 1.1,
@@ -1022,23 +1362,10 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
                             enabled={enableAnimationThisMount}
                           />
                         </span>
+                      </div>
 
-                        {/* Previous period delta */}
-                        {prevValue > 0 && (
-                          <span style={{
-                            display: 'inline-flex', alignItems: 'center', gap: '2px',
-                            fontSize: '10px', fontWeight: 500,
-                            color: trend !== 'neutral' ? trendColor : (isDarkMode ? colours.subtleGrey : colours.greyText),
-                            opacity: 0.8,
-                            overflow: 'hidden',
-                            whiteSpace: 'nowrap' as const, fontVariantNumeric: 'tabular-nums',
-                          }}>
-                            {trend !== 'neutral' && metric.showTrend !== false && (
-                              <FiTrendingUp size={9} style={{ transform: trend === 'down' ? 'rotate(180deg)' : 'none', flexShrink: 0 }} />
-                            )}
-                            <span>{metric.isPercentage ? `${prevValue.toFixed(1)}%` : prevValue}</span>
-                          </span>
-                        )}
+                      <div style={animatedComparisonStyle(showPreviousPeriod)}>
+                        {renderComparisonRows(metric)}
                       </div>
 
                       {/* Progress bar (for percentage metrics) */}
@@ -1046,12 +1373,12 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
                         <div style={{ marginTop: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                           <div style={{
                             flex: 1, height: '3px',
-                            background: isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(148, 163, 184, 0.15)',
+                            background: isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(148, 163, 184, 0.15)',
                             borderRadius: '2px', overflow: 'hidden',
                           }}>
                             <div style={{
                               width: `${Math.min(displayPercentage, 100)}%`, height: '100%',
-                              background: displayPercentage >= 80 ? colours.green : colours.highlight,
+                              background: displayPercentage >= 80 ? 'var(--helix-green, #20b26c)' : 'var(--text-accent, #87F3F3)',
                               borderRadius: '2px',
                               transition: enableAnimationThisMount ? 'width 0.6s cubic-bezier(0.4, 0, 0.2, 1)' : 'none',
                             }} />
@@ -1068,6 +1395,7 @@ const EnquiryMetricsV2: React.FC<EnquiryMetricsV2Props> = ({ metrics, isDarkMode
                     </div>
                   );
                 })}
+              </div>
               </div>
             </div>
           )}

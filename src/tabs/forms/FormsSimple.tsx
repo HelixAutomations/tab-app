@@ -48,9 +48,7 @@ const containerStyle = (isDarkMode: boolean) =>
     minHeight: '100vh',
     width: '100%',
     padding: '32px 40px',
-    background: isDarkMode 
-      ? '#0a0a0a'
-      : '#fafafa',
+    background: isDarkMode ? colours.dark.background : colours.light.background,
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
   });
 
@@ -71,12 +69,12 @@ const formItemStyle = (isDarkMode: boolean, isHovered: boolean) =>
     flexDirection: 'column',
     alignItems: 'center',
     padding: '20px 12px',
-    borderRadius: '16px',
+    borderRadius: 0,
     cursor: 'pointer',
     transition: 'all 0.2s ease',
-    background: isHovered 
-      ? (isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)')
-      : 'transparent',
+    background: isHovered
+      ? (isDarkMode ? colours.dark.cardHover : colours.light.cardHover)
+      : (isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground),
     transform: isHovered ? 'scale(1.02)' : 'scale(1)',
   });
 
@@ -84,14 +82,14 @@ const iconContainerStyle = (isDarkMode: boolean, color: string) =>
   mergeStyles({
     width: '64px',
     height: '64px',
-    borderRadius: '16px',
+    borderRadius: 0,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: '12px',
-    background: `linear-gradient(135deg, ${color}20 0%, ${color}10 100%)`,
-    border: `1px solid ${color}30`,
-    boxShadow: `0 4px 12px ${color}15`,
+    background: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+    border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+    boxShadow: 'none',
   });
 
 const titleStyle = (isDarkMode: boolean) =>
@@ -122,7 +120,7 @@ const panelContainerStyle = (isDarkMode: boolean) =>
     left: 0,
     right: 0,
     bottom: 0,
-    background: isDarkMode ? '#0a0a0a' : '#fafafa',
+    background: isDarkMode ? colours.dark.background : colours.light.background,
     zIndex: 1000,
     display: 'flex',
     flexDirection: 'column',
@@ -134,8 +132,8 @@ const panelHeaderStyle = (isDarkMode: boolean) =>
     display: 'flex',
     alignItems: 'center',
     padding: '16px 24px',
-    borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'}`,
-    background: isDarkMode ? '#111' : '#fff',
+    borderBottom: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+    background: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
     gap: '16px',
     flexShrink: 0,
   });
@@ -152,9 +150,9 @@ const backButtonStyle = (isDarkMode: boolean) =>
     alignItems: 'center',
     gap: '8px',
     padding: '8px 16px',
-    borderRadius: '8px',
-    border: 'none',
-    background: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
+    borderRadius: 0,
+    border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+    background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
     color: isDarkMode ? '#fff' : '#333',
     cursor: 'pointer',
     fontSize: '14px',
@@ -162,7 +160,7 @@ const backButtonStyle = (isDarkMode: boolean) =>
     transition: 'all 0.15s ease',
     selectors: {
       ':hover': {
-        background: isDarkMode ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.08)',
+        background: isDarkMode ? colours.dark.cardHover : colours.light.cardHover,
       },
     },
   });

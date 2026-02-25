@@ -375,6 +375,7 @@ app.use('/api/future-bookings', futureBookingsRouter);
 app.use('/api/outstanding-balances', outstandingBalancesRouter);
 app.use('/api/matter-metrics', matterMetricsRouter);
 app.use('/api/transactions', transactionsRouter);
+app.use('/api/migration', require('./routes/legacyMigration'));
 
 app.use('/ccls', express.static(CCL_DIR));
 

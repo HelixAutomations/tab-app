@@ -358,10 +358,10 @@ const GroupedEnquiryCard: React.FC<GroupedEnquiryCardProps> = ({ groupedEnquiry,
 
   const actionButtonStyle: React.CSSProperties = {
     padding: '8px 12px',
-    background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : 'rgba(148, 163, 184, 0.04)',
-    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.28)' : 'rgba(100, 116, 139, 0.26)'}`,
-    borderRadius: 8,
-    color: isDarkMode ? 'rgba(226, 232, 240, 0.92)' : 'rgba(51, 65, 85, 0.95)',
+    background: isDarkMode ? colours.darkBlue : colours.grey,
+    border: `1px solid ${isDarkMode ? `${colours.dark.borderColor}8c` : 'rgba(160, 160, 160, 0.28)'}`,
+    borderRadius: 0,
+    color: isDarkMode ? colours.subtleGrey : colours.greyText,
     cursor: 'pointer',
     display: 'flex',
     alignItems: 'center',
@@ -375,15 +375,15 @@ const GroupedEnquiryCard: React.FC<GroupedEnquiryCardProps> = ({ groupedEnquiry,
   };
 
   const actionButtonHoverStyle: React.CSSProperties = {
-    background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.12)',
-    borderColor: colours.highlight,
-    color: colours.highlight,
+    background: isDarkMode ? colours.helixBlue : colours.highlightBlue,
+    borderColor: isDarkMode ? colours.highlight : colours.highlight,
+    color: isDarkMode ? colours.highlight : colours.highlight,
   };
 
   const actionButtonActiveStyle: React.CSSProperties = {
-    background: isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.18)',
-    borderColor: colours.highlight,
-    color: colours.highlight,
+    background: isDarkMode ? colours.helixBlue : colours.highlightBlue,
+    borderColor: isDarkMode ? colours.highlight : colours.highlight,
+    color: isDarkMode ? colours.highlight : colours.highlight,
     transform: 'scale(0.98)'
   };
 

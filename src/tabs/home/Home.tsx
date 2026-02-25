@@ -101,6 +101,7 @@ import QuickActionsBar from './QuickActionsBar';
 import { getQuickActionIcon } from './QuickActionsCard';
 import ImmediateActionsBar from './ImmediateActionsBar';
 import type { ImmediateActionCategory } from './ImmediateActionChip';
+import { enrichImmediateActions, type HomeImmediateAction } from './ImmediateActionModel';
 import { getActionableInstructions } from './InstructionsPrompt';
 import OutstandingBalancesList from '../transactions/OutstandingBalancesList';
 
@@ -108,6 +109,7 @@ import Attendance from './AttendanceCompact';
 import EnhancedAttendance from './EnhancedAttendanceNew';
 import PersonalAttendanceConfirm from './PersonalAttendanceConfirm';
 import AwayInsight from './AwayInsight';
+import AttendancePortal from './AttendancePortal';
 import RateChangeModal from './RateChangeModal';
 import { useRateChangeData } from './useRateChangeData';
 
@@ -351,15 +353,13 @@ const helixWatermarkSvg = (dark: boolean) => {
 
 const containerStyle = (isDarkMode: boolean) =>
   mergeStyles({
-    // Operations dashboard aesthetic: deep dark backgrounds with subtle brand gradients
+    // Flat brand surface in dark mode (no background glow behind strips/cards)
     background: isDarkMode
       ? colours.websiteBlue
-      : '#f8fafc',
-    backgroundImage: isDarkMode
-      ? 'radial-gradient(ellipse at top, rgba(13, 47, 96, 0.18) 0%, transparent 45%), radial-gradient(ellipse at bottom right, rgba(54, 144, 206, 0.08) 0%, transparent 45%)'
-      : 'radial-gradient(ellipse at top, rgba(54, 144, 206, 0.06) 0%, transparent 50%), radial-gradient(ellipse at bottom right, rgba(135, 243, 243, 0.04) 0%, transparent 50%)',
-    backgroundAttachment: 'fixed',
+      : `linear-gradient(to bottom right, #FFFFFF 0%, ${colours.grey} 100%)`,
+    backgroundImage: 'none',
     color: isDarkMode ? '#f1f5f9' : '#1e293b',
+    minHeight: '100%',
     boxSizing: 'border-box',
     position: 'relative',
     overflowX: 'hidden',
@@ -370,7 +370,7 @@ const containerStyle = (isDarkMode: boolean) =>
       left: 0,
       right: 0,
       bottom: 0,
-      backgroundImage: helixWatermarkSvg(isDarkMode),
+      backgroundImage: isDarkMode ? 'none' : 'none',
       backgroundRepeat: 'no-repeat',
       backgroundPosition: isDarkMode ? 'right -120px top -80px' : 'right -140px top -100px',
       backgroundSize: 'min(52vmin, 520px)',
@@ -379,107 +379,22 @@ const containerStyle = (isDarkMode: boolean) =>
     }
   });
 
-const headerStyle = mergeStyles({
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'flex-start',
-  width: '100%',
-  padding: '10px 0',
-  gap: '16px',
-});
-
-
-const mainContentStyle = mergeStyles({
-  display: 'flex',
-  flexDirection: 'column',
-  position: 'relative',
-  zIndex: 1,
-});
-// Height of the top tab menu so the quick action bar can align with it
-const ACTION_BAR_HEIGHT = 48;
-
-const quickLinksStyle = (isDarkMode: boolean) =>
+const operationsHubStyle = (isDarkMode: boolean) =>
   mergeStyles({
-    backgroundColor: isDarkMode
-      ? colours.dark.sectionBackground
-      : colours.light.sectionBackground,
-    padding: '0 10px',
-    transition: 'background-color 0.3s, box-shadow 0.3s',
-    display: 'flex',
-    flexDirection: 'row',
-    gap: '8px',
-    overflowX: 'auto',
-    alignItems: 'center',
-    paddingBottom: '16px',
-    position: 'sticky',
-    top: ACTION_BAR_HEIGHT,
-    zIndex: 999,
-    borderTopLeftRadius: 0,
-    borderTopRightRadius: 0,
+    margin: '8px 18px 12px 18px',
+    background: isDarkMode
+      ? 'transparent'
+      : 'linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(244, 244, 246, 0.94) 100%)',
+    border: isDarkMode ? 'none' : `1px solid ${colours.highlightNeutral}`,
+    boxShadow: isDarkMode ? 'none' : '0 1px 3px rgba(0,0,0,0.03)',
+    padding: isDarkMode ? '0' : '4px',
+    overflow: 'hidden',
   });
 
-const tableAnimationStyle = mergeStyles({
-  animation: 'fadeIn 0.5s ease-in-out',
-});
-
-const calculateAnimationDelay = (row: number, col: number) => (row + col) * 0.1;
-
-const versionStyle = (isDarkMode: boolean) => mergeStyles({
-  textAlign: 'center',
-  fontSize: '14px',
-  color: isDarkMode ? colours.dark.text : colours.light.text,
-  marginTop: '40px',
-});
-
-const subLabelStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    fontWeight: '600',
-    fontSize: '16px',
-    color: isDarkMode ? colours.dark.text : colours.light.text,
-  });
-
-const actionsMetricsContainerStyle = mergeStyles({
-  backgroundColor: '#ffffff',
-  padding: '16px',
-  borderRadius: 0,
-  boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
-  marginBottom: '24px',
-  '@media (max-width: 600px)': { padding: '12px' },
-});
-
-const favouritesGridStyle = mergeStyles({
-  display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
-  gap: '16px',
-  '@media (min-width: 1000px)': { gridTemplateColumns: 'repeat(5, 1fr)' },
-});
-
-// Removed legacy metrics grid styles (metricsGridThree/metricsGridTwo)
-
-const peopleGridStyle = mergeStyles({
-  display: 'grid',
-  paddingLeft: '80px',
-  gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
-  gap: '16px',
-  alignItems: 'center',
-  width: '100%',
-  '@media (max-width: 600px)': {
-    paddingLeft: '0',
-    gridTemplateColumns: 'repeat(auto-fill, minmax(90px, 1fr))',
-  },
-});
-
-const sectionContainerStyle = (isDarkMode: boolean) =>
-  mergeStyles({
-    backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-    padding: '16px',
-    borderRadius: 0,
-    boxShadow: isDarkMode
-      ? '0 4px 12px rgba(0, 0, 0, 0.3)'
-      : `0 4px 12px ${colours.light.border}`,
-    position: 'relative',
-    width: '100%',
-  });
+/* Legacy style constants removed — headerStyle, mainContentStyle, quickLinksStyle,
+   tableAnimationStyle, versionStyle, subLabelStyle, actionsMetricsContainerStyle,
+   favouritesGridStyle, peopleGridStyle, sectionContainerStyle, ACTION_BAR_HEIGHT,
+   calculateAnimationDelay — none referenced in current JSX. */
 
 
 //////////////////////
@@ -929,6 +844,14 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
   const [prevEnquiriesToday, setPrevEnquiriesToday] = useState<number>(8);
   const [prevEnquiriesWeekToDate, setPrevEnquiriesWeekToDate] = useState<number>(18);
   const [prevEnquiriesMonthToDate, setPrevEnquiriesMonthToDate] = useState<number>(950);
+  const [prevEnquiriesWeekFull, setPrevEnquiriesWeekFull] = useState<number>(0);
+  const [prevEnquiriesMonthFull, setPrevEnquiriesMonthFull] = useState<number>(0);
+  const [pitchedEnquiriesToday, setPitchedEnquiriesToday] = useState<number>(0);
+  const [pitchedEnquiriesWeekToDate, setPitchedEnquiriesWeekToDate] = useState<number>(0);
+  const [pitchedEnquiriesMonthToDate, setPitchedEnquiriesMonthToDate] = useState<number>(0);
+  const [prevPitchedEnquiriesToday, setPrevPitchedEnquiriesToday] = useState<number>(0);
+  const [prevPitchedEnquiriesWeekToDate, setPrevPitchedEnquiriesWeekToDate] = useState<number>(0);
+  const [prevPitchedEnquiriesMonthToDate, setPrevPitchedEnquiriesMonthToDate] = useState<number>(0);
   const [prevTodaysTasks, setPrevTodaysTasks] = useState<number>(12);
   const [prevTasksDueThisWeek, setPrevTasksDueThisWeek] = useState<number>(18);
   const [prevCompletedThisWeek, setPrevCompletedThisWeek] = useState<number>(17);
@@ -946,6 +869,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
   const [bespokePanelTitle, setBespokePanelTitle] = useState<string>('');
   const [bespokePanelDescription, setBespokePanelDescription] = useState<string>('');
   const [bespokePanelIcon, setBespokePanelIcon] = useState<string | null>(null);
+  const [bespokePanelWidth, setBespokePanelWidth] = useState<string>('85%');
   const [isContextPanelOpen, setIsContextPanelOpen] = useState<boolean>(false);
   const [bankHolidays, setBankHolidays] = useState<Set<string>>(new Set());
 
@@ -1049,6 +973,9 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
   const [annualLeaveAllData, setAnnualLeaveAllData] = useState<any[]>([]);
 
   const [outstandingBalancesData, setOutstandingBalancesData] = useState<any | null>(null);
+  // Track whether the SSE stream has already provided firm-wide outstanding balances.
+  // The user-specific useEffect must NOT overwrite richer stream data.
+  const streamOutstandingReceivedRef = useRef(false);
 
   const [futureBookings, setFutureBookings] = useState<FutureBookingsResponse>({
     boardroomBookings: [],
@@ -2266,6 +2193,14 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
           setPrevEnquiriesToday(data.prevEnquiriesToday ?? 0);
           setPrevEnquiriesWeekToDate(data.prevEnquiriesWeekToDate ?? 0);
           setPrevEnquiriesMonthToDate(data.prevEnquiriesMonthToDate ?? 0);
+          setPrevEnquiriesWeekFull(data.prevEnquiriesWeekFull ?? data.prevEnquiriesWeekToDate ?? 0);
+          setPrevEnquiriesMonthFull(data.prevEnquiriesMonthFull ?? data.prevEnquiriesMonthToDate ?? 0);
+          setPitchedEnquiriesToday(data.pitchedToday ?? 0);
+          setPitchedEnquiriesWeekToDate(data.pitchedWeekToDate ?? 0);
+          setPitchedEnquiriesMonthToDate(data.pitchedMonthToDate ?? 0);
+          setPrevPitchedEnquiriesToday(data.prevPitchedToday ?? 0);
+          setPrevPitchedEnquiriesWeekToDate(data.prevPitchedWeekToDate ?? 0);
+          setPrevPitchedEnquiriesMonthToDate(data.prevPitchedMonthToDate ?? 0);
           setEnquiryMetricsBreakdown((data as any)?.breakdown ?? null);
         }
         setIsLoadingEnquiryMetrics(false);
@@ -2746,8 +2681,10 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
         case 'outstandingBalances':
           cachedOutstandingBalances = data as any;
           safeSetItem('outstandingBalancesData', JSON.stringify(data));
+          streamOutstandingReceivedRef.current = true;
           setOutstandingBalancesData(data as any);
           onOutstandingBalancesFetched?.(data as any);
+          console.log('[OutstandingBalances] Stream delivered firm-wide data:', (data as any)?.data?.length ?? 0, 'records');
           break;
         case 'poid6Years':
           setPoid6Years(data as any);
@@ -2773,7 +2710,9 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
   }, [useLocalData]);
   
 
-  // Outstanding Balances: Fetch user balances first (fast), then firm-wide in background
+  // Outstanding Balances: stream is the primary source (firm-wide data).
+  // This useEffect only handles local-data/demo modes and acts as a fallback
+  // if the stream hasn't delivered data within a short window.
   useEffect(() => {
     if (demoModeEnabled || useLocalData) {
       if (useLocalData) {
@@ -2785,49 +2724,14 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
       return;
     }
 
-    const userEntraId = userData?.[0]?.EntraID || userData?.[0]?.['Entra ID'];
-    if (!userEntraId) return;
-
-    let cancelled = false;
-
-    const fetchBalances = async () => {
-      try {
-        // 1. Fetch user balances first (fast - only your matters)
-        const userResponse = await fetch(`/api/outstanding-balances/user/${userEntraId}`, {
-          credentials: 'include',
-          headers: { Accept: 'application/json' }
-        });
-
-        if (userResponse.ok && !cancelled) {
-          const userData = await userResponse.json();
-          setOutstandingBalancesData(userData);
-          onOutstandingBalancesFetched?.(userData);
-        }
-
-        // 2. Then fetch full firm balances in background (slower - all 127 records)
-        // Note: Stream might handle this instead, commenting out for now
-        // setTimeout(async () => {
-        //   if (cancelled) return;
-        //   const firmResponse = await fetch('/api/outstanding-balances', {
-        //     credentials: 'include',
-        //     headers: { Accept: 'application/json' }
-        //   });
-        //   if (firmResponse.ok && !cancelled) {
-        //     const firmData = await firmResponse.json();
-        //     cachedOutstandingBalances = firmData;
-        //     setOutstandingBalancesData(firmData);
-        //   }
-        // }, 2000);
-
-      } catch (error) {
-        console.error('[OutstandingBalances] Error fetching balances:', error);
-      }
-    };
-
-    fetchBalances();
-
-    return () => { cancelled = true; };
-  }, [useLocalData, demoModeEnabled, userData?.[0]?.EntraID, userData?.[0]?.['Entra ID']]);  
+    // The SSE stream handles firm-wide outstanding balances.
+    // Previously, a competing fetch to /api/outstanding-balances/user/:entraId
+    // would race with the stream and overwrite richer firm-wide data with a
+    // smaller user-only dataset (or empty when the Clio lookup failed),
+    // causing the metric card to show £0. The stream + client-side filtering
+    // via myOutstandingBalances already handles user-specific totals correctly.
+    // No additional fetch is needed.
+  }, [useLocalData, demoModeEnabled]);
 
   const columns = useMemo(() => createColumnsFunction(isDarkMode), [isDarkMode]);
 
@@ -3149,6 +3053,14 @@ const officeAttendanceButtonText = currentUserConfirmed
   const normalizeName = (name: string | null | undefined): string => {
     if (!name) return '';
     let normalized = name.trim().toLowerCase();
+    if (normalized.includes(',')) {
+      const [last, first] = normalized.split(',').map((part) => part.trim());
+      if (first && last) normalized = `${first} ${last}`;
+    }
+    normalized = normalized.replace(/\./g, '');
+    normalized = normalized.replace(/\s*\([^)]*\)\s*/g, ' ');
+    normalized = normalized.replace(/\s[-/|].*$/, '');
+    normalized = normalized.replace(/\s+/g, ' ').trim();
     if (normalized === "bianca odonnell") {
       normalized = "bianca o'donnell";
     }
@@ -3156,6 +3068,60 @@ const officeAttendanceButtonText = currentUserConfirmed
       normalized = "sam packwood";
     }
     return normalized;
+  };
+
+  const namesMatchForOutstanding = (a: string | null | undefined, b: string | null | undefined): boolean => {
+    const n1 = normalizeName(a);
+    const n2 = normalizeName(b);
+    if (!n1 || !n2) return false;
+    if (n1 === n2) return true;
+
+    const initialsFrom = (value: string) =>
+      value
+        .split(/\s+/)
+        .filter(Boolean)
+        .map(part => part[0] || '')
+        .join('');
+
+    const compact1 = n1.replace(/\s+/g, '');
+    const compact2 = n2.replace(/\s+/g, '');
+    const initials1 = initialsFrom(n1);
+    const initials2 = initialsFrom(n2);
+    if (compact1.length <= 3 && compact1 === initials2) return true;
+    if (compact2.length <= 3 && compact2 === initials1) return true;
+
+    const nameVariations: Record<string, string[]> = {
+      alexander: ['alex'],
+      alex: ['alexander'],
+      samuel: ['sam'],
+      sam: ['samuel'],
+      lukasz: ['luke', 'lucas'],
+      luke: ['lukasz', 'lucas'],
+      lucas: ['luke', 'lukasz'],
+      robert: ['rob', 'bob'],
+      rob: ['robert'],
+      bob: ['robert'],
+    };
+
+    const p1 = n1.split(' ').filter(Boolean);
+    const p2 = n2.split(' ').filter(Boolean);
+    const first1 = p1[0] || '';
+    const first2 = p2[0] || '';
+    const last1 = p1[p1.length - 1] || '';
+    const last2 = p2[p2.length - 1] || '';
+
+    if (first1 && first2) {
+      if (first1 === first2) {
+        if (!last1 || !last2 || last1 === last2) return true;
+      }
+      const vars1 = nameVariations[first1] || [];
+      const vars2 = nameVariations[first2] || [];
+      if (vars1.includes(first2) || vars2.includes(first1)) {
+        if (!last1 || !last2 || last1 === last2) return true;
+      }
+    }
+
+    return false;
   };
   
   const { name: metricsName, clioId: metricsClioId } = getMetricsAlias(
@@ -3177,7 +3143,7 @@ const officeAttendanceButtonText = currentUserConfirmed
     if (!normalizedMatters || normalizedMatters.length === 0) return [];
     return normalizedMatters
       .filter((matter) =>
-        normalizeName(matter.responsibleSolicitor) === normalizeName(userResponsibleName)
+        namesMatchForOutstanding(matter.responsibleSolicitor, userResponsibleName)
       )
       .map((matter) => {
         const numericId = Number(matter.matterId);
@@ -3248,14 +3214,17 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
 
     const outstandingTotal = useMemo(() => {
       if (!outstandingBalancesData || !outstandingBalancesData.data) {
-        return null; // Data not ready yet
+        return null; // Data not ready yet — will show as loading/skeleton
       }
-      // Strictly sum only balances for the current user's matters
-      if (userMatterIDs.length === 0) return 0;
-      return myOutstandingBalances.reduce(
+      // If matters haven't loaded yet, return null (not 0) so the card
+      // shows a loading state rather than a misleading £0.
+      if (userMatterIDs.length === 0) return null;
+      const total = myOutstandingBalances.reduce(
         (sum: number, record: any) => sum + (Number(record.total_outstanding_balance) || 0),
         0
       );
+      console.log('[OutstandingBalances] outstandingTotal:', total, '| userMatterIDs:', userMatterIDs.length, '| myOutstandingBalances:', myOutstandingBalances.length, '| allRecords:', outstandingBalancesData.data.length);
+      return total;
     }, [outstandingBalancesData, userMatterIDs, myOutstandingBalances]);
 
     const firmOutstandingTotal = useMemo(() => {
@@ -3499,18 +3468,26 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         isTimeMoney: false,
         count: enquiriesToday,
         prevCount: prevEnquiriesToday,
+        pitchedCount: pitchedEnquiriesToday,
+        prevPitchedCount: prevPitchedEnquiriesToday,
       },
       {
         title: 'Enquiries This Week',
         isTimeMoney: false,
         count: enquiriesWeekToDate,
-        prevCount: prevEnquiriesWeekToDate,
+        prevCount: prevEnquiriesWeekFull,
+        elapsedPrevCount: prevEnquiriesWeekToDate,
+        pitchedCount: pitchedEnquiriesWeekToDate,
+        prevPitchedCount: prevPitchedEnquiriesWeekToDate,
       },
       {
         title: 'Enquiries This Month',
         isTimeMoney: false,
         count: enquiriesMonthToDate,
-        prevCount: prevEnquiriesMonthToDate,
+        prevCount: prevEnquiriesMonthFull,
+        elapsedPrevCount: prevEnquiriesMonthToDate,
+        pitchedCount: pitchedEnquiriesMonthToDate,
+        prevPitchedCount: prevPitchedEnquiriesMonthToDate,
       },
       {
         title: 'Matters Opened',
@@ -3528,8 +3505,16 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     prevEnquiriesToday,
     enquiriesWeekToDate,
     prevEnquiriesWeekToDate,
+    prevEnquiriesWeekFull,
     enquiriesMonthToDate,
     prevEnquiriesMonthToDate,
+    prevEnquiriesMonthFull,
+    pitchedEnquiriesToday,
+    pitchedEnquiriesWeekToDate,
+    pitchedEnquiriesMonthToDate,
+    prevPitchedEnquiriesToday,
+    prevPitchedEnquiriesWeekToDate,
+    prevPitchedEnquiriesMonthToDate,
     annualLeaveRecords,
     userData,
     normalizedMatters,
@@ -3608,8 +3593,13 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
   const displayPrevEnquiriesToday = demoModeEnabled ? demoEnquiryMetrics.prevToday : prevEnquiriesToday;
   const displayEnquiriesWeekToDate = demoModeEnabled ? demoEnquiryMetrics.week : enquiriesWeekToDate;
   const displayPrevEnquiriesWeekToDate = demoModeEnabled ? demoEnquiryMetrics.prevWeek : prevEnquiriesWeekToDate;
+  const displayPrevEnquiriesWeekFull = demoModeEnabled ? demoEnquiryMetrics.prevWeek : prevEnquiriesWeekFull;
   const displayEnquiriesMonthToDate = demoModeEnabled ? demoEnquiryMetrics.month : enquiriesMonthToDate;
   const displayPrevEnquiriesMonthToDate = demoModeEnabled ? demoEnquiryMetrics.prevMonth : prevEnquiriesMonthToDate;
+  const displayPrevEnquiriesMonthFull = demoModeEnabled ? demoEnquiryMetrics.prevMonth : prevEnquiriesMonthFull;
+  const displayPitchedEnquiriesToday = demoModeEnabled ? 0 : pitchedEnquiriesToday;
+  const displayPitchedEnquiriesWeekToDate = demoModeEnabled ? 0 : pitchedEnquiriesWeekToDate;
+  const displayPitchedEnquiriesMonthToDate = demoModeEnabled ? 0 : pitchedEnquiriesMonthToDate;
   const displayMattersOpenedCount = demoModeEnabled ? demoEnquiryMetrics.mattersOpened : mattersOpenedCount;
 
   // Fallback: if lightweight home-wip endpoint returns zeroes, trigger the heavier reporting fetch once.
@@ -3915,7 +3905,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
   };
 
   const immediateALActions = useMemo(() => {
-    const actions: Array<{ title: string; subtitle?: string; onClick: () => void; icon?: string; category?: ImmediateActionCategory; count?: number }> = [];
+    const actions: HomeImmediateAction[] = [];
 
     // Demo mode: always show demo annual leave cards (hide live approvals/bookings)
     if (demoModeEnabled) {
@@ -4016,7 +4006,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
 
   // Build immediate actions list
   // Ensure every action has an icon (never undefined)
-  type Action = { title: string; onClick: () => void; icon: string; disabled?: boolean; category?: ImmediateActionCategory; count?: number; totalCount?: number; subtitle?: string };
+  type Action = HomeImmediateAction;
 
   const resetQuickActionsSelection = useCallback(() => {
     if (resetQuickActionsSelectionRef.current) {
@@ -4027,6 +4017,8 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     let content: React.ReactNode = <div>No form available.</div>;
     let titleText = action.title;
     let descriptionText = '';
+
+    setBespokePanelWidth('85%');
 
     const saveAttendanceDemo = async (_weekStart: string, _days: string, _initials?: string) => {
       // Demo mode: do not write attendance changes.
@@ -4041,6 +4033,8 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
       'Update Attendance': { shortTitle: 'Confirm Your Attendance', description: 'Plan your 14-day schedule' },
       'Confirm Attendance': { shortTitle: 'Confirm Attendance', description: 'Plan your 14-day schedule' },
       'Book Space': { shortTitle: 'Book Room', description: 'Reserve a meeting room or workspace' },
+      'Team Attendance': { shortTitle: 'Team Leave', description: 'View who is away, upcoming leave, and leave history' },
+      'Team Leave': { shortTitle: 'Team Leave', description: 'View who is away, upcoming leave, and leave history' },
     };
 
     if (titleMap[titleText]) {
@@ -4090,6 +4084,26 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
               setBespokePanelContent(null);
               setIsBespokePanelOpen(false);
               resetQuickActionsSelection();
+            }}
+          />
+        );
+        break;
+      case 'Team Leave':
+      case 'Team Attendance':
+        content = (
+          <AttendancePortal
+            isDarkMode={isDarkMode}
+            currentUserInitials={userData?.[0]?.Initials}
+            isAdmin={isAdminUser(userData?.[0])}
+            preloadedLeave={annualLeaveAllData}
+            preloadedTeam={transformedTeamData}
+            onRequestLeave={() => {
+              // Close the portal and open the leave request modal
+              setIsBespokePanelOpen(false);
+              setBespokePanelContent(null);
+              setTimeout(() => {
+                handleActionClick({ title: 'Request Annual Leave', icon: 'PalmTree' });
+              }, 300);
             }}
           />
         );
@@ -4268,7 +4282,10 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     actionableInstructionIds,
     resetQuickActionsSelection,
     setReviewedInstructionIds,
+    setBespokePanelWidth,
   ]);
+
+  /* upcomingLeaveSummary + openUpcomingLeaveModal removed — leave view now lives in AwayInsight */
 
   // Group instruction next actions by type with counts and sample detail
   const groupedInstructionActions = useMemo(() => {
@@ -4394,7 +4411,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
       return quickActionOrder[base] ?? quickActionOrder[title] ?? 99;
     };
     actions.sort((a, b) => sortKey(a.title) - sortKey(b.title));
-    return actions;
+    return enrichImmediateActions(actions);
   }, [
     isLoadingAttendance,
     currentUserConfirmed,
@@ -4566,7 +4583,7 @@ const conversionRate = displayEnquiriesMonthToDate
   );
 
   return (
-    <div className={containerStyle(isDarkMode)}>
+    <div className={`home-root ${containerStyle(isDarkMode)}`}>
       <style>{`
         @keyframes spin {
           0% { transform: rotate(0deg); }
@@ -4588,38 +4605,56 @@ const conversionRate = displayEnquiriesMonthToDate
           alignItems: 'center',
           gap: 10,
           padding: '10px 14px',
-          borderRadius: 10,
-          background: isDarkMode ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
-          border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(148, 163, 184, 0.25)'}`,
-          boxShadow: isDarkMode ? '0 6px 18px rgba(0,0,0,0.35)' : '0 6px 16px rgba(0,0,0,0.08)',
+          borderRadius: 0,
+          background: isDarkMode ? 'rgba(0, 3, 25, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+          border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(0, 0, 0, 0.08)'}`,
+          boxShadow: isDarkMode ? '0 4px 16px rgba(0, 0, 0, 0.4)' : '0 2px 8px rgba(0,0,0,0.06)',
           pointerEvents: 'none',
         }}>
           <div style={{
             width: 16,
             height: 16,
             borderRadius: '50%',
-            border: `2px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.35)' : 'rgba(54, 144, 206, 0.4)'}`,
+            border: `2px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.2)' : 'rgba(0, 0, 0, 0.12)'}`,
             borderTopColor: isDarkMode ? colours.accent : colours.highlight,
             animation: 'spin 0.8s linear infinite',
           }} />
           <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: isDarkMode ? '#E2E8F0' : '#0f172a' }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: isDarkMode ? '#f3f4f6' : '#061733' }}>
               Rebuilding your view…
             </span>
-            <span style={{ fontSize: 11, color: isDarkMode ? 'rgba(148, 163, 184, 0.8)' : 'rgba(100, 116, 139, 0.85)' }}>
+            <span style={{ fontSize: 11, color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(100, 116, 139, 0.85)' }}>
               Recalculating personalised metrics.
             </span>
           </div>
         </div>
       )}
 
-      {/* Modern Time Metrics V2 - directly on page background */}
+      {/* Operations hub — cohesive home surface (metrics + team availability) */}
+      <div className={operationsHubStyle(isDarkMode)}>
         <TimeMetricsV2 
           metrics={displayTimeMetrics}
           enquiryMetrics={[
-          { title: 'Enquiries Today', count: displayEnquiriesToday, prevCount: displayPrevEnquiriesToday },
-          { title: 'Enquiries This Week', count: displayEnquiriesWeekToDate, prevCount: displayPrevEnquiriesWeekToDate },
-          { title: 'Enquiries This Month', count: displayEnquiriesMonthToDate, prevCount: displayPrevEnquiriesMonthToDate },
+          {
+            title: 'Enquiries Today',
+            count: displayEnquiriesToday,
+            prevCount: displayPrevEnquiriesToday,
+            pitchedCount: displayPitchedEnquiriesToday,
+          },
+          {
+            title: 'Enquiries This Week',
+            count: displayEnquiriesWeekToDate,
+            prevCount: displayPrevEnquiriesWeekFull,
+            elapsedPrevCount: displayPrevEnquiriesWeekToDate,
+            pitchedCount: displayPitchedEnquiriesWeekToDate,
+          },
+          {
+            title: 'Enquiries This Month',
+            count: displayEnquiriesMonthToDate,
+            prevCount: displayPrevEnquiriesMonthFull,
+            elapsedPrevCount: displayPrevEnquiriesMonthToDate,
+            pitchedCount: displayPitchedEnquiriesMonthToDate,
+          },
           { title: 'Matters Opened This Month', count: displayMattersOpenedCount },
           { 
             title: 'Conversion Rate', 
@@ -4640,23 +4675,29 @@ const conversionRate = displayEnquiriesMonthToDate
         onRefresh={handleRefreshTimeMetrics}
         isRefreshing={isRefreshingTimeMetrics}
         isLoading={isLoadingWipClio}
+        isOutstandingLoading={!outstandingBalancesData?.data || outstandingTotal === null}
         isLoadingEnquiryMetrics={isLoadingEnquiryMetrics}
         viewAsProd={featureToggles.viewAsProd}
+        hasOutstandingBreakdown={filteredBalancesForPanel.length > 0}
+        onOpenOutstandingBreakdown={() => {
+          setShowOnlyMine(false);
+          setIsOutstandingPanelOpen(true);
+        }}
       />
 
-      {/* Away / Annual Leave insight — single horizontal strip */}
-      {!isBespokePanelOpen && featureToggles.showAttendance && (
-        <div style={{ margin: '8px 16px 0 16px' }}>
-          <AwayInsight
-            isDarkMode={isDarkMode}
-            annualLeaveRecords={annualLeaveRecords}
-            futureLeaveRecords={futureLeaveRecords}
-            teamData={attendanceTeam}
-            isLoading={isLoadingAnnualLeave}
-            onManageLeave={() => handleActionClick({ title: 'Request Annual Leave', icon: 'PalmTree' })}
-          />
-        </div>
-      )}
+        {/* Away / Annual Leave insight — team availability panel */}
+        {featureToggles.showAttendance && (
+          <div style={{ padding: '0 12px 12px 12px' }}>
+            <AwayInsight
+              isDarkMode={isDarkMode}
+              annualLeaveRecords={annualLeaveRecords}
+              futureLeaveRecords={futureLeaveRecords}
+              teamData={attendanceTeam}
+              isLoading={isLoadingAnnualLeave}
+            />
+          </div>
+        )}
+      </div>
 
       {/* Transactions & Balances - only show in local environment */}
       {useLocalData && (
@@ -4724,11 +4765,12 @@ const conversionRate = displayEnquiriesMonthToDate
           setBespokePanelContent(null);
           setBespokePanelTitle('');
           setBespokePanelDescription('');
+          setBespokePanelWidth('85%');
           resetQuickActionsSelection();
         }}
         title={bespokePanelTitle}
         description={bespokePanelDescription}
-        width="85%"
+        width={bespokePanelWidth}
         isDarkMode={isDarkMode}
         variant="modal"
         icon={bespokePanelIcon ? getQuickActionIcon(bespokePanelIcon) || undefined : undefined}

@@ -30,24 +30,27 @@ const slideUpFade = keyframes({
 });
 
 const baseClass = (isDark: boolean, variant: string, animationDelay: number) => mergeStyles({
-  // Solid brand surfaces — no glass/blur
+  // Dark: solid brand surfaces. Light: helix grey cards on white canvas.
   background: isDark
     ? (variant === 'minimal'
       ? colours.dark.background
       : colours.dark.sectionBackground)
     : (variant === 'minimal'
-      ? 'rgba(255, 255, 255, 0.95)'
-      : '#F8FAFC'),
+      ? '#FFFFFF'
+      : colours.grey),
   padding: variant === 'minimal' ? '12px' : '18px',
   borderRadius: '2px',
-  border: `1px solid ${isDark ? 'rgba(54, 144, 206, 0.18)' : 'rgba(148, 163, 184, 0.15)'}`,
-  boxShadow: variant === 'elevated' 
-    ? isDark 
-      ? '0 4px 20px rgba(0,0,0,0.5)' 
-      : '0 2px 12px rgba(0,0,0,0.04)'
-    : isDark
-      ? '0 2px 12px rgba(0,0,0,0.4)'
-      : '0 1px 6px rgba(0,0,0,0.03)',
+  border: isDark
+    ? `1px solid rgba(54, 144, 206, 0.18)`
+    : 'none',
+  borderLeft: isDark
+    ? undefined
+    : `4px solid ${colours.highlightBlue}`,
+  boxShadow: isDark
+    ? (variant === 'elevated'
+      ? '0 4px 20px rgba(0,0,0,0.5)'
+      : '0 2px 12px rgba(0,0,0,0.4)')
+    : 'none',
   width: '100%',
   display: 'flex',
   flexDirection: 'column',
@@ -68,16 +71,16 @@ const baseClass = (isDark: boolean, variant: string, animationDelay: number) => 
       background: 'linear-gradient(90deg, transparent 0%, rgba(54, 144, 206, 0.35) 30%, rgba(135, 243, 243, 0.18) 50%, rgba(54, 144, 206, 0.35) 70%, transparent 100%)',
     },
   } : {}),
-  '&:hover': {
-    borderColor: isDark ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)',
-    boxShadow: variant === 'elevated'
-      ? isDark
+  '&:hover': isDark
+    ? {
+      borderColor: 'rgba(54, 144, 206, 0.3)',
+      boxShadow: variant === 'elevated'
         ? '0 6px 28px rgba(0,0,0,0.5)'
-        : '0 4px 20px rgba(0,0,0,0.06)'
-      : isDark
-        ? '0 4px 20px rgba(0,0,0,0.45)'
-        : '0 2px 12px rgba(0,0,0,0.05)',
-  },
+        : '0 4px 20px rgba(0,0,0,0.45)',
+    }
+    : {
+      boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+    },
 });
 
 const headerClass = (isDark: boolean, hasSubtitle: boolean) => mergeStyles({

@@ -11,6 +11,9 @@ import { useToast } from '../../components/feedback/ToastProvider';
 import { practiceAreasByArea } from '../instructions/MatterOpening/config';
 import { SCENARIOS } from './pitch-builder/scenarios';
 import InlineWorkbench from '../instructions/InlineWorkbench';
+import ProspectCaseChips from './components/ProspectCaseChips';
+import ProspectHeroHeader from './components/ProspectHeroHeader';
+import './styles/ProspectOverview.css';
 
 // Add spinner animation
 const spinnerStyle = document.createElement('style');
@@ -309,7 +312,7 @@ function sanitizeEmailHtml(html: string): string {
 }
 
 // Stage types for the prospect/case journey
-type StageType = 'enquiry' | 'pitch' | 'instruction' | 'identity' | 'payment' | 'risk' | 'matter';
+type StageType = 'enquiry' | 'pitch' | 'instruction' | 'payment' | 'identity' | 'risk' | 'matter';
 // Communication/activity types
 type ActivityType = 'email' | 'call' | 'document' | 'note' | 'link-enabled';
 // Combined type for all timeline items
@@ -555,7 +558,7 @@ const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({ document, o
       <div
         style={{
           background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
-          borderRadius: '12px',
+          borderRadius: '2px',
           width: '90%',
           maxWidth: '900px',
           maxHeight: '90vh',
@@ -591,7 +594,7 @@ const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({ document, o
               <div
                 style={{
                   fontSize: '11px',
-                  color: isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(15, 23, 42, 0.6)',
+                  color: isDarkMode ? 'rgba(243, 244, 246, 0.6)' : 'rgba(6, 23, 51, 0.6)',
                   marginTop: '2px',
                 }}
               >
@@ -608,7 +611,7 @@ const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({ document, o
                   alignItems: 'center',
                   gap: '6px',
                   padding: '8px 16px',
-                  borderRadius: '6px',
+                  borderRadius: '2px',
                   fontSize: '12px',
                   fontWeight: 500,
                   background: colours.highlight,
@@ -623,10 +626,10 @@ const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({ document, o
               onClick={onClose}
               style={{
                 padding: '8px 16px',
-                borderRadius: '6px',
+                borderRadius: '2px',
                 fontSize: '12px',
                 fontWeight: 500,
-                background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.15)',
+                background: isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(160, 160, 160, 0.15)',
                 color: isDarkMode ? colours.dark.text : colours.light.text,
                 border: 'none',
                 cursor: 'pointer',
@@ -659,7 +662,7 @@ const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({ document, o
                 animation: 'spin 1s linear infinite',
                 margin: '0 auto 12px',
               }} />
-              <div style={{ color: isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(15, 23, 42, 0.6)', fontSize: '13px' }}>
+              <div style={{ color: isDarkMode ? 'rgba(243, 244, 246, 0.6)' : 'rgba(6, 23, 51, 0.6)', fontSize: '13px' }}>
                 Loading preview...
               </div>
             </div>
@@ -677,13 +680,13 @@ const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({ document, o
                 justifyContent: 'flex-end',
                 gap: '8px',
                 padding: '8px 12px',
-                background: isDarkMode ? 'rgba(2, 6, 23, 0.5)' : 'rgba(241, 245, 249, 0.8)',
-                borderRadius: '4px 4px 0 0',
-                borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)'}`,
+                background: isDarkMode ? 'rgba(2, 6, 23, 0.5)' : 'rgba(244, 244, 246, 0.8)',
+                borderRadius: '2px 2px 0 0',
+                borderBottom: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.15)' : 'rgba(160, 160, 160, 0.2)'}`,
               }}>
                 <span style={{
                   fontSize: '11px',
-                  color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(15, 23, 42, 0.5)',
+                  color: isDarkMode ? 'rgba(160, 160, 160, 0.7)' : 'rgba(6, 23, 51, 0.5)',
                   marginRight: 'auto',
                 }}>
                   If preview doesn't load:
@@ -697,7 +700,7 @@ const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({ document, o
                     alignItems: 'center',
                     gap: '5px',
                     padding: '6px 12px',
-                    borderRadius: '4px',
+                    borderRadius: '2px',
                     fontSize: '11px',
                     fontWeight: 600,
                     background: colours.highlight,
@@ -716,8 +719,8 @@ const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({ document, o
                   flex: 1,
                   minHeight: '450px',
                   border: 'none',
-                  borderRadius: '0 0 8px 8px',
-                  background: isDarkMode ? 'rgba(30, 30, 30, 0.9)' : '#ffffff',
+                  borderRadius: '0 0 2px 2px',
+                  background: isDarkMode ? 'rgba(6, 23, 51, 0.9)' : '#ffffff',
                 }}
                 title={filename}
               />
@@ -730,7 +733,7 @@ const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({ document, o
                 maxWidth: '100%',
                 maxHeight: '60vh',
                 objectFit: 'contain',
-                borderRadius: '8px',
+                borderRadius: '2px',
               }}
             />
           ) : (
@@ -744,7 +747,7 @@ const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({ document, o
                 Preview not available for this file type
               </div>
               <div style={{
-                color: isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(15, 23, 42, 0.6)',
+                color: isDarkMode ? 'rgba(243, 244, 246, 0.6)' : 'rgba(6, 23, 51, 0.6)',
                 fontSize: '12px',
               }}>
                 {contentType || 'Unknown type'}
@@ -757,7 +760,7 @@ const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({ document, o
                     alignItems: 'center',
                     gap: '6px',
                     padding: '10px 20px',
-                    borderRadius: '6px',
+                    borderRadius: '2px',
                     fontSize: '13px',
                     fontWeight: 500,
                     background: colours.highlight,
@@ -943,9 +946,6 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
     }
   });
   
-  // ═══════════════════════════════════════════════════════════════════════
-  // NEW: Enhanced UX state variables
-  // ═══════════════════════════════════════════════════════════════════════
   const [isWorkbenchCollapsed, setIsWorkbenchCollapsed] = useState<boolean>(() => {
     try {
       return localStorage.getItem('workbenchCollapsed') === 'true';
@@ -958,7 +958,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
   const [selectedWorkbenchTab, setSelectedWorkbenchTab] = useState<WorkbenchTabKey>(
     (initialWorkbenchTab as WorkbenchTabKey) || 'details'
   );
-  const [selectedContextStage, setSelectedContextStage] = useState<ContextStageKey | null>(null);
+  const [selectedContextStage, setSelectedContextStage] = useState<ContextStageKey | null>('enquiry');
+  const [isCompactPipelineMode, setIsCompactPipelineMode] = useState<boolean>(false);
   const [focusedTimelineIndex, setFocusedTimelineIndex] = useState<number>(-1);
 
   // Sync workbench tab when parent changes it (e.g. pipeline chip click → matter)
@@ -978,6 +979,37 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
       localStorage.setItem('workbenchCollapsed', String(isWorkbenchCollapsed));
     } catch {}
   }, [isWorkbenchCollapsed]);
+
+  useEffect(() => {
+    const updateCompactPipelineMode = () => {
+      const viewportWidth = window.innerWidth;
+      const viewportScale = window.visualViewport?.scale ?? 1;
+      const isCoarsePointer = typeof window.matchMedia === 'function'
+        ? window.matchMedia('(pointer: coarse)').matches
+        : false;
+
+      const compactByWidth = viewportWidth <= 1024;
+      const compactByZoom = viewportScale >= 1.15;
+      const compactByTouchViewport = isCoarsePointer && viewportWidth <= 1280;
+
+      setIsCompactPipelineMode(compactByWidth || compactByZoom || compactByTouchViewport);
+    };
+
+    updateCompactPipelineMode();
+
+    const visualViewport = window.visualViewport;
+    window.addEventListener('resize', updateCompactPipelineMode);
+    window.addEventListener('orientationchange', updateCompactPipelineMode);
+    visualViewport?.addEventListener('resize', updateCompactPipelineMode);
+    visualViewport?.addEventListener('scroll', updateCompactPipelineMode);
+
+    return () => {
+      window.removeEventListener('resize', updateCompactPipelineMode);
+      window.removeEventListener('orientationchange', updateCompactPipelineMode);
+      visualViewport?.removeEventListener('resize', updateCompactPipelineMode);
+      visualViewport?.removeEventListener('scroll', updateCompactPipelineMode);
+    };
+  }, []);
   
   const { isDarkMode } = useTheme();
   const { showToast: showGlobalToast } = useToast();
@@ -993,7 +1025,6 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
   })();
 
   const isProductionPreview = featureToggles?.viewAsProd === true || viewAsProdFromStorage;
-  const showResourcesConcept = demoModeEnabled && !isProductionPreview;
   // Request Docs should be available in all environments by default.
   // Use a feature toggle kill switch if needed.
   const requestDocsEnabled = featureToggles?.docRequestWorkspace !== false;
@@ -1200,9 +1231,6 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
   const [docRequestDealIsNa, setDocRequestDealIsNa] = useState<boolean>(true);
   const [docRequestConfirmOpen, setDocRequestConfirmOpen] = useState<boolean>(false);
 
-  // Hover states for action buttons
-  const [hoveredAction, setHoveredAction] = useState<string | null>(null);
-
   type CallTranscriptTurn = {
     speaker: 'Agent' | 'Caller' | 'Other';
     text: string;
@@ -1331,10 +1359,10 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
     const isExpanded = expandedCallTranscriptIds.has(item.id);
     const turnsToShow = isExpanded ? turns : turns.slice(0, 6);
 
-    const labelColor = isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(15, 23, 42, 0.55)';
-    const valueColor = isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)';
+    const labelColor = isDarkMode ? 'rgba(160, 160, 160, 0.7)' : 'rgba(6, 23, 51, 0.55)';
+    const valueColor = isDarkMode ? 'rgba(243, 244, 246, 0.9)' : 'rgba(6, 23, 51, 0.85)';
     const cardBg = isDarkMode ? 'rgba(2, 6, 23, 0.22)' : 'rgba(255, 255, 255, 0.65)';
-    const border = `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.22)'}`;
+    const border = `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.18)' : 'rgba(160, 160, 160, 0.22)'}`;
 
     const metaPairs: Array<{ label: string; value: string }> = [];
     const pushIf = (label: string, value: unknown) => {
@@ -1359,7 +1387,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
         {/* Summary grid */}
         {metaPairs.length > 0 && (
-          <div style={{ background: cardBg, border, borderRadius: '6px', padding: '10px 12px' }}>
+          <div style={{ background: cardBg, border, borderRadius: '2px', padding: '10px 12px' }}>
             <div style={{
               display: 'grid',
               gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
@@ -1409,9 +1437,9 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                     fontSize: '11px',
                     fontWeight: 700,
                     borderRadius: '2px',
-                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.25)'}`,
+                    border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.25)' : 'rgba(160, 160, 160, 0.25)'}`,
                     background: isDarkMode ? 'rgba(2, 6, 23, 0.25)' : 'rgba(255, 255, 255, 0.65)',
-                    color: isDarkMode ? 'rgba(226, 232, 240, 0.8)' : 'rgba(15, 23, 42, 0.7)',
+                    color: isDarkMode ? 'rgba(243, 244, 246, 0.8)' : 'rgba(6, 23, 51, 0.7)',
                     cursor: 'pointer',
                     whiteSpace: 'nowrap',
                   }}
@@ -1425,7 +1453,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
 
         {/* Note */}
         {note && (
-          <div style={{ background: cardBg, border, borderRadius: '6px', padding: '10px 12px' }}>
+          <div style={{ background: cardBg, border, borderRadius: '2px', padding: '10px 12px' }}>
             <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.3px', color: labelColor, textTransform: 'uppercase' }}>Note</div>
             <div style={{ marginTop: '6px', fontSize: '12px', color: valueColor, whiteSpace: 'pre-wrap', lineHeight: 1.45 }}>{note}</div>
           </div>
@@ -1433,7 +1461,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
 
         {/* Transcript */}
         {transcriptionRaw ? (
-          <div style={{ background: cardBg, border, borderRadius: '6px', padding: '10px 12px' }}>
+          <div style={{ background: cardBg, border, borderRadius: '2px', padding: '10px 12px' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
               <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.3px', color: labelColor, textTransform: 'uppercase' }}>
                 Transcription {turns.length > 0 ? `(${turns.length} turn${turns.length === 1 ? '' : 's'})` : ''}
@@ -1450,9 +1478,9 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                     fontSize: '10px',
                     fontWeight: 700,
                     borderRadius: '2px',
-                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.25)'}`,
+                    border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.25)' : 'rgba(160, 160, 160, 0.25)'}`,
                     background: 'transparent',
-                    color: isDarkMode ? 'rgba(226, 232, 240, 0.8)' : 'rgba(15, 23, 42, 0.7)',
+                    color: isDarkMode ? 'rgba(243, 244, 246, 0.8)' : 'rgba(6, 23, 51, 0.7)',
                     cursor: 'pointer',
                   }}
                 >
@@ -1494,10 +1522,10 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                     t.speaker === 'Agent'
                       ? colours.highlight
                       : t.speaker === 'Caller'
-                        ? '#22c55e'
+                        ? '#20b26c'
                         : isDarkMode
-                          ? 'rgba(148, 163, 184, 0.35)'
-                          : 'rgba(100, 116, 139, 0.35)';
+                          ? 'rgba(160, 160, 160, 0.35)'
+                          : 'rgba(107, 107, 107, 0.35)';
 
                   return (
                     <div
@@ -1531,7 +1559,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             )}
           </div>
         ) : fallback.metaLines.length > 0 ? (
-          <div style={{ background: cardBg, border, borderRadius: '6px', padding: '10px 12px' }}>
+          <div style={{ background: cardBg, border, borderRadius: '2px', padding: '10px 12px' }}>
             <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.3px', color: labelColor, textTransform: 'uppercase' }}>Details</div>
             <div style={{ marginTop: '6px', fontSize: '12px', color: valueColor, whiteSpace: 'pre-wrap', lineHeight: 1.45 }}>
               {fallback.metaLines.join('\n')}
@@ -3751,7 +3779,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
 
   // ═══════════════════════════════════════════════════════════════════════
   // STAGE ITEMS: Generate timeline entries from inlineWorkbenchItem data
-  // These represent the journey stages: enquiry → pitch → instruction → ID → payment → risk → matter
+  // These represent the journey stages: enquiry → pitch → instruction → payment → ID → risk → matter
   // ═══════════════════════════════════════════════════════════════════════
   useEffect(() => {
     if (!inlineWorkbenchItem && !enquiry) return;
@@ -4117,8 +4145,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
   };
 
   const getTypeColor = (type: CommunicationType) => {
-    const base = isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.78)';
-    const muted = isDarkMode ? 'rgba(148, 163, 184, 0.75)' : 'rgba(100, 116, 139, 0.7)';
+    const base = isDarkMode ? 'rgba(243, 244, 246, 0.85)' : 'rgba(6, 23, 51, 0.78)';
+    const muted = isDarkMode ? 'rgba(160, 160, 160, 0.75)' : 'rgba(107, 107, 107, 0.7)';
     switch (type) {
       case 'note':
         return muted;
@@ -4160,13 +4188,13 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
       justifyContent: 'center',
       width: 20,
       height: 20,
-      borderRadius: 4,
+      borderRadius: 2,
       border: isActive
-        ? `1.5px solid ${isDarkMode ? 'rgba(56, 189, 248, 0.5)' : 'rgba(54, 144, 206, 0.45)'}`
-        : `1.5px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(100, 116, 139, 0.25)'}`,
+        ? `1.5px solid ${isDarkMode ? colours.accent : colours.highlight}`
+        : `1.5px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.26)' : 'rgba(107, 107, 107, 0.25)'}`,
       background: isActive
-        ? (isDarkMode ? 'rgba(56, 189, 248, 0.15)' : 'rgba(54, 144, 206, 0.1)')
-        : 'transparent',
+        ? (isDarkMode ? colours.darkBlue : 'rgba(54, 144, 206, 0.1)')
+        : (isDarkMode ? colours.dark.background : 'transparent'),
       flexShrink: 0,
       transition: 'all 0.15s ease',
     };
@@ -4174,8 +4202,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
 
   // Status-based colors for action required vs complete
   const statusColors = {
-    complete: isDarkMode ? 'rgb(34, 197, 94)' : 'rgb(22, 163, 74)', // green
-    actionRequired: isDarkMode ? 'rgb(251, 191, 36)' : 'rgb(217, 119, 6)', // amber
+    complete: isDarkMode ? 'rgb(32, 178, 108)' : 'rgb(32, 178, 108)', // green
+    actionRequired: isDarkMode ? 'rgb(255, 140, 0)' : 'rgb(255, 140, 0)', // amber
   };
 
   // Helper to compute holding doc count for action required status
@@ -4231,21 +4259,21 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
   const getStageStatusColor = (status: TimelineItem['stageStatus']) => {
     switch (status) {
       case 'complete':
-        return { bg: isDarkMode ? 'rgba(34, 197, 94, 0.15)' : 'rgba(34, 197, 94, 0.1)', text: isDarkMode ? '#4ade80' : '#16a34a', border: isDarkMode ? 'rgba(34, 197, 94, 0.3)' : 'rgba(34, 197, 94, 0.25)' };
+        return { bg: isDarkMode ? 'rgba(32, 178, 108, 0.15)' : 'rgba(32, 178, 108, 0.1)', text: isDarkMode ? '#20b26c' : '#20b26c', border: isDarkMode ? 'rgba(32, 178, 108, 0.3)' : 'rgba(32, 178, 108, 0.25)' };
       case 'pending':
-        return { bg: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)', text: isDarkMode ? 'rgba(148, 163, 184, 0.8)' : '#64748b', border: isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)' };
+        return { bg: isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(160, 160, 160, 0.08)', text: isDarkMode ? 'rgba(160, 160, 160, 0.8)' : '#6B6B6B', border: isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(160, 160, 160, 0.15)' };
       case 'review':
-        return { bg: isDarkMode ? 'rgba(251, 191, 36, 0.15)' : 'rgba(251, 191, 36, 0.1)', text: isDarkMode ? '#fbbf24' : '#d97706', border: isDarkMode ? 'rgba(251, 191, 36, 0.3)' : 'rgba(251, 191, 36, 0.25)' };
+        return { bg: isDarkMode ? 'rgba(255, 140, 0, 0.15)' : 'rgba(255, 140, 0, 0.1)', text: isDarkMode ? '#FF8C00' : '#FF8C00', border: isDarkMode ? 'rgba(255, 140, 0, 0.3)' : 'rgba(255, 140, 0, 0.25)' };
       case 'failed':
-        return { bg: isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)', text: isDarkMode ? '#f87171' : '#dc2626', border: isDarkMode ? 'rgba(239, 68, 68, 0.3)' : 'rgba(239, 68, 68, 0.25)' };
+        return { bg: isDarkMode ? 'rgba(214, 85, 65, 0.15)' : 'rgba(214, 85, 65, 0.1)', text: isDarkMode ? '#D65541' : '#D65541', border: isDarkMode ? 'rgba(214, 85, 65, 0.3)' : 'rgba(214, 85, 65, 0.25)' };
       default:
-        return { bg: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)', text: isDarkMode ? 'rgba(148, 163, 184, 0.8)' : '#64748b', border: isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)' };
+        return { bg: isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(160, 160, 160, 0.08)', text: isDarkMode ? 'rgba(160, 160, 160, 0.8)' : '#6B6B6B', border: isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(160, 160, 160, 0.15)' };
     }
   };
 
   // Check if an item is a stage type
   const isStageType = (type: CommunicationType): type is StageType => {
-    return ['enquiry', 'pitch', 'instruction', 'identity', 'payment', 'risk', 'matter'].includes(type);
+    return ['enquiry', 'pitch', 'instruction', 'payment', 'identity', 'risk', 'matter'].includes(type);
   };
 
   // Render inline data bar for stage items (standardised layout)
@@ -4344,9 +4372,9 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         flexWrap: 'wrap',
         gap: '8px 16px',
         padding: '10px 12px',
-        background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : 'rgba(0, 0, 0, 0.02)',
-        borderRadius: '4px',
-        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
+        background: isDarkMode ? 'rgba(160, 160, 160, 0.04)' : 'rgba(0, 0, 0, 0.02)',
+        borderRadius: '2px',
+        border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
       }}>
         {dataItems.map((di, idx) => (
           <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
@@ -4355,7 +4383,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               fontWeight: 600,
               textTransform: 'uppercase',
               letterSpacing: '0.3px',
-              color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8',
+              color: isDarkMode ? 'rgba(160, 160, 160, 0.5)' : '#A0A0A0',
             }}>
               {di.label}
             </span>
@@ -4363,7 +4391,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               fontSize: '12px',
               fontWeight: di.highlight ? 600 : 500,
               fontFamily: di.monospace ? 'monospace' : 'inherit',
-              color: di.highlight ? colours.highlight : (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b'),
+              color: di.highlight ? colours.highlight : (isDarkMode ? 'rgba(243, 244, 246, 0.9)' : '#061733'),
             }}>
               {di.value || '—'}
             </span>
@@ -4394,7 +4422,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
     const isActive = tableSortColumn === column;
     const colour = isActive
       ? (isDarkMode ? colours.accent : colours.highlight)
-      : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)');
+      : (isDarkMode ? 'rgba(160, 160, 160, 0.5)' : 'rgba(107, 107, 107, 0.5)');
     const Icon = isActive && tableSortDirection === 'asc' ? FaChevronUp : FaChevronDown;
     return (
       <span style={{ display: 'inline-flex', alignItems: 'center', marginLeft: 4, opacity: isActive ? 1 : 0.35, color: colour }}>
@@ -4508,8 +4536,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         <div
           onClick={(e) => e.stopPropagation()}
           style={{
-            background: isDarkMode ? 'rgb(17, 24, 39)' : 'white',
-            borderRadius: '8px',
+            background: isDarkMode ? colours.darkBlue : 'white',
+            borderRadius: '2px',
             padding: '28px',
             maxWidth: '700px',
             width: '100%',
@@ -4526,7 +4554,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 margin: 0,
                 fontSize: '18px',
                 fontWeight: 600,
-                color: isDarkMode ? 'rgb(249, 250, 251)' : colours.light.text,
+                color: isDarkMode ? 'rgb(243, 244, 246)' : colours.light.text,
                 marginBottom: '14px',
               }}>
                 {existingPitches.length} {existingPitches.length === 1 ? 'pitch exists' : 'pitches exist'}
@@ -4557,13 +4585,13 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                         alignItems: 'center',
                         justifyContent: 'space-between',
                         padding: '12px 14px',
-                        borderRadius: '6px',
+                        borderRadius: '2px',
                         background: isDarkMode 
-                          ? 'linear-gradient(135deg, rgba(11, 22, 43, 0.88) 0%, rgba(13, 30, 56, 0.8) 100%)'
-                          : 'linear-gradient(135deg, rgba(248, 250, 252, 0.92) 0%, rgba(255, 255, 255, 0.88) 100%)',
+                          ? 'linear-gradient(135deg, rgba(6, 23, 51, 0.88) 0%, rgba(8, 28, 48, 0.8) 100%)'
+                          : 'linear-gradient(135deg, rgba(244, 244, 246, 0.92) 0%, rgba(255, 255, 255, 0.88) 100%)',
                         border: `2px solid ${colours.blue}`,
                         boxShadow: isDarkMode 
-                          ? '0 6px 18px rgba(4, 9, 20, 0.55)' 
+                          ? '0 6px 18px rgba(0, 3, 25, 0.55)' 
                           : '0 3px 12px rgba(13, 47, 96, 0.08)',
                       }}
                     >
@@ -4578,7 +4606,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                         </div>
                         <div style={{
                           fontSize: '12px',
-                          color: isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(15, 23, 42, 0.6)',
+                          color: isDarkMode ? 'rgb(160, 160, 160)' : 'rgba(6, 23, 51, 0.6)',
                           display: 'flex',
                           alignItems: 'center',
                           gap: '12px',
@@ -4606,7 +4634,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               <p style={{
                 margin: 0,
                 fontSize: '14px',
-                color: isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(15, 23, 42, 0.7)',
+                color: isDarkMode ? 'rgb(160, 160, 160)' : 'rgba(6, 23, 51, 0.7)',
                 lineHeight: 1.5,
               }}>
                 Are you sure you want to pitch again?
@@ -4620,7 +4648,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               margin: 0,
               fontSize: '14px',
               fontWeight: 600,
-              color: isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(15, 23, 42, 0.7)',
+              color: isDarkMode ? 'rgb(160, 160, 160)' : 'rgba(6, 23, 51, 0.7)',
               marginBottom: '12px',
               textTransform: 'uppercase',
               letterSpacing: '0.5px',
@@ -4644,25 +4672,25 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                       : '0 4px 16px rgba(54, 144, 206, 0.2), 0 0 0 1px rgba(54, 144, 206, 0.1) inset';
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.16)';
-                    e.currentTarget.style.boxShadow = isDarkMode ? '0 6px 18px rgba(4, 9, 20, 0.55)' : '0 3px 12px rgba(13, 47, 96, 0.08)';
+                    e.currentTarget.style.borderColor = isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(160, 160, 160, 0.16)';
+                    e.currentTarget.style.boxShadow = isDarkMode ? '0 6px 18px rgba(0, 3, 25, 0.55)' : '0 3px 12px rgba(13, 47, 96, 0.08)';
                   }}
                   style={{
                     display: 'inline-flex',
                     alignItems: 'center',
                     padding: '12px 18px',
-                    border: `2px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.16)'}`,
-                    borderRadius: '10px',
+                    border: `2px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(160, 160, 160, 0.16)'}`,
+                    borderRadius: '2px',
                     background: isDarkMode 
-                      ? 'linear-gradient(135deg, rgba(11, 22, 43, 0.88) 0%, rgba(13, 30, 56, 0.8) 100%)'
-                      : 'linear-gradient(135deg, rgba(248, 250, 252, 0.92) 0%, rgba(255, 255, 255, 0.88) 100%)',
-                    color: isDarkMode ? 'rgb(249, 250, 251)' : colours.light.text,
+                      ? 'linear-gradient(135deg, rgba(6, 23, 51, 0.88) 0%, rgba(8, 28, 48, 0.8) 100%)'
+                      : 'linear-gradient(135deg, rgba(244, 244, 246, 0.92) 0%, rgba(255, 255, 255, 0.88) 100%)',
+                    color: isDarkMode ? 'rgb(243, 244, 246)' : colours.light.text,
                     fontSize: '13px',
                     fontWeight: 500,
                     cursor: 'pointer',
                     transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
                     whiteSpace: 'nowrap',
-                    boxShadow: isDarkMode ? '0 6px 18px rgba(4, 9, 20, 0.55)' : '0 3px 12px rgba(13, 47, 96, 0.08)',
+                    boxShadow: isDarkMode ? '0 6px 18px rgba(0, 3, 25, 0.55)' : '0 3px 12px rgba(13, 47, 96, 0.08)',
                     backdropFilter: 'blur(8px)',
                   }}
                 >
@@ -4678,10 +4706,10 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               onClick={() => setShowPitchConfirm(false)}
               style={{
                 padding: '8px 16px',
-                border: `1px solid ${isDarkMode ? 'rgba(156, 163, 175, 0.3)' : 'rgba(15, 23, 42, 0.2)'}`,
-                borderRadius: '4px',
+                border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.3)' : 'rgba(6, 23, 51, 0.2)'}`,
+                borderRadius: '2px',
                 background: 'transparent',
-                color: isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(15, 23, 42, 0.6)',
+                color: isDarkMode ? 'rgb(160, 160, 160)' : 'rgba(6, 23, 51, 0.6)',
                 fontSize: '13px',
                 fontWeight: 500,
                 cursor: 'pointer',
@@ -4752,484 +4780,198 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
     return raw;
   }, [enquiry.Area_of_Work]);
 
+  const portalPurpose = useMemo(() => {
+    const instruction = (inlineWorkbenchItem as any)?.instruction || {};
+    const matters = Array.isArray((inlineWorkbenchItem as any)?.matters) ? (inlineWorkbenchItem as any).matters : [];
+
+    const instructionRef = String(instruction?.InstructionRef || instruction?.instructionRef || '').trim();
+    const matterRef = String(
+      instruction?.MatterRef
+      || instruction?.MatterId
+      || matters?.[0]?.['Display Number']
+      || matters?.[0]?.displayNumber
+      || matters?.[0]?.id
+      || ''
+    ).trim();
+
+    const workspaceShell = scopedTimeline.find((item) => item.type === 'document' && Boolean(item.metadata?.isDocWorkspace));
+    const workspacePasscode = String(workspaceShell?.metadata?.workspacePasscode || '').trim();
+    const workspaceUrlPath = String(workspaceShell?.metadata?.workspaceUrlPath || '').trim();
+    const workspaceReady = Boolean(workspacePasscode && workspaceUrlPath.startsWith('/pitch/'));
+
+    const clientView = matterRef
+      ? 'Your Matters'
+      : instructionRef
+      ? 'Pending Review'
+      : workspaceReady
+      ? 'Instruction Intake'
+      : 'No Portal Yet';
+
+    const nextAction = !workspaceReady
+      ? 'Create or open workspace link'
+      : !instructionRef
+      ? 'Drive instruction completion'
+      : !matterRef
+      ? 'Open matter from instruction'
+      : 'Continue in matters workflow';
+
+    return {
+      clientView,
+      nextAction,
+      instructionRef,
+      matterRef,
+      workspacePasscode,
+      workspaceReady,
+    };
+  }, [inlineWorkbenchItem, scopedTimeline, pitchCount]);
+
+  const selectedWorkbenchHeader = useMemo(() => {
+    const getPitchScenarioIcon = (scenarioId?: string) => {
+      switch (scenarioId) {
+        case 'before-call-call':
+          return <FaPhone size={10} />;
+        case 'before-call-no-call':
+          return <FaEnvelope size={10} />;
+        case 'after-call-probably-cant-assist':
+          return <FaExclamationTriangle size={10} />;
+        case 'after-call-want-instruction':
+          return <FaArrowRight size={10} />;
+        case 'cfa':
+          return <FaGavel size={10} />;
+        default:
+          return <FaFileAlt size={10} />;
+      }
+    };
+
+    if (selectedContextStage === 'enquiry') {
+      return { label: 'Enquiry', icon: <FaUser size={10} /> };
+    }
+
+    if (selectedContextStage === 'pitch') {
+      const pitchItems = scopedTimeline
+        .filter((item) => item.type === 'pitch')
+        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      const latestPitch = pitchItems[pitchItems.length - 1];
+      const scenarioId = typeof latestPitch?.metadata?.scenarioId === 'string'
+        ? latestPitch.metadata.scenarioId
+        : undefined;
+      return { label: 'Pitched', icon: getPitchScenarioIcon(scenarioId) };
+    }
+
+    if (selectedContextStage === 'instructed') {
+      return { label: 'Instructed', icon: <FaClipboard size={10} /> };
+    }
+
+    switch (selectedWorkbenchTab) {
+      case 'identity':
+        return { label: 'ID Check', icon: <FaIdCard size={10} /> };
+      case 'payment':
+        return { label: 'Payment', icon: <FaPoundSign size={10} /> };
+      case 'risk':
+        return { label: 'Risk', icon: <FaShieldAlt size={10} /> };
+      case 'matter':
+        return { label: 'Matter', icon: <FaFolderOpen size={10} /> };
+      case 'documents':
+        return { label: 'Docs', icon: <FaFileAlt size={10} /> };
+      default:
+        return { label: 'Instruction', icon: <FaClipboard size={10} /> };
+    }
+  }, [selectedContextStage, selectedWorkbenchTab, scopedTimeline]);
+
+  const [displayWorkbenchHeader, setDisplayWorkbenchHeader] = useState(selectedWorkbenchHeader);
+  const [isWorkbenchHeaderVisible, setIsWorkbenchHeaderVisible] = useState(true);
+
+  useEffect(() => {
+    setIsWorkbenchHeaderVisible(false);
+    const transitionTimer = window.setTimeout(() => {
+      setDisplayWorkbenchHeader(selectedWorkbenchHeader);
+      setIsWorkbenchHeaderVisible(true);
+    }, 90);
+
+    return () => window.clearTimeout(transitionTimer);
+  }, [selectedWorkbenchHeader]);
+
   return (
     <div style={{
       display: 'flex',
       flexDirection: 'column',
       minHeight: '100vh',
-      fontFamily: 'Raleway, sans-serif',
+      fontFamily: "'Raleway', 'Segoe UI', sans-serif",
       padding: '0 16px',
       gap: '0',
     }}>
       {/* ═══════════════════════════════════════════════════════════════════════
-          UNIFIED COMMAND BAR - Apple/MS inspired amalgamated design
-          Combines: Prospect Banner + Case Selector + Pipeline + Actions
+          PROSPECT OVERVIEW — MatterPortal-style layout
+          Banner card → Case selector → Pipeline tabs → Workbench
       ═══════════════════════════════════════════════════════════════════════ */}
       <div style={{
-        background: isDarkMode
-          ? 'rgba(10, 15, 30, 0.92)'
-          : 'rgba(248, 250, 252, 0.98)',
-        borderRadius: '2px',
-        border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)'}`,
-        marginTop: '12px',
-        overflow: 'hidden',
-        boxShadow: isDarkMode
-          ? '0 2px 8px rgba(0, 0, 0, 0.3)'
-          : '0 2px 8px rgba(0, 0, 0, 0.06)',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 0,
+        marginTop: 12,
       }}>
-        {/* ─── TIER 1: Prospect Hero Banner (Apple-style minimal) ─── */}
+        {/* ─── TIER 1: Prospect Hero Banner (MatterPortal-style card) ─── */}
+        <ProspectHeroHeader
+          enquiry={enquiry}
+          isDarkMode={isDarkMode}
+          copiedField={copiedField}
+          pitchCount={pitchCount}
+          scopedTimeline={scopedTimeline}
+          docRequestLoading={docRequestLoading}
+          requestDocsEnabled={requestDocsEnabled}
+          displayAreaOfWork={displayAreaOfWork}
+          pocDisplayName={(() => {
+            const raw = resolvePocRaw(enquiry);
+            if (!raw) return null;
+            if (teamData) {
+              const normalised = raw.toLowerCase().trim();
+              const match = teamData.find((t) => {
+                const email = (t.Email || '').toLowerCase().trim();
+                const initials = (t.Initials || '').toLowerCase().trim();
+                const nick = (t.Nickname || '').toLowerCase().trim();
+                return email === normalised || initials === normalised || nick === normalised;
+              });
+              if (match) return match['Full Name'] || match.First || raw;
+            }
+            return raw;
+          })()}
+          enquiryWindows={enquiryWindows}
+          activeEnquiryId={enquiry.ID}
+          hoveredCaseId={hoveredCaseId}
+          setHoveredCaseId={setHoveredCaseId}
+          onSelectEnquiry={onSelectEnquiry}
+          formatCaseAreaLabel={formatCaseAreaLabel}
+          onOpenMailto={openMailto}
+          onOpenTel={openTel}
+          onCopyToClipboard={copyToClipboard}
+          onOpenPitchBuilder={openPitchBuilder}
+          onOpenExistingWorkspace={(workspaceItem) => {
+            setActiveFilters(['document']);
+            setSelectedItem(workspaceItem as TimelineItem);
+          }}
+          onRequestDocs={() => setDocRequestConfirmOpen(true)}
+        />
+
+        {/* ─── TIER 2: Pipeline + Signal Strip ─── */}
         <div style={{
-          padding: '20px 24px 16px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: '20px',
+          background: isDarkMode ? colours.websiteBlue : colours.grey,
+          padding: '0',
+          borderLeft: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.light.border}`,
+          borderRight: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.light.border}`,
+          borderBottom: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.light.border}`,
         }}>
-          {/* Left: Name as hero + subtle metadata */}
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '10px',
-              fontSize: '22px',
-              fontWeight: 600,
-              letterSpacing: '-0.3px',
-              color: isDarkMode ? colours.dark.text : colours.light.text,
-              marginBottom: '4px',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}>
-              {/* Person icon - blue for new space, grey for legacy */}
-              {(() => {
-                // New space enquiries have the 'claim' field from Teams bot claiming
-                const isNewSpace = Boolean(
-                  (enquiry as any).claim ||
-                  (enquiry as any).Claim ||
-                  (enquiry as any).Teams_Activity_Id ||
-                  (enquiry as any).TeamsActivityTrackingId ||
-                  (enquiry as any).teamsTrackingRecordId
-                );
-                return (
-                  <FaUser 
-                    size={16} 
-                    style={{ 
-                      color: isNewSpace ? colours.highlight : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8'),
-                      flexShrink: 0
-                    }} 
-                    title={isNewSpace ? 'New space enquiry (rich data)' : 'Legacy enquiry'}
-                  />
-                );
-              })()}
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {enquiry.First_Name && enquiry.Last_Name 
-                  ? `${enquiry.First_Name} ${enquiry.Last_Name}`
-                  : enquiry.First_Name || enquiry.Last_Name || 'New Prospect'}
-              </span>
-            </div>
-          </div>
-
-          {/* Right: Compact contact actions with separate CTA and copy */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-            {/* Email Action - split CTA and copy */}
-            <div style={{
-              display: 'flex',
-              alignItems: 'stretch',
-              height: '32px',
-              borderRadius: '2px',
-              border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)'}`,
-              background: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : 'rgba(255, 255, 255, 0.9)',
-              overflow: 'hidden',
-              opacity: enquiry.Email ? 1 : 0.6,
-            }}>
-              <button
-                onClick={() => enquiry.Email && openMailto(enquiry.Email)}
-                disabled={!enquiry.Email}
-                title={enquiry.Email ? `Email: ${enquiry.Email}` : 'Email not available'}
-                className="helix-action-btn"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  padding: '0 12px',
-                  border: 'none',
-                  background: 'transparent',
-                  color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(51, 65, 85, 0.9)',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  cursor: enquiry.Email ? 'pointer' : 'default',
-                  transition: 'all 0.2s ease',
-                }}
-              >
-                <FaEnvelope size={12} style={{ color: colours.highlight }} />
-                <span style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{enquiry.Email || 'No Email'}</span>
-              </button>
-              {enquiry.Email && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    copyToClipboard(enquiry.Email!, 'Email');
-                  }}
-                  title="Copy email"
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    padding: '0 10px',
-                    border: 'none',
-                    borderLeft: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)'}`,
-                    background: 'transparent',
-                    cursor: 'pointer',
-                    color: copiedField === 'Email' ? '#10B981' : (isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.5)'),
-                    transition: 'all 0.15s ease',
-                  }}
-                >
-                  {copiedField === 'Email' ? <FaCheckCircle size={11} /> : <FaCopy size={11} />}
-                </button>
-              )}
-            </div>
-
-            {/* Phone Action - split CTA and copy */}
-            <div style={{
-              display: 'flex',
-              alignItems: 'stretch',
-              height: '32px',
-              borderRadius: '2px',
-              border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)'}`,
-              background: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : 'rgba(255, 255, 255, 0.9)',
-              overflow: 'hidden',
-              opacity: enquiry.Phone_Number ? 1 : 0.6,
-            }}>
-              <button
-                onClick={() => enquiry.Phone_Number && openTel(enquiry.Phone_Number)}
-                disabled={!enquiry.Phone_Number}
-                title={enquiry.Phone_Number ? `Call: ${enquiry.Phone_Number}` : 'Phone not available'}
-                className="helix-action-btn"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  padding: '0 12px',
-                  border: 'none',
-                  background: 'transparent',
-                  color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(51, 65, 85, 0.9)',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  cursor: enquiry.Phone_Number ? 'pointer' : 'default',
-                  transition: 'all 0.2s ease',
-                }}
-              >
-                <FaPhone size={12} style={{ color: colours.highlight }} />
-                <span>{enquiry.Phone_Number || 'No Phone'}</span>
-              </button>
-              {enquiry.Phone_Number && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    copyToClipboard(enquiry.Phone_Number!, 'Phone');
-                  }}
-                  title="Copy phone"
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    padding: '0 10px',
-                    border: 'none',
-                    borderLeft: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)'}`,
-                    background: 'transparent',
-                    cursor: 'pointer',
-                    color: copiedField === 'Phone' ? '#10B981' : (isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.5)'),
-                    transition: 'all 0.15s ease',
-                  }}
-                >
-                  {copiedField === 'Phone' ? <FaCheckCircle size={11} /> : <FaCopy size={11} />}
-                </button>
-              )}
-            </div>
-
-            {/* Separator */}
-            <div style={{
-              width: '1px',
-              height: '24px',
-              background: isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)',
-              margin: '0 4px',
-            }} />
-
-            {/* Pitch Action */}
-            <button
-              onClick={openPitchBuilder}
-              className="helix-action-btn"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                height: '32px',
-                padding: '0 12px',
-                borderRadius: '16px',
-                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(226, 232, 240, 1)'}`,
-                background: isDarkMode ? 'rgba(30, 41, 59, 0.5)' : '#ffffff',
-                color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(51, 65, 85, 0.9)',
-                fontSize: '12px',
-                fontWeight: 500,
-                cursor: 'pointer',
-                transition: 'all 0.2s ease',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = isDarkMode ? '#4ADE80' : '#16A34A';
-                e.currentTarget.style.color = isDarkMode ? '#4ADE80' : '#16A34A';
-                e.currentTarget.style.background = isDarkMode ? 'rgba(74, 222, 128, 0.1)' : 'rgba(34, 197, 94, 0.05)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(226, 232, 240, 1)';
-                e.currentTarget.style.color = isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(51, 65, 85, 0.9)';
-                e.currentTarget.style.background = isDarkMode ? 'rgba(30, 41, 59, 0.5)' : '#ffffff';
-              }}
-            >
-              <FaCheckCircle size={12} style={{ color: isDarkMode ? '#4ADE80' : '#16A34A' }} />
-              <span>{pitchCount > 0 ? `${pitchCount} Pitch${pitchCount > 1 ? 'es' : ''}` : 'Build Pitch'}</span>
-            </button>
-
-            {/* Docs Action */}
-            {(() => {
-              const existingWorkspace = scopedTimeline.find((t) => t.type === 'document' && Boolean(t.metadata?.isDocWorkspace));
-              const isWorkspaceLive = Boolean(existingWorkspace?.metadata?.workspacePasscode && existingWorkspace?.metadata?.workspaceUrlPath);
-              const isDisabled = docRequestLoading || !requestDocsEnabled;
-              const label = isWorkspaceLive ? 'Workspace' : 'Request Docs';
-              const activeColor = isDarkMode ? '#7DD3FC' : '#0284c7';
-              const successColor = isDarkMode ? '#4ADE80' : '#16A34A';
-
-              return (
-                <button
-                  onClick={() => {
-                      if (existingWorkspace) {
-                        setActiveFilters(['document']);
-                        setSelectedItem(existingWorkspace);
-                      } else {
-                        setDocRequestConfirmOpen(true);
-                      }
-                  }}
-                  disabled={isDisabled}
-                  className="helix-action-btn"
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    height: '32px',
-                    padding: '0 12px',
-                    borderRadius: '16px',
-                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(226, 232, 240, 1)'}`,
-                    background: isDarkMode ? 'rgba(30, 41, 59, 0.5)' : '#ffffff',
-                    color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(51, 65, 85, 0.9)',
-                    fontSize: '12px',
-                    fontWeight: 500,
-                    cursor: isDisabled ? 'default' : 'pointer',
-                    transition: 'all 0.2s ease',
-                    opacity: isDisabled ? 0.6 : 1,
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!isDisabled) {
-                      e.currentTarget.style.borderColor = isWorkspaceLive ? successColor : activeColor;
-                      e.currentTarget.style.color = isWorkspaceLive ? successColor : activeColor;
-                      e.currentTarget.style.background = isWorkspaceLive 
-                        ? (isDarkMode ? 'rgba(74, 222, 128, 0.1)' : 'rgba(34, 197, 94, 0.05)')
-                        : (isDarkMode ? 'rgba(125, 211, 252, 0.1)' : 'rgba(2, 132, 199, 0.05)');
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(226, 232, 240, 1)';
-                    e.currentTarget.style.color = isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(51, 65, 85, 0.9)';
-                    e.currentTarget.style.background = isDarkMode ? 'rgba(30, 41, 59, 0.5)' : '#ffffff';
-                  }}
-                >
-                  <FaFolderOpen size={12} style={{ color: isWorkspaceLive ? successColor : activeColor }} />
-                  <span>{label}</span>
-                </button>
-              );
-            })()}
-          </div>
-        </div>
-
-        {/* ─── TIER 2: Case Selector Cards (only when multiple cases) ─── */}
-        {enquiryWindows.length > 1 && (
-          <div style={{
-            display: 'flex',
-            alignItems: 'stretch',
-            gap: '10px',
-            padding: '10px 24px 14px',
-            overflowX: 'auto',
-            borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.12)'}`,
-            borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.12)'}`,
-            background: isDarkMode ? 'rgba(2, 6, 23, 0.25)' : 'rgba(248, 250, 252, 0.7)',
-          }}>
-            {enquiryWindows.map((window, idx) => {
-              const caseId = String(window.enquiry.ID);
-              const isActive = caseId === String(enquiry.ID);
-              const isHovered = hoveredCaseId === caseId;
-              const canSelect = !isActive && typeof onSelectEnquiry === 'function';
-              const areaLabel = formatCaseAreaLabel(window.enquiry.Area_of_Work);
-              const areaColour = getCaseAreaColour(window.enquiry.Area_of_Work);
-              const rawCaseDate = (window.enquiry as any)?.datetime || window.enquiry.Touchpoint_Date || window.enquiry.Date_Created;
-              const hasNewSpaceTime = Boolean((window.enquiry as any)?.datetime);
-              const caseDateObj = rawCaseDate ? new Date(rawCaseDate) : null;
-              const isCaseDateValid = Boolean(caseDateObj && Number.isFinite(caseDateObj.getTime()));
-              const isCaseSameYear = isCaseDateValid ? caseDateObj!.getFullYear() === new Date().getFullYear() : true;
-              const caseDateLabel = isCaseDateValid
-                ? format(caseDateObj!, hasNewSpaceTime
-                    ? (isCaseSameYear ? 'dd MMM HH:mm' : 'dd MMM yyyy HH:mm')
-                    : (isCaseSameYear ? 'dd MMM' : 'dd MMM yyyy'))
-                : 'No Date';
-
-              // Check if this case is claimed
-              const pocRaw = resolvePocRaw(window.enquiry);
-              const pocLower = pocRaw.toLowerCase();
-              const isClaimed = pocRaw && 
-                pocLower !== 'team@helix-law.com' && 
-                pocLower !== 'team' && 
-                pocLower !== 'anyone' && 
-                pocLower !== 'unassigned' && 
-                pocLower !== 'unknown' && 
-                pocLower !== 'n/a';
-              // Extract initials or short name for POC badge
-              const pocDisplay = isClaimed ? derivePocInitials(pocRaw) : null;
-
-              return (
-                <button
-                  key={caseId}
-                  type="button"
-                  className="helix-case-pill"
-                  onClick={() => canSelect && onSelectEnquiry?.(window.enquiry)}
-                  onMouseEnter={() => setHoveredCaseId(caseId)}
-                  onMouseLeave={() => setHoveredCaseId(null)}
-                  title={areaLabel}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'stretch',
-                    gap: '12px',
-                    padding: '10px 14px',
-                    minWidth: '180px',
-                    borderRadius: '2px',
-                    border: isActive
-                      ? `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(15, 23, 42, 0.18)'}`
-                      : `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'}`,
-                    background: isActive
-                      ? (isDarkMode ? 'rgba(15, 23, 42, 0.6)' : 'rgba(248, 250, 252, 0.8)')
-                      : (isDarkMode ? 'rgba(15, 23, 42, 0.4)' : '#ffffff'),
-                    color: isActive
-                      ? (isDarkMode ? 'rgba(226, 232, 240, 0.95)' : 'rgba(15, 23, 42, 0.9)')
-                      : (isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.82)'),
-                    fontSize: 12,
-                    fontWeight: 600,
-                    cursor: canSelect ? 'pointer' : 'default',
-                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                    whiteSpace: 'nowrap',
-                    flexShrink: 0,
-                    boxShadow: 'none',
-                    transform: isHovered && canSelect ? 'translateY(-0.5px)' : 'translateY(0)',
-                  }}
-                >
-                  <div
-                    style={{
-                      width: 3,
-                      borderRadius: 2,
-                      background: isActive
-                        ? areaColour
-                        : `${areaColour}66`,
-                    }}
-                  />
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0, flex: 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{
-                        fontSize: 10,
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.08em',
-                        opacity: 0.65,
-                        fontWeight: 600,
-                      }}>
-                        Case {idx + 1}
-                      </span>
-                    </div>
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 8,
-                      fontSize: 13,
-                      fontWeight: 600,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                    }}>
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{areaLabel}</span>
-                    </div>
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 10,
-                      fontSize: 11,
-                      fontWeight: 500,
-                      color: isDarkMode ? 'rgba(148, 163, 184, 0.8)' : 'rgba(100, 116, 139, 0.75)',
-                    }}>
-                      <span>{caseDateLabel}</span>
-                      {isClaimed && pocDisplay && (
-                        <span style={{
-                          fontSize: 10,
-                          fontWeight: 600,
-                          color: isDarkMode ? 'rgba(148, 163, 184, 0.8)' : 'rgba(100, 116, 139, 0.75)',
-                        }}>
-                          · {pocDisplay}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  {/* Chevron indicator - rotates and lights up when active */}
-                  <span style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    width: 18,
-                    height: 18,
-                    marginLeft: 'auto',
-                    borderRadius: '50%',
-                    background: isActive
-                      ? (isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(54, 144, 206, 0.12)')
-                      : 'transparent',
-                    transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
-                    transform: isHovered && !isActive ? 'scale(1.1)' : 'scale(1)',
-                  }}>
-                    <span style={{
-                      display: 'block',
-                      fontSize: 10,
-                      fontWeight: 600,
-                      lineHeight: 1,
-                      color: isActive
-                        ? (isDarkMode ? 'rgba(135, 243, 243, 0.9)' : colours.highlight)
-                        : (isDarkMode ? 'rgba(148, 163, 184, 0.45)' : 'rgba(100, 116, 139, 0.4)'),
-                      transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
-                      transform: isActive ? 'rotate(90deg)' : 'rotate(0deg)',
-                      opacity: isActive ? 1 : (isHovered ? 0.8 : 0.5),
-                    }}>
-                      ›
-                    </span>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        {/* ─── TIER 3: Pipeline Progress (Pill Navigation) ─── */}
-        <div style={{
-          display: 'flex',
+        <div className="prospect-pipeline-rail" style={{
+          padding: isCompactPipelineMode ? '6px 8px' : '8px 16px 8px',
+          justifyContent: 'flex-start',
           alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: '16px',
-          padding: '12px 24px',
-          background: isDarkMode ? 'rgba(0, 0, 0, 0.15)' : 'rgba(0, 0, 0, 0.02)',
-          borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.1)'}`,
+          gap: isCompactPipelineMode ? 4 : 8,
+          overflowX: 'auto',
+          overflowY: 'hidden',
+          WebkitOverflowScrolling: 'touch',
         }}>
-          {/* Left: Full Pipeline stages (Unified Pills) */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0', flex: 1, overflowX: 'auto', scrollbarWidth: 'none' }}>
-            {(() => {
+          {(() => {
               // Determine stage statuses from inlineWorkbenchItem
-              const hasPitch = pitchCount > 0 || stageItemsState.some((item) => item.type === 'pitch');
+              const hasPitch = pitchCount > 0 || stageItemsState.some((item) => item.type === 'pitch') || !!enrichmentPitchData;
               const instruction = inlineWorkbenchItem?.instruction;
               const instructionRef = instruction?.InstructionRef || instruction?.instructionRef || '';
               const instructionStage = (instruction?.Stage || instruction?.stage || '').toLowerCase();
@@ -5313,6 +5055,29 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               const pitchItems = scopedTimeline.filter(t => t.type === 'pitch').sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
               const firstPitchDate = pitchItems.length > 0 ? new Date(pitchItems[0].date) : null;
               const instructionDate = instructedDate ? new Date(instructedDate) : null;
+              const latestPitchScenarioId = (() => {
+                if (pitchItems.length === 0) return undefined;
+                const latestPitch = pitchItems[pitchItems.length - 1];
+                const scenarioId = latestPitch?.metadata?.scenarioId;
+                return typeof scenarioId === 'string' ? scenarioId : undefined;
+              })();
+
+              const getPitchScenarioIcon = (scenarioId?: string) => {
+                switch (scenarioId) {
+                  case 'before-call-call':
+                    return <FaPhone size={10} />;
+                  case 'before-call-no-call':
+                    return <FaEnvelope size={10} />;
+                  case 'after-call-probably-cant-assist':
+                    return <FaExclamationTriangle size={10} />;
+                  case 'after-call-want-instruction':
+                    return <FaArrowRight size={10} />;
+                  case 'cfa':
+                    return <FaGavel size={10} />;
+                  default:
+                    return <FaFileAlt size={10} />;
+                }
+              };
               
               // Full 8-stage pipeline
               const stages: Array<{
@@ -5336,7 +5101,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   key: 'pitch', 
                   label: 'Pitched', 
                   shortLabel: 'Pitched',
-                  icon: <FaCheckCircle size={10} />, 
+                  icon: getPitchScenarioIcon(latestPitchScenarioId),
                   status: hasPitch ? 'complete' : 'current',
                   date: firstPitchDate,
                   detail: hasPitch ? `${pitchCount} pitch${pitchCount > 1 ? 'es' : ''}` : undefined,
@@ -5350,19 +5115,19 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   date: instructionDate,
                 },
                 { 
-                  key: 'id', 
-                  label: eidDisplayResult ? `ID: ${eidDisplayResult}` : 'ID Check', 
-                  shortLabel: eidDisplayResult ? `ID: ${eidDisplayResult}` : 'ID Check',
-                  icon: <FaIdCard size={10} />, 
-                  status: !hasInstruction ? 'disabled' : identityStatus,
-                  date: null,
-                },
-                { 
                   key: 'payment', 
                   label: hasSuccessfulPayment ? 'Paid' : 'Payment',
                   shortLabel: hasSuccessfulPayment ? 'Paid' : 'Payment',
                   icon: <FaPoundSign size={10} />, 
                   status: !hasInstruction ? 'disabled' : paymentStatus,
+                  date: null,
+                },
+                { 
+                  key: 'id', 
+                  label: eidDisplayResult ? `ID: ${eidDisplayResult}` : 'ID Check', 
+                  shortLabel: eidDisplayResult ? `ID: ${eidDisplayResult}` : 'ID Check',
+                  icon: <FaIdCard size={10} />, 
+                  status: !hasInstruction ? 'disabled' : identityStatus,
                   date: null,
                 },
                 { 
@@ -5402,7 +5167,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 const statusColor = isCompleted ? colours.green 
                   : hasIssue ? colours.cta 
                   : isCurrent ? colours.highlight 
-                  : (isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.8)');
+                  : (isDarkMode ? colours.subtleGrey : colours.greyText);
 
                 const workbenchTab: WorkbenchTabKey = stage.key === 'id' ? 'identity'
                   : stage.key === 'payment' ? 'payment'
@@ -5433,142 +5198,292 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 };
               });
 
-              return stageTabs.map((stage, idx) => {
-                const prevStage = idx > 0 ? stageTabs[idx - 1] : null;
-                // Connector lights up only when both adjacent stages are complete
-                const isConnectorLit = prevStage?.status === 'complete' && stage.status === 'complete';
-                
+              // Touchpoint date cue — subtle link between case box and pipeline start
+              const touchpointRaw = enquiry?.Touchpoint_Date || enquiry?.Date_Created;
+              const touchpointLabel = (() => {
+                if (!touchpointRaw) return null;
+                try {
+                  const d = parseISO(touchpointRaw);
+                  return format(d, 'd MMM yyyy');
+                } catch { return null; }
+              })();
+
+              return (<>
+                {/* Case-to-pipeline cue — subtle arrow linking case box above to journey */}
+                {!isCompactPipelineMode && (
+                  <span style={{
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                    color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                    fontSize: 10, lineHeight: 1, flexShrink: 0,
+                    opacity: 0.5, marginRight: 2,
+                  }}>
+                    <FaArrowRight size={8} />
+                  </span>
+                )}
+                {stageTabs.map((stage, idx) => {
+                const isLast = idx === stageTabs.length - 1;
+
+                // Determine if the connector line to the NEXT stage should be "filled"
+                // (i.e. both this stage and the next are complete)
+                const nextStage = !isLast ? stageTabs[idx + 1] : null;
+                const connectorFilled = stage.status === 'complete' && nextStage?.status === 'complete';
+                const connectorActive = stage.status === 'complete' && nextStage && nextStage.status !== 'disabled';
+
+                const tone = stage.status === 'complete'
+                  ? colours.green
+                  : stage.status === 'review'
+                  ? colours.cta
+                  : stage.status === 'current'
+                  ? (isDarkMode ? colours.subtleGrey : colours.subtleGrey)
+                  : stage.status === 'disabled'
+                  ? (isDarkMode ? colours.dark.border : colours.light.border)
+                  : (isDarkMode ? colours.subtleGrey : colours.subtleGrey);
+
+                const pillBorder = stage.isActive
+                  ? tone
+                  : (isDarkMode ? `${colours.dark.border}90` : colours.highlightNeutral);
+
+                const pillBackground = stage.isActive
+                  ? (isDarkMode ? `${tone}16` : `${tone}14`)
+                  : (isDarkMode ? `${colours.websiteBlue}80` : colours.light.grey);
+
+                const pillTextColour = stage.status === 'disabled'
+                  ? (isDarkMode ? colours.subtleGrey : colours.greyText)
+                  : (isDarkMode ? colours.dark.text : colours.light.text);
+
+                const compactLabel = (() => {
+                  switch (stage.key) {
+                    case 'enquiry': return 'Enq';
+                    case 'pitch': return 'Pitch';
+                    case 'instructed': return 'Instr';
+                    case 'id': return 'ID';
+                    case 'payment': return 'Pay';
+                    case 'risk': return 'Risk';
+                    case 'matter': return 'Matter';
+                    case 'documents': return 'Docs';
+                    default: return stage.shortLabel;
+                  }
+                })();
+
+                const nodeLabel = isCompactPipelineMode ? compactLabel : stage.shortLabel;
+
                 return (
                 <React.Fragment key={stage.key}>
-                  {/* Connector line - lights up green when previous stage is complete */}
-                  {idx > 0 && (
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                    }}>
-                      <div style={{
-                        height: 1.5,
-                        width: 10,
-                        background: isConnectorLit 
-                          ? `${colours.green}B3`
-                          : (isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.25)'),
-                        borderRadius: 1,
-                        margin: '0 2px',
-                      }} />
-                    </div>
-                  )}
-
+                  {/* ── Pipeline node ── */}
                   <button
                     type="button"
+                    className="prospect-pipeline-node"
                     title={stage.label}
                     onClick={() => {
-                      // Always allow click - removed disabled gate
-                      // Action Logic
+                      const instructionRefForActions = inlineWorkbenchItem?.instruction?.InstructionRef || inlineWorkbenchItem?.instruction?.instructionRef;
+                      const canRunIdFromChip = stage.key === 'id'
+                        && stage.status === 'pending'
+                        && Boolean(instructionRefForActions)
+                        && Boolean(workbenchHandlers?.onTriggerEID);
+
+                      if (canRunIdFromChip) {
+                        setSelectedContextStage(null);
+                        setSelectedWorkbenchTab('identity');
+                        setIsWorkbenchCollapsed(false);
+
+                        const proceed = window.confirm('Run ID verification now?');
+                        if (!proceed) {
+                          return;
+                        }
+
+                        Promise.resolve(workbenchHandlers!.onTriggerEID!(instructionRefForActions as string))
+                          .then(() => {
+                            showToast('ID verification started', 'success');
+                          })
+                          .catch((error) => {
+                            const message = error instanceof Error ? error.message : 'Failed to start ID verification';
+                            showToast(message, 'error');
+                          });
+                        return;
+                      }
+
                       if (['enquiry', 'pitch', 'instructed'].includes(stage.key)) {
                         setSelectedWorkbenchTab('details');
                         if (stage.key === 'enquiry' || stage.key === 'pitch') {
                           setSelectedContextStage(stage.contextStage);
                         } else {
-                          setSelectedContextStage('instructed'); // Default for instructed pill
+                          setSelectedContextStage('instructed');
                         }
                         setIsWorkbenchCollapsed(false);
                       } else {
                         setSelectedContextStage(null); 
-                        if (stage.isActive) {
-                          // Already active tab - maybe do nothing or toggle?
-                          // Let's just keep it active.
-                        } else {
+                        if (!stage.isActive) {
                           setSelectedWorkbenchTab(stage.workbenchTab);
                         }
                         setIsWorkbenchCollapsed(false);
                       }
                     }}
                     style={{
-                      display: 'flex',
+                      display: 'inline-flex',
+                      flexDirection: 'row',
                       alignItems: 'center',
-                      gap: '6px',
-                      padding: '6px 12px',
-                      borderRadius: '16px',
-                      // Active: Sky blue tint like filter buttons
-                      background: stage.isActive 
-                        ? `${colours.highlight}1F`
-                        : (isDarkMode ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)'),
-                      border: stage.isActive 
-                        ? `1px solid ${colours.highlight}73`
-                        : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)'}`,
+                      justifyContent: 'flex-start',
+                      gap: isCompactPipelineMode ? 5 : 8,
+                      minWidth: 0,
+                      padding: isCompactPipelineMode ? '4px 8px' : '6px 12px',
+                      borderRadius: 999,
+                      border: `1px solid ${pillBorder}`,
+                      background: pillBackground,
+                      color: pillTextColour,
+                      fontFamily: "'Raleway', sans-serif",
                       cursor: 'pointer',
-                      color: stage.statusColor,
-                      fontSize: 11,
-                      fontWeight: stage.isActive ? 700 : 600,
-                      opacity: stage.status === 'disabled' ? 0.7 : 1,
-                      transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                      whiteSpace: 'nowrap',
-                      boxShadow: 'none',
-                      position: 'relative',
-                      zIndex: stage.isActive ? 10 : 1,
+                      opacity: stage.status === 'disabled' ? 0.72 : 1,
+                      transition: 'all 0.15s ease',
                     }}
                   >
-                    <span style={{ 
-                      display: 'flex', 
-                      alignItems: 'center',
-                      color: stage.statusColor,
-                      opacity: stage.isActive ? 1 : 0.9,
-                    }}>
-                      {stage.icon}
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: isCompactPipelineMode ? 4 : 6, minWidth: 0 }}>
+                      {/* Stage icon */}
+                      <span
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: stage.status === 'pending' || stage.status === 'disabled' ? (isDarkMode ? colours.subtleGrey : colours.greyText) : tone,
+                          flexShrink: 0,
+                          lineHeight: 1,
+                        }}
+                      >
+                        {stage.icon}
+                      </span>
+
+                      <span
+                        className="prospect-pipeline-label"
+                        data-active={stage.isActive ? 'true' : undefined}
+                        style={{
+                          fontSize: isCompactPipelineMode ? 9 : 10,
+                          fontWeight: stage.isActive ? 700 : 600,
+                          color: pillTextColour,
+                          lineHeight: 1,
+                          whiteSpace: 'nowrap',
+                          letterSpacing: '0.1px',
+                          minWidth: 0,
+                        }}
+                      >
+                        {nodeLabel}
+                      </span>
                     </span>
-                    
-                    <span>{stage.shortLabel}</span>
-                    
-                    {/* Status Icons for non-active states or counts */}
-                    {stage.detail && stage.key === 'documents' && stage.detail !== '0' && (
-                       <span style={{ 
-                         fontSize: '10px',
-                         fontWeight: 700,
-                         padding: '1px 6px',
-                         display: 'flex',
-                         alignItems: 'center',
-                         borderRadius: '999px',
-                         background: 'rgba(148, 163, 184, 0.18)',
-                         color: 'rgba(226, 232, 240, 0.8)',
-                         marginLeft: 2
-                       }}>
-                         {stage.detail}
-                       </span>
-                    )}
-                    {stage.status === 'complete' && stage.key !== 'documents' && (
-                      <FaCheck size={9} style={{ color: colours.green, marginLeft: 2 }} />
-                    )}
-                    {stage.hasIssue && (
-                      <FaExclamationTriangle size={9} style={{ color: colours.cta, marginLeft: 2 }} />
+
+                    {stage.status === 'complete' && !isCompactPipelineMode && (
+                      <span
+                        aria-hidden="true"
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: colours.green,
+                          marginLeft: 'auto',
+                          flexShrink: 0,
+                        }}
+                      >
+                        <FaCheck size={9} />
+                      </span>
                     )}
                   </button>
+
+                  {/* ── Journey connector ── */}
+                  {!isLast && (
+                    <div
+                      className="prospect-pipeline-connector"
+                      data-filled={connectorFilled ? 'true' : undefined}
+                      data-active={connectorActive ? 'true' : undefined}
+                      style={{
+                        width: isCompactPipelineMode ? 8 : 16,
+                        minWidth: isCompactPipelineMode ? 8 : 16,
+                        maxWidth: isCompactPipelineMode ? 8 : 16,
+                        height: 1.5,
+                        alignSelf: 'center',
+                        marginTop: 0,
+                        borderRadius: 999,
+                        background: connectorFilled
+                          ? colours.green
+                          : connectorActive
+                          ? (isDarkMode ? `${colours.dark.borderColor}` : `${colours.subtleGrey}`)
+                          : (isDarkMode ? `${colours.dark.border}80` : `${colours.light.border}`),
+                        flexShrink: 0,
+                      }}
+                    />
+                  )}
                 </React.Fragment>
-              )});
+              )})}
+              </>);
             })()}
-          </div>
         </div>
 
-        {/* ─── TIER 5: Integrated Workbench ─── */}
-        <div>
-          <InlineWorkbench
-            item={{ ...(inlineWorkbenchItem ?? {}), enquiry, enrichmentTeamsData }}
-            isDarkMode={isDarkMode}
-            teamData={teamData}
-            currentUser={userEmail ? { Email: userEmail } : null}
-            initialTab={selectedWorkbenchTab}
-            initialContextStage={selectedContextStage}
-            enableContextStageChips={false}
-            enableTabStages={false}
-            contextStageKeys={['enquiry', 'pitch', 'instructed']}
-            onDocumentPreview={workbenchHandlers?.onDocumentPreview}
-            onTriggerEID={workbenchHandlers?.onTriggerEID}
-            onOpenIdReview={workbenchHandlers?.onOpenIdReview}
-            onOpenMatter={workbenchHandlers?.onOpenMatter}
-            onOpenRiskAssessment={workbenchHandlers?.onOpenRiskAssessment}
-            onRefreshData={workbenchHandlers?.onRefreshData ? () => workbenchHandlers.onRefreshData!(inlineWorkbenchItem?.instruction?.InstructionRef || inlineWorkbenchItem?.instruction?.instructionRef) : undefined}
-            onRiskAssessmentSave={workbenchHandlers?.onRiskAssessmentSave ? (risk) => workbenchHandlers.onRiskAssessmentSave!(inlineWorkbenchItem?.instruction?.InstructionRef || inlineWorkbenchItem?.instruction?.instructionRef, risk) : undefined}
-            demoModeEnabled={demoModeEnabled}
-          />
+        </div>
+
+        {/* ─── TIER 3: Integrated Workbench shell (drops from journey tray) ─── */}
+        <div style={{
+          background: isDarkMode ? colours.websiteBlue : colours.light.cardBackground,
+          borderLeft: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.light.border}`,
+          borderRight: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.light.border}`,
+          borderBottom: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.light.border}`,
+          borderTop: 'none',
+        }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '6px 16px',
+            borderBottom: `1px solid ${isDarkMode ? colours.dark.border : colours.highlightNeutral}`,
+            background: isDarkMode ? 'rgba(6, 23, 51, 0.65)' : colours.light.sectionBackground,
+            fontFamily: "'Raleway', sans-serif",
+          }}>
+            <div style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              transition: 'opacity 170ms ease, transform 170ms ease',
+              opacity: isWorkbenchHeaderVisible ? 1 : 0,
+              transform: isWorkbenchHeaderVisible ? 'translateY(0)' : 'translateY(2px)',
+            }}>
+              <span style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: isDarkMode ? '#dbe4ff' : colours.greyText,
+                opacity: 0.95,
+                flexShrink: 0,
+              }}>
+                {displayWorkbenchHeader.icon}
+              </span>
+              <span style={{
+                fontSize: 10,
+                fontWeight: 600,
+                color: isDarkMode ? '#dbe4ff' : colours.greyText,
+                letterSpacing: '0.3px',
+                textTransform: 'uppercase',
+              }}>
+                {displayWorkbenchHeader.label}
+              </span>
+            </div>
+          </div>
+          <div style={{ padding: '8px 16px 10px' }}>
+            <InlineWorkbench
+              item={{ ...(inlineWorkbenchItem ?? {}), enquiry, enrichmentTeamsData, pitchData: enrichmentPitchData }}
+              isDarkMode={isDarkMode}
+              teamData={teamData}
+              currentUser={userEmail ? { Email: userEmail } : null}
+              initialTab={selectedWorkbenchTab}
+              initialContextStage={selectedContextStage}
+              enableContextStageChips={false}
+              enableTabStages={false}
+              flatEmbedMode={true}
+              contextStageKeys={['enquiry', 'pitch', 'instructed']}
+              onDocumentPreview={workbenchHandlers?.onDocumentPreview}
+              onTriggerEID={workbenchHandlers?.onTriggerEID}
+              onOpenIdReview={workbenchHandlers?.onOpenIdReview}
+              onOpenMatter={workbenchHandlers?.onOpenMatter}
+              onOpenRiskAssessment={workbenchHandlers?.onOpenRiskAssessment}
+              onRefreshData={workbenchHandlers?.onRefreshData ? () => workbenchHandlers.onRefreshData!(inlineWorkbenchItem?.instruction?.InstructionRef || inlineWorkbenchItem?.instruction?.instructionRef) : undefined}
+              onRiskAssessmentSave={workbenchHandlers?.onRiskAssessmentSave ? (risk) => workbenchHandlers.onRiskAssessmentSave!(inlineWorkbenchItem?.instruction?.InstructionRef || inlineWorkbenchItem?.instruction?.instructionRef, risk) : undefined}
+              demoModeEnabled={demoModeEnabled}
+            />
+          </div>
         </div>
       </div>
 
@@ -5577,10 +5492,10 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
       ═══════════════════════════════════════════════════════════════════════ */}
       <div style={{
         flex: 1,
-        padding: '16px 0',
+        padding: '8px 0',
         display: 'flex',
         flexDirection: 'column',
-        gap: '12px',
+        gap: '0',
       }}>
 
 
@@ -5588,16 +5503,10 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         {/* Journey Timeline */}
         <div 
           id="timeline-section"
+          className="prospect-timeline-section"
           style={{
-          background: isDarkMode 
-            ? `linear-gradient(180deg, ${colours.dark.sectionBackground} 0%, rgba(15, 23, 42, 0.92) 100%)`
-            : `linear-gradient(180deg, ${colours.light.sectionBackground} 0%, rgba(248, 250, 252, 0.95) 100%)`,
-          borderRadius: '8px',
-          padding: '16px 20px',
-          boxShadow: isDarkMode 
-            ? '0 1px 2px rgba(0, 0, 0, 0.2)'
-            : '0 1px 2px rgba(0, 0, 0, 0.04)',
-          transition: 'padding 0.2s ease',
+          background: isDarkMode ? colours.dark.background : colours.light.sectionBackground,
+          border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
         }}>
         {/* Timeline Header (label + count on first row, filters below) */}
         <div style={{
@@ -5606,33 +5515,12 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
           gap: '10px',
           marginBottom: '16px',
         }}>
-          <div style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            gap: '12px',
-            flexWrap: 'wrap',
-          }}>
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '10px',
-            }}>
-              <span style={{
-                fontSize: '14px',
-                fontWeight: 600,
-                color: isDarkMode ? colours.dark.text : colours.light.text,
-              }}>
+          <div className="prospect-timeline-header">
+            <div className="prospect-timeline-title">
+              <span>
                 Timeline
               </span>
-              <span style={{
-                fontSize: '11px',
-                padding: '2px 8px',
-                borderRadius: '10px',
-                background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)',
-                color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)',
-                fontWeight: 500,
-              }}>
+              <span className="prospect-timeline-count">
                 {activeFilters.length > 0
                   ? `${scopedTimeline.filter(item => activeFilters.includes(item.type)).length} items`
                   : `${scopedTimeline.length} items`}
@@ -5648,9 +5536,9 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                     fontSize: '10px',
                     fontWeight: 600,
                     background: 'transparent',
-                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)'}`,
-                    borderRadius: '4px',
-                    color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)',
+                    border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(160, 160, 160, 0.15)'}`,
+                    borderRadius: '2px',
+                    color: isDarkMode ? 'rgba(160, 160, 160, 0.7)' : 'rgba(107, 107, 107, 0.7)',
                     cursor: 'pointer',
                     transition: 'all 0.15s',
                   }}
@@ -5667,128 +5555,64 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               alignItems: 'center',
               flexWrap: 'wrap',
             }}>
-              <span style={{ 
-                fontSize: '11px', 
-                fontWeight: 600, 
-                color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)',
-                marginRight: '2px'
-              }}>
-                View:
-              </span>
-
             
             {/* Ledger/Card view toggle */}
             <div
+              className="prospect-view-toggle"
               role="group"
               aria-label="Timeline view"
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 0,
-                height: 32,
-                padding: '3px',
-                background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-                borderRadius: 16,
-                fontFamily: 'Raleway, sans-serif',
+                background: isDarkMode ? colours.dark.background : 'rgba(0,0,0,0.04)',
+                borderColor: isDarkMode ? colours.dark.border : 'rgba(160, 160, 160, 0.2)',
               }}
             >
               <button
                 type="button"
+                className="prospect-view-toggle-btn"
                 title="Table view"
                 aria-label="Table view"
                 aria-pressed={ledgerMode}
+                data-active={ledgerMode ? 'true' : undefined}
                 onClick={() => {
                   if (ledgerMode) return;
                   setLedgerMode(true);
                   try { localStorage.setItem('timelineLedgerMode', 'true'); } catch {}
                 }}
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 6,
-                  height: 26,
-                  padding: '0 10px',
-                  background: ledgerMode ? (isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.9)') : 'transparent',
-                  border: 'none',
-                  borderRadius: 13,
-                  cursor: 'pointer',
-                  transition: 'all 200ms ease',
-                  opacity: ledgerMode ? 1 : 0.6,
-                  boxShadow: ledgerMode
-                    ? (isDarkMode
-                        ? '0 1px 2px rgba(0,0,0,0.2)'
-                        : '0 1px 2px rgba(0,0,0,0.06)')
-                    : 'none',
+                  borderColor: ledgerMode
+                    ? (isDarkMode ? colours.dark.borderColor : 'rgba(6, 23, 51, 0.16)')
+                    : 'transparent',
+                  color: ledgerMode
+                    ? (isDarkMode ? colours.dark.text : '#061733')
+                    : (isDarkMode ? colours.subtleGrey : 'rgba(0,0,0,0.55)'),
                 }}
               >
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  color: ledgerMode
-                    ? (isDarkMode ? 'rgba(255,255,255,0.95)' : '#1f2937')
-                    : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),
-                }}>
-                  <FaList size={11} />
-                </div>
-                <span style={{
-                  fontSize: '12px',
-                  fontWeight: 500,
-                  color: ledgerMode
-                    ? (isDarkMode ? 'rgba(255,255,255,0.95)' : '#1f2937')
-                    : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),
-                }}>
-                  Table
-                </span>
+                <FaList size={11} />
+                <span>Table</span>
               </button>
               <button
                 type="button"
+                className="prospect-view-toggle-btn"
                 title="Timeline view"
                 aria-label="Timeline view"
                 aria-pressed={!ledgerMode}
+                data-active={!ledgerMode ? 'true' : undefined}
                 onClick={() => {
                   if (!ledgerMode) return;
                   setLedgerMode(false);
                   try { localStorage.setItem('timelineLedgerMode', 'false'); } catch {}
                 }}
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 6,
-                  height: 26,
-                  padding: '0 10px',
-                  background: !ledgerMode ? (isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.9)') : 'transparent',
-                  border: 'none',
-                  borderRadius: 13,
-                  cursor: 'pointer',
-                  transition: 'all 200ms ease',
-                  opacity: !ledgerMode ? 1 : 0.6,
-                  boxShadow: !ledgerMode
-                    ? (isDarkMode
-                        ? '0 1px 2px rgba(0,0,0,0.2)'
-                        : '0 1px 2px rgba(0,0,0,0.06)')
-                    : 'none',
+                  borderColor: !ledgerMode
+                    ? (isDarkMode ? colours.dark.borderColor : 'rgba(6, 23, 51, 0.16)')
+                    : 'transparent',
+                  color: !ledgerMode
+                    ? (isDarkMode ? colours.dark.text : '#061733')
+                    : (isDarkMode ? colours.subtleGrey : 'rgba(0,0,0,0.55)'),
                 }}
               >
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  color: !ledgerMode
-                    ? (isDarkMode ? 'rgba(255,255,255,0.95)' : '#1f2937')
-                    : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),
-                }}>
-                  <FaStream size={11} />
-                </div>
-                <span style={{
-                  fontSize: '12px',
-                  fontWeight: 500,
-                  color: !ledgerMode
-                    ? (isDarkMode ? 'rgba(255,255,255,0.95)' : '#1f2937')
-                    : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),
-                }}>
-                  Timeline
-                </span>
+                <FaStream size={11} />
+                <span>Timeline</span>
               </button>
             </div>
           </div>
@@ -5801,10 +5625,10 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             gap: '12px',
             flexWrap: 'wrap',
             padding: '10px 14px',
-            background: isDarkMode ? 'rgba(15, 23, 42, 0.4)' : 'rgba(248, 250, 252, 0.85)',
-            borderRadius: '8px',
-            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.18)'}`,
-            boxShadow: isDarkMode ? '0 8px 24px rgba(0, 0, 0, 0.25)' : '0 8px 24px rgba(15, 23, 42, 0.08)',
+            background: isDarkMode ? colours.dark.background : colours.grey,
+            borderRadius: '2px',
+            border: `1px solid ${isDarkMode ? colours.dark.border : 'rgba(160, 160, 160, 0.22)'}`,
+            boxShadow: 'none',
           }}>
             <div style={{
               display: 'flex',
@@ -5816,7 +5640,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 width: 3,
                 alignSelf: 'stretch',
                 borderRadius: 999,
-                background: isDarkMode ? 'rgba(56, 189, 248, 0.5)' : 'rgba(56, 189, 248, 0.4)',
+                background: isDarkMode ? colours.subtleGrey : colours.highlight,
               }} />
               <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 <span style={{
@@ -5824,7 +5648,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   fontWeight: 700,
                   textTransform: 'uppercase',
                   letterSpacing: '0.4px',
-                  color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.7)',
+                  color: isDarkMode ? colours.dark.text : colours.light.text,
                 }}>
                   Filter
                 </span>
@@ -5840,23 +5664,21 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 alignItems: 'center',
                 gap: '6px',
                 padding: '4px 10px',
-                borderRadius: '999px',
+                borderRadius: '2px',
                 border: `1px solid ${activeFilters.length === 0
-                  ? (isDarkMode ? 'rgba(226, 232, 240, 0.25)' : 'rgba(15, 23, 42, 0.18)')
-                  : (isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.18)')}`,
+                  ? (isDarkMode ? colours.dark.borderColor : 'rgba(6, 23, 51, 0.18)')
+                  : (isDarkMode ? 'rgba(160, 160, 160, 0.26)' : 'rgba(160, 160, 160, 0.22)')}`,
                 background: activeFilters.length === 0
-                  ? (isDarkMode ? 'rgba(226, 232, 240, 0.1)' : 'rgba(15, 23, 42, 0.08)')
-                  : (isDarkMode ? 'rgba(15, 23, 42, 0.2)' : 'rgba(148, 163, 184, 0.08)'),
+                  ? (isDarkMode ? 'transparent' : 'rgba(6, 23, 51, 0.08)')
+                  : (isDarkMode ? 'rgba(2, 6, 23, 0.5)' : 'rgba(160, 160, 160, 0.08)'),
                 color: activeFilters.length === 0
-                  ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.8)')
-                  : (isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)'),
+                  ? (isDarkMode ? colours.dark.text : 'rgba(6, 23, 51, 0.8)')
+                  : (isDarkMode ? colours.subtleGrey : 'rgba(107, 107, 107, 0.7)'),
                 cursor: 'pointer',
                 fontSize: 11,
                 fontWeight: 600,
                 transition: 'all 0.2s ease',
-                boxShadow: activeFilters.length === 0
-                  ? (isDarkMode ? '0 6px 14px rgba(15, 23, 42, 0.35)' : '0 6px 14px rgba(15, 23, 42, 0.08)')
-                  : 'none',
+                boxShadow: 'none',
               }}
             >
               All activity
@@ -5864,9 +5686,10 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 fontSize: 10,
                 fontWeight: 700,
                 padding: '1px 6px',
-                borderRadius: '999px',
-                background: isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.12)',
-                color: isDarkMode ? 'rgba(226, 232, 240, 0.8)' : 'rgba(15, 23, 42, 0.7)',
+                borderRadius: '2px',
+                background: isDarkMode ? 'transparent' : 'rgba(160, 160, 160, 0.12)',
+                border: `1px solid ${isDarkMode ? colours.dark.borderColor : 'transparent'}`,
+                color: isDarkMode ? 'rgba(243, 244, 246, 0.8)' : 'rgba(6, 23, 51, 0.7)',
               }}>
                 {scopedTimeline.length}
               </span>
@@ -5886,10 +5709,10 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               const isActive = activeFilters.includes(type);
               const isHovered = hoveredFilter === type;
               const baseColor = count === 0
-                ? (isDarkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(148, 163, 184, 0.45)')
+                ? (isDarkMode ? 'rgba(160, 160, 160, 0.35)' : 'rgba(160, 160, 160, 0.45)')
                 : (isActive
                   ? (isDarkMode ? colours.accent : colours.highlight)
-                  : (isDarkMode ? 'rgba(148, 163, 184, 0.75)' : 'rgba(100, 116, 139, 0.7)'));
+                  : (isDarkMode ? 'rgba(160, 160, 160, 0.75)' : 'rgba(107, 107, 107, 0.7)'));
               return (
                 <button
                   key={type}
@@ -5902,15 +5725,15 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                     alignItems: 'center',
                     gap: '6px',
                     padding: '4px 10px',
-                    borderRadius: '999px',
+                    borderRadius: '2px',
                     border: `1px solid ${isActive
-                      ? (isDarkMode ? 'rgba(56, 189, 248, 0.35)' : 'rgba(54, 144, 206, 0.3)')
-                      : (isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.18)')}`,
+                      ? (isDarkMode ? 'rgba(135, 243, 243, 0.38)' : 'rgba(54, 144, 206, 0.26)')
+                      : (isDarkMode ? 'rgba(160, 160, 160, 0.26)' : 'rgba(160, 160, 160, 0.2)')}`,
                     background: isActive
-                      ? (isDarkMode ? 'rgba(56, 189, 248, 0.08)' : 'rgba(54, 144, 206, 0.06)')
+                      ? (isDarkMode ? colours.darkBlue : 'rgba(54, 144, 206, 0.06)')
                       : isHovered
-                        ? (isDarkMode ? 'rgba(56, 189, 248, 0.05)' : 'rgba(56, 189, 248, 0.04)')
-                        : 'transparent',
+                        ? (isDarkMode ? colours.dark.cardBackground : 'rgba(54, 144, 206, 0.04)')
+                        : (isDarkMode ? colours.dark.background : 'transparent'),
                     color: baseColor,
                     cursor: count === 0 ? 'default' : 'pointer',
                     fontSize: 11,
@@ -5931,9 +5754,9 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                     fontSize: 10,
                     fontWeight: 700,
                     padding: '1px 6px',
-                    borderRadius: '999px',
-                    background: isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.12)',
-                    color: isDarkMode ? 'rgba(226, 232, 240, 0.8)' : 'rgba(15, 23, 42, 0.7)',
+                    borderRadius: '2px',
+                    background: isDarkMode ? colours.dark.cardBackground : 'rgba(160, 160, 160, 0.12)',
+                    color: isDarkMode ? 'rgba(243, 244, 246, 0.8)' : 'rgba(6, 23, 51, 0.7)',
                   }}>
                     {count}
                   </span>
@@ -5943,7 +5766,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
 
             <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
               {activityMetrics.daysSinceActivity > 0 && (
-                <span style={{ fontSize: 10, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)' }}>
+                <span style={{ fontSize: 10, color: isDarkMode ? 'rgba(160, 160, 160, 0.5)' : 'rgba(107, 107, 107, 0.5)' }}>
                   Last activity {activityMetrics.daysSinceActivity}d ago
                 </span>
               )}
@@ -5971,21 +5794,21 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   padding: '3px 10px',
                   fontSize: 10,
                   fontWeight: 600,
-                  background: 'transparent',
-                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)'}`,
-                  borderRadius: '6px',
-                  color: isDarkMode ? 'rgba(148, 163, 184, 0.75)' : 'rgba(100, 116, 139, 0.75)',
+                  background: isDarkMode ? colours.dark.background : 'transparent',
+                  border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.15)' : 'rgba(160, 160, 160, 0.2)'}`,
+                  borderRadius: '2px',
+                  color: isDarkMode ? 'rgba(160, 160, 160, 0.75)' : 'rgba(107, 107, 107, 0.75)',
                   cursor: 'pointer',
                   transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = colours.highlight;
-                  e.currentTarget.style.color = colours.highlight;
-                  e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.06)';
+                  e.currentTarget.style.borderColor = isDarkMode ? colours.accent : colours.highlight;
+                  e.currentTarget.style.color = isDarkMode ? colours.accent : colours.highlight;
+                  e.currentTarget.style.background = isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.06)';
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)';
-                  e.currentTarget.style.color = isDarkMode ? 'rgba(148, 163, 184, 0.75)' : 'rgba(100, 116, 139, 0.75)';
+                  e.currentTarget.style.borderColor = isDarkMode ? 'rgba(160, 160, 160, 0.15)' : 'rgba(160, 160, 160, 0.2)';
+                  e.currentTarget.style.color = isDarkMode ? 'rgba(160, 160, 160, 0.75)' : 'rgba(107, 107, 107, 0.75)';
                   e.currentTarget.style.background = 'transparent';
                 }}
               >
@@ -6011,7 +5834,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               gap: '6px',
               padding: '10px 12px',
               borderRadius: '2px',
-              border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.18)' : 'rgba(148, 163, 184, 0.22)'}`,
+              border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(160, 160, 160, 0.22)'}`,
               background: isDarkMode ? 'rgba(7, 16, 32, 0.28)' : 'rgba(255, 255, 255, 0.55)',
               marginBottom: '12px',
             }}
@@ -6021,7 +5844,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 style={{
                   fontSize: '11px',
                   fontWeight: 600,
-                  color: isDarkMode ? 'rgba(148, 163, 184, 0.75)' : 'rgba(15, 23, 42, 0.55)',
+                  color: isDarkMode ? 'rgba(160, 160, 160, 0.75)' : 'rgba(6, 23, 51, 0.55)',
                   marginBottom: '8px',
                 }}
               >
@@ -6050,9 +5873,9 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                       <span
                         style={{
                           ...iconBase,
-                          background: isDarkMode ? 'rgba(34, 197, 94, 0.18)' : 'rgba(34, 197, 94, 0.12)',
-                          border: `1px solid ${isDarkMode ? 'rgba(34, 197, 94, 0.35)' : 'rgba(34, 197, 94, 0.25)'}`,
-                          color: isDarkMode ? 'rgba(134, 239, 172, 0.95)' : 'rgb(22, 163, 74)',
+                          background: isDarkMode ? 'rgba(32, 178, 108, 0.18)' : 'rgba(32, 178, 108, 0.12)',
+                          border: `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.35)' : 'rgba(32, 178, 108, 0.25)'}`,
+                          color: isDarkMode ? 'rgba(32, 178, 108, 0.95)' : 'rgb(32, 178, 108)',
                         }}
                       >
                         ✓
@@ -6064,9 +5887,9 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                       <span
                         style={{
                           ...iconBase,
-                          background: isDarkMode ? 'rgba(253, 230, 138, 0.14)' : 'rgba(253, 230, 138, 0.22)',
-                          border: `1px solid ${isDarkMode ? 'rgba(253, 230, 138, 0.25)' : 'rgba(180, 83, 9, 0.22)'}`,
-                          color: isDarkMode ? 'rgba(253, 230, 138, 0.95)' : 'rgb(180, 83, 9)',
+                          background: isDarkMode ? 'rgba(255, 140, 0, 0.14)' : 'rgba(255, 140, 0, 0.22)',
+                          border: `1px solid ${isDarkMode ? 'rgba(255, 140, 0, 0.25)' : 'rgba(255, 140, 0, 0.22)'}`,
+                          color: isDarkMode ? 'rgba(255, 140, 0, 0.95)' : 'rgb(255, 140, 0)',
                         }}
                       >
                         !
@@ -6102,12 +5925,12 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                               alignItems: 'center',
                               gap: 8,
                               fontSize: '10px',
-                              color: isDarkMode ? 'rgba(226, 232, 240, 0.78)' : 'rgba(15, 23, 42, 0.6)',
+                              color: isDarkMode ? 'rgba(243, 244, 246, 0.78)' : 'rgba(6, 23, 51, 0.6)',
                               flex: '1 1 0',
                               minWidth: 0,
                               padding: '6px 8px',
                               borderRadius: '2px',
-                              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.16)'}`,
+                              border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.12)' : 'rgba(160, 160, 160, 0.16)'}`,
                               background: isDarkMode ? 'rgba(2, 6, 23, 0.18)' : 'rgba(255, 255, 255, 0.6)',
                             }}
                           >
@@ -6119,7 +5942,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                     width: 16,
                                     height: 16,
                                     borderRadius: 999,
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.14)' : 'rgba(148, 163, 184, 0.2)',
+                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.14)' : 'rgba(160, 160, 160, 0.2)',
                                   }}
                                 />
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0, flex: 1 }}>
@@ -6129,7 +5952,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                       width: '70%',
                                       height: 8,
                                       borderRadius: 999,
-                                      background: isDarkMode ? 'rgba(54, 144, 206, 0.14)' : 'rgba(148, 163, 184, 0.2)',
+                                      background: isDarkMode ? 'rgba(54, 144, 206, 0.14)' : 'rgba(160, 160, 160, 0.2)',
                                     }}
                                   />
                                   <div
@@ -6138,7 +5961,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                       width: '45%',
                                       height: 7,
                                       borderRadius: 999,
-                                      background: isDarkMode ? 'rgba(54, 144, 206, 0.14)' : 'rgba(148, 163, 184, 0.2)',
+                                      background: isDarkMode ? 'rgba(54, 144, 206, 0.14)' : 'rgba(160, 160, 160, 0.2)',
                                     }}
                                   />
                                 </div>
@@ -6148,7 +5971,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                 {renderStatusIcon(entry.status)}
                                 <div style={{ minWidth: 0, display: 'flex', gap: 8, alignItems: 'baseline' }}>
                                   <span style={{ fontWeight: 700 }}>{label}</span>
-                                  <span style={{ color: isDarkMode ? 'rgba(148, 163, 184, 0.8)' : 'rgba(15, 23, 42, 0.5)' }}>
+                                  <span style={{ color: isDarkMode ? 'rgba(160, 160, 160, 0.8)' : 'rgba(6, 23, 51, 0.5)' }}>
                                     {statusText}
                                   </span>
                                 </div>
@@ -6173,9 +5996,9 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 className="skeleton-shimmer"
                 style={{
                   height: 68,
-                  borderRadius: '6px',
-                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.12)'}`,
-                  background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(148, 163, 184, 0.14)',
+                  borderRadius: '2px',
+                  border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.08)' : 'rgba(160, 160, 160, 0.12)'}`,
+                  background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(160, 160, 160, 0.14)',
                 }}
               />
             ))}
@@ -6193,9 +6016,9 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             }}>
               <thead>
                 <tr style={{
-                  borderBottom: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)'}`,
-                  background: isDarkMode ? 'rgba(15, 25, 45, 0.98)' : 'rgba(248, 250, 252, 0.98)',
-                  color: isDarkMode ? colours.accent : colours.highlight,
+                  borderBottom: `1px solid ${isDarkMode ? colours.dark.border : 'rgba(0, 0, 0, 0.08)'}`,
+                  background: isDarkMode ? colours.darkBlue : 'rgba(244, 244, 246, 0.98)',
+                  color: isDarkMode ? colours.dark.text : colours.greyText,
                 }}>
                   <th style={{ padding: '10px 12px', textAlign: 'left', width: 80 }}>
                     <button
@@ -6356,17 +6179,17 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                           fontWeight: 600,
                           textTransform: 'uppercase',
                           letterSpacing: '0.3px',
-                          color: isDarkMode ? 'rgba(148, 163, 184, 0.65)' : 'rgba(100, 116, 139, 0.7)',
-                          background: isDarkMode ? 'rgba(15, 23, 42, 0.18)' : 'rgba(248, 250, 252, 0.55)',
-                          borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.12)'}`,
-                          borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.12)'}`,
+                          color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                          background: isDarkMode ? colours.darkBlue : 'rgba(244, 244, 246, 0.55)',
+                          borderTop: '1px solid ' + (isDarkMode ? colours.dark.border : 'rgba(160, 160, 160, 0.12)'),
+                          borderBottom: '1px solid ' + (isDarkMode ? colours.dark.border : 'rgba(160, 160, 160, 0.12)'),
                         }}>
                           {dateLabel}
                           <span style={{
                             marginLeft: 8,
                             fontSize: 9,
                             fontWeight: 600,
-                            color: isDarkMode ? 'rgba(148, 163, 184, 0.55)' : 'rgba(100, 116, 139, 0.6)',
+                            color: isDarkMode ? 'rgba(160, 160, 160, 0.55)' : 'rgba(107, 107, 107, 0.6)',
                           }}>
                             · {dayItems.length} {dayItems.length === 1 ? 'item' : 'items'}
                           </span>
@@ -6383,7 +6206,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                       const isExpanded = selectedItem?.id === item.id;
                       const isStriped = rowIndex % 2 === 1;
                       const baseRowBg = isStriped
-                        ? (isDarkMode ? 'rgba(15, 23, 42, 0.25)' : 'rgba(241, 245, 249, 0.65)')
+                        ? (isDarkMode ? colours.dark.cardBackground : 'rgba(244, 244, 246, 0.65)')
                         : 'transparent';
                       const typeLabel = getItemTypeLabel(item);
                       const dealOriginLabel = item.metadata?.dealOriginLabel;
@@ -6392,10 +6215,10 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                       const directionBorderLeft = (() => {
                         const dir = item.metadata?.direction;
                         if ((item.type === 'email' || item.type === 'call') && dir === 'inbound') {
-                          return isDarkMode ? '3px solid rgba(74, 222, 128, 0.6)' : '3px solid rgba(34, 197, 94, 0.5)';
+                          return isDarkMode ? '3px solid rgba(32, 178, 108, 0.6)' : '3px solid rgba(32, 178, 108, 0.5)';
                         }
                         if ((item.type === 'email' || item.type === 'call') && dir === 'outbound') {
-                          return isDarkMode ? '3px solid rgba(125, 211, 252, 0.6)' : '3px solid rgba(54, 144, 206, 0.5)';
+                          return isDarkMode ? '3px solid rgba(54, 144, 206, 0.6)' : '3px solid rgba(54, 144, 206, 0.5)';
                         }
                         return undefined;
                       })();
@@ -6405,28 +6228,28 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                           key={item.id}
                           onClick={() => setSelectedItem(isExpanded ? null : item)}
                           style={{
-                            borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.1)'}`,
+                            borderBottom: `1px solid ${isDarkMode ? colours.dark.border : 'rgba(160, 160, 160, 0.1)'}`,
                             borderLeft: directionBorderLeft,
                             cursor: 'pointer',
                             background: isExpanded
-                              ? (isDarkMode ? 'rgba(125, 211, 252, 0.06)' : 'rgba(54, 144, 206, 0.04)')
+                              ? (isDarkMode ? colours.darkBlue : 'rgba(54, 144, 206, 0.04)')
                               : isHoveredMatch
-                                ? (isDarkMode ? 'rgba(56, 189, 248, 0.06)' : 'rgba(56, 189, 248, 0.05)')
+                                ? (isDarkMode ? colours.dark.cardHover : 'rgba(54, 144, 206, 0.05)')
                                 : baseRowBg,
                             transition: 'background 0.15s',
                           }}
                           onMouseEnter={(e) => {
-                            if (!isExpanded) e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.05)' : 'rgba(148, 163, 184, 0.04)';
+                            if (!isExpanded) e.currentTarget.style.background = isDarkMode ? colours.dark.cardHover : 'rgba(160, 160, 160, 0.04)';
                           }}
                           onMouseLeave={(e) => {
                             if (!isExpanded) e.currentTarget.style.background = isHoveredMatch
-                              ? (isDarkMode ? 'rgba(56, 189, 248, 0.06)' : 'rgba(56, 189, 248, 0.05)')
+                              ? (isDarkMode ? colours.dark.cardHover : 'rgba(54, 144, 206, 0.05)')
                               : baseRowBg;
                           }}
                         >
                           <td style={{ padding: '10px 12px', verticalAlign: 'top', width: 160, minWidth: 140 }}>
                             {hasTime && (
-                              <div style={{ fontWeight: 600, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)' }}>{timeStr}</div>
+                              <div style={{ fontWeight: 600, color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : 'rgba(6, 23, 51, 0.85)' }}>{timeStr}</div>
                             )}
                           </td>
                           <td style={{ padding: '10px 12px', verticalAlign: 'top', width: 130, minWidth: 110 }}>
@@ -6455,13 +6278,13 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                 display: 'inline-flex',
                                 alignItems: 'center',
                                 padding: '1px 5px',
-                                borderRadius: '3px',
+                                borderRadius: '2px',
                                 background: item.metadata.direction === 'inbound'
-                                  ? isDarkMode ? 'rgba(74, 222, 128, 0.15)' : 'rgba(34, 197, 94, 0.12)'
-                                  : isDarkMode ? 'rgba(125, 211, 252, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                  ? isDarkMode ? 'rgba(32, 178, 108, 0.15)' : 'rgba(32, 178, 108, 0.12)'
+                                  : isDarkMode ? `${colours.highlight}1F` : 'rgba(54, 144, 206, 0.12)',
                                 color: item.metadata.direction === 'inbound'
-                                  ? isDarkMode ? '#4ADE80' : '#16A34A'
-                                  : isDarkMode ? '#7DD3FC' : '#0284C7',
+                                  ? isDarkMode ? '#20b26c' : '#20b26c'
+                                  : isDarkMode ? '#3690CE' : '#3690CE',
                               }}>
                                 {item.metadata.direction === 'inbound' ? 'In' : 'Out'}
                               </div>
@@ -6473,7 +6296,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                 fontWeight: 600,
                                 letterSpacing: '0.3px',
                                 textTransform: 'uppercase',
-                                color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.55)',
+                                color: isDarkMode ? 'rgba(160, 160, 160, 0.6)' : 'rgba(107, 107, 107, 0.55)',
                               }}>
                                 Sent {dealOriginLabel === 'Email' ? 'by email' : dealOriginLabel === 'Link' ? 'as link' : `via ${dealOriginLabel}`}
                               </div>
@@ -6485,7 +6308,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                 fontWeight: 600,
                                 letterSpacing: '0.3px',
                                 textTransform: 'uppercase',
-                                color: isDarkMode ? '#c4b5fd' : '#7c3aed',
+                                color: isDarkMode ? '#87F3F3' : '#3690CE',
                               }}>
                                 via Doc request
                               </div>
@@ -6494,7 +6317,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                           <td style={{ padding: '10px 12px', verticalAlign: 'top' }}>
                             <div style={{
                               fontWeight: 500,
-                              color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)',
+                              color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : 'rgba(6, 23, 51, 0.85)',
                               marginBottom: isExpanded ? 8 : 0,
                             }}>
                               {item.subject}
@@ -6503,12 +6326,12 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                               <div style={{
                                 fontSize: 11,
                                 lineHeight: 1.5,
-                                color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.7)',
+                                color: isDarkMode ? 'rgba(243, 244, 246, 0.7)' : 'rgba(6, 23, 51, 0.7)',
                                 whiteSpace: 'pre-wrap',
                                 padding: '8px 10px',
-                                background: isDarkMode ? 'rgba(15, 23, 42, 0.3)' : '#F8FAFC',
-                                borderRadius: 4,
-                                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.15)'}`,
+                                background: isDarkMode ? 'rgba(6, 23, 51, 0.3)' : colours.grey,
+                                borderRadius: 2,
+                                border: `1px solid ${isDarkMode ? colours.dark.border : 'rgba(160, 160, 160, 0.15)'}`,
                               }}>
                                 {item.content}
                               </div>
@@ -6517,7 +6340,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                               <div style={{
                                 fontSize: 11,
                                 lineHeight: 1.5,
-                                color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.7)',
+                                color: isDarkMode ? 'rgba(243, 244, 246, 0.7)' : 'rgba(6, 23, 51, 0.7)',
                                 padding: '8px 0',
                               }}>
                                 {item.stageStatus && (
@@ -6546,11 +6369,11 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                 style={{
                                   fontSize: 11,
                                   lineHeight: 1.5,
-                                  color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.7)',
+                                  color: isDarkMode ? 'rgba(243, 244, 246, 0.7)' : 'rgba(6, 23, 51, 0.7)',
                                   padding: '8px 10px',
-                                  background: isDarkMode ? 'rgba(15, 23, 42, 0.3)' : '#F8FAFC',
-                                  borderRadius: 4,
-                                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.15)'}`,
+                                  background: isDarkMode ? 'rgba(6, 23, 51, 0.3)' : colours.grey,
+                                  borderRadius: 2,
+                                  border: `1px solid ${isDarkMode ? colours.dark.border : 'rgba(160, 160, 160, 0.15)'}`,
                                 }}
                                 dangerouslySetInnerHTML={{ __html: sanitizeEmailHtml(item.contentHtml) }}
                               />
@@ -6569,7 +6392,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                     fontWeight: 600,
                                     border: 'none',
                                     background: 'transparent',
-                                    color: isDarkMode ? 'rgba(148, 163, 184, 0.85)' : 'rgba(100, 116, 139, 0.8)',
+                                    color: isDarkMode ? 'rgba(160, 160, 160, 0.85)' : 'rgba(107, 107, 107, 0.8)',
                                     cursor: 'pointer',
                                     transition: 'color 0.2s ease, opacity 0.2s ease',
                                     textTransform: 'uppercase',
@@ -6579,7 +6402,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                     e.currentTarget.style.color = colours.highlight;
                                   }}
                                   onMouseLeave={(e) => {
-                                    e.currentTarget.style.color = isDarkMode ? 'rgba(148, 163, 184, 0.85)' : 'rgba(100, 116, 139, 0.8)';
+                                    e.currentTarget.style.color = isDarkMode ? 'rgba(160, 160, 160, 0.85)' : 'rgba(107, 107, 107, 0.8)';
                                   }}
                                 >
                                   Forward
@@ -6593,7 +6416,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                               fontWeight: 700,
                               textTransform: 'uppercase',
                               letterSpacing: '0.3px',
-                              color: isDarkMode ? 'rgba(148, 163, 184, 0.75)' : 'rgba(100, 116, 139, 0.7)',
+                              color: isDarkMode ? 'rgba(160, 160, 160, 0.75)' : 'rgba(107, 107, 107, 0.7)',
                               marginBottom: 4,
                             }}>
                               By
@@ -6601,7 +6424,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                             <div style={{
                               fontSize: 12,
                               fontWeight: 600,
-                              color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)',
+                              color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : 'rgba(6, 23, 51, 0.85)',
                             }}>
                               {item.createdBy || '—'}
                             </div>
@@ -6628,7 +6451,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               top: '0',
               bottom: '0',
               width: '1px',
-              background: isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)',
+              background: isDarkMode ? colours.dark.border : 'rgba(160, 160, 160, 0.12)',
             }} />
 
             {/* Timeline items */}
@@ -6676,17 +6499,17 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                     return getItemTypeColor(item);
                   }
                   if (isPortalUpload) {
-                    return isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(148, 163, 184, 0.5)';
+                    return isDarkMode ? 'rgba(160, 160, 160, 0.4)' : 'rgba(160, 160, 160, 0.5)';
                   }
                   if (itemActionRequired) {
                     return statusColors.actionRequired;
                   }
                   if (item.type === 'email') {
                     if (item.metadata?.direction === 'inbound') {
-                      return isDarkMode ? '#4ADE80' : '#22C55E'; // Green - they contacted us
+                      return isDarkMode ? '#20b26c' : '#20b26c'; // Green - they contacted us
                     }
                     if (item.metadata?.direction === 'outbound') {
-                      return isDarkMode ? '#7DD3FC' : '#3690CE'; // Blue - we contacted them
+                      return isDarkMode ? '#3690CE' : '#3690CE'; // Blue - we contacted them
                     }
                   }
                   return statusColors.complete;
@@ -6745,7 +6568,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                             fontWeight: 700,
                             textTransform: 'uppercase',
                             letterSpacing: '0.4px',
-                            color: isDarkMode ? 'rgba(226, 232, 240, 0.65)' : 'rgba(15, 23, 42, 0.55)',
+                            color: isDarkMode ? 'rgba(243, 244, 246, 0.65)' : 'rgba(6, 23, 51, 0.55)',
                           }}
                         >
                           {dayName}
@@ -6754,7 +6577,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                           style={{
                             fontSize: '12px',
                             fontWeight: 700,
-                            color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.8)',
+                            color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : 'rgba(6, 23, 51, 0.8)',
                             marginTop: '2px',
                           }}
                         >
@@ -6771,8 +6594,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                         height: '8px',
                         boxSizing: 'border-box',
                         borderRadius: '2px',
-                        background: isDarkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(148, 163, 184, 0.45)',
-                        boxShadow: `0 0 0 2px ${isDarkMode ? 'rgba(15, 23, 42, 0.9)' : 'rgba(255, 255, 255, 0.9)'}`,
+                        background: isDarkMode ? 'rgba(160, 160, 160, 0.35)' : 'rgba(160, 160, 160, 0.45)',
+                        boxShadow: `0 0 0 2px ${isDarkMode ? 'rgba(6, 23, 51, 0.9)' : 'rgba(255, 255, 255, 0.9)'}`,
                         zIndex: 1,
                       }} />
 
@@ -6793,13 +6616,13 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                           padding: '8px 12px',
                           marginLeft: '-8px',
                           background: 'transparent',
-                          border: `1px dashed ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)'}`,
-                          borderRadius: '6px',
+                          border: `1px dashed ${isDarkMode ? colours.dark.border : 'rgba(160, 160, 160, 0.2)'}`,
+                          borderRadius: '2px',
                           cursor: 'pointer',
                           textAlign: 'left',
                         }}
                         onMouseEnter={(e) => {
-                          e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.05)' : 'rgba(148, 163, 184, 0.04)';
+                          e.currentTarget.style.background = isDarkMode ? 'rgba(160, 160, 160, 0.05)' : 'rgba(160, 160, 160, 0.04)';
                         }}
                         onMouseLeave={(e) => {
                           e.currentTarget.style.background = 'transparent';
@@ -6808,14 +6631,14 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                           <span style={{
                             fontSize: '10px',
-                            color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(15, 23, 42, 0.5)',
+                            color: isDarkMode ? 'rgba(160, 160, 160, 0.7)' : 'rgba(6, 23, 51, 0.5)',
                           }}>
                             ▶
                           </span>
                           <span style={{
                             fontSize: '11px',
                             fontWeight: 600,
-                            color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.6)',
+                            color: isDarkMode ? 'rgba(243, 244, 246, 0.7)' : 'rgba(6, 23, 51, 0.6)',
                           }}>
                             {dayItems.length} item{dayItems.length === 1 ? '' : 's'}
                           </span>
@@ -6926,7 +6749,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                             fontWeight: 700,
                             textTransform: 'uppercase',
                             letterSpacing: '0.4px',
-                            color: isDarkMode ? 'rgba(226, 232, 240, 0.65)' : 'rgba(15, 23, 42, 0.55)',
+                            color: isDarkMode ? 'rgba(243, 244, 246, 0.65)' : 'rgba(6, 23, 51, 0.55)',
                           }}
                         >
                           {dayName}
@@ -6935,7 +6758,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                           style={{
                             fontSize: '12px',
                             fontWeight: 700,
-                            color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.8)',
+                            color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : 'rgba(6, 23, 51, 0.8)',
                             marginTop: '2px',
                           }}
                         >
@@ -6945,7 +6768,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                           style={{
                             fontSize: '9px',
                             fontWeight: 600,
-                            color: isDarkMode ? 'rgba(226, 232, 240, 0.45)' : 'rgba(15, 23, 42, 0.45)',
+                            color: isDarkMode ? 'rgba(243, 244, 246, 0.45)' : 'rgba(6, 23, 51, 0.45)',
                             marginTop: '2px',
                           }}
                         >
@@ -6957,7 +6780,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                         style={{
                           fontSize: '9px',
                           fontWeight: 600,
-                          color: isDarkMode ? 'rgba(226, 232, 240, 0.45)' : 'rgba(15, 23, 42, 0.45)',
+                          color: isDarkMode ? 'rgba(243, 244, 246, 0.45)' : 'rgba(6, 23, 51, 0.45)',
                           marginTop: '14px',
                         }}
                       >
@@ -6978,7 +6801,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                     boxSizing: 'border-box',
                     borderRadius: '50%',
                     background: dotColor,
-                    boxShadow: isPortalUpload ? 'none' : `0 0 0 2px ${isDarkMode ? 'rgba(15, 23, 42, 0.9)' : 'rgba(255, 255, 255, 0.9)'}`,
+                    boxShadow: isPortalUpload ? 'none' : `0 0 0 2px ${isDarkMode ? 'rgba(6, 23, 51, 0.9)' : 'rgba(255, 255, 255, 0.9)'}`,
                     zIndex: 1,
                     marginTop: isPortalUpload ? '1px' : '0px',
                     marginLeft: isPortalUpload ? '1px' : '0px',
@@ -6989,31 +6812,31 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                     className="helix-timeline-card"
                     style={{
                     background: isExpanded
-                      ? isDarkMode ? 'rgba(125, 211, 252, 0.06)' : 'rgba(54, 144, 206, 0.04)'
+                      ? isDarkMode ? colours.dark.cardHover : 'rgba(54, 144, 206, 0.04)'
                       : isHoveredMatch
-                        ? (isDarkMode ? 'rgba(56, 189, 248, 0.05)' : 'rgba(56, 189, 248, 0.04)')
-                        : 'transparent',
+                        ? (isDarkMode ? colours.dark.cardBackground : 'rgba(54, 144, 206, 0.04)')
+                        : (isDarkMode ? colours.dark.cardBackground : 'transparent'),
                     border: isExpanded
-                      ? `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.3)' : 'rgba(54, 144, 206, 0.2)'}`
+                      ? `1px solid ${isDarkMode ? colours.dark.borderColor : 'rgba(54, 144, 206, 0.2)'}`
                       : isHoveredMatch
-                        ? `1px solid ${isDarkMode ? 'rgba(56, 189, 248, 0.35)' : 'rgba(56, 189, 248, 0.3)'}`
+                        ? `1px solid ${isDarkMode ? colours.dark.borderColor : 'rgba(54, 144, 206, 0.3)'}`
                         : isPortalUpload
-                          ? `1px dashed ${isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.15)'}`
-                          : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.1)'}`,
+                          ? `1px dashed ${isDarkMode ? 'rgba(160, 160, 160, 0.12)' : 'rgba(160, 160, 160, 0.15)'}`
+                          : `1px solid ${isDarkMode ? colours.dark.border : 'rgba(160, 160, 160, 0.1)'}`,
                     borderLeft: isExpanded
-                      ? `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.3)' : 'rgba(54, 144, 206, 0.2)'}`
+                      ? `1px solid ${isDarkMode ? colours.dark.borderColor : 'rgba(54, 144, 206, 0.2)'}`
                       : isPortalUpload
-                        ? `1px dashed ${isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.15)'}`
+                        ? `1px dashed ${isDarkMode ? 'rgba(160, 160, 160, 0.12)' : 'rgba(160, 160, 160, 0.15)'}`
                         : item.type === 'email' && item.metadata?.direction === 'inbound'
-                          ? isDarkMode ? '3px solid rgba(74, 222, 128, 0.6)' : '3px solid rgba(34, 197, 94, 0.5)'
+                          ? isDarkMode ? '3px solid rgba(32, 178, 108, 0.6)' : '3px solid rgba(32, 178, 108, 0.5)'
                           : item.type === 'email' && item.metadata?.direction === 'outbound'
-                            ? isDarkMode ? '3px solid rgba(125, 211, 252, 0.6)' : '3px solid rgba(54, 144, 206, 0.5)'
+                            ? isDarkMode ? '3px solid rgba(54, 144, 206, 0.6)' : '3px solid rgba(54, 144, 206, 0.5)'
                             : item.type === 'call' && item.metadata?.direction === 'inbound'
-                              ? isDarkMode ? '3px solid rgba(74, 222, 128, 0.6)' : '3px solid rgba(34, 197, 94, 0.5)'
+                              ? isDarkMode ? '3px solid rgba(32, 178, 108, 0.6)' : '3px solid rgba(32, 178, 108, 0.5)'
                               : item.type === 'call' && item.metadata?.direction === 'outbound'
-                                ? isDarkMode ? '3px solid rgba(125, 211, 252, 0.6)' : '3px solid rgba(54, 144, 206, 0.5)'
-                                : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.1)'}`,
-                    borderRadius: '8px',
+                                ? isDarkMode ? '3px solid rgba(54, 144, 206, 0.6)' : '3px solid rgba(54, 144, 206, 0.5)'
+                                : `1px solid ${isDarkMode ? colours.dark.border : 'rgba(160, 160, 160, 0.1)'}`,
+                    borderRadius: '2px',
                     padding: isPortalUpload ? '6px 10px' : '10px 12px',
                     marginLeft: '-8px',
                     transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
@@ -7023,18 +6846,20 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   onMouseEnter={(e) => {
                     if (!isExpanded) {
                       e.currentTarget.style.transform = 'translateX(4px)';
-                      e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.04)' : 'rgba(148, 163, 184, 0.03)';
-                      e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.18)';
+                      e.currentTarget.style.background = isDarkMode ? colours.dark.cardHover : 'rgba(160, 160, 160, 0.03)';
+                      e.currentTarget.style.borderColor = isDarkMode ? colours.dark.borderColor : 'rgba(160, 160, 160, 0.18)';
                       e.currentTarget.style.boxShadow = isDarkMode ? '0 2px 8px rgba(0, 0, 0, 0.2)' : '0 2px 8px rgba(0, 0, 0, 0.06)';
                     }
                   }}
                   onMouseLeave={(e) => {
                     if (!isExpanded) {
                       e.currentTarget.style.transform = 'translateX(0)';
-                      e.currentTarget.style.background = 'transparent';
+                      e.currentTarget.style.background = isHoveredMatch
+                        ? (isDarkMode ? colours.dark.cardBackground : 'rgba(54, 144, 206, 0.04)')
+                        : (isDarkMode ? colours.dark.cardBackground : 'transparent');
                       e.currentTarget.style.borderColor = isPortalUpload 
-                        ? (isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.15)')
-                        : (isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.1)');
+                        ? (isDarkMode ? 'rgba(160, 160, 160, 0.12)' : 'rgba(160, 160, 160, 0.15)')
+                        : (isDarkMode ? colours.dark.border : 'rgba(160, 160, 160, 0.1)');
                       e.currentTarget.style.boxShadow = 'none';
                     }
                   }}
@@ -7056,7 +6881,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                           fontSize: isPortalUpload ? '11px' : '12px',
                           fontWeight: isPortalUpload ? 500 : 600,
                           color: isPortalUpload
-                            ? (isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(15, 23, 42, 0.55)')
+                            ? (isDarkMode ? 'rgba(243, 244, 246, 0.6)' : 'rgba(6, 23, 51, 0.55)')
                             : isExpanded
                               ? (isDarkMode ? colours.accent : colours.highlight)
                               : (isDarkMode ? colours.dark.text : colours.light.text),
@@ -7075,7 +6900,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                           {isPortalUpload && (
                             <span style={{ 
                               fontSize: '10px', 
-                              color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(15, 23, 42, 0.4)',
+                              color: isDarkMode ? 'rgba(160, 160, 160, 0.5)' : 'rgba(6, 23, 51, 0.4)',
                             }}>
                               📎
                             </span>
@@ -7084,16 +6909,14 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                             <span style={{
                               fontSize: '9px',
                               padding: '2px 6px',
-                              borderRadius: '4px',
-                              fontWeight: 600,
-                              display: 'inline-flex',
-                              alignItems: 'center',
+                              borderRadius: '2px',
+                              border: `1px solid ${isDarkMode ? colours.dark.border : colours.grey}`,
                               background: item.metadata.direction === 'inbound'
-                                ? isDarkMode ? 'rgba(74, 222, 128, 0.15)' : 'rgba(34, 197, 94, 0.12)'
-                                : isDarkMode ? 'rgba(125, 211, 252, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                ? isDarkMode ? 'rgba(32, 178, 108, 0.15)' : 'rgba(32, 178, 108, 0.12)'
+                                : isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
                               color: item.metadata.direction === 'inbound'
-                                ? isDarkMode ? '#4ADE80' : '#16A34A'
-                                : isDarkMode ? '#7DD3FC' : '#0284C7',
+                                ? isDarkMode ? '#20b26c' : '#20b26c'
+                                : isDarkMode ? '#3690CE' : '#3690CE',
                             }}>
                               {item.metadata.direction === 'inbound' ? 'In' : 'Out'}
                             </span>
@@ -7102,10 +6925,10 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                             <span style={{
                               fontSize: '9px',
                               padding: '2px 6px',
-                              borderRadius: '4px',
+                              borderRadius: '2px',
                               fontWeight: 600,
                               background: isDarkMode ? 'rgba(168, 85, 247, 0.12)' : 'rgba(168, 85, 247, 0.1)',
-                              color: isDarkMode ? '#c4b5fd' : '#7c3aed',
+                              color: isDarkMode ? '#87F3F3' : '#3690CE',
                             }}>
                               Doc request
                             </span>
@@ -7114,10 +6937,10 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                             <span style={{
                               fontSize: '9px',
                               padding: '2px 6px',
-                              borderRadius: '4px',
+                              borderRadius: '2px',
                               fontWeight: 600,
-                              background: isDarkMode ? 'rgba(34, 197, 94, 0.12)' : 'rgba(34, 197, 94, 0.1)',
-                              color: isDarkMode ? '#4ADE80' : '#16A34A',
+                              background: isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.1)',
+                              color: isDarkMode ? '#20b26c' : '#20b26c',
                             }}>
                               {item.metadata.dealOriginLabel}
                             </span>
@@ -7136,7 +6959,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                         {/* Time and Author - smaller, subtle */}
                         <div style={{
                           fontSize: isPortalUpload ? '9px' : '10px',
-                          color: isDarkMode ? 'rgba(226, 232, 240, 0.5)' : 'rgba(15, 23, 42, 0.5)',
+                          color: isDarkMode ? 'rgba(243, 244, 246, 0.5)' : 'rgba(6, 23, 51, 0.5)',
                           display: 'flex',
                           alignItems: 'center',
                           gap: '8px',
@@ -7160,7 +6983,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                   border: 'none',
                                   padding: 0,
                                   cursor: 'pointer',
-                                  color: isDarkMode ? 'rgba(125, 211, 252, 0.6)' : 'rgba(54, 144, 206, 0.7)',
+                                  color: isDarkMode ? 'rgba(54, 144, 206, 0.6)' : 'rgba(54, 144, 206, 0.7)',
                                   fontSize: '9px',
                                   textDecoration: 'underline',
                                   textUnderlineOffset: '2px',
@@ -7199,9 +7022,9 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                 <span style={{
                                   fontSize: '9px',
                                   padding: '2px 6px',
-                                  borderRadius: '4px',
-                                  background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)',
-                                  color: isDarkMode ? 'rgba(148, 163, 184, 0.8)' : 'rgba(100, 116, 139, 0.8)',
+                                  borderRadius: '2px',
+                                  background: isDarkMode ? 'rgba(160, 160, 160, 0.08)' : 'rgba(160, 160, 160, 0.06)',
+                                  color: isDarkMode ? 'rgba(160, 160, 160, 0.8)' : 'rgba(107, 107, 107, 0.8)',
                                   fontWeight: 500,
                                 }}>
                                   {getScenarioName(item.metadata.scenarioId)}
@@ -7233,16 +7056,16 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                             padding: 0,
                             background: 'transparent',
                             border: 'none',
-                            borderRadius: '4px',
+                            borderRadius: '2px',
                             cursor: 'pointer',
-                            color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.5)',
+                            color: isDarkMode ? 'rgba(160, 160, 160, 0.6)' : 'rgba(107, 107, 107, 0.5)',
                           }}
                           onMouseEnter={(e) => {
-                            e.currentTarget.style.color = isDarkMode ? 'rgba(226, 232, 240, 0.8)' : 'rgba(15, 23, 42, 0.7)';
-                            e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)';
+                            e.currentTarget.style.color = isDarkMode ? 'rgba(243, 244, 246, 0.8)' : 'rgba(6, 23, 51, 0.7)';
+                            e.currentTarget.style.background = isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(160, 160, 160, 0.08)';
                           }}
                           onMouseLeave={(e) => {
-                            e.currentTarget.style.color = isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.5)';
+                            e.currentTarget.style.color = isDarkMode ? 'rgba(160, 160, 160, 0.6)' : 'rgba(107, 107, 107, 0.5)';
                             e.currentTarget.style.background = 'transparent';
                           }}
                         >
@@ -7252,7 +7075,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                           </svg>
                         </button>
                         <div style={{
-                          color: isDarkMode ? 'rgba(226, 232, 240, 0.4)' : 'rgba(15, 23, 42, 0.4)',
+                          color: isDarkMode ? 'rgba(243, 244, 246, 0.4)' : 'rgba(6, 23, 51, 0.4)',
                           fontSize: '14px',
                           transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
                           transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
@@ -7281,15 +7104,15 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                       <div style={{
                         marginTop: '12px',
                         paddingTop: '12px',
-                        borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.1)'}`,
+                        borderTop: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.15)' : 'rgba(160, 160, 160, 0.1)'}`,
                         fontSize: '12px',
                         lineHeight: '1.7',
-                        color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.9)',
+                        color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : 'rgba(6, 23, 51, 0.9)',
                       }}>
                         {item.metadata?.isDocWorkspace ? (
                           <div
                             style={{
-                              border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.2)' : 'rgba(148, 163, 184, 0.25)'}`,
+                              border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(160, 160, 160, 0.25)'}`,
                               borderRadius: '2px',
                               padding: '12px',
                               background: isDarkMode ? 'rgba(7, 16, 32, 0.35)' : 'rgba(255, 255, 255, 0.55)',
@@ -7322,20 +7145,20 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                       padding: '10px 12px',
                                       marginBottom: '12px',
                                       borderRadius: '2px',
-                                      background: isDarkMode ? 'rgba(253, 230, 138, 0.08)' : 'rgba(180, 83, 9, 0.06)',
-                                      border: `1px solid ${isDarkMode ? 'rgba(253, 230, 138, 0.25)' : 'rgba(180, 83, 9, 0.2)'}`,
+                                      background: isDarkMode ? 'rgba(255, 140, 0, 0.08)' : 'rgba(255, 140, 0, 0.06)',
+                                      border: `1px solid ${isDarkMode ? 'rgba(255, 140, 0, 0.25)' : 'rgba(255, 140, 0, 0.2)'}`,
                                     }}>
                                       <div style={{
                                         width: '20px',
                                         height: '20px',
                                         borderRadius: '50%',
-                                        background: isDarkMode ? 'rgba(253, 230, 138, 0.15)' : 'rgba(180, 83, 9, 0.1)',
+                                        background: isDarkMode ? 'rgba(255, 140, 0, 0.15)' : 'rgba(255, 140, 0, 0.1)',
                                         display: 'flex',
                                         alignItems: 'center',
                                         justifyContent: 'center',
                                         fontSize: '11px',
                                         fontWeight: 700,
-                                        color: isDarkMode ? 'rgba(253, 230, 138, 0.95)' : 'rgb(180, 83, 9)',
+                                        color: isDarkMode ? 'rgba(255, 140, 0, 0.95)' : 'rgb(255, 140, 0)',
                                         flex: '0 0 auto',
                                       }}>
                                         !
@@ -7344,13 +7167,13 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                         <div style={{
                                           fontSize: '12px',
                                           fontWeight: 700,
-                                          color: isDarkMode ? 'rgba(253, 230, 138, 0.95)' : 'rgb(180, 83, 9)',
+                                          color: isDarkMode ? 'rgba(255, 140, 0, 0.95)' : 'rgb(255, 140, 0)',
                                         }}>
                                           {holdingDocsCount} file{holdingDocsCount === 1 ? '' : 's'} need{holdingDocsCount === 1 ? 's' : ''} allocation
                                         </div>
                                         <div style={{
                                           fontSize: '10px',
-                                          color: isDarkMode ? 'rgba(253, 230, 138, 0.7)' : 'rgba(180, 83, 9, 0.8)',
+                                          color: isDarkMode ? 'rgba(255, 140, 0, 0.7)' : 'rgba(255, 140, 0, 0.8)',
                                           marginTop: '2px',
                                         }}>
                                           Client uploaded files are in Holding — move to appropriate folder
@@ -7369,38 +7192,38 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                   }}>
                                     <div style={{
                                       fontSize: '11px',
-                                      color: isDarkMode ? 'rgba(148, 163, 184, 0.85)' : 'rgba(15, 23, 42, 0.65)',
+                                      color: isDarkMode ? 'rgba(160, 160, 160, 0.85)' : 'rgba(6, 23, 51, 0.65)',
                                       display: 'flex',
                                       alignItems: 'center',
                                       gap: '8px',
                                     }}>
                                       {isExpired ? (
-                                        <span style={{ color: isDarkMode ? 'rgba(253, 230, 138, 0.95)' : 'rgb(180, 83, 9)' }}>Portal expired</span>
+                                        <span style={{ color: isDarkMode ? 'rgba(255, 140, 0, 0.95)' : 'rgb(255, 140, 0)' }}>Portal expired</span>
                                       ) : isLive ? (
                                         <>
                                           <span style={{
                                             display: 'inline-flex',
                                             alignItems: 'center',
                                             gap: '5px',
-                                            color: isDarkMode ? 'rgba(134, 239, 172, 0.95)' : 'rgb(22, 163, 74)',
+                                            color: isDarkMode ? 'rgba(32, 178, 108, 0.95)' : 'rgb(32, 178, 108)',
                                           }}>
                                             <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'currentColor' }} />
                                             Active
                                           </span>
-                                          <span style={{ color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(15, 23, 42, 0.35)' }}>•</span>
+                                          <span style={{ color: isDarkMode ? 'rgba(160, 160, 160, 0.5)' : 'rgba(6, 23, 51, 0.35)' }}>•</span>
                                           <span>{getExpiryLabel(item.metadata.workspaceExpiresAt)}</span>
                                         </>
                                       ) : (
-                                        <span style={{ color: isDarkMode ? 'rgba(253, 230, 138, 0.95)' : 'rgb(180, 83, 9)' }}>Not yet active</span>
+                                        <span style={{ color: isDarkMode ? 'rgba(255, 140, 0, 0.95)' : 'rgb(255, 140, 0)' }}>Not yet active</span>
                                       )}
                                     </div>
-                                    <div style={{ fontSize: '10px', color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(15, 23, 42, 0.5)' }}>
+                                    <div style={{ fontSize: '10px', color: isDarkMode ? 'rgba(160, 160, 160, 0.6)' : 'rgba(6, 23, 51, 0.5)' }}>
                                       Code: {item.metadata.workspacePasscode || '—'}
                                     </div>
                                   </div>
 
                                   {!isLive && (item.metadata?.workspaceError || '') ? (
-                                    <div style={{ fontSize: '10px', color: isDarkMode ? 'rgba(253, 230, 138, 0.85)' : 'rgb(180, 83, 9)', marginTop: '4px', marginBottom: '8px' }}>
+                                    <div style={{ fontSize: '10px', color: isDarkMode ? 'rgba(255, 140, 0, 0.85)' : 'rgb(255, 140, 0)', marginTop: '4px', marginBottom: '8px' }}>
                                       {item.metadata?.workspaceError}
                                     </div>
                                   ) : null}
@@ -7429,9 +7252,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                           borderRadius: '2px',
                                           fontSize: '12px',
                                           fontWeight: 700,
-                                          background: colours.highlight,
-                                          color: '#ffffff',
-                                          border: 'none',
+                                          border: `1px solid ${isDarkMode ? `${colours.subtleGrey}33` : `${colours.greyText}33`}`,
+                                          color: isDarkMode ? colours.subtleGrey : colours.greyText,
                                           cursor: docRequestLoading || !requestDocsEnabled ? 'default' : 'pointer',
                                           opacity: docRequestLoading || !requestDocsEnabled ? 0.6 : 1,
                                         }}
@@ -7527,7 +7349,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
 
                               if (docs.length === 0) {
                                 return (
-                                  <div style={{ fontSize: '11px', color: isDarkMode ? 'rgba(148, 163, 184, 0.75)' : 'rgba(15, 23, 42, 0.6)' }}>
+                                  <div style={{ fontSize: '11px', color: isDarkMode ? 'rgba(160, 160, 160, 0.75)' : 'rgba(6, 23, 51, 0.6)' }}>
                                     No documents uploaded yet.
                                   </div>
                                 );
@@ -7536,7 +7358,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                               return (
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                   {/* Uploaded files by folder */}
-                                  <div style={{ fontSize: '10px', fontWeight: 600, color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(15, 23, 42, 0.55)', marginBottom: '2px' }}>
+                                  <div style={{ fontSize: '10px', fontWeight: 600, color: isDarkMode ? 'rgba(160, 160, 160, 0.7)' : 'rgba(6, 23, 51, 0.55)', marginBottom: '2px' }}>
                                     Uploaded files ({docs.length})
                                   </div>
                                   <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -7544,13 +7366,13 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                         const folderDocs = docsByFolder.get(folder) || [];
                                         const isHolding = folder === 'Holding' && folderDocs.length > 0;
                                         const folderLabelColor = isHolding
-                                          ? (isDarkMode ? 'rgba(253, 230, 138, 0.95)' : 'rgb(180, 83, 9)')
-                                          : (isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.75)');
+                                          ? (isDarkMode ? 'rgba(255, 140, 0, 0.95)' : 'rgb(255, 140, 0)')
+                                          : (isDarkMode ? 'rgba(243, 244, 246, 0.85)' : 'rgba(6, 23, 51, 0.75)');
                                         const folderBorder = isHolding
-                                          ? (isDarkMode ? 'rgba(253, 230, 138, 0.35)' : 'rgba(180, 83, 9, 0.25)')
-                                          : (isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)');
+                                          ? (isDarkMode ? 'rgba(255, 140, 0, 0.35)' : 'rgba(255, 140, 0, 0.25)')
+                                          : (isDarkMode ? 'rgba(160, 160, 160, 0.15)' : 'rgba(160, 160, 160, 0.2)');
                                         const folderBg = isHolding
-                                          ? (isDarkMode ? 'rgba(253, 230, 138, 0.04)' : 'rgba(180, 83, 9, 0.03)')
+                                          ? (isDarkMode ? 'rgba(255, 140, 0, 0.04)' : 'rgba(255, 140, 0, 0.03)')
                                           : (isDarkMode ? 'rgba(2, 6, 23, 0.25)' : 'rgba(255, 255, 255, 0.65)');
 
                                         // Skip empty non-Holding folders
@@ -7595,7 +7417,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                             </div>
 
                                             {folderDocs.length === 0 ? (
-                                              <div style={{ fontSize: '10px', color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(15, 23, 42, 0.55)' }}>
+                                              <div style={{ fontSize: '10px', color: isDarkMode ? 'rgba(160, 160, 160, 0.7)' : 'rgba(6, 23, 51, 0.55)' }}>
                                                 Empty
                                               </div>
                                             ) : (
@@ -7614,17 +7436,17 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                                       gap: '10px',
                                                       padding: '8px 10px',
                                                       borderRadius: '2px',
-                                                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.22)'}`,
+                                                      border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.18)' : 'rgba(160, 160, 160, 0.22)'}`,
                                                       background: isDarkMode ? 'rgba(7, 16, 32, 0.25)' : 'rgba(255, 255, 255, 0.7)',
                                                       cursor: 'pointer',
                                                       textAlign: 'left',
                                                     }}
                                                   >
                                                     <div style={{ minWidth: 0 }}>
-                                                      <div style={{ fontSize: '11px', fontWeight: 600, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                      <div style={{ fontSize: '11px', fontWeight: 600, color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : 'rgba(6, 23, 51, 0.85)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                                         {doc.subject}
                                                       </div>
-                                                      <div style={{ fontSize: '10px', color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(15, 23, 42, 0.55)', marginTop: '2px' }}>
+                                                      <div style={{ fontSize: '10px', color: isDarkMode ? 'rgba(160, 160, 160, 0.7)' : 'rgba(6, 23, 51, 0.55)', marginTop: '2px' }}>
                                                         {formatDocDate(doc.date)}
                                                       </div>
                                                     </div>
@@ -7649,7 +7471,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                 style={{
                                   marginTop: '12px',
                                   paddingTop: '10px',
-                                  borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)'}`,
+                                  borderTop: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.15)' : 'rgba(160, 160, 160, 0.2)'}`,
                                 }}
                               >
                                 {(() => {
@@ -7659,9 +7481,9 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                     fontSize: '10px',
                                     fontWeight: 700,
                                     borderRadius: '2px',
-                                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.25)'}`,
+                                    border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.25)' : 'rgba(160, 160, 160, 0.25)'}`,
                                     background: isDarkMode ? 'rgba(2, 6, 23, 0.25)' : 'rgba(255, 255, 255, 0.65)',
-                                    color: isDarkMode ? 'rgba(226, 232, 240, 0.8)' : 'rgba(15, 23, 42, 0.7)',
+                                    color: isDarkMode ? 'rgba(243, 244, 246, 0.8)' : 'rgba(6, 23, 51, 0.7)',
                                     cursor: 'pointer',
                                     whiteSpace: 'nowrap',
                                   };
@@ -7675,7 +7497,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                         onClick={(e) => e.stopPropagation()}
                                         style={{
                                           fontSize: '10px',
-                                          color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(15, 23, 42, 0.55)',
+                                          color: isDarkMode ? 'rgba(160, 160, 160, 0.7)' : 'rgba(6, 23, 51, 0.55)',
                                           textDecoration: 'none',
                                           display: 'flex',
                                           alignItems: 'center',
@@ -7729,10 +7551,10 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                             flexDirection: 'column',
                             gap: '6px',
                             padding: '10px 12px',
-                            borderRadius: '6px',
-                            border: `1px dashed ${isDarkMode ? 'rgba(34, 197, 94, 0.35)' : 'rgba(34, 197, 94, 0.25)'}`,
-                            background: isDarkMode ? 'rgba(34, 197, 94, 0.08)' : 'rgba(34, 197, 94, 0.06)',
-                            color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.8)',
+                            borderRadius: '2px',
+                            border: `1px dashed ${isDarkMode ? 'rgba(32, 178, 108, 0.35)' : 'rgba(32, 178, 108, 0.25)'}`,
+                            background: isDarkMode ? 'rgba(32, 178, 108, 0.08)' : 'rgba(32, 178, 108, 0.06)',
+                            color: isDarkMode ? 'rgba(243, 244, 246, 0.85)' : 'rgba(6, 23, 51, 0.8)',
                             fontSize: '12px',
                             fontWeight: 600,
                           }}>
@@ -7772,9 +7594,9 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                       fontSize: '10px',
                                       fontWeight: 700,
                                       borderRadius: '2px',
-                                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.25)'}`,
+                                      border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.25)' : 'rgba(160, 160, 160, 0.25)'}`,
                                       background: isDarkMode ? 'rgba(2, 6, 23, 0.25)' : 'rgba(255, 255, 255, 0.65)',
-                                      color: isDarkMode ? 'rgba(226, 232, 240, 0.8)' : 'rgba(15, 23, 42, 0.7)',
+                                      color: isDarkMode ? 'rgba(243, 244, 246, 0.8)' : 'rgba(6, 23, 51, 0.7)',
                                       cursor: 'pointer',
                                     }}
                                   >
@@ -7786,7 +7608,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                             <span style={{
                               fontSize: '11px',
                               fontWeight: 500,
-                              color: isDarkMode ? 'rgba(148, 163, 184, 0.75)' : 'rgba(100, 116, 139, 0.75)',
+                              color: isDarkMode ? 'rgba(160, 160, 160, 0.75)' : 'rgba(107, 107, 107, 0.75)',
                             }}>
                               Use this link to collect payment outside of Helix Hub.
                             </span>
@@ -7816,7 +7638,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                               <div style={{
                                 marginTop: '4px',
                                 fontSize: '11px',
-                                color: isDarkMode ? 'rgba(148, 163, 184, 0.75)' : 'rgba(100, 116, 139, 0.8)',
+                                color: isDarkMode ? 'rgba(160, 160, 160, 0.75)' : 'rgba(107, 107, 107, 0.8)',
                                 fontStyle: 'italic',
                               }}>
                                 {item.content}
@@ -7825,7 +7647,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                           </div>
                         ) : (
                           <div style={{ 
-                            color: isDarkMode ? 'rgba(226, 232, 240, 0.4)' : 'rgba(15, 23, 42, 0.4)',
+                            color: isDarkMode ? 'rgba(243, 244, 246, 0.4)' : 'rgba(6, 23, 51, 0.4)',
                             fontStyle: 'italic',
                           }}>
                             No content available
@@ -7847,7 +7669,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                 fontWeight: 600,
                                 border: 'none',
                                 background: 'transparent',
-                                color: isDarkMode ? 'rgba(148, 163, 184, 0.85)' : 'rgba(100, 116, 139, 0.8)',
+                                color: isDarkMode ? 'rgba(160, 160, 160, 0.85)' : 'rgba(107, 107, 107, 0.8)',
                                 cursor: 'pointer',
                                 transition: 'color 0.2s ease, opacity 0.2s ease',
                                 textTransform: 'uppercase',
@@ -7857,7 +7679,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                 e.currentTarget.style.color = colours.highlight;
                               }}
                               onMouseLeave={(e) => {
-                                e.currentTarget.style.color = isDarkMode ? 'rgba(148, 163, 184, 0.85)' : 'rgba(100, 116, 139, 0.8)';
+                                e.currentTarget.style.color = isDarkMode ? 'rgba(160, 160, 160, 0.85)' : 'rgba(107, 107, 107, 0.8)';
                               }}
                             >
                               Forward
@@ -7873,13 +7695,13 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                               flexWrap: 'wrap',
                               gap: '12px',
                               fontSize: '11px',
-                              color: isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(15, 23, 42, 0.6)',
+                              color: isDarkMode ? 'rgba(243, 244, 246, 0.6)' : 'rgba(6, 23, 51, 0.6)',
                               marginBottom: '12px',
                             }}>
                               {item.metadata.documentType && (
                                 <span style={{
                                   padding: '3px 10px',
-                                  borderRadius: '4px',
+                                  borderRadius: '2px',
                                   background: isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(135, 243, 243, 0.2)',
                                   color: isDarkMode ? colours.accent : colours.darkBlue,
                                   fontWeight: 500,
@@ -7890,8 +7712,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                               {item.metadata.fileSize && (
                                 <span style={{
                                   padding: '3px 10px',
-                                  borderRadius: '4px',
-                                  background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)',
+                                  borderRadius: '2px',
+                                  background: isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(160, 160, 160, 0.08)',
                                 }}>
                                   {item.metadata.fileSize < 1024 
                                     ? `${item.metadata.fileSize} B`
@@ -7904,8 +7726,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                               {item.metadata.stageUploaded && (
                                 <span style={{
                                   padding: '3px 10px',
-                                  borderRadius: '4px',
-                                  background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)',
+                                  borderRadius: '2px',
+                                  background: isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(160, 160, 160, 0.08)',
                                 }}>
                                   Uploaded at: {item.metadata.stageUploaded}
                                 </span>
@@ -7954,274 +7776,17 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         {/* Empty state when no timeline items */}
         {scopedTimeline.length === 0 && (
           <div style={{
-            padding: '20px',
+            padding: '24px 20px',
             textAlign: 'center',
-            color: isDarkMode ? 'rgba(226, 232, 240, 0.4)' : 'rgba(15, 23, 42, 0.4)',
-            fontSize: '12px',
+            color: isDarkMode ? colours.subtleGrey : 'rgba(6, 23, 51, 0.5)',
+            fontSize: '13px',
+            borderTop: `1px solid ${isDarkMode ? colours.dark.border : 'rgba(160, 160, 160, 0.16)'}`,
+            background: isDarkMode ? colours.dark.background : 'transparent',
           }}>
             No activity yet
           </div>
         )}
       </div>
-
-      {/* Resources & Actions */}
-      {showResourcesConcept && (
-      <div style={{
-        marginTop: '32px',
-        background: isDarkMode
-          ? 'linear-gradient(135deg, rgba(7, 16, 32, 0.94) 0%, rgba(11, 30, 55, 0.86) 100%)'
-          : 'linear-gradient(135deg, rgba(248, 250, 252, 0.98) 0%, rgba(241, 245, 249, 0.95) 100%)',
-        border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.24)' : 'rgba(148, 163, 184, 0.2)'}`,
-        borderRadius: '12px',
-        padding: '20px',
-        backdropFilter: 'blur(8px)',
-      }}>
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: '14px',
-        }}>
-          <div>
-            <div style={{
-              color: colours.highlight,
-              fontSize: '14px',
-              fontWeight: 700,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              marginBottom: '4px',
-            }}>
-              Resources & Actions
-              <span
-                style={{
-                  fontSize: '10px',
-                  fontWeight: 700,
-                  letterSpacing: '0.2px',
-                  padding: '2px 6px',
-                  borderRadius: '999px',
-                  border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.25)'}`,
-                  background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
-                  color: isDarkMode ? 'rgba(147, 197, 253, 0.95)' : 'rgba(13, 47, 96, 0.85)',
-                }}
-              >
-                Concept
-              </span>
-            </div>
-            <div style={{
-              color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(15, 23, 42, 0.5)',
-              fontSize: '11px',
-              fontWeight: 600,
-              letterSpacing: '0.4px',
-              marginBottom: '6px',
-            }}>
-              AC CB LZ
-            </div>
-            <div style={{
-              color: isDarkMode ? 'rgba(148, 163, 184, 0.8)' : 'rgba(15, 23, 42, 0.6)',
-              fontSize: '11px',
-              fontWeight: 500,
-            }}>
-              Prospect management tools and resources for this enquiry
-            </div>
-          </div>
-        </div>
-
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-          gap: '8px',
-          width: '100%',
-        }}>
-          <div
-            onMouseEnter={() => enquiry.Email && setHoveredAction('email')}
-            onMouseLeave={() => setHoveredAction(null)}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'stretch',
-              justifyContent: 'center',
-              borderRadius: '2px',
-              overflow: 'hidden',
-              background: hoveredAction === 'email'
-                ? (isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)')
-                : (isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)'),
-              border: `1px solid ${hoveredAction === 'email'
-                ? (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.4)')
-                : (isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)')}`,
-              opacity: enquiry.Email ? 1 : 0.5,
-              transition: 'all 0.15s ease',
-              transform: hoveredAction === 'email' ? 'translateY(-1px)' : 'translateY(0)',
-              boxShadow: hoveredAction === 'email' ? `0 2px 8px ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)'}` : 'none',
-            }}
-          >
-            <button
-              onClick={() => openMailto(enquiry.Email || '')}
-              disabled={!enquiry.Email}
-              title={enquiry.Email ? 'Email' : 'Email not available'}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '6px',
-                padding: '8px 12px',
-                border: 'none',
-                background: 'transparent',
-                cursor: enquiry.Email ? 'pointer' : 'default',
-                color: isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(51, 65, 85, 0.85)',
-                fontSize: '12px',
-                fontWeight: 500,
-                width: '100%',
-              }}
-            >
-              <FaEnvelope size={11} />
-              <span>Email</span>
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                handleCopy(enquiry.Email || '', 'email');
-              }}
-              disabled={!enquiry.Email}
-              title={copiedContact === 'email' ? 'Copied' : (enquiry.Email ? `Copy: ${enquiry.Email}` : 'Email not available')}
-              aria-label={copiedContact === 'email' ? 'Copied email' : 'Copy email'}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                padding: '8px 10px',
-                border: 'none',
-                borderLeft: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.18)'}`,
-                background: 'transparent',
-                cursor: enquiry.Email ? 'pointer' : 'default',
-                color: copiedContact === 'email' ? '#10B981' : (isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(51, 65, 85, 0.85)'),
-                fontSize: '11px',
-                opacity: enquiry.Email ? 1 : 0.4,
-              }}
-            >
-              {copiedContact === 'email' ? <FaCheckCircle size={12} /> : <FaClipboard size={12} />}
-            </button>
-          </div>
-
-          <div
-            onMouseEnter={() => enquiry.Phone_Number && setHoveredAction('call')}
-            onMouseLeave={() => setHoveredAction(null)}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'stretch',
-              justifyContent: 'center',
-              borderRadius: '2px',
-              overflow: 'hidden',
-              background: hoveredAction === 'call'
-                ? (isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)')
-                : (isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)'),
-              border: `1px solid ${hoveredAction === 'call'
-                ? (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.4)')
-                : (isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)')}`,
-              opacity: enquiry.Phone_Number ? 1 : 0.5,
-              transition: 'all 0.15s ease',
-              transform: hoveredAction === 'call' ? 'translateY(-1px)' : 'translateY(0)',
-              boxShadow: hoveredAction === 'call' ? `0 2px 8px ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)'}` : 'none',
-            }}
-          >
-            <button
-              onClick={() => openTel(enquiry.Phone_Number || '')}
-              disabled={!enquiry.Phone_Number}
-              title={enquiry.Phone_Number ? 'Call' : 'Phone number not available'}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '6px',
-                padding: '8px 12px',
-                border: 'none',
-                background: 'transparent',
-                cursor: enquiry.Phone_Number ? 'pointer' : 'default',
-                color: isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(51, 65, 85, 0.85)',
-                fontSize: '12px',
-                fontWeight: 500,
-                width: '100%',
-              }}
-            >
-              <FaPhone size={11} />
-              <span>Call</span>
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                handleCopy(enquiry.Phone_Number || '', 'phone');
-              }}
-              disabled={!enquiry.Phone_Number}
-              title={copiedContact === 'phone' ? 'Copied' : (enquiry.Phone_Number ? `Copy: ${enquiry.Phone_Number}` : 'Phone number not available')}
-              aria-label={copiedContact === 'phone' ? 'Copied phone' : 'Copy phone'}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                padding: '8px 10px',
-                border: 'none',
-                borderLeft: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.18)'}`,
-                background: 'transparent',
-                cursor: enquiry.Phone_Number ? 'pointer' : 'default',
-                color: copiedContact === 'phone' ? '#10B981' : (isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(51, 65, 85, 0.85)'),
-                fontSize: '11px',
-                opacity: enquiry.Phone_Number ? 1 : 0.4,
-              }}
-            >
-              {copiedContact === 'phone' ? <FaCheckCircle size={12} /> : <FaClipboard size={12} />}
-            </button>
-          </div>
-
-          <button
-            onMouseEnter={() => setHoveredAction('pitch')}
-            onMouseLeave={() => setHoveredAction(null)}
-            onClick={openPitchBuilder}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '6px',
-              background: hoveredAction === 'pitch'
-                ? (isDarkMode ? 'rgba(135, 243, 243, 0.28)' : 'rgba(54, 144, 206, 0.2)')
-                : (isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(54, 144, 206, 0.1)'),
-              border: `1px solid ${hoveredAction === 'pitch'
-                ? (isDarkMode ? 'rgba(135, 243, 243, 0.6)' : 'rgba(54, 144, 206, 0.5)')
-                : (isDarkMode ? 'rgba(135, 243, 243, 0.4)' : 'rgba(54, 144, 206, 0.3)')}`,
-              borderRadius: '2px',
-              padding: '8px 12px',
-              cursor: 'pointer',
-              color: isDarkMode ? colours.accent : colours.highlight,
-              fontSize: '12px',
-              fontWeight: 500,
-              transition: 'all 0.15s ease',
-              transform: hoveredAction === 'pitch' ? 'translateY(-1px)' : 'translateY(0)',
-              boxShadow: hoveredAction === 'pitch' ? `0 2px 8px ${isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(54, 144, 206, 0.15)'}` : 'none',
-            }}
-          >
-            <FaCheckCircle size={11} />
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-              Pitch
-              {pitchCount > 0 && (
-                <span style={{
-                  fontSize: '10px',
-                  fontWeight: 600,
-                  padding: '1px 6px',
-                  borderRadius: '999px',
-                  border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.35)' : 'rgba(54, 144, 206, 0.28)'}`,
-                  background: isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(54, 144, 206, 0.08)',
-                  color: isDarkMode ? colours.accent : colours.highlight,
-                  lineHeight: 1.2,
-                }}>
-                  {pitchCount}
-                </span>
-              )}
-            </span>
-          </button>
-
-          {/* Doc-request actions moved down to deal/workspace level */}
-        </div>
-
-      </div>
-      )}
 
       {/* Call Sync Confirmation Dialog */}
       {showCallConfirm && callSyncData && (
@@ -8245,8 +7810,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         }}
         >
           <div style={{
-            background: isDarkMode ? '#1E293B' : '#FFFFFF',
-            borderRadius: '16px',
+            background: isDarkMode ? '#061733' : '#FFFFFF',
+            borderRadius: '2px',
             padding: '32px',
             maxWidth: '540px',
             width: '90%',
@@ -8266,17 +7831,17 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               gap: '16px',
               marginBottom: '24px',
               paddingBottom: '20px',
-              borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)'}`,
+              borderBottom: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(160, 160, 160, 0.15)'}`,
             }}>
               <div style={{
                 width: '48px',
                 height: '48px',
-                borderRadius: '12px',
-                background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                borderRadius: '2px',
+                background: 'linear-gradient(135deg, #FF8C00 0%, #FF8C00 100%)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                boxShadow: '0 8px 16px rgba(217, 119, 6, 0.35)',
+                boxShadow: '0 8px 16px rgba(255, 140, 0, 0.35)',
               }}>
                 <FaPhone style={{ color: '#FFFFFF', fontSize: '20px' }} />
               </div>
@@ -8285,7 +7850,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   margin: 0,
                   fontSize: '20px',
                   fontWeight: 700,
-                  color: isDarkMode ? '#F1F5F9' : '#0F172A',
+                  color: isDarkMode ? '#f3f4f6' : '#061733',
                   letterSpacing: '-0.02em',
                 }}>
                   Search CallRail Calls
@@ -8293,7 +7858,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 <p style={{
                   margin: '6px 0 0 0',
                   fontSize: '14px',
-                  color: isDarkMode ? '#94A3B8' : '#64748B',
+                  color: isDarkMode ? '#A0A0A0' : '#6B6B6B',
                   lineHeight: '1.5',
                 }}>
                   Enter or select the phone number to locate calls associated with this enquiry
@@ -8306,7 +7871,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               background: isDarkMode 
                 ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.12), rgba(37, 99, 235, 0.08))'
                 : 'linear-gradient(135deg, rgba(54, 144, 206, 0.08), rgba(37, 99, 235, 0.05))',
-              borderRadius: '12px',
+              borderRadius: '2px',
               padding: '20px',
               marginBottom: '24px',
               border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)'}`,
@@ -8324,7 +7889,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               <div style={{
                 fontSize: '18px',
                 fontWeight: 700,
-                color: isDarkMode ? '#F1F5F9' : '#0F172A',
+                color: isDarkMode ? '#f3f4f6' : '#061733',
                 marginBottom: '4px',
                 letterSpacing: '-0.01em',
               }}>
@@ -8332,7 +7897,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               </div>
               <div style={{
                 fontSize: '14px',
-                color: isDarkMode ? '#CBD5E1' : '#475569',
+                color: isDarkMode ? '#d1d5db' : '#6B6B6B',
               }}>
                 Phone calls will be matched using the number below
               </div>
@@ -8345,7 +7910,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 fontWeight: 700,
                 textTransform: 'uppercase',
                 letterSpacing: '0.8px',
-                color: isDarkMode ? '#94A3B8' : '#64748B',
+                color: isDarkMode ? '#A0A0A0' : '#6B6B6B',
                 marginBottom: '16px',
               }}>
                 Search Parameters
@@ -8356,7 +7921,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   <div style={{
                     fontSize: '12px',
                     fontWeight: 600,
-                    color: isDarkMode ? '#CBD5E1' : '#475569',
+                    color: isDarkMode ? '#d1d5db' : '#6B6B6B',
                     marginBottom: '8px',
                     textTransform: 'uppercase',
                     letterSpacing: '0.6px',
@@ -8370,16 +7935,16 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                         onClick={() => setCallSyncData(prev => prev ? { ...prev, phoneNumber: number } : prev)}
                         style={{
                           padding: '8px 14px',
-                          borderRadius: '999px',
+                          borderRadius: '2px',
                           border: callSyncData.phoneNumber === number
                             ? `2px solid ${colours.highlight}`
-                            : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.3)'}`,
+                            : `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.3)' : 'rgba(160, 160, 160, 0.3)'}`,
                           background: callSyncData.phoneNumber === number
                             ? (isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.12)')
                             : 'transparent',
                           color: callSyncData.phoneNumber === number
-                            ? (isDarkMode ? '#7DD3FC' : '#1e40af')
-                            : isDarkMode ? '#E2E8F0' : '#475569',
+                            ? (isDarkMode ? '#3690CE' : '#3690CE')
+                            : isDarkMode ? '#f3f4f6' : '#6B6B6B',
                           fontSize: '13px',
                           fontWeight: 600,
                           cursor: 'pointer',
@@ -8409,7 +7974,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   display: 'block',
                   fontSize: '13px',
                   fontWeight: 600,
-                  color: isDarkMode ? '#CBD5E1' : '#475569',
+                  color: isDarkMode ? '#d1d5db' : '#6B6B6B',
                   marginBottom: '8px',
                 }}>
                   Phone number to search
@@ -8422,10 +7987,10 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   style={{
                     width: '100%',
                     padding: '12px 16px',
-                    borderRadius: '8px',
-                    border: `2px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.3)'}`,
-                    background: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : '#FFFFFF',
-                    color: isDarkMode ? '#F1F5F9' : '#0F172A',
+                    borderRadius: '2px',
+                    border: `2px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(160, 160, 160, 0.3)'}`,
+                    background: isDarkMode ? 'rgba(6, 23, 51, 0.5)' : '#FFFFFF',
+                    color: isDarkMode ? '#f3f4f6' : '#061733',
                     fontSize: '14px',
                     fontFamily: 'monospace',
                     fontWeight: 500,
@@ -8437,7 +8002,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                     e.currentTarget.style.boxShadow = `0 0 0 3px ${isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.2)'}`;
                   }}
                   onBlur={(e) => {
-                    e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.3)';
+                    e.currentTarget.style.borderColor = isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(160, 160, 160, 0.3)';
                     e.currentTarget.style.boxShadow = 'none';
                   }}
                 />
@@ -8449,7 +8014,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   display: 'block',
                   fontSize: '13px',
                   fontWeight: 600,
-                  color: isDarkMode ? '#CBD5E1' : '#475569',
+                  color: isDarkMode ? '#d1d5db' : '#6B6B6B',
                   marginBottom: '8px',
                 }}>
                   Max results (1-100)
@@ -8473,10 +8038,10 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   style={{
                     width: '120px',
                     padding: '10px 14px',
-                    borderRadius: '8px',
-                    border: `2px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.3)'}`,
-                    background: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : '#FFFFFF',
-                    color: isDarkMode ? '#F1F5F9' : '#0F172A',
+                    borderRadius: '2px',
+                    border: `2px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(160, 160, 160, 0.3)'}`,
+                    background: isDarkMode ? 'rgba(6, 23, 51, 0.5)' : '#FFFFFF',
+                    color: isDarkMode ? '#f3f4f6' : '#061733',
                     fontSize: '14px',
                     fontWeight: 600,
                     outline: 'none',
@@ -8487,7 +8052,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                     e.currentTarget.style.boxShadow = `0 0 0 3px ${isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.2)'}`;
                   }}
                   onBlur={(e) => {
-                    e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.3)';
+                    e.currentTarget.style.borderColor = isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(160, 160, 160, 0.3)';
                     e.currentTarget.style.boxShadow = 'none';
                   }}
                 />
@@ -8496,16 +8061,16 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
 
             {/* Info Banner */}
             <div style={{
-              background: isDarkMode ? 'rgba(245, 158, 11, 0.12)' : 'rgba(245, 158, 11, 0.1)',
-              border: `1px solid ${isDarkMode ? 'rgba(245, 158, 11, 0.25)' : 'rgba(245, 158, 11, 0.2)'}`,
-              borderRadius: '8px',
+              background: isDarkMode ? 'rgba(255, 140, 0, 0.12)' : 'rgba(255, 140, 0, 0.1)',
+              border: `1px solid ${isDarkMode ? 'rgba(255, 140, 0, 0.25)' : 'rgba(255, 140, 0, 0.2)'}`,
+              borderRadius: '2px',
               padding: '12px 16px',
               marginBottom: '24px',
               display: 'flex',
               gap: '12px',
             }}>
               <FaInfoCircle style={{
-                color: '#f59e0b',
+                color: '#FF8C00',
                 fontSize: '16px',
                 marginTop: '2px',
                 flexShrink: 0,
@@ -8513,7 +8078,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               <div style={{
                 fontSize: '13px',
                 lineHeight: '1.6',
-                color: isDarkMode ? '#CBD5E1' : '#475569',
+                color: isDarkMode ? '#d1d5db' : '#6B6B6B',
               }}>
                 Searches CallRail for inbound and outbound calls that match the phone number provided. Results will be added to the enquiry timeline.
               </div>
@@ -8528,9 +8093,9 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               <button style={{
                 padding: '12px 24px',
                 background: 'transparent',
-                border: `2px solid ${isDarkMode ? '#475569' : '#CBD5E1'}`,
-                borderRadius: '8px',
-                color: isDarkMode ? '#F1F5F9' : '#0F172A',
+                border: `2px solid ${isDarkMode ? '#6B6B6B' : '#d1d5db'}`,
+                borderRadius: '2px',
+                color: isDarkMode ? '#f3f4f6' : '#061733',
                 fontSize: '14px',
                 fontWeight: 600,
                 cursor: 'pointer',
@@ -8538,11 +8103,11 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.background = isDarkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)';
-                e.currentTarget.style.borderColor = isDarkMode ? '#64748B' : '#94A3B8';
+                e.currentTarget.style.borderColor = isDarkMode ? '#6B6B6B' : '#A0A0A0';
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.background = 'transparent';
-                e.currentTarget.style.borderColor = isDarkMode ? '#475569' : '#CBD5E1';
+                e.currentTarget.style.borderColor = isDarkMode ? '#6B6B6B' : '#d1d5db';
               }}
               onClick={() => {
                 setShowCallConfirm(false);
@@ -8554,9 +8119,9 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
 
               <button style={{
                 padding: '12px 24px',
-                background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                background: 'linear-gradient(135deg, #FF8C00 0%, #FF8C00 100%)',
                 border: 'none',
-                borderRadius: '8px',
+                borderRadius: '2px',
                 color: '#FFFFFF',
                 fontSize: '14px',
                 fontWeight: 600,
@@ -8565,15 +8130,15 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 display: 'flex',
                 alignItems: 'center',
                 gap: '8px',
-                boxShadow: '0 4px 12px rgba(217, 119, 6, 0.35)',
+                boxShadow: '0 4px 12px rgba(255, 140, 0, 0.35)',
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.boxShadow = '0 8px 20px rgba(217, 119, 6, 0.45)';
+                e.currentTarget.style.boxShadow = '0 8px 20px rgba(255, 140, 0, 0.45)';
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.boxShadow = '0 4px 12px rgba(217, 119, 6, 0.35)';
+                e.currentTarget.style.boxShadow = '0 4px 12px rgba(255, 140, 0, 0.35)';
               }}
               onClick={executeCallSync}
               >
@@ -8625,8 +8190,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         }}
         >
           <div style={{
-            background: isDarkMode ? '#1E293B' : '#FFFFFF',
-            borderRadius: '16px',
+            background: isDarkMode ? '#061733' : '#FFFFFF',
+            borderRadius: '2px',
             padding: '32px',
             maxWidth: '580px',
             width: '90%',
@@ -8646,13 +8211,13 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               gap: '16px',
               marginBottom: '28px',
               paddingBottom: '24px',
-              borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)'}`,
+              borderBottom: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(160, 160, 160, 0.15)'}`,
             }}>
               <div style={{
                 width: '48px',
                 height: '48px',
-                borderRadius: '12px',
-                background: 'linear-gradient(135deg, #3690CE 0%, #2563EB 100%)',
+                borderRadius: '2px',
+                background: 'linear-gradient(135deg, #3690CE 0%, #0D2F60 100%)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -8665,7 +8230,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   margin: 0,
                   fontSize: '20px',
                   fontWeight: 700,
-                  color: isDarkMode ? '#F1F5F9' : '#0F172A',
+                  color: isDarkMode ? '#f3f4f6' : '#061733',
                   letterSpacing: '-0.02em',
                 }}>
                   Search Microsoft 365 Inbox
@@ -8673,7 +8238,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 <p style={{
                   margin: '6px 0 0 0',
                   fontSize: '14px',
-                  color: isDarkMode ? '#94A3B8' : '#64748B',
+                  color: isDarkMode ? '#A0A0A0' : '#6B6B6B',
                   lineHeight: '1.5',
                 }}>
                   Configure search parameters to find relevant email communications
@@ -8686,7 +8251,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               background: isDarkMode 
                 ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.12), rgba(37, 99, 235, 0.08))'
                 : 'linear-gradient(135deg, rgba(54, 144, 206, 0.08), rgba(37, 99, 235, 0.05))',
-              borderRadius: '12px',
+              borderRadius: '2px',
               padding: '20px',
               marginBottom: '24px',
               border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)'}`,
@@ -8714,7 +8279,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               <div style={{
                 fontSize: '18px',
                 fontWeight: 700,
-                color: isDarkMode ? '#F1F5F9' : '#0F172A',
+                color: isDarkMode ? '#f3f4f6' : '#061733',
                 marginBottom: '4px',
                 letterSpacing: '-0.01em',
               }}>
@@ -8722,7 +8287,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               </div>
               <div style={{
                 fontSize: '14px',
-                color: isDarkMode ? '#94A3B8' : '#64748B',
+                color: isDarkMode ? '#A0A0A0' : '#6B6B6B',
               }}>
                 Searching this user's mailbox
               </div>
@@ -8737,7 +8302,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 fontWeight: 700,
                 textTransform: 'uppercase',
                 letterSpacing: '0.8px',
-                color: isDarkMode ? '#94A3B8' : '#64748B',
+                color: isDarkMode ? '#A0A0A0' : '#6B6B6B',
                 marginBottom: '16px',
               }}>
                 Search Parameters
@@ -8749,7 +8314,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   display: 'block',
                   fontSize: '13px',
                   fontWeight: 600,
-                  color: isDarkMode ? '#CBD5E1' : '#475569',
+                  color: isDarkMode ? '#d1d5db' : '#6B6B6B',
                   marginBottom: '8px',
                 }}>
                   Fee Earner Email Address
@@ -8761,10 +8326,10 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   style={{
                     width: '100%',
                     padding: '12px 16px',
-                    borderRadius: '8px',
-                    border: `2px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.3)'}`,
-                    background: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : '#FFFFFF',
-                    color: isDarkMode ? '#F1F5F9' : '#0F172A',
+                    borderRadius: '2px',
+                    border: `2px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(160, 160, 160, 0.3)'}`,
+                    background: isDarkMode ? 'rgba(6, 23, 51, 0.5)' : '#FFFFFF',
+                    color: isDarkMode ? '#f3f4f6' : '#061733',
                     fontSize: '14px',
                     fontFamily: 'monospace',
                     fontWeight: 500,
@@ -8776,7 +8341,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                     e.currentTarget.style.boxShadow = `0 0 0 3px ${isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.15)'}`;
                   }}
                   onBlur={(e) => {
-                    e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.3)';
+                    e.currentTarget.style.borderColor = isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(160, 160, 160, 0.3)';
                     e.currentTarget.style.boxShadow = 'none';
                   }}
                 />
@@ -8788,7 +8353,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   display: 'block',
                   fontSize: '13px',
                   fontWeight: 600,
-                  color: isDarkMode ? '#CBD5E1' : '#475569',
+                  color: isDarkMode ? '#d1d5db' : '#6B6B6B',
                   marginBottom: '8px',
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -8796,7 +8361,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                     <span style={{
                       fontSize: '11px',
                       fontWeight: 600,
-                      color: isDarkMode ? '#94A3B8' : '#64748B',
+                      color: isDarkMode ? '#A0A0A0' : '#6B6B6B',
                     }}>
                       ({enquiry.First_Name} {enquiry.Last_Name})
                     </span>
@@ -8809,10 +8374,10 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   style={{
                     width: '100%',
                     padding: '12px 16px',
-                    borderRadius: '8px',
-                    border: `2px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.3)'}`,
-                    background: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : '#FFFFFF',
-                    color: isDarkMode ? '#F1F5F9' : '#0F172A',
+                    borderRadius: '2px',
+                    border: `2px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(160, 160, 160, 0.3)'}`,
+                    background: isDarkMode ? 'rgba(6, 23, 51, 0.5)' : '#FFFFFF',
+                    color: isDarkMode ? '#f3f4f6' : '#061733',
                     fontSize: '14px',
                     fontFamily: 'monospace',
                     fontWeight: 500,
@@ -8824,7 +8389,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                     e.currentTarget.style.boxShadow = `0 0 0 3px ${isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.15)'}`;
                   }}
                   onBlur={(e) => {
-                    e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.3)';
+                    e.currentTarget.style.borderColor = isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(160, 160, 160, 0.3)';
                     e.currentTarget.style.boxShadow = 'none';
                   }}
                 />
@@ -8835,14 +8400,14 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             <div style={{
               background: isDarkMode ? 'rgba(59, 130, 246, 0.1)' : 'rgba(59, 130, 246, 0.08)',
               border: `1px solid ${isDarkMode ? 'rgba(59, 130, 246, 0.2)' : 'rgba(59, 130, 246, 0.15)'}`,
-              borderRadius: '8px',
+              borderRadius: '2px',
               padding: '12px 16px',
               marginBottom: '24px',
               display: 'flex',
               gap: '12px',
             }}>
               <FaInfoCircle style={{ 
-                color: '#3B82F6',
+                color: '#3690CE',
                 fontSize: '16px',
                 marginTop: '2px',
                 flexShrink: 0,
@@ -8850,7 +8415,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               <div style={{
                 fontSize: '13px',
                 lineHeight: '1.6',
-                color: isDarkMode ? '#CBD5E1' : '#475569',
+                color: isDarkMode ? '#d1d5db' : '#6B6B6B',
               }}>
                 Will search for emails <strong>to</strong> or <strong>from</strong> the prospect address in the fee earner's mailbox
               </div>
@@ -8865,9 +8430,9 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               <button style={{
                 padding: '12px 24px',
                 background: 'transparent',
-                border: `2px solid ${isDarkMode ? '#475569' : '#CBD5E1'}`,
-                borderRadius: '8px',
-                color: isDarkMode ? '#F1F5F9' : '#0F172A',
+                border: `2px solid ${isDarkMode ? '#6B6B6B' : '#d1d5db'}`,
+                borderRadius: '2px',
+                color: isDarkMode ? '#f3f4f6' : '#061733',
                 fontSize: '14px',
                 fontWeight: 600,
                 cursor: 'pointer',
@@ -8875,11 +8440,11 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.background = isDarkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)';
-                e.currentTarget.style.borderColor = isDarkMode ? '#64748B' : '#94A3B8';
+                e.currentTarget.style.borderColor = isDarkMode ? '#6B6B6B' : '#A0A0A0';
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.background = 'transparent';
-                e.currentTarget.style.borderColor = isDarkMode ? '#475569' : '#CBD5E1';
+                e.currentTarget.style.borderColor = isDarkMode ? '#6B6B6B' : '#d1d5db';
               }}
               onClick={() => {
                 setShowEmailConfirm(false);
@@ -8891,9 +8456,9 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
 
               <button style={{
                 padding: '12px 24px',
-                background: 'linear-gradient(135deg, #3690CE 0%, #2563EB 100%)',
+                background: 'linear-gradient(135deg, #3690CE 0%, #0D2F60 100%)',
                 border: 'none',
-                borderRadius: '8px',
+                borderRadius: '2px',
                 color: '#FFFFFF',
                 fontSize: '14px',
                 fontWeight: 600,
@@ -8957,11 +8522,11 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
           animation: 'fadeIn 0.2s ease-out',
         }}>
           <div style={{
-            background: isDarkMode ? 'linear-gradient(135deg, #0D1B38 0%, #1A2845 100%)' : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
-            borderRadius: '16px',
+            background: isDarkMode ? 'linear-gradient(135deg, #061733 0%, #0D2F60 100%)' : 'linear-gradient(135deg, #FFFFFF 0%, #F4F4F6 100%)',
+            borderRadius: '2px',
             boxShadow: isDarkMode 
-              ? '0 20px 60px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(148, 163, 184, 0.2)' 
-              : '0 20px 60px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(148, 163, 184, 0.1)',
+              ? '0 20px 60px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(160, 160, 160, 0.2)' 
+              : '0 20px 60px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(160, 160, 160, 0.1)',
             padding: '32px',
             width: '90%',
             maxWidth: '520px',
@@ -8971,7 +8536,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               margin: '0 0 8px 0',
               fontSize: '18px',
               fontWeight: 700,
-              color: isDarkMode ? '#F1F5F9' : '#0F172A',
+              color: isDarkMode ? '#f3f4f6' : '#061733',
               display: 'flex',
               alignItems: 'center',
               gap: '10px',
@@ -8983,7 +8548,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             <p style={{
               margin: '0 0 24px 0',
               fontSize: '13px',
-              color: isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(15, 23, 42, 0.6)',
+              color: isDarkMode ? 'rgba(243, 244, 246, 0.6)' : 'rgba(6, 23, 51, 0.6)',
               lineHeight: '1.5',
             }}>
               Forward <strong>{forwardEmail?.subject}</strong> to your inbox
@@ -8994,7 +8559,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 display: 'block',
                 fontSize: '12px',
                 fontWeight: 600,
-                color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.7)',
+                color: isDarkMode ? 'rgba(243, 244, 246, 0.7)' : 'rgba(6, 23, 51, 0.7)',
                 marginBottom: '8px',
               }}>
                 To:
@@ -9007,10 +8572,10 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   width: '100%',
                   padding: '10px 14px',
                   fontSize: '13px',
-                  background: isDarkMode ? 'rgba(15, 23, 42, 0.4)' : 'rgba(241, 245, 249, 0.8)',
-                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(203, 213, 225, 0.6)'}`,
-                  borderRadius: '8px',
-                  color: isDarkMode ? 'rgba(226, 232, 240, 0.5)' : 'rgba(15, 23, 42, 0.5)',
+                  background: isDarkMode ? 'rgba(6, 23, 51, 0.4)' : 'rgba(244, 244, 246, 0.8)',
+                  border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(203, 213, 225, 0.6)'}`,
+                  borderRadius: '2px',
+                  color: isDarkMode ? 'rgba(243, 244, 246, 0.5)' : 'rgba(6, 23, 51, 0.5)',
                   fontFamily: 'inherit',
                 }}
               />
@@ -9021,7 +8586,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 display: 'block',
                 fontSize: '12px',
                 fontWeight: 600,
-                color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.7)',
+                color: isDarkMode ? 'rgba(243, 244, 246, 0.7)' : 'rgba(6, 23, 51, 0.7)',
                 marginBottom: '8px',
               }}>
                 CC: (optional)
@@ -9035,10 +8600,10 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   width: '100%',
                   padding: '10px 14px',
                   fontSize: '13px',
-                  background: isDarkMode ? 'rgba(15, 23, 42, 0.4)' : '#FFFFFF',
-                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(203, 213, 225, 0.6)'}`,
-                  borderRadius: '8px',
-                  color: isDarkMode ? '#E2E8F0' : '#0F172A',
+                  background: isDarkMode ? 'rgba(6, 23, 51, 0.4)' : '#FFFFFF',
+                  border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(203, 213, 225, 0.6)'}`,
+                  borderRadius: '2px',
+                  color: isDarkMode ? '#f3f4f6' : '#061733',
                   fontFamily: 'inherit',
                   outline: 'none',
                 }}
@@ -9047,7 +8612,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   e.currentTarget.style.boxShadow = `0 0 0 3px ${isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)'}`;
                 }}
                 onBlur={(e) => {
-                  e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(203, 213, 225, 0.6)';
+                  e.currentTarget.style.borderColor = isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(203, 213, 225, 0.6)';
                   e.currentTarget.style.boxShadow = 'none';
                 }}
               />
@@ -9062,9 +8627,9 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 style={{
                   padding: '10px 20px',
                   background: 'transparent',
-                  border: `1px solid ${isDarkMode ? '#475569' : '#CBD5E1'}`,
-                  borderRadius: '8px',
-                  color: isDarkMode ? '#F1F5F9' : '#0F172A',
+                  border: `1px solid ${isDarkMode ? '#6B6B6B' : '#d1d5db'}`,
+                  borderRadius: '2px',
+                  color: isDarkMode ? '#f3f4f6' : '#061733',
                   fontSize: '13px',
                   fontWeight: 600,
                   cursor: 'pointer',
@@ -9072,11 +8637,11 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.background = isDarkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)';
-                  e.currentTarget.style.borderColor = isDarkMode ? '#64748B' : '#94A3B8';
+                  e.currentTarget.style.borderColor = isDarkMode ? '#6B6B6B' : '#A0A0A0';
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.background = 'transparent';
-                  e.currentTarget.style.borderColor = isDarkMode ? '#475569' : '#CBD5E1';
+                  e.currentTarget.style.borderColor = isDarkMode ? '#6B6B6B' : '#d1d5db';
                 }}
                 onClick={() => {
                   setShowForwardDialog(false);
@@ -9090,9 +8655,9 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               <button
                 style={{
                   padding: '10px 20px',
-                  background: 'linear-gradient(135deg, #3690CE 0%, #2563EB 100%)',
+                  background: 'linear-gradient(135deg, #3690CE 0%, #0D2F60 100%)',
                   border: 'none',
-                  borderRadius: '8px',
+                  borderRadius: '2px',
                   color: '#FFFFFF',
                   fontSize: '13px',
                   fontWeight: 600,
@@ -9144,7 +8709,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               position: 'fixed',
               inset: 0,
               zIndex: 1000,
-              background: isDarkMode ? 'rgba(2, 6, 23, 0.80)' : 'rgba(15, 23, 42, 0.50)',
+              background: isDarkMode ? 'rgba(2, 6, 23, 0.80)' : 'rgba(6, 23, 51, 0.50)',
               backdropFilter: 'blur(4px)',
               display: 'flex',
               alignItems: 'center',
@@ -9155,9 +8720,9 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             <div
               style={{
                 width: 'min(680px, 96vw)',
-                borderRadius: '8px',
+                borderRadius: '2px',
                 border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.20)' : 'rgba(54, 144, 206, 0.25)'}`,
-                background: isDarkMode ? 'rgb(17, 24, 39)' : 'rgb(255, 255, 255)',
+                background: isDarkMode ? colours.darkBlue : '#ffffff',
                 padding: '32px',
                 boxShadow: isDarkMode 
                   ? '0 20px 60px rgba(0, 0, 0, 0.6)'
@@ -9171,7 +8736,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   margin: 0, 
                   fontSize: '20px', 
                   fontWeight: 700, 
-                  color: isDarkMode ? 'rgb(249, 250, 251)' : colours.light.text,
+                  color: isDarkMode ? 'rgb(243, 244, 246)' : colours.light.text,
                   marginBottom: '8px',
                 }}>
                   Request Documents
@@ -9179,7 +8744,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 <p style={{ 
                   margin: 0, 
                   fontSize: '13px', 
-                  color: isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(15, 23, 42, 0.7)',
+                  color: isDarkMode ? 'rgb(160, 160, 160)' : 'rgba(6, 23, 51, 0.7)',
                   lineHeight: 1.5,
                 }}>
                   Create a secure workspace for document collection and collaboration
@@ -9191,7 +8756,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 style={{
                   border: 'none',
                   background: 'transparent',
-                  color: isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(15, 23, 42, 0.5)',
+                  color: isDarkMode ? 'rgb(160, 160, 160)' : 'rgba(6, 23, 51, 0.5)',
                   cursor: 'pointer',
                   fontSize: '24px',
                   lineHeight: 1,
@@ -9206,7 +8771,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             <div style={{ 
               marginBottom: '28px',
               padding: '16px',
-              borderRadius: '6px',
+              borderRadius: '2px',
               background: isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.06)',
               border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.2)' : 'rgba(54, 144, 206, 0.15)'}`,
             }}>
@@ -9215,14 +8780,14 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 fontWeight: 600,
                 textTransform: 'uppercase',
                 letterSpacing: '0.5px',
-                color: isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(15, 23, 42, 0.6)',
+                color: isDarkMode ? 'rgb(160, 160, 160)' : 'rgba(6, 23, 51, 0.6)',
                 marginBottom: '8px',
               }}>
                 Document Storage
               </div>
               <div style={{ 
                 fontSize: '13px', 
-                color: isDarkMode ? 'rgb(209, 213, 219)' : 'rgba(15, 23, 42, 0.85)',
+                color: isDarkMode ? 'rgb(209, 213, 219)' : 'rgba(6, 23, 51, 0.85)',
                 fontFamily: 'Consolas, Monaco, monospace',
               }}>
                 enquiries/{String(enquiry?.ID ?? '')}/
@@ -9233,16 +8798,16 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             <div style={{
               marginBottom: '28px',
               padding: '16px',
-              borderRadius: '6px',
-              background: isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(148, 163, 184, 0.04)',
-              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.20)'}`,
+              borderRadius: '2px',
+              background: isDarkMode ? 'rgba(160, 160, 160, 0.06)' : 'rgba(160, 160, 160, 0.04)',
+              border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.15)' : 'rgba(160, 160, 160, 0.20)'}`,
             }}>
               <div style={{
                 fontSize: '11px',
                 fontWeight: 600,
                 textTransform: 'uppercase',
                 letterSpacing: '0.5px',
-                color: isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(15, 23, 42, 0.6)',
+                color: isDarkMode ? 'rgb(160, 160, 160)' : 'rgba(6, 23, 51, 0.6)',
                 marginBottom: '8px',
               }}>
                 Workspace Link
@@ -9254,7 +8819,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   return (
                     <div style={{
                       fontSize: '13px',
-                      color: isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(15, 23, 42, 0.6)',
+                      color: isDarkMode ? 'rgb(160, 160, 160)' : 'rgba(6, 23, 51, 0.6)',
                       lineHeight: 1.5,
                     }}>
                       Link will appear after you create the workspace.
@@ -9267,7 +8832,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 return (
                   <div style={{
                     fontSize: '13px',
-                    color: isDarkMode ? 'rgb(209, 213, 219)' : 'rgba(15, 23, 42, 0.85)',
+                    color: isDarkMode ? 'rgb(209, 213, 219)' : 'rgba(6, 23, 51, 0.85)',
                     fontFamily: 'Consolas, Monaco, monospace',
                     wordBreak: 'break-all',
                   }}>
@@ -9277,7 +8842,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                       border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(54, 144, 206, 0.18)'}`,
                       color: isDarkMode ? colours.accent : colours.highlight,
                       fontWeight: 700,
-                      borderRadius: '3px',
+                      borderRadius: '2px',
                       padding: '0 4px',
                     }}>
                       {passcode}
@@ -9295,7 +8860,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   <label style={{ 
                     fontSize: '13px', 
                     fontWeight: 600, 
-                    color: isDarkMode ? 'rgb(209, 213, 219)' : 'rgba(15, 23, 42, 0.85)',
+                    color: isDarkMode ? 'rgb(209, 213, 219)' : 'rgba(6, 23, 51, 0.85)',
                   }}>
                     Area of Work
                   </label>
@@ -9309,10 +8874,10 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                     style={{
                       width: '100%',
                       padding: '12px 14px',
-                      borderRadius: '4px',
-                      border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(148, 163, 184, 0.30)'}`,
+                      borderRadius: '2px',
+                      border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(160, 160, 160, 0.30)'}`,
                       background: isDarkMode ? 'rgba(2, 6, 23, 0.40)' : 'rgba(255, 255, 255, 0.95)',
-                      color: isDarkMode ? 'rgb(226, 232, 240)' : 'rgba(15, 23, 42, 0.90)',
+                      color: isDarkMode ? 'rgb(226, 232, 240)' : 'rgba(6, 23, 51, 0.90)',
                       fontSize: '14px',
                       outline: 'none',
                       cursor: 'pointer',
@@ -9330,7 +8895,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   <label style={{ 
                     fontSize: '13px', 
                     fontWeight: 600, 
-                    color: isDarkMode ? 'rgb(209, 213, 219)' : 'rgba(15, 23, 42, 0.85)',
+                    color: isDarkMode ? 'rgb(209, 213, 219)' : 'rgba(6, 23, 51, 0.85)',
                   }}>
                     Work Type
                   </label>
@@ -9340,10 +8905,10 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                     style={{
                       width: '100%',
                       padding: '12px 14px',
-                      borderRadius: '4px',
-                      border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(148, 163, 184, 0.30)'}`,
+                      borderRadius: '2px',
+                      border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(160, 160, 160, 0.30)'}`,
                       background: isDarkMode ? 'rgba(2, 6, 23, 0.40)' : 'rgba(255, 255, 255, 0.95)',
-                      color: isDarkMode ? 'rgb(226, 232, 240)' : 'rgba(15, 23, 42, 0.90)',
+                      color: isDarkMode ? 'rgb(226, 232, 240)' : 'rgba(6, 23, 51, 0.90)',
                       fontSize: '14px',
                       outline: 'none',
                       cursor: 'pointer',
@@ -9364,9 +8929,9 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               {/* Skip deal details option */}
               <div style={{ 
                 padding: '16px',
-                borderRadius: '6px',
-                background: isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(148, 163, 184, 0.04)',
-                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.20)'}`,
+                borderRadius: '2px',
+                background: isDarkMode ? 'rgba(160, 160, 160, 0.06)' : 'rgba(160, 160, 160, 0.04)',
+                border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.15)' : 'rgba(160, 160, 160, 0.20)'}`,
               }}>
                 <label style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', cursor: 'pointer' }}>
                   <input
@@ -9391,14 +8956,14 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                     <div style={{ 
                       fontSize: '14px', 
                       fontWeight: 600, 
-                      color: isDarkMode ? 'rgb(226, 232, 240)' : 'rgba(15, 23, 42, 0.85)',
+                      color: isDarkMode ? 'rgb(226, 232, 240)' : 'rgba(6, 23, 51, 0.85)',
                       marginBottom: '4px',
                     }}>
                       Skip Deal Details
                     </div>
                     <div style={{ 
                       fontSize: '12px', 
-                      color: isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(15, 23, 42, 0.6)',
+                      color: isDarkMode ? 'rgb(160, 160, 160)' : 'rgba(6, 23, 51, 0.6)',
                       lineHeight: 1.5,
                     }}>
                       Creates workspace link only without recording deal information in the system
@@ -9414,14 +8979,14 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   flexDirection: 'column', 
                   gap: '20px',
                   padding: '20px',
-                  borderRadius: '6px',
+                  borderRadius: '2px',
                   background: isDarkMode ? 'rgba(135, 243, 243, 0.04)' : 'rgba(54, 144, 206, 0.03)',
                   border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(54, 144, 206, 0.12)'}`,
                 }}>
                   <div style={{ 
                     fontSize: '13px', 
                     fontWeight: 600,
-                    color: isDarkMode ? 'rgb(209, 213, 219)' : 'rgba(15, 23, 42, 0.85)',
+                    color: isDarkMode ? 'rgb(209, 213, 219)' : 'rgba(6, 23, 51, 0.85)',
                     marginBottom: '4px',
                   }}>
                     Deal Information
@@ -9432,7 +8997,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                       <label style={{ 
                         fontSize: '13px', 
                         fontWeight: 600, 
-                        color: isDarkMode ? 'rgb(209, 213, 219)' : 'rgba(15, 23, 42, 0.85)',
+                        color: isDarkMode ? 'rgb(209, 213, 219)' : 'rgba(6, 23, 51, 0.85)',
                       }}>
                         Service Description
                       </label>
@@ -9443,10 +9008,10 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                         style={{
                           width: '100%',
                           padding: '12px 14px',
-                          borderRadius: '4px',
-                          border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(148, 163, 184, 0.30)'}`,
+                          borderRadius: '2px',
+                          border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(160, 160, 160, 0.30)'}`,
                           background: isDarkMode ? 'rgba(2, 6, 23, 0.40)' : 'rgba(255, 255, 255, 0.95)',
-                          color: isDarkMode ? 'rgb(226, 232, 240)' : 'rgba(15, 23, 42, 0.90)',
+                          color: isDarkMode ? 'rgb(226, 232, 240)' : 'rgba(6, 23, 51, 0.90)',
                           fontSize: '14px',
                           outline: 'none',
                         }}
@@ -9457,7 +9022,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                       <label style={{ 
                         fontSize: '13px', 
                         fontWeight: 600, 
-                        color: isDarkMode ? 'rgb(209, 213, 219)' : 'rgba(15, 23, 42, 0.85)',
+                        color: isDarkMode ? 'rgb(209, 213, 219)' : 'rgba(6, 23, 51, 0.85)',
                       }}>
                         Amount
                       </label>
@@ -9469,7 +9034,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                             left: '14px',
                             top: '50%',
                             transform: 'translateY(-50%)',
-                            color: isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(15, 23, 42, 0.5)',
+                            color: isDarkMode ? 'rgba(243, 244, 246, 0.6)' : 'rgba(6, 23, 51, 0.5)',
                             pointerEvents: 'none',
                             display: 'inline-flex',
                             alignItems: 'center',
@@ -9486,10 +9051,10 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                           style={{
                             width: '100%',
                             padding: '12px 14px 12px 36px',
-                            borderRadius: '4px',
-                            border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(148, 163, 184, 0.30)'}`,
+                            borderRadius: '2px',
+                            border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(160, 160, 160, 0.30)'}`,
                             background: isDarkMode ? 'rgba(2, 6, 23, 0.40)' : 'rgba(255, 255, 255, 0.95)',
-                            color: isDarkMode ? 'rgb(226, 232, 240)' : 'rgba(15, 23, 42, 0.90)',
+                            color: isDarkMode ? 'rgb(226, 232, 240)' : 'rgba(6, 23, 51, 0.90)',
                             fontSize: '14px',
                             outline: 'none',
                           }}
@@ -9506,7 +9071,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                             border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.3)' : 'rgba(54, 144, 206, 0.25)'}`,
                             background: isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(54, 144, 206, 0.08)',
                             color: isDarkMode ? colours.accent : colours.highlight,
-                            borderRadius: '4px',
+                            borderRadius: '2px',
                             cursor: 'pointer',
                             fontSize: '12px',
                             fontWeight: 600,
@@ -9527,20 +9092,20 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                           style={{
                             flex: 1,
                             padding: '8px 12px',
-                            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.25)'}`,
-                            background: isDarkMode ? 'rgba(148, 163, 184, 0.10)' : 'rgba(148, 163, 184, 0.08)',
-                            color: isDarkMode ? 'rgba(226, 232, 240, 0.65)' : 'rgba(15, 23, 42, 0.65)',
-                            borderRadius: '4px',
+                            border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(160, 160, 160, 0.25)'}`,
+                            background: isDarkMode ? 'rgba(160, 160, 160, 0.10)' : 'rgba(160, 160, 160, 0.08)',
+                            color: isDarkMode ? 'rgba(243, 244, 246, 0.65)' : 'rgba(6, 23, 51, 0.65)',
+                            borderRadius: '2px',
                             cursor: 'pointer',
                             fontSize: '12px',
                             fontWeight: 600,
                             transition: 'all 0.15s ease',
                           }}
                           onMouseEnter={(e) => {
-                            e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.16)' : 'rgba(148, 163, 184, 0.14)';
+                            e.currentTarget.style.background = isDarkMode ? 'rgba(160, 160, 160, 0.16)' : 'rgba(160, 160, 160, 0.14)';
                           }}
                           onMouseLeave={(e) => {
-                            e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.10)' : 'rgba(148, 163, 184, 0.08)';
+                            e.currentTarget.style.background = isDarkMode ? 'rgba(160, 160, 160, 0.10)' : 'rgba(160, 160, 160, 0.08)';
                           }}
                         >
                           -50
@@ -9553,26 +9118,26 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             </div>
 
             {/* Action buttons */}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '28px', paddingTop: '24px', borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.20)'}` }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '28px', paddingTop: '24px', borderTop: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.15)' : 'rgba(160, 160, 160, 0.20)'}` }}>
               <button
                 type="button"
                 onClick={() => setDocRequestConfirmOpen(false)}
                 disabled={docRequestLoading}
                 style={{
                   padding: '10px 20px',
-                  borderRadius: '4px',
+                  borderRadius: '2px',
                   fontSize: '14px',
                   fontWeight: 600,
                   background: 'transparent',
-                  color: isDarkMode ? 'rgb(156, 163, 175)' : 'rgba(15, 23, 42, 0.65)',
-                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.30)'}`,
+                  color: isDarkMode ? 'rgb(160, 160, 160)' : 'rgba(6, 23, 51, 0.65)',
+                  border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.25)' : 'rgba(160, 160, 160, 0.30)'}`,
                   cursor: docRequestLoading ? 'default' : 'pointer',
                   opacity: docRequestLoading ? 0.5 : 1,
                   transition: 'all 0.15s ease',
                 }}
                 onMouseEnter={(e) => {
                   if (!docRequestLoading) {
-                    e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.10)' : 'rgba(148, 163, 184, 0.08)';
+                    e.currentTarget.style.background = isDarkMode ? 'rgba(160, 160, 160, 0.10)' : 'rgba(160, 160, 160, 0.08)';
                   }
                 }}
                 onMouseLeave={(e) => {
@@ -9590,7 +9155,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   alignItems: 'center',
                   gap: '8px',
                   padding: '10px 24px',
-                  borderRadius: '4px',
+                  borderRadius: '2px',
                   fontSize: '14px',
                   fontWeight: 600,
                   background: docRequestLoading || !requestDocsEnabled 
@@ -9641,14 +9206,14 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             alignItems: 'center',
             gap: '8px',
             padding: '10px 16px',
-            borderRadius: '8px',
+            borderRadius: '2px',
             background: isDarkMode
-              ? 'linear-gradient(135deg, rgba(30, 41, 59, 0.95) 0%, rgba(15, 23, 42, 0.98) 100%)'
-              : 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
-            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.35)'}`,
+              ? 'linear-gradient(135deg, rgba(8, 28, 48, 0.95) 0%, rgba(6, 23, 51, 0.98) 100%)'
+              : 'linear-gradient(135deg, #ffffff 0%, #F4F4F6 100%)',
+            border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.25)' : 'rgba(160, 160, 160, 0.35)'}`,
             boxShadow: isDarkMode
-              ? '0 8px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(148, 163, 184, 0.1)'
-              : '0 8px 32px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(148, 163, 184, 0.08)',
+              ? '0 8px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(160, 160, 160, 0.1)'
+              : '0 8px 32px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(160, 160, 160, 0.08)',
             cursor: 'pointer',
             zIndex: 100,
             transition: 'all 0.2s ease',
@@ -9656,24 +9221,24 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
           onMouseEnter={(e) => {
             e.currentTarget.style.transform = 'translateY(-2px)';
             e.currentTarget.style.boxShadow = isDarkMode
-              ? '0 12px 40px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(148, 163, 184, 0.15)'
-              : '0 12px 40px rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(148, 163, 184, 0.12)';
+              ? '0 12px 40px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(160, 160, 160, 0.15)'
+              : '0 12px 40px rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(160, 160, 160, 0.12)';
           }}
           onMouseLeave={(e) => {
             e.currentTarget.style.transform = 'translateY(0)';
             e.currentTarget.style.boxShadow = isDarkMode
-              ? '0 8px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(148, 163, 184, 0.1)'
-              : '0 8px 32px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(148, 163, 184, 0.08)';
+              ? '0 8px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(160, 160, 160, 0.1)'
+              : '0 8px 32px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(160, 160, 160, 0.08)';
           }}
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.6)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={isDarkMode ? 'rgba(243, 244, 246, 0.7)' : 'rgba(6, 23, 51, 0.6)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
             <line x1="1" y1="1" x2="23" y2="23" />
           </svg>
           <span style={{
             fontSize: '12px',
             fontWeight: 600,
-            color: isDarkMode ? 'rgba(226, 232, 240, 0.8)' : 'rgba(15, 23, 42, 0.7)',
+            color: isDarkMode ? 'rgba(243, 244, 246, 0.8)' : 'rgba(6, 23, 51, 0.7)',
           }}>
             Hidden
           </span>
@@ -9681,9 +9246,9 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             fontSize: '11px',
             fontWeight: 700,
             padding: '2px 7px',
-            borderRadius: '10px',
-            background: isDarkMode ? 'rgba(253, 230, 138, 0.2)' : 'rgba(180, 83, 9, 0.12)',
-            color: isDarkMode ? 'rgba(253, 230, 138, 0.95)' : 'rgb(180, 83, 9)',
+            borderRadius: '2px',
+            background: isDarkMode ? 'rgba(255, 140, 0, 0.2)' : 'rgba(255, 140, 0, 0.12)',
+            color: isDarkMode ? 'rgba(255, 140, 0, 0.95)' : 'rgb(255, 140, 0)',
           }}>
             {hiddenItemIds.size}
           </span>
@@ -9707,7 +9272,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             style={{
               position: 'absolute',
               inset: 0,
-              background: isDarkMode ? 'rgba(2, 6, 23, 0.6)' : 'rgba(15, 23, 42, 0.3)',
+              background: isDarkMode ? 'rgba(2, 6, 23, 0.6)' : 'rgba(6, 23, 51, 0.3)',
               backdropFilter: 'blur(2px)',
               animation: 'fadeIn 0.2s ease',
             }}
@@ -9721,9 +9286,9 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               maxWidth: '90vw',
               height: '100%',
               background: isDarkMode
-                ? 'linear-gradient(180deg, rgb(17, 24, 39) 0%, rgb(15, 23, 42) 100%)'
-                : 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
-              borderLeft: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.25)'}`,
+                ? 'linear-gradient(180deg, rgb(6, 23, 51) 0%, rgb(5, 21, 37) 100%)'
+                : 'linear-gradient(180deg, #ffffff 0%, #F4F4F6 100%)',
+              borderLeft: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.15)' : 'rgba(160, 160, 160, 0.25)'}`,
               boxShadow: isDarkMode
                 ? '-8px 0 32px rgba(0, 0, 0, 0.5)'
                 : '-8px 0 32px rgba(0, 0, 0, 0.1)',
@@ -9735,21 +9300,21 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             {/* Header */}
             <div style={{
               padding: '20px 20px 16px',
-              borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.18)'}`,
+              borderBottom: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.12)' : 'rgba(160, 160, 160, 0.18)'}`,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
               gap: '12px',
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={isDarkMode ? 'rgba(253, 230, 138, 0.8)' : 'rgb(180, 83, 9)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={isDarkMode ? 'rgba(255, 140, 0, 0.8)' : 'rgb(255, 140, 0)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
                   <line x1="1" y1="1" x2="23" y2="23" />
                 </svg>
                 <span style={{
                   fontSize: '15px',
                   fontWeight: 700,
-                  color: isDarkMode ? 'rgb(249, 250, 251)' : colours.light.text,
+                  color: isDarkMode ? 'rgb(243, 244, 246)' : colours.light.text,
                 }}>
                   Hidden Items
                 </span>
@@ -9757,9 +9322,9 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   fontSize: '11px',
                   fontWeight: 700,
                   padding: '2px 8px',
-                  borderRadius: '10px',
-                  background: isDarkMode ? 'rgba(253, 230, 138, 0.15)' : 'rgba(180, 83, 9, 0.1)',
-                  color: isDarkMode ? 'rgba(253, 230, 138, 0.9)' : 'rgb(180, 83, 9)',
+                  borderRadius: '2px',
+                  background: isDarkMode ? 'rgba(255, 140, 0, 0.15)' : 'rgba(255, 140, 0, 0.1)',
+                  color: isDarkMode ? 'rgba(255, 140, 0, 0.9)' : 'rgb(255, 140, 0)',
                 }}>
                   {hiddenItemIds.size}
                 </span>
@@ -9773,19 +9338,19 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   width: '28px',
                   height: '28px',
                   background: 'transparent',
-                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.25)'}`,
-                  borderRadius: '4px',
+                  border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(160, 160, 160, 0.25)'}`,
+                  borderRadius: '2px',
                   cursor: 'pointer',
-                  color: isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(15, 23, 42, 0.5)',
+                  color: isDarkMode ? 'rgba(243, 244, 246, 0.6)' : 'rgba(6, 23, 51, 0.5)',
                   transition: 'all 0.15s ease',
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)';
-                  e.currentTarget.style.color = isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.8)';
+                  e.currentTarget.style.background = isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(160, 160, 160, 0.08)';
+                  e.currentTarget.style.color = isDarkMode ? 'rgba(243, 244, 246, 0.9)' : 'rgba(6, 23, 51, 0.8)';
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.background = 'transparent';
-                  e.currentTarget.style.color = isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(15, 23, 42, 0.5)';
+                  e.currentTarget.style.color = isDarkMode ? 'rgba(243, 244, 246, 0.6)' : 'rgba(6, 23, 51, 0.5)';
                 }}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -9798,7 +9363,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             {/* Actions bar */}
             <div style={{
               padding: '12px 20px',
-              borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.12)'}`,
+              borderBottom: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.08)' : 'rgba(160, 160, 160, 0.12)'}`,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'flex-end',
@@ -9812,18 +9377,18 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   padding: '6px 12px',
                   fontSize: '11px',
                   fontWeight: 600,
-                  background: isDarkMode ? 'rgba(34, 197, 94, 0.12)' : 'rgba(34, 197, 94, 0.08)',
-                  border: `1px solid ${isDarkMode ? 'rgba(34, 197, 94, 0.3)' : 'rgba(34, 197, 94, 0.25)'}`,
-                  borderRadius: '4px',
-                  color: isDarkMode ? 'rgb(134, 239, 172)' : 'rgb(22, 163, 74)',
+                  background: isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.08)',
+                  border: `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.3)' : 'rgba(32, 178, 108, 0.25)'}`,
+                  borderRadius: '2px',
+                  color: isDarkMode ? 'rgb(134, 239, 172)' : 'rgb(32, 178, 108)',
                   cursor: 'pointer',
                   transition: 'all 0.15s ease',
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = isDarkMode ? 'rgba(34, 197, 94, 0.2)' : 'rgba(34, 197, 94, 0.15)';
+                  e.currentTarget.style.background = isDarkMode ? 'rgba(32, 178, 108, 0.2)' : 'rgba(32, 178, 108, 0.15)';
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.background = isDarkMode ? 'rgba(34, 197, 94, 0.12)' : 'rgba(34, 197, 94, 0.08)';
+                  e.currentTarget.style.background = isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.08)';
                 }}
               >
                 Restore all
@@ -9844,7 +9409,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                     <div style={{
                       textAlign: 'center',
                       padding: '40px 20px',
-                      color: isDarkMode ? 'rgba(226, 232, 240, 0.4)' : 'rgba(15, 23, 42, 0.4)',
+                      color: isDarkMode ? 'rgba(243, 244, 246, 0.4)' : 'rgba(6, 23, 51, 0.4)',
                       fontSize: '13px',
                     }}>
                       No hidden items
@@ -9881,7 +9446,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                             gap: '8px',
                             marginBottom: '10px',
                             paddingBottom: '6px',
-                            borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.15)'}`,
+                            borderBottom: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(160, 160, 160, 0.15)'}`,
                           }}>
                             <span style={{ color: typeColor, display: 'flex', alignItems: 'center' }}>
                               {getTypeIcon(type)}
@@ -9891,7 +9456,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                               fontWeight: 700,
                               textTransform: 'uppercase',
                               letterSpacing: '0.5px',
-                              color: isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(15, 23, 42, 0.55)',
+                              color: isDarkMode ? 'rgba(243, 244, 246, 0.6)' : 'rgba(6, 23, 51, 0.55)',
                             }}>
                               {typeLabel}s
                             </span>
@@ -9899,9 +9464,9 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                               fontSize: '10px',
                               fontWeight: 600,
                               padding: '1px 6px',
-                              borderRadius: '8px',
-                              background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)',
-                              color: isDarkMode ? 'rgba(226, 232, 240, 0.5)' : 'rgba(15, 23, 42, 0.45)',
+                              borderRadius: '2px',
+                              background: isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(160, 160, 160, 0.08)',
+                              color: isDarkMode ? 'rgba(243, 244, 246, 0.5)' : 'rgba(6, 23, 51, 0.45)',
                             }}>
                               {items.length}
                             </span>
@@ -9929,23 +9494,23 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                       alignItems: 'center',
                                       gap: '10px',
                                       padding: '8px 10px',
-                                      borderRadius: '4px',
-                                      background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : 'rgba(148, 163, 184, 0.03)',
-                                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.1)'}`,
+                                      borderRadius: '2px',
+                                      background: isDarkMode ? 'rgba(160, 160, 160, 0.04)' : 'rgba(160, 160, 160, 0.03)',
+                                      border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.08)' : 'rgba(160, 160, 160, 0.1)'}`,
                                       transition: 'all 0.15s ease',
                                     }}
                                     onMouseEnter={(e) => {
-                                      e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)';
+                                      e.currentTarget.style.background = isDarkMode ? 'rgba(160, 160, 160, 0.08)' : 'rgba(160, 160, 160, 0.06)';
                                     }}
                                     onMouseLeave={(e) => {
-                                      e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.04)' : 'rgba(148, 163, 184, 0.03)';
+                                      e.currentTarget.style.background = isDarkMode ? 'rgba(160, 160, 160, 0.04)' : 'rgba(160, 160, 160, 0.03)';
                                     }}
                                   >
                                     <div style={{ flex: 1, minWidth: 0 }}>
                                       <div style={{
                                         fontSize: '12px',
                                         fontWeight: 600,
-                                        color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.8)',
+                                        color: isDarkMode ? 'rgba(243, 244, 246, 0.85)' : 'rgba(6, 23, 51, 0.8)',
                                         overflow: 'hidden',
                                         textOverflow: 'ellipsis',
                                         whiteSpace: 'nowrap',
@@ -9956,7 +9521,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                       </div>
                                       <div style={{
                                         fontSize: '10px',
-                                        color: isDarkMode ? 'rgba(226, 232, 240, 0.45)' : 'rgba(15, 23, 42, 0.45)',
+                                        color: isDarkMode ? 'rgba(243, 244, 246, 0.45)' : 'rgba(6, 23, 51, 0.45)',
                                         marginTop: '2px',
                                       }}>
                                         {format(itemDate, 'd MMM yyyy')}
@@ -9973,19 +9538,19 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                         width: '26px',
                                         height: '26px',
                                         padding: 0,
-                                        background: isDarkMode ? 'rgba(34, 197, 94, 0.1)' : 'rgba(34, 197, 94, 0.08)',
-                                        border: `1px solid ${isDarkMode ? 'rgba(34, 197, 94, 0.25)' : 'rgba(34, 197, 94, 0.2)'}`,
-                                        borderRadius: '4px',
+                                        background: isDarkMode ? 'rgba(32, 178, 108, 0.1)' : 'rgba(32, 178, 108, 0.08)',
+                                        border: `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.25)' : 'rgba(32, 178, 108, 0.2)'}`,
+                                        borderRadius: '2px',
                                         cursor: 'pointer',
-                                        color: isDarkMode ? 'rgb(134, 239, 172)' : 'rgb(22, 163, 74)',
+                                        color: isDarkMode ? 'rgb(134, 239, 172)' : 'rgb(32, 178, 108)',
                                         transition: 'all 0.15s ease',
                                         flexShrink: 0,
                                       }}
                                       onMouseEnter={(e) => {
-                                        e.currentTarget.style.background = isDarkMode ? 'rgba(34, 197, 94, 0.2)' : 'rgba(34, 197, 94, 0.15)';
+                                        e.currentTarget.style.background = isDarkMode ? 'rgba(32, 178, 108, 0.2)' : 'rgba(32, 178, 108, 0.15)';
                                       }}
                                       onMouseLeave={(e) => {
-                                        e.currentTarget.style.background = isDarkMode ? 'rgba(34, 197, 94, 0.1)' : 'rgba(34, 197, 94, 0.08)';
+                                        e.currentTarget.style.background = isDarkMode ? 'rgba(32, 178, 108, 0.1)' : 'rgba(32, 178, 108, 0.08)';
                                       }}
                                     >
                                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">

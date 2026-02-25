@@ -29,7 +29,7 @@ const getOverlayStyle = (offsetTop: number, isClosing: boolean, variant: 'side' 
     left: 0,
     right: 0,
     bottom: 0,
-    background: variant === 'modal' ? 'rgba(0, 0, 0, 0.35)' : 'rgba(0, 0, 0, 0.4)',
+    background: variant === 'modal' ? 'rgba(0, 3, 25, 0.6)' : 'rgba(0, 0, 0, 0.4)',
     backdropFilter: variant === 'modal' ? 'blur(6px)' : undefined,
     WebkitBackdropFilter: variant === 'modal' ? 'blur(6px)' : undefined,
     display: 'flex',
@@ -49,7 +49,7 @@ const getOverlayStyle = (offsetTop: number, isClosing: boolean, variant: 'side' 
 const getPanelStyle = (width: string, isClosing: boolean, isDarkMode: boolean, variant: 'side' | 'modal') =>
   mergeStyles({
     background: variant === 'modal'
-      ? (isDarkMode ? 'rgba(17, 24, 39, 0.72)' : 'rgba(255, 255, 255, 0.78)')
+      ? (isDarkMode ? 'rgba(5, 21, 37, 0.96)' : 'rgba(255, 255, 255, 0.98)')
       : (isDarkMode ? colours.dark.background : colours.light.background),
     width: variant === 'side' ? (width || '480px') : (width || 'min(95vw, 1400px)'),
     maxWidth: variant === 'side' ? '90vw' : '95vw',
@@ -59,7 +59,7 @@ const getPanelStyle = (width: string, isClosing: boolean, isDarkMode: boolean, v
     boxShadow: isDarkMode
       ? (variant === 'side' ? '-4px 0 16px rgba(0, 0, 0, 0.3)' : '0 10px 30px rgba(0, 0, 0, 0.35)')
       : (variant === 'side' ? '-4px 0 16px rgba(0, 0, 0, 0.15)' : '0 10px 30px rgba(2, 6, 23, 0.10)'),
-    borderRadius: variant === 'side' ? 0 : 12,
+    borderRadius: variant === 'side' ? 0 : 2,
     display: 'flex',
     flexDirection: 'column',
     transform: variant === 'side'
@@ -69,7 +69,7 @@ const getPanelStyle = (width: string, isClosing: boolean, isDarkMode: boolean, v
     overflow: 'hidden',
     margin: variant === 'modal' ? 'auto' : undefined,
     border: variant === 'modal'
-      ? (isDarkMode ? '1px solid rgba(148, 163, 184, 0.18)' : '1px solid rgba(15, 23, 42, 0.08)')
+      ? (isDarkMode ? `1px solid ${colours.dark.border}` : `1px solid ${colours.grey}`)
       : undefined,
     backdropFilter: variant === 'modal' ? 'blur(10px)' : undefined,
     WebkitBackdropFilter: variant === 'modal' ? 'blur(10px)' : undefined,
@@ -81,10 +81,10 @@ const getHeaderStyle = (isDarkMode: boolean, variant: 'side' | 'modal') =>
     padding: '16px 20px',
     background: variant === 'modal'
       ? (isDarkMode 
-          ? 'linear-gradient(135deg, rgba(17, 24, 39, 0.95) 0%, rgba(30, 41, 59, 0.9) 100%)'
-          : 'linear-gradient(135deg, rgba(248, 250, 252, 0.98) 0%, rgba(241, 245, 249, 0.95) 100%)')
+          ? colours.darkBlue
+          : '#ffffff')
       : (isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground),
-    borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)'}`,
+    borderBottom: `1px solid ${isDarkMode ? colours.dark.border : colours.grey}`,
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',

@@ -101,29 +101,32 @@ export const ImmediateActionChip: React.FC<ImmediateActionChipProps> = ({
       aria-label={title}
       onClick={disabled ? undefined : onClick}
       disabled={disabled}
+      className="iab-chip"
       style={{
         display: 'inline-flex',
         alignItems: 'center',
-        gap: 10,
-        padding: '8px 12px',
-        minWidth: 140,
+        gap: 7,
+        padding: '5px 10px',
+        minWidth: 100,
         maxWidth: 280,
+        width: '100%',
+        boxSizing: 'border-box' as const,
         background: hovered 
-          ? (isDark ? colours.helixBlue : 'rgba(255, 255, 255, 0.98)')
-          : (isDark ? colours.darkBlue : '#F8FAFC'),
+          ? (isDark ? 'linear-gradient(0deg, rgba(54, 144, 206, 0.08), rgba(54, 144, 206, 0.08)), #061733' : '#FFFFFF')
+          : (isDark ? colours.darkBlue : colours.grey),
         color: text,
-        border: `1px solid ${hovered 
-          ? (isDark ? 'rgba(54, 144, 206, 0.15)' : 'rgba(0,0,0,0.1)') 
-          : (isDark ? 'rgba(54, 144, 206, 0.08)' : 'rgba(0,0,0,0.06)')}`,
+        border: `0.5px solid ${hovered 
+          ? (isDark ? 'rgba(135, 243, 243, 0.15)' : 'rgba(0,0,0,0.09)') 
+          : (isDark ? 'rgba(54, 144, 206, 0.18)' : 'rgba(0,0,0,0.06)')}`,
         borderLeft: `2px solid ${colours.cta}`,
         borderRadius: 2,
         boxShadow: hovered
-          ? (isDark ? '0 4px 16px rgba(0, 3, 25, 0.4)' : '0 4px 16px rgba(0,0,0,0.08)')
-          : (isDark ? '0 2px 8px rgba(0, 3, 25, 0.3)' : '0 2px 8px rgba(0,0,0,0.04)'),
+          ? (isDark ? '0 2px 12px rgba(0, 3, 25, 0.4)' : '0 2px 12px rgba(0,0,0,0.06)')
+          : (isDark ? '0 1px 4px rgba(0, 3, 25, 0.3)' : '0 1px 4px rgba(0,0,0,0.03)'),
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.5 : 1,
-        transition: 'all 0.12s ease',
-        transform: hovered && !disabled ? 'translateY(-1px)' : 'none',
+        transition: 'all 0.15s ease',
+        transform: hovered && !disabled ? 'translateY(-0.5px)' : 'none',
         position: 'relative',
         textAlign: 'left',
       }}
@@ -134,25 +137,25 @@ export const ImmediateActionChip: React.FC<ImmediateActionChipProps> = ({
     >
       {/* Icon */}
       <div style={{
-        width: 24,
-        height: 24,
+        width: 18,
+        height: 18,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         flexShrink: 0,
-        color: isDark ? 'rgba(243, 244, 246, 0.7)' : accentColor,
-        background: isDark ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)',
+        color: isDark ? 'rgba(243, 244, 246, 0.65)' : accentColor,
+        background: isDark ? 'rgba(135, 243, 243, 0.1)' : '#FFFFFF',
         borderRadius: 2,
-        transition: 'transform 0.12s ease',
-        transform: hovered ? 'scale(1.1)' : 'scale(1)',
+        transition: 'transform 0.15s ease',
+        transform: hovered ? 'scale(1.05)' : 'scale(1)',
       }}>
-        <ChipIcon style={{ fontSize: 14 }} />
+        <ChipIcon style={{ fontSize: 11 }} />
       </div>
 
       {/* Title + Subtitle */}
       <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
         <div style={{
-          fontSize: 12,
+          fontSize: 11,
           fontWeight: 600,
           lineHeight: 1.3,
           overflow: 'hidden',
@@ -206,5 +209,23 @@ export const ImmediateActionChip: React.FC<ImmediateActionChipProps> = ({
     </button>
   );
 };
+
+// Responsive chip styles
+const iacResponsiveId = 'iac-responsive-styles';
+if (typeof document !== 'undefined' && !document.head.querySelector(`style[data-${iacResponsiveId}]`)) {
+  const s = document.createElement('style');
+  s.setAttribute(`data-${iacResponsiveId}`, '');
+  s.textContent = `
+    @media (max-width: 640px) {
+      .iab-chip { padding: 5px 8px !important; gap: 6px !important; min-width: 0 !important; font-size: 10px !important; }
+      .iab-chip > div:first-child { width: 18px !important; height: 18px !important; }
+      .iab-chip svg:last-child { display: none !important; }
+    }
+    @media (max-width: 420px) {
+      .iab-chip { padding: 4px 6px !important; gap: 4px !important; }
+    }
+  `;
+  document.head.appendChild(s);
+}
 
 export default ImmediateActionChip;

@@ -1,9 +1,10 @@
-﻿import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { IconButton, Text, Modal, Icon, Stack, DefaultButton, Spinner, SpinnerSize } from '@fluentui/react';
 import { app } from '@microsoft/teams-js';
 import { useTheme } from '../app/functionality/ThemeContext';
 import { isInTeams } from '../app/functionality/isInTeams';
 import type { UserData } from '../app/functionality/types';
+import { colours } from '../app/styles/colours';
 
 // Import Custom SVG Icons (original provider logos)
 import asanaIcon from '../assets/asana.svg';
@@ -146,11 +147,11 @@ const svgIcons = [asanaIcon, nuclinoIcon, clioIcon, netdocumentsIcon, activecamp
 
 // Section config with accent colors
 const sectionConfig: Record<string, { label: string; color: string }> = {
-    'Core Business Tools': { label: 'Core Tools', color: '#3690CE' },
-    'Legal & Research': { label: 'Legal & Research', color: '#16a34a' },
-    'Document & Case Management': { label: 'Documents', color: '#7c3aed' },
-    'Analytics & Development': { label: 'Analytics & Dev', color: '#ea580c' },
-    'Collaboration & HR': { label: 'Collaboration', color: '#0891b2' },
+    'Core Business Tools': { label: 'Core Tools', color: colours.highlight },
+    'Legal & Research': { label: 'Legal & Research', color: colours.green },
+    'Document & Case Management': { label: 'Documents', color: colours.helixBlue },
+    'Analytics & Development': { label: 'Analytics & Dev', color: colours.orange },
+    'Collaboration & HR': { label: 'Collaboration', color: colours.darkBlue },
 };
 
 // Resource card component - matching FormCard style
@@ -168,13 +169,12 @@ const ResourceCard: React.FC<{
     const resourcesWithOperations = new Set(['Asana', 'Clio', 'Azure', 'NetDocuments']);
     const hasOperations = resourcesWithOperations.has(resource.title);
 
-    // Colors matching ImmediateActionChip
-    const bg = isDarkMode ? 'rgba(30, 41, 59, 0.7)' : '#ffffff';
-    const bgHover = isDarkMode ? 'rgba(30, 41, 59, 0.85)' : '#f8fafc';
-    const border = isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(0, 0, 0, 0.06)';
-    const borderHover = isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(0, 0, 0, 0.12)';
-    const text = isDarkMode ? '#f1f5f9' : '#1e293b';
-    const textMuted = isDarkMode ? '#94a3b8' : '#64748b';
+    const bg = isDarkMode ? colours.darkBlue : colours.light.cardBackground;
+    const bgHover = isDarkMode ? colours.helixBlue : colours.light.cardHover;
+    const border = isDarkMode ? colours.dark.border : colours.light.border;
+    const borderHover = isDarkMode ? colours.dark.borderColor : colours.light.border;
+    const text = isDarkMode ? colours.dark.text : colours.light.text;
+    const textMuted = isDarkMode ? '#d1d5db' : '#374151';
 
     const isSvgIcon = svgIcons.includes(resource.icon);
 
@@ -189,9 +189,7 @@ const ResourceCard: React.FC<{
                 background: isHovered ? bgHover : bg,
                 border: `1px solid ${isHovered ? borderHover : border}`,
                 borderLeft: `3px solid ${accentColor}`,
-                boxShadow: isHovered 
-                    ? (isDarkMode ? '0 4px 12px rgba(0,0,0,0.3)' : '0 4px 12px rgba(0,0,0,0.08)')
-                    : (isDarkMode ? '0 1px 3px rgba(0,0,0,0.2)' : '0 1px 3px rgba(0,0,0,0.04)'),
+                boxShadow: 'none',
                 transition: 'all 0.15s ease',
                 cursor: 'pointer',
                 minWidth: '280px',
@@ -212,9 +210,9 @@ const ResourceCard: React.FC<{
                     width: 10,
                     height: 10,
                     borderRadius: '50%',
-                    background: isDarkMode ? 'rgba(96,165,250,0.75)' : 'rgba(37,99,235,0.7)',
-                    boxShadow: isDarkMode ? '0 0 6px rgba(96,165,250,0.45)' : '0 0 4px rgba(37,99,235,0.35)',
-                    border: `1px solid ${isDarkMode ? 'rgba(147,197,253,0.7)' : 'rgba(37,99,235,0.45)'}`,
+                    background: isDarkMode ? colours.accent : colours.highlight,
+                    boxShadow: 'none',
+                    border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.light.border}`,
                     zIndex: 1,
                     pointerEvents: 'none'
                 }} />
@@ -301,10 +299,10 @@ const ResourceCard: React.FC<{
                             root: {
                                 width: 28,
                                 height: 28,
-                                color: isFavorite ? '#f59e0b' : textMuted,
+                                color: isFavorite ? colours.orange : textMuted,
                             },
                             rootHovered: {
-                                background: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
+                                background: isDarkMode ? colours.dark.cardHover : colours.light.cardHover,
                             },
                         }}
                     />
@@ -322,7 +320,7 @@ const ResourceCard: React.FC<{
                                 color: textMuted,
                             },
                             rootHovered: {
-                                background: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
+                                background: isDarkMode ? colours.dark.cardHover : colours.light.cardHover,
                             },
                         }}
                     />
@@ -340,7 +338,7 @@ const ResourceCard: React.FC<{
                                 color: textMuted,
                             },
                             rootHovered: {
-                                background: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
+                                background: isDarkMode ? colours.dark.cardHover : colours.light.cardHover,
                             },
                         }}
                     />
@@ -934,13 +932,13 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
             }
             const data = payload.user || {};
             setAzureUserResult({
-                DisplayName: data.displayName || '—',
-                Email: data.mail || '—',
-                UPN: data.userPrincipalName || '—',
-                JobTitle: data.jobTitle || '—',
-                Department: data.department || '—',
-                Enabled: String(data.accountEnabled ?? '—'),
-                Id: data.id || '—',
+                DisplayName: data.displayName || '�',
+                Email: data.mail || '�',
+                UPN: data.userPrincipalName || '�',
+                JobTitle: data.jobTitle || '�',
+                Department: data.department || '�',
+                Enabled: String(data.accountEnabled ?? '�'),
+                Id: data.id || '�',
             });
         } catch (err) {
             setAzureUserError((err as Error).message || 'Azure lookup failed.');
@@ -1176,11 +1174,11 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
 
     const renderSelectedPanel = (resource: Resource) => {
         const cardStyle = {
-            border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.2)' : 'rgba(0,0,0,0.08)'}`,
-            borderRadius: 12,
+            border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+            borderRadius: 0,
             padding: '16px 18px',
-            background: isDarkMode ? 'rgba(15, 23, 42, 0.85)' : '#ffffff',
-            boxShadow: isDarkMode ? '0 6px 18px rgba(0,0,0,0.35)' : '0 6px 18px rgba(0,0,0,0.08)',
+            background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
+            boxShadow: 'none',
         } as const;
 
         const sectionTitleStyle = {
@@ -1188,29 +1186,29 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
             fontWeight: 700,
             letterSpacing: '0.04em',
             textTransform: 'uppercase' as const,
-            color: isDarkMode ? '#cbd5f5' : '#475569',
+            color: isDarkMode ? colours.accent : colours.highlight,
             marginBottom: 8,
         } as const;
 
         const buttonStyles = {
             root: {
-                borderRadius: 8,
-                border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.25)' : 'rgba(15,23,42,0.12)'}`,
-                background: isDarkMode ? '#0f172a' : '#ffffff',
-                color: isDarkMode ? '#e2e8f0' : '#0f172a',
+                borderRadius: 0,
+                border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
+                color: isDarkMode ? colours.dark.text : colours.light.text,
             },
             rootHovered: {
-                background: isDarkMode ? '#1e293b' : '#f8fafc',
-                border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.4)' : 'rgba(15,23,42,0.2)'}`,
+                background: isDarkMode ? colours.dark.cardHover : colours.light.cardHover,
+                border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.light.border}`,
             },
             rootPressed: {
-                background: isDarkMode ? '#0b1220' : '#eef2f7',
+                background: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
             },
             icon: {
-                color: isDarkMode ? '#cbd5f5' : '#0f172a',
+                color: isDarkMode ? colours.dark.text : colours.light.text,
             },
             label: {
-                color: isDarkMode ? '#e2e8f0' : '#0f172a',
+                color: isDarkMode ? colours.dark.text : colours.light.text,
                 fontWeight: 600,
             },
         } as const;
@@ -1220,16 +1218,16 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                 minWidth: 32,
                 height: 32,
                 padding: '0 8px',
-                borderRadius: 6,
+                borderRadius: 0,
                 border: 'none',
                 background: 'transparent',
             },
             rootHovered: {
-                background: isDarkMode ? 'rgba(30,41,59,0.5)' : 'rgba(241,245,249,0.8)',
+                background: isDarkMode ? colours.dark.cardHover : colours.light.cardHover,
             },
             icon: {
                 fontSize: 14,
-                color: isDarkMode ? '#94a3b8' : '#64748b',
+                color: isDarkMode ? colours.dark.text : colours.light.text,
             },
             label: {
                 display: 'none', // Hide label for compact look, or keep it? User said "buttons open copy pin ... no longer look on brand". Minimalism implies icon-only or subtle label.
@@ -1249,21 +1247,22 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                                 root: {
                                     width: 32,
                                     height: 32,
-                                    borderRadius: '50%',
-                                    background: isDarkMode ? 'rgba(30,41,59,0.5)' : 'rgba(241,245,249,0.8)',
+                                    borderRadius: 0,
+                                    border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.light.border}`,
+                                    background: isDarkMode ? colours.helixBlue : colours.light.cardBackground,
                                 },
                                 rootHovered: {
-                                    background: isDarkMode ? 'rgba(59,130,246,0.2)' : 'rgba(59,130,246,0.1)',
+                                    background: isDarkMode ? colours.dark.cardHover : colours.light.cardHover,
                                 },
-                                icon: { color: isDarkMode ? '#e2e8f0' : '#0f172a', fontSize: 14 },
+                                icon: { color: isDarkMode ? colours.dark.text : colours.light.text, fontSize: 14 },
                             }}
                         />
                         <div>
-                            <Text style={{ fontSize: 18, fontWeight: 700, color: isDarkMode ? '#f8fafc' : '#0f172a', display: 'block', lineHeight: 1.2 }}>
+                            <Text style={{ fontSize: 18, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text, display: 'block', lineHeight: 1.2 }}>
                                 {resource.title}
                             </Text>
                             {resource.description && (
-                                <Text style={{ fontSize: 11, color: isDarkMode ? '#94a3b8' : '#64748b', fontWeight: 500 }}>
+                                <Text style={{ fontSize: 11, color: isDarkMode ? '#d1d5db' : '#374151', fontWeight: 500 }}>
                                     {resource.description}
                                 </Text>
                             )}
@@ -1301,8 +1300,8 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                             onClick={() => setShowDevDetails(!showDevDetails)}
                             styles={{
                                 ...actionButtonStyles,
-                                root: { ...actionButtonStyles.root, background: showDevDetails ? (isDarkMode ? 'rgba(59,130,246,0.2)' : 'rgba(59,130,246,0.1)') : 'transparent' },
-                                icon: { ...actionButtonStyles.icon, color: showDevDetails ? (isDarkMode ? '#60a5fa' : '#2563eb') : actionButtonStyles.icon.color }
+                                root: { ...actionButtonStyles.root, background: showDevDetails ? (isDarkMode ? `${colours.highlight}33` : `${colours.highlight}1F`) : 'transparent' },
+                                icon: { ...actionButtonStyles.icon, color: showDevDetails ? colours.highlight : actionButtonStyles.icon.color }
                             }}
                         />
                     </div>
@@ -1314,21 +1313,21 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                         {showDevDetails && (
                             <div style={{ 
                                 padding: '10px 14px', 
-                                background: isDarkMode ? 'rgba(15,23,42,0.5)' : '#f8fafc',
-                                borderRadius: 8,
-                                border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.1)' : 'rgba(0,0,0,0.05)'}`,
+                                background: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+                                borderRadius: 0,
+                                border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                                 display: 'flex',
                                 flexDirection: 'column',
                                 gap: 8
                             }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                    <Icon iconName="Link" style={{ color: isDarkMode ? '#94a3b8' : '#64748b', fontSize: 12 }} />
-                                    <Text style={{ fontSize: 11, fontFamily: 'monospace', color: isDarkMode ? '#cbd5f5' : '#475569' }}>
+                                    <Icon iconName="Link" style={{ color: isDarkMode ? '#d1d5db' : '#374151', fontSize: 12 }} />
+                                    <Text style={{ fontSize: 11, fontFamily: 'monospace', color: isDarkMode ? '#d1d5db' : '#374151' }}>
                                         {resource.url}
                                     </Text>
                                     <Icon 
                                         iconName="Copy" 
-                                        style={{ cursor: 'pointer', fontSize: 11, color: isDarkMode ? '#94a3b8' : '#64748b' }} 
+                                        style={{ cursor: 'pointer', fontSize: 11, color: isDarkMode ? '#d1d5db' : '#374151' }} 
                                         onClick={() => handleCopyLink(resource.url)}
                                     />
                                 </div>
@@ -1356,12 +1355,12 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                                 <Text style={sectionTitleStyle}>Workspace Lookup</Text>
                                 {netDocumentsWorkspaceResult && (
                                     <div style={{ display: 'flex', gap: 8 }}>
-                                        <Text style={{ fontSize: 11, color: isDarkMode ? '#94a3b8' : '#64748b' }}>
+                                        <Text style={{ fontSize: 11, color: isDarkMode ? '#d1d5db' : '#374151' }}>
                                             Workspace ID: {netDocumentsWorkspaceResult.id}
                                         </Text>
                                         <Icon 
                                             iconName="Copy" 
-                                            style={{ cursor: 'pointer', fontSize: 12, color: isDarkMode ? '#94a3b8' : '#64748b' }} 
+                                            style={{ cursor: 'pointer', fontSize: 12, color: isDarkMode ? '#d1d5db' : '#374151' }} 
                                             onClick={() => handleCopyLink(netDocumentsWorkspaceResult?.id || '')}
                                         />
                                     </div>
@@ -1376,16 +1375,16 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                                     style={{
                                         flex: '0 1 140px',
                                         height: 32,
-                                        borderRadius: 6,
-                                        border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.2)' : 'rgba(0,0,0,0.12)'}`,
+                                        borderRadius: 0,
+                                        border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                                         padding: '0 10px',
-                                        background: isDarkMode ? '#0f172a' : '#ffffff',
-                                        color: isDarkMode ? '#e2e8f0' : '#0f172a',
+                                        background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
+                                        color: isDarkMode ? colours.dark.text : colours.light.text,
                                         fontSize: 12,
                                         fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
                                     }}
                                 />
-                                <Text style={{ fontSize: 14, color: isDarkMode ? '#64748b' : '#94a3b8' }}>/</Text>
+                                <Text style={{ fontSize: 14, color: isDarkMode ? '#d1d5db' : '#374151' }}>/</Text>
                                 <input
                                     value={netDocumentsMatterKey}
                                     onChange={(e) => setNetDocumentsMatterKey(e.target.value)}
@@ -1393,11 +1392,11 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                                     style={{
                                         flex: '0 1 160px',
                                         height: 32,
-                                        borderRadius: 6,
-                                        border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.2)' : 'rgba(0,0,0,0.12)'}`,
+                                        borderRadius: 0,
+                                        border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                                         padding: '0 10px',
-                                        background: isDarkMode ? '#0f172a' : '#ffffff',
-                                        color: isDarkMode ? '#e2e8f0' : '#0f172a',
+                                        background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
+                                        color: isDarkMode ? colours.dark.text : colours.light.text,
                                         fontSize: 12,
                                         fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
                                     }}
@@ -1412,7 +1411,7 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                             </div>
 
                             {netDocumentsWorkspaceError && (
-                                <div style={{ padding: '8px 12px', borderRadius: 6, background: isDarkMode ? 'rgba(248,113,113,0.1)' : '#fef2f2', marginBottom: 12 }}>
+                                <div style={{ padding: '8px 12px', borderRadius: 0, background: isDarkMode ? 'rgba(248,113,113,0.1)' : '#fef2f2', marginBottom: 12 }}>
                                     <Text style={{ fontSize: 12, color: isDarkMode ? 'rgba(248,113,113,0.9)' : '#b91c1c' }}>
                                         {netDocumentsWorkspaceError}
                                     </Text>
@@ -1422,16 +1421,16 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                             {/* Explorer View */}
                             {(netDocumentsWorkspaceResult || netDocumentsBreadcrumbs.length > 0) && (
                                 <div style={{ 
-                                    border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.15)' : 'rgba(0,0,0,0.1)'}`, 
-                                    borderRadius: 8, 
+                                    border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`, 
+                                    borderRadius: 0, 
                                     overflow: 'hidden',
-                                    background: isDarkMode ? 'rgba(15,23,42,0.3)' : '#ffffff' 
+                                    background: isDarkMode ? colours.dark.sectionBackground : colours.light.cardBackground 
                                 }}>
                                     {/* Toolbar: Breadcrumbs + Search */}
                                     <div style={{ 
                                         padding: '8px 12px', 
-                                        borderBottom: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.15)' : 'rgba(0,0,0,0.06)'}`,
-                                        background: isDarkMode ? 'rgba(30,41,59,0.4)' : '#f8fafc',
+                                        borderBottom: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                                        background: isDarkMode ? colours.dark.cardHover : colours.light.cardHover,
                                         display: 'flex',
                                         alignItems: 'center',
                                         justifyContent: 'space-between',
@@ -1442,7 +1441,7 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                                             <Icon iconName="FabricFolder" style={{ color: isDarkMode ? '#93c5fd' : '#2563eb', fontSize: 14 }} />
                                             {netDocumentsWorkspaceResult && !netDocumentsBreadcrumbs.length && (
                                                 <span 
-                                                    style={{ fontSize: 12, fontWeight: 600, color: isDarkMode ? '#e2e8f0' : '#0f172a' }}
+                                                    style={{ fontSize: 12, fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}
                                                 >
                                                     {netDocumentsWorkspaceResult.name}
                                                 </span>
@@ -1454,7 +1453,7 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                                                             style={{ 
                                                                 fontSize: 12, 
                                                                 cursor: 'pointer', 
-                                                                color: isDarkMode ? '#94a3b8' : '#64748b',
+                                                                color: isDarkMode ? '#d1d5db' : '#374151',
                                                                 textDecoration: 'underline'
                                                             }}
                                                             onClick={() => {
@@ -1469,12 +1468,12 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                                                     )}
                                                     {idx > 0 && (
                                                         <>
-                                                            <Icon iconName="ChevronRight" style={{ fontSize: 8, color: isDarkMode ? '#64748b' : '#94a3b8' }} />
+                                                            <Icon iconName="ChevronRight" style={{ fontSize: 8, color: isDarkMode ? '#d1d5db' : '#374151' }} />
                                                             <span 
                                                                 style={{ 
                                                                     fontSize: 12, 
                                                                     fontWeight: idx === netDocumentsBreadcrumbs.length - 1 ? 600 : 400,
-                                                                    color: idx === netDocumentsBreadcrumbs.length - 1 ? (isDarkMode ? '#e2e8f0' : '#0f172a') : (isDarkMode ? '#94a3b8' : '#64748b'),
+                                                                    color: idx === netDocumentsBreadcrumbs.length - 1 ? (isDarkMode ? colours.dark.text : colours.light.text) : (isDarkMode ? '#d1d5db' : '#374151'),
                                                                     cursor: idx === netDocumentsBreadcrumbs.length - 1 ? 'default' : 'pointer'
                                                                 }}
                                                                 onClick={() => navigateToBreadcrumb(idx)}
@@ -1502,7 +1501,7 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
 
                                         {/* Search */}
                                         <div style={{ display: 'flex', alignItems: 'center', position: 'relative', width: 200 }}>
-                                            <Icon iconName="Search" style={{ position: 'absolute', left: 8, fontSize: 12, color: isDarkMode ? '#94a3b8' : '#64748b', zIndex: 1 }} />
+                                            <Icon iconName="Search" style={{ position: 'absolute', left: 8, fontSize: 12, color: isDarkMode ? '#d1d5db' : '#374151', zIndex: 1 }} />
                                             <input
                                                 value={netDocumentsSearchQuery}
                                                 onChange={(e) => setNetDocumentsSearchQuery(e.target.value)}
@@ -1512,10 +1511,10 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                                                     width: '100%',
                                                     height: 28,
                                                     borderRadius: 4,
-                                                    border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.2)' : 'rgba(0,0,0,0.1)'}`,
+                                                    border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                                                     padding: '0 8px 0 26px',
-                                                    background: isDarkMode ? '#0f172a' : '#ffffff',
-                                                    color: isDarkMode ? '#e2e8f0' : '#0f172a',
+                                                    background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
+                                                    color: isDarkMode ? colours.dark.text : colours.light.text,
                                                     fontSize: 11,
                                                 }}
                                             />
@@ -1526,7 +1525,7 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                                     <div style={{ minHeight: 200, maxHeight: 400, overflowY: 'auto', position: 'relative' }}>
                                         {/* Loading State */}
                                         {(netDocumentsContainerLoading || netDocumentsSearchLoading) && (
-                                            <div style={{ position: 'absolute', inset: 0, background: isDarkMode ? 'rgba(15,23,42,0.6)' : 'rgba(255,255,255,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10 }}>
+                                            <div style={{ position: 'absolute', inset: 0, background: isDarkMode ? `${colours.dark.background}CC` : `${colours.light.background}CC`, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10 }}>
                                                 <Spinner label="Loading items..." size={SpinnerSize.small} />
                                             </div>
                                         )}
@@ -1534,7 +1533,7 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                                         {/* Search Results */}
                                         {netDocumentsSearchResults.length > 0 && (
                                             <div style={{ padding: 4 }}>
-                                                <div style={{ padding: '6px 12px', fontSize: 11, fontWeight: 700, color: isDarkMode ? '#94a3b8' : '#64748b' }}>SEARCH RESULTS</div>
+                                                <div style={{ padding: '6px 12px', fontSize: 11, fontWeight: 700, color: isDarkMode ? '#d1d5db' : '#374151' }}>SEARCH RESULTS</div>
                                                 {netDocumentsSearchResults.map((item) => (
                                                     <div 
                                                         key={`search-${item.id}`}
@@ -1551,25 +1550,25 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                                                         onMouseEnter={(e) => e.currentTarget.style.background = isDarkMode ? 'rgba(30,41,59,0.5)' : '#f1f5f9'}
                                                         onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                                                     >
-                                                        <Icon iconName={item.type === 'container' ? 'FolderHorizontal' : 'Page'} style={{ color: item.type === 'container' ? '#f59e0b' : '#64748b' }} />
+                                                        <Icon iconName={item.type === 'container' ? 'FolderHorizontal' : 'Page'} style={{ color: item.type === 'container' ? colours.orange : (isDarkMode ? '#d1d5db' : '#374151') }} />
                                                         <div style={{ overflow: 'hidden' }}>
-                                                            <div style={{ fontSize: 12, color: isDarkMode ? '#e2e8f0' : '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}</div>
-                                                            <div style={{ display: 'flex', gap: 8, fontSize: 10, color: isDarkMode ? '#64748b' : '#94a3b8' }}>
+                                                            <div style={{ fontSize: 12, color: isDarkMode ? colours.dark.text : colours.light.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}</div>
+                                                            <div style={{ display: 'flex', gap: 8, fontSize: 10, color: isDarkMode ? '#d1d5db' : '#374151' }}>
                                                                 <span>{item.extension?.toUpperCase()}</span>
                                                                 {item.modified && <span>{new Date(item.modified).toLocaleDateString()}</span>}
                                                             </div>
                                                         </div>
-                                                        <Icon iconName="OpenInNewWindow" style={{ cursor: 'pointer', fontSize: 12, color: isDarkMode ? '#94a3b8' : '#94a3b8' }} onClick={() => handleOpenResource(item.url || '')} />
+                                                        <Icon iconName="OpenInNewWindow" style={{ cursor: 'pointer', fontSize: 12, color: isDarkMode ? colours.dark.text : colours.light.text }} onClick={() => handleOpenResource(item.url || '')} />
                                                     </div>
                                                 ))}
-                                                <div style={{ borderBottom: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.1)' : 'rgba(0,0,0,0.05)'}`, margin: '8px 0' }} />
+                                                <div style={{ borderBottom: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`, margin: '8px 0' }} />
                                             </div>
                                         )}
 
                                         {/* Folder Contents */}
                                         <div style={{ padding: 4 }}>
                                             {netDocumentsContainerItems.length === 0 && !netDocumentsContainerLoading && (
-                                                <div style={{ padding: 20, textAlign: 'center', color: isDarkMode ? '#64748b' : '#94a3b8', fontSize: 12 }}>
+                                                <div style={{ padding: 20, textAlign: 'center', color: isDarkMode ? '#d1d5db' : '#374151', fontSize: 12 }}>
                                                     Folder is empty or not loaded
                                                 </div>
                                             )}
@@ -1596,20 +1595,20 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                                                         iconName={item.type === 'container' ? 'FolderHorizontal' : 'Page'} 
                                                         style={{ 
                                                             fontSize: 16, 
-                                                            color: item.type === 'container' ? (isDarkMode ? '#fbbf24' : '#d97706') : (isDarkMode ? '#94a3b8' : '#64748b') 
+                                                            color: item.type === 'container' ? (isDarkMode ? '#fbbf24' : '#d97706') : (isDarkMode ? '#d1d5db' : '#374151') 
                                                         }} 
                                                     />
                                                     <div style={{ minWidth: 0 }}>
-                                                        <Text style={{ fontSize: 12, color: isDarkMode ? '#e2e8f0' : '#0f172a', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                        <Text style={{ fontSize: 12, color: isDarkMode ? colours.dark.text : colours.light.text, display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                                             {item.name}
                                                         </Text>
                                                         {item.type !== 'container' && (
-                                                            <Text style={{ fontSize: 10, color: isDarkMode ? '#64748b' : '#94a3b8' }}>
-                                                                {item.id} • {item.extension?.toUpperCase()}
+                                                            <Text style={{ fontSize: 10, color: isDarkMode ? '#d1d5db' : '#374151' }}>
+                                                                {item.id} � {item.extension?.toUpperCase()}
                                                             </Text>
                                                         )}
                                                     </div>
-                                                    <Text style={{ fontSize: 11, color: isDarkMode ? '#64748b' : '#94a3b8', textAlign: 'right' }}>
+                                                    <Text style={{ fontSize: 11, color: isDarkMode ? '#d1d5db' : '#374151', textAlign: 'right' }}>
                                                         {item.modified ? new Date(item.modified).toLocaleDateString() : '-'}
                                                     </Text>
                                                     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
@@ -1640,10 +1639,10 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                                     {/* Footer / Status Bar */}
                                     <div style={{ 
                                         padding: '4px 12px', 
-                                        background: isDarkMode ? 'rgba(30,41,59,0.4)' : '#f8fafc',
-                                        borderTop: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.15)' : 'rgba(0,0,0,0.06)'}`,
+                                        background: isDarkMode ? colours.dark.cardHover : colours.light.cardHover,
+                                        borderTop: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                                         fontSize: 10,
-                                        color: isDarkMode ? '#64748b' : '#94a3b8',
+                                        color: isDarkMode ? '#d1d5db' : '#374151',
                                         display: 'flex',
                                         justifyContent: 'space-between'
                                     }}>
@@ -1661,7 +1660,7 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                             <Text style={sectionTitleStyle}>Overview</Text>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                                 <Icon iconName="Link" style={{ color: isDarkMode ? '#93c5fd' : '#2563eb' }} />
-                                <Text style={{ fontSize: 12, color: isDarkMode ? '#cbd5f5' : '#475569' }}>
+                                <Text style={{ fontSize: 12, color: isDarkMode ? '#d1d5db' : '#374151' }}>
                                     {resource.url}
                                 </Text>
                             </div>
@@ -1678,17 +1677,17 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                                         style={{
                                             flex: '1 1 200px',
                                             height: 32,
-                                            borderRadius: 6,
-                                            border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.2)' : 'rgba(0,0,0,0.12)'}`,
+                                            borderRadius: 0,
+                                            border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                                             padding: '0 10px',
-                                            background: isDarkMode ? '#0f172a' : '#ffffff',
-                                            color: isDarkMode ? '#e2e8f0' : '#0f172a',
+                                            background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
+                                            color: isDarkMode ? colours.dark.text : colours.light.text,
                                             fontSize: 12,
                                             fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
                                         }}
                                     />
                                     <DefaultButton
-                                        text={azureUserLoading ? 'Loading…' : 'Get user'}
+                                        text={azureUserLoading ? 'Loading�' : 'Get user'}
                                         iconProps={{ iconName: 'Contact' }}
                                         onClick={() => fetchAzureUser(azureUserQuery)}
                                         disabled={azureUserLoading}
@@ -1703,7 +1702,7 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                                 {azureUserResult && (
                                     <div style={{ marginTop: 10, display: 'grid', gap: 4 }}>
                                         {Object.entries(azureUserResult).map(([label, value]) => (
-                                            <Text key={label} style={{ fontSize: 12, color: isDarkMode ? '#94a3b8' : '#64748b' }}>
+                                            <Text key={label} style={{ fontSize: 12, color: isDarkMode ? '#d1d5db' : '#374151' }}>
                                                 <strong>{label}:</strong> {value}
                                             </Text>
                                         ))}
@@ -1726,17 +1725,17 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                                             style={{
                                                 flex: '1 1 200px',
                                                 height: 32,
-                                                borderRadius: 6,
-                                                border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.2)' : 'rgba(0,0,0,0.12)'}`,
+                                                borderRadius: 0,
+                                                border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                                                 padding: '0 10px',
-                                                background: isDarkMode ? '#0f172a' : '#ffffff',
-                                                color: isDarkMode ? '#e2e8f0' : '#0f172a',
+                                                background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
+                                                color: isDarkMode ? colours.dark.text : colours.light.text,
                                                 fontSize: 12,
                                                 fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
                                             }}
                                         />
                                         <DefaultButton
-                                            text={clioContactLoading ? 'Searching…' : 'Find contact'}
+                                            text={clioContactLoading ? 'Searching�' : 'Find contact'}
                                             iconProps={{ iconName: 'Contact' }}
                                             onClick={() => fetchClioContact(clioContactQuery)}
                                             disabled={clioContactLoading}
@@ -1749,13 +1748,13 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                                         </Text>
                                     )}
                                     {clioContactResult && clioContactResult.length === 0 && !clioContactLoading && (
-                                        <Text style={{ fontSize: 12, color: isDarkMode ? '#94a3b8' : '#64748b' }}>No contacts found.</Text>
+                                        <Text style={{ fontSize: 12, color: isDarkMode ? '#d1d5db' : '#374151' }}>No contacts found.</Text>
                                     )}
                                     {clioContactResult && clioContactResult.length > 0 && (
                                         <div style={{ display: 'grid', gap: 4 }}>
                                             {clioContactResult.map((contact) => (
-                                                <Text key={contact.id} style={{ fontSize: 12, color: isDarkMode ? '#94a3b8' : '#64748b' }}>
-                                                    <strong>{contact.name || 'Unknown'}</strong> — {contact.email || 'No email'}
+                                                <Text key={contact.id} style={{ fontSize: 12, color: isDarkMode ? '#d1d5db' : '#374151' }}>
+                                                    <strong>{contact.name || 'Unknown'}</strong> � {contact.email || 'No email'}
                                                 </Text>
                                             ))}
                                         </div>
@@ -1769,17 +1768,17 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                                             style={{
                                                 flex: '1 1 200px',
                                                 height: 32,
-                                                borderRadius: 6,
-                                                border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.2)' : 'rgba(0,0,0,0.12)'}`,
+                                                borderRadius: 0,
+                                                border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                                                 padding: '0 10px',
-                                                background: isDarkMode ? '#0f172a' : '#ffffff',
-                                                color: isDarkMode ? '#e2e8f0' : '#0f172a',
+                                                background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
+                                                color: isDarkMode ? colours.dark.text : colours.light.text,
                                                 fontSize: 12,
                                                 fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
                                             }}
                                         />
                                         <DefaultButton
-                                            text={clioMatterLoading ? 'Searching…' : 'Find matter'}
+                                            text={clioMatterLoading ? 'Searching�' : 'Find matter'}
                                             iconProps={{ iconName: 'Search' }}
                                             onClick={() => fetchClioMatter(clioMatterQuery)}
                                             disabled={clioMatterLoading}
@@ -1792,13 +1791,13 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                                         </Text>
                                     )}
                                     {clioMatterResult && clioMatterResult.length === 0 && !clioMatterLoading && (
-                                        <Text style={{ fontSize: 12, color: isDarkMode ? '#94a3b8' : '#64748b' }}>No matters found.</Text>
+                                        <Text style={{ fontSize: 12, color: isDarkMode ? '#d1d5db' : '#374151' }}>No matters found.</Text>
                                     )}
                                     {clioMatterResult && clioMatterResult.length > 0 && (
                                         <div style={{ display: 'grid', gap: 4 }}>
                                             {clioMatterResult.map((matter) => (
-                                                <Text key={matter.id} style={{ fontSize: 12, color: isDarkMode ? '#94a3b8' : '#64748b' }}>
-                                                    <strong>{matter.displayNumber || 'No ref'}</strong> — {matter.description || 'No description'}
+                                                <Text key={matter.id} style={{ fontSize: 12, color: isDarkMode ? '#d1d5db' : '#374151' }}>
+                                                    <strong>{matter.displayNumber || 'No ref'}</strong> � {matter.description || 'No description'}
                                                 </Text>
                                             ))}
                                         </div>
@@ -1822,38 +1821,39 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
             isBlocking={false}
             styles={{
                 main: {
-                    width: '100vw',
-                    height: '100vh',
-                    maxWidth: 'none',
-                    maxHeight: 'none',
-                    margin: 0,
+                    width: 'min(1400px, calc(100vw - 48px))',
+                    height: 'calc(100vh - 48px)',
+                    maxWidth: '1400px',
+                    maxHeight: 'calc(100vh - 48px)',
+                    margin: '24px auto',
                     borderRadius: 0,
-                    background: isDarkMode ? '#0f172a' : '#fafafa',
+                    background: isDarkMode ? colours.dark.background : colours.light.background,
+                    border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                 },
                 scrollableContent: {
-                    height: '100vh',
+                    height: '100%',
                 }
             }}
         >
             <div style={{ 
-                height: '100vh', 
+                height: '100%', 
                 display: 'flex', 
                 flexDirection: 'column',
                 fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
             }}>
                 {/* Clean header */}
                 <div style={{
-                    padding: '32px 48px 24px',
-                    borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'}`,
-                    background: isDarkMode ? '#1e293b' : '#fff',
+                    padding: '10px 24px',
+                    borderBottom: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                    background: isDarkMode ? colours.darkBlue : colours.light.sectionBackground,
                     flexShrink: 0,
                 }}>
                     <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                             <Text style={{
-                                fontSize: '28px',
+                                fontSize: '20px',
                                 fontWeight: 600,
-                                color: isDarkMode ? '#fff' : '#1a1a1a',
+                                color: isDarkMode ? colours.dark.text : colours.light.text,
                                 display: 'block',
                             }}>
                                 Resources
@@ -1865,9 +1865,16 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                                     root: {
                                         width: 40,
                                         height: 40,
-                                        borderRadius: '10px',
-                                        background: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)',
+                                        borderRadius: 0,
+                                        border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.light.border}`,
+                                        background: isDarkMode ? colours.helixBlue : colours.light.cardBackground,
                                     },
+                                    rootHovered: {
+                                        background: isDarkMode ? colours.dark.cardHover : colours.light.cardHover,
+                                    },
+                                    icon: {
+                                        color: isDarkMode ? colours.dark.text : colours.light.text,
+                                    }
                                 }}
                             />
                         </div>
@@ -1883,7 +1890,7 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                     ) : (
                         <div ref={resourcesContainerRef} style={{ maxWidth: '1100px', margin: '0 auto' }}>
                             {sectionsToRender.map((section) => {
-                                const config = sectionConfig[section.title] || { label: section.title, color: '#3690CE' };
+                                const config = sectionConfig[section.title] || { label: section.title, color: colours.highlight };
                                 const isFavoritesSection = section.title === 'Favorites';
                                 const rows = chunkRows(section.resources);
                                 
@@ -1892,7 +1899,7 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                                         <div style={{
                                             fontSize: 11,
                                             fontWeight: 700,
-                                            color: isDarkMode ? '#94a3b8' : '#64748b',
+                                            color: isDarkMode ? '#d1d5db' : '#374151',
                                             textTransform: 'uppercase',
                                             letterSpacing: '0.05em',
                                             marginBottom: '10px',
@@ -1903,12 +1910,12 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                                             <span style={{
                                                 width: 3,
                                                 height: 12,
-                                                background: isFavoritesSection ? '#f59e0b' : config.color,
+                                                background: isFavoritesSection ? colours.orange : config.color,
                                                 borderRadius: 1,
                                             }} />
                                             {isFavoritesSection ? 'Favorites' : config.label}
                                             {isFavoritesSection && (
-                                                <Icon iconName="FavoriteStarFill" style={{ fontSize: 10, color: '#f59e0b' }} />
+                                                <Icon iconName="FavoriteStarFill" style={{ fontSize: 10, color: colours.orange }} />
                                             )}
                                         </div>
                                         <div>
@@ -1923,7 +1930,7 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                                                                 <ResourceCard
                                                                     key={resource.title}
                                                                     resource={resource}
-                                                                    accentColor={isFavoritesSection ? '#f59e0b' : config.color}
+                                                                    accentColor={isFavoritesSection ? colours.orange : config.color}
                                                                     isDarkMode={isDarkMode}
                                                                     isFavorite={favorites.some(f => f.title === resource.title)}
                                                                     onOpen={() => handleSelectResource(resource)}
@@ -1949,17 +1956,17 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                             bottom: 24,
                             left: '50%',
                             transform: 'translateX(-50%)',
-                            background: isDarkMode ? '#1e293b' : '#1e293b',
-                            color: '#fff',
+                            background: isDarkMode ? colours.dark.sectionBackground : colours.darkBlue,
+                            color: colours.dark.text,
                             padding: '10px 20px',
                             fontSize: 13,
                             fontWeight: 500,
-                            boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+                            boxShadow: 'none',
                             display: 'flex',
                             alignItems: 'center',
                             gap: 8,
                         }}>
-                            <Icon iconName="CheckMark" style={{ color: '#4ade80' }} />
+                            <Icon iconName="CheckMark" style={{ color: colours.green }} />
                             Link copied
                         </div>
                     )}

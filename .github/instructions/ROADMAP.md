@@ -97,14 +97,46 @@ These are independent of the bot work and can be done immediately:
 
 3. **Test staging in Teams** — The staging URL can be loaded in a browser with the passcode guard. For full Teams testing, temporarily update the manifest `contentUrl` to the staging URL, or use `?inTeams=1` query param (existing escape hatch in `isInTeams()`).
 
+## Command Centre — Hub Controls the Portal (Feb 2026)
+
+Hub is the internal command centre. The Matter Portal (instruct-pitch submodule) is the client surface. Both read from the same `Matters` + `Instructions` tables. The pipeline is ~90% read-path complete — the gap is **write-path UI** from Hub that flows through to the portal.
+
+Full pipeline architecture documented in `.github/instructions/PIPELINE_ARCHITECTURE.md`.
+
+### Phase 1 — Wire existing routes (no new server code)
+
+- [ ] **Matter edit panel in MatterOverview** — `PUT /api/matter-operations/matter/:matterId` already supports status, description, practiceArea, solicitor, value, closeDate. Wire an inline edit form in the InlineWorkbench `matter` tab within `MatterOverview.tsx`. This is the lowest-friction win — the route exists, just needs UI.
+- [ ] **Pipeline write actions from Matters** — The InlineWorkbench in Matters is read-only. Add action buttons (e.g. "Reassign solicitor", "Update practice area") that call existing routes.
+
+### Phase 2 — New routes for portal-visible data
+
+- [ ] **CurrentSnapshot editor** — Add `PATCH /api/matter-operations/matter/:matterId/snapshot` to update `Matters.CurrentSnapshot`. Wire a text editor in InlineWorkbench. This is the narrative "Current Position" visible to clients in the portal's `.mp-snapshot-block`.
+- [ ] **MatterChecklist CRUD** — Add `GET/POST/PATCH` routes for `MatterChecklist` table. Wire interactive checkboxes in InlineWorkbench. Checklist completion updates flow to portal's `ChecklistSection`.
+- [ ] **RecoveryStage control** — Add route to update `Matters.RecoveryStage` (or derive from checklist). Wire dropdown in InlineWorkbench.
+
+### Phase 3 — Document and branding management
+
+- [ ] **Hub-side document management** — Mirror portal's blob routes (`instruction-files` container) in Hub server. Wire file list + upload in InlineWorkbench `documents` tab. Both Hub and portal share the same blob paths.
+- [ ] **ClientBranding CRUD** — Routes for managing portal brand assets (logo, colours) per client. Wire in a settings panel accessible from matter detail.
+
+### Phase 4 — Automation and bulk operations
+
+- [ ] **Auto-create portal space on matter opening** — Extend `processingActions.ts` step 12 (or add step) to ensure checklist rows and default snapshot are created alongside the `Matters` INSERT. Portal should work immediately after opening.
+- [ ] **Bulk matter operations** — Batch status updates, batch solicitor reassignment from MatterTableView.
+- [ ] **Opponent post-creation edits** — `UPDATE` route for `Opponents` table, wired from InlineWorkbench.
+
+---
+
 ## Medium Priority
 
+- [ ] **Matter one-off hardening** — Prevent repeat failures where `Deals.AreaOfWork` bucket values (e.g. `construction`) are not valid Clio `PRACTICE_AREAS` labels. Add canonical mapping layer before `/api/clio-matters`, and add server-side guard to refuse creating a new `MatterRequest` placeholder when an unresolved one already exists for the same instruction.
 - [ ] **Opponent pipeline tracking** — Add opponent completion status to pipeline chips and workbench. Backend: include `Opponents` table data (via `Matters.OpponentID`/`OpponentSolicitorID` FK) in the instruction/pipeline data fetch. Frontend: add pipeline chip (states: pending/partial/complete) between Risk and Matter chips. Workbench: add opponent tab/section for post-opening completion of missing fields (contact, address). `Opponents` table schema already supports this. Also see `src/utils/opponentDataTracker.ts` for client-side field tracking. Server route: `server/routes/opponents.js` already has standalone `POST /api/opponents` endpoint.
 - [ ] **Transition: Instructions/Clients → Prospects + Client Matters** — Move instruction workspace concepts (chips/ID/PAY/DOCS/MATTER/workbench) into the Enquiries/Prospect space; rename "Instructions/Clients" to "Client Matters" and retire the separate Matters tab.
   - [x] EID runs inline in prospects (Feb 2026)
   - [x] Risk assessment inline in prospects (Feb 2026)
   - [x] ID review inline in prospects (Feb 2026)
   - [x] Matter opening inline in prospects (Feb 2026)
+  - [ ] Remove remaining `navigateToInstructions` dependencies (`Home` quick actions + prospects document preview deep-link) by replacing them with native Prospects Overview actions.
 - [ ] **Resource-group auth broker** — Centralise token acquisition + caching per resource group. At least 3 route files (`dataOperations.js`, `matter-audit.js`, `matter-metrics.js`) each define their own `tokenCache = new Map()` + identical `getAccessToken`. Extract shared helper to `server/utils/tokenBroker.js`.
 - [ ] **Metric details modal redesign** — Replace current horizontal-bar card layout in `MetricDetailsModal.tsx` with InlineWorkbench-style structure. See `InlineWorkbench.tsx` for reference patterns.
 - [ ] **Upstream instruct-pitch changes** — Apply pending changes in `HelixAutomations/instruct-pitch` (CC/BCC support in sendEmail, payment fetch in fetchInstructionData, logging config updates).

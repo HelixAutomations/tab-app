@@ -2,6 +2,7 @@ import React from 'react';
 import { FiClock, FiTrendingUp, FiTarget } from 'react-icons/fi';
 import { FaMoneyBillWave } from 'react-icons/fa';
 import { colours } from '../../app/styles/colours';
+import clioIcon from '../../assets/clio.svg';
 import EnquiryMetricsV2 from './EnquiryMetricsV2';
 import MetricDetailsModal, { MetricDetails } from './MetricDetailsModal';
 
@@ -80,6 +81,17 @@ const spinKeyframes = `
       grid-template-columns: repeat(2, 1fr) !important;
     }
   }
+  @media (max-width: 420px) {
+    .tmv2-metric-card {
+      padding: 10px !important;
+    }
+    .tmv2-metric-value {
+      font-size: 20px !important;
+    }
+    .tmv2-header {
+      padding: 8px 10px !important;
+    }
+  }
 `;
 if (typeof document !== 'undefined' && !document.getElementById('time-metrics-spin-keyframes')) {
   const style = document.createElement('style');
@@ -106,13 +118,19 @@ interface TimeMetric {
   dialTarget?: number;
   count?: number;
   prevCount?: number;
+  elapsedPrevCount?: number;
   secondary?: number;
+  pitchedCount?: number;
+  prevPitchedCount?: number;
 }
 
 interface EnquiryMetric {
   title: string;
   count?: number;
   prevCount?: number;
+  elapsedPrevCount?: number;
+  pitchedCount?: number;
+  prevPitchedCount?: number;
   percentage?: number;
   prevPercentage?: number;
   isPercentage?: boolean;
@@ -137,6 +155,9 @@ interface TimeMetricsV2Props {
   isLoadingEnquiryMetrics?: boolean; // Separate loading state for enquiry metrics
   /** When true (viewing as production), hide dev features like metric details modal */
   viewAsProd?: boolean;
+  onOpenOutstandingBreakdown?: () => void;
+  hasOutstandingBreakdown?: boolean;
+  isOutstandingLoading?: boolean;
 }
 
 // Skeleton shimmer component for loading states
@@ -370,7 +391,7 @@ const AnimatedProgressBar: React.FC<{
   );
 });
 
-const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, enquiryMetricsBreakdown, isDarkMode, userEmail, userInitials, onRefresh, isRefreshing, isLoading, isLoadingEnquiryMetrics, viewAsProd = false }) => {
+const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, enquiryMetricsBreakdown, isDarkMode, userEmail, userInitials, onRefresh, isRefreshing, isLoading, isLoadingEnquiryMetrics, viewAsProd = false, onOpenOutstandingBreakdown, hasOutstandingBreakdown = false, isOutstandingLoading = false }) => {
   const isSessionStorageAvailable = React.useMemo(() => {
     try {
       const key = '__tmv2_storage_test__';
@@ -381,8 +402,10 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
       return false;
     }
   }, []);
-  // Previous period comparison is always visible
-  const showPreviousPeriod = true;
+  // Previous period basis for progress calculations remains unchanged
+  const showPreviousPeriod = false;
+  // Dashboard tool: show/hide previous-period comparison rows (default hidden)
+  const [showPreviousComparisons, setShowPreviousComparisons] = React.useState(false);
   const [metricDetails, setMetricDetails] = React.useState<MetricDetails | null>(null);
   const [isMetricDetailsOpen, setIsMetricDetailsOpen] = React.useState(false);
   const [mounted, setMounted] = React.useState(false);
@@ -392,18 +415,54 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
   const showDetailsFeature = isLocalhost && !viewAsProd;
 
   const sectionRailStyle = React.useMemo<React.CSSProperties>(() => ({
-    background: isDarkMode ? 'rgba(6, 23, 51, 0.35)' : 'rgba(248, 250, 252, 0.68)',
-    border: isDarkMode ? '1px solid rgba(54, 144, 206, 0.08)' : '1px solid rgba(148, 163, 184, 0.16)',
+    background: isDarkMode ? 'rgba(6, 23, 51, 0.35)' : 'linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(244, 244, 246, 0.96) 100%)',
+    border: isDarkMode ? '1px solid rgba(54, 144, 206, 0.08)' : `1px solid ${colours.highlightNeutral}`,
     padding: '3px',
   }), [isDarkMode]);
 
+  const getAnimatedBlockStyle = React.useCallback((visible: boolean): React.CSSProperties => ({
+    maxHeight: visible ? '120px' : '0px',
+    opacity: visible ? 1 : 0,
+    transform: visible ? 'translateY(0)' : 'translateY(-4px)',
+    overflow: 'hidden',
+    transition: 'max-height 240ms ease, opacity 220ms ease, transform 220ms ease',
+    willChange: 'max-height, opacity, transform',
+  }), []);
+
+  const getAnimatedInlineStyle = React.useCallback((visible: boolean): React.CSSProperties => ({
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '2px',
+    fontSize: '10px',
+    fontWeight: 500,
+    opacity: visible ? 0.8 : 0,
+    maxWidth: visible ? '120px' : '0px',
+    transform: visible ? 'translateY(0)' : 'translateY(-2px)',
+    overflow: 'hidden',
+    whiteSpace: 'nowrap' as const,
+    fontVariantNumeric: 'tabular-nums',
+    transition: 'max-width 220ms ease, opacity 180ms ease, transform 180ms ease',
+    willChange: 'max-width, opacity, transform',
+  }), []);
+
   const metricBlockStyle = React.useMemo<React.CSSProperties>(() => ({
-    background: isDarkMode ? 'rgba(0, 3, 25, 0.28)' : 'rgba(255, 255, 255, 0.66)',
-    border: isDarkMode ? '1px solid rgba(54, 144, 206, 0.06)' : '1px solid rgba(148, 163, 184, 0.12)',
-    borderLeft: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.45)' : 'rgba(54, 144, 206, 0.55)'}`,
+    background: isDarkMode ? 'rgba(0, 3, 25, 0.28)' : colours.grey,
+    border: isDarkMode ? '1px solid rgba(54, 144, 206, 0.06)' : `1px solid ${colours.highlightBlue}`,
+    borderLeft: 'none',
     borderRadius: '0',
     padding: '8px',
     boxShadow: 'none',
+  }), [isDarkMode]);
+
+  const sectionHeaderStyle = React.useMemo<React.CSSProperties>(() => ({
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    fontSize: '11px',
+    fontWeight: 700,
+    letterSpacing: '0.6px',
+    textTransform: 'uppercase' as const,
+    color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'var(--text-muted)',
   }), [isDarkMode]);
   
   // Track data landing state for smooth transitions
@@ -419,9 +478,14 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
   // Header status badge (morph Syncing → Updated in-place)
   const [showHeaderUpdatedBadge, setShowHeaderUpdatedBadge] = React.useState(false);
   const headerUpdatedTimerRef = React.useRef<number | null>(null);
+  const [syncProgress, setSyncProgress] = React.useState(0);
+  const syncProgressIntervalRef = React.useRef<number | null>(null);
+  const syncProgressResetRef = React.useRef<number | null>(null);
   
   // Animation key to trigger refresh animation on metric values
   const [refreshAnimationKey, setRefreshAnimationKey] = React.useState(0);
+  const [comparisonMode, setComparisonMode] = React.useState<'percent' | 'value'>('percent');
+  const [enquiryComparisonModeByTitle, setEnquiryComparisonModeByTitle] = React.useState<Record<string, 'previous' | 'elapsed'>>({});
 
   // Format countdown as mm:ss
   const formatCountdown = (seconds: number): string => {
@@ -456,8 +520,42 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
   React.useEffect(() => {
     return () => {
       if (headerUpdatedTimerRef.current) window.clearTimeout(headerUpdatedTimerRef.current);
+      if (syncProgressIntervalRef.current) window.clearInterval(syncProgressIntervalRef.current);
+      if (syncProgressResetRef.current) window.clearTimeout(syncProgressResetRef.current);
     };
   }, []);
+
+  const isSyncing = Boolean(isLoading || isRefreshing);
+
+  React.useEffect(() => {
+    if (isSyncing) {
+      if (syncProgressResetRef.current) {
+        window.clearTimeout(syncProgressResetRef.current);
+        syncProgressResetRef.current = null;
+      }
+      setSyncProgress(prev => (prev > 6 ? prev : 8));
+      if (!syncProgressIntervalRef.current) {
+        syncProgressIntervalRef.current = window.setInterval(() => {
+          setSyncProgress(prev => {
+            if (prev >= 92) return prev;
+            const increment = prev < 35 ? 7 : prev < 70 ? 3 : 1.5;
+            return Math.min(92, prev + increment);
+          });
+        }, 260);
+      }
+      return;
+    }
+
+    if (syncProgressIntervalRef.current) {
+      window.clearInterval(syncProgressIntervalRef.current);
+      syncProgressIntervalRef.current = null;
+    }
+
+    setSyncProgress(prev => (prev > 0 ? 100 : 0));
+    syncProgressResetRef.current = window.setTimeout(() => {
+      setSyncProgress(0);
+    }, 900);
+  }, [isSyncing]);
 
 
   
@@ -539,6 +637,13 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
     lineHeight: 1,
   }), [isDarkMode]);
 
+  const headerChipShellStyle: React.CSSProperties = React.useMemo(() => ({
+    borderRadius: '10px',
+    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(0, 0, 0, 0.08)'}`,
+    background: isDarkMode ? 'rgba(2, 6, 23, 0.30)' : colours.grey,
+    minHeight: '24px',
+  }), [isDarkMode]);
+
   const openTimeMetricDetails = React.useCallback((metric: TimeMetric | EnquiryMetric) => {
     // Only show details modal when feature is enabled
     if (!showDetailsFeature) return;
@@ -605,6 +710,18 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
     if (metric.title.toLowerCase().includes('conversion')) return FiTarget;
     return FiTarget;
   };
+
+  const isOutstandingMetric = React.useCallback((metric: TimeMetric | EnquiryMetric) => {
+    return (metric.title || '').toLowerCase().includes('outstanding office balances');
+  }, []);
+
+  const handleMetricActivate = React.useCallback((metric: TimeMetric | EnquiryMetric) => {
+    if (isTimeMetric(metric) && isOutstandingMetric(metric) && hasOutstandingBreakdown && onOpenOutstandingBreakdown) {
+      onOpenOutstandingBreakdown();
+      return;
+    }
+    openTimeMetricDetails(metric);
+  }, [hasOutstandingBreakdown, onOpenOutstandingBreakdown, openTimeMetricDetails, isOutstandingMetric]);
 
   // Count-up animation hook
   // useCountUp, AnimatedValueWithEnabled, AnimatedProgressBar — defined at module scope above
@@ -746,6 +863,237 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
     }
   };
 
+  const getTimeCardComparisonRows = (metric: TimeMetric) => {
+    if (!metric.isTimeMoney && !metric.isMoneyOnly) return null;
+
+    const titleLower = (metric.title || '').toLowerCase();
+    const isTodayCard = titleLower.includes('today');
+    const isWeekCard = titleLower.includes('this week');
+    const isMonthCard = titleLower.includes('this month');
+    const currentPeriodLabel = isTodayCard
+      ? 'Today'
+      : isWeekCard
+        ? 'This Week'
+        : isMonthCard
+          ? 'This Month'
+          : 'Current';
+    const previousPeriodLabel = isTodayCard
+      ? 'Yesterday'
+      : isWeekCard
+        ? 'Last Week'
+        : isMonthCard
+          ? 'Last Month'
+          : 'Previous';
+
+    const currentHours = metric.hours || 0;
+    const previousHours = metric.prevHours || 0;
+    const currentMoney = metric.money || 0;
+    const previousMoney = metric.prevMoney || 0;
+    const hoursDelta = currentHours - previousHours;
+    const moneyDelta = currentMoney - previousMoney;
+
+    const formatSignedHours = (value: number) => `${value >= 0 ? '+' : '-'}${Math.abs(value).toFixed(1)}h`;
+    const formatSignedMoney = (value: number) => `${value >= 0 ? '+' : '-'}${formatCurrency(Math.abs(Math.round(value)))}`;
+    const formatSignedPercent = (value: number | null) => {
+      if (value === null || !Number.isFinite(value)) return '—';
+      return `${value >= 0 ? '+' : '-'}${Math.abs(value).toFixed(1)}%`;
+    };
+
+    const hoursPercent = previousHours > 0 ? (hoursDelta / previousHours) * 100 : null;
+    const moneyPercent = previousMoney > 0 ? (moneyDelta / previousMoney) * 100 : null;
+
+    const comparisonLabel = metric.isTimeMoney
+      ? (comparisonMode === 'percent'
+        ? `${formatSignedPercent(hoursPercent)} · ${formatSignedPercent(moneyPercent)}`
+        : `${formatSignedHours(hoursDelta)} · ${formatSignedMoney(moneyDelta)}`)
+      : (comparisonMode === 'percent'
+        ? formatSignedPercent(moneyPercent)
+        : formatSignedMoney(moneyDelta));
+
+    const currentLabel = metric.isTimeMoney
+      ? `${formatHours(metric.hours || 0)} · ${formatCurrency(metric.money || 0)}`
+      : `${formatCurrency(metric.money || 0)}`;
+    const previousLabel = metric.isTimeMoney
+      ? `${formatHours(metric.prevHours || 0)} · ${formatCurrency(metric.prevMoney || 0)}`
+      : `${formatCurrency(metric.prevMoney || 0)}`;
+
+    return (
+      <div style={{ marginTop: '7px', display: 'grid', gap: '3px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '8px', marginBottom: '1px' }}>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setComparisonMode(prev => prev === 'percent' ? 'value' : 'percent');
+            }}
+            onKeyDown={(e) => e.stopPropagation()}
+            style={{
+              border: 'none',
+              background: 'transparent',
+              color: isDarkMode ? 'rgba(135, 243, 243, 0.72)' : 'rgba(54, 144, 206, 0.82)',
+              fontSize: '10px',
+              fontWeight: 600,
+              fontVariantNumeric: 'tabular-nums',
+              cursor: 'pointer',
+              lineHeight: 1.2,
+              padding: 0,
+              opacity: 0.9,
+              borderBottom: `1px dotted ${isDarkMode ? 'rgba(135, 243, 243, 0.45)' : 'rgba(54, 144, 206, 0.45)'}`,
+            }}
+            aria-label="Toggle comparison mode"
+            title={`Comparison (${comparisonMode === 'percent' ? '%' : 'value'}) — click to toggle`}
+          >
+            <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: '5px' }}>
+              <span>{comparisonLabel}</span>
+              <span style={{ fontSize: '8px', fontWeight: 600, opacity: 0.5, letterSpacing: '0.1px' }} aria-hidden="true">
+                ⇄
+              </span>
+            </span>
+          </button>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+          <span style={{ fontSize: '9px', fontWeight: 600, letterSpacing: '0.18px', color: isDarkMode ? 'rgba(255, 255, 255, 0.45)' : 'rgba(15, 23, 42, 0.55)' }}>
+            {currentPeriodLabel}
+          </span>
+          <span style={{ fontSize: '10px', fontWeight: 600, color: isDarkMode ? 'rgba(255, 255, 255, 0.78)' : 'rgba(15, 23, 42, 0.82)', fontVariantNumeric: 'tabular-nums' }}>
+            {currentLabel}
+          </span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+          <span style={{ fontSize: '9px', fontWeight: 600, letterSpacing: '0.18px', color: isDarkMode ? 'rgba(255, 255, 255, 0.45)' : 'rgba(15, 23, 42, 0.55)' }}>
+            {previousPeriodLabel}
+          </span>
+          <span style={{ fontSize: '10px', fontWeight: 600, color: isDarkMode ? 'rgba(255, 255, 255, 0.66)' : 'rgba(15, 23, 42, 0.74)', fontVariantNumeric: 'tabular-nums' }}>
+            {previousLabel}
+          </span>
+        </div>
+      </div>
+    );
+  };
+
+  const getOutstandingComparisonRows = (metric: TimeMetric) => {
+    const currentLabel = formatCurrency(Math.round(metric.money || 0));
+    const firmLabel = formatCurrency(Math.round(metric.secondary || 0));
+
+    return (
+      <div style={{ marginTop: '7px', display: 'grid', gap: '3px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '8px', marginBottom: '1px' }}>
+          <span
+            aria-hidden="true"
+            style={{
+              fontSize: '10px',
+              fontWeight: 600,
+              lineHeight: 1.2,
+              visibility: 'hidden',
+            }}
+          >
+            comparison
+          </span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+          <span style={{ fontSize: '9px', fontWeight: 600, letterSpacing: '0.18px', color: isDarkMode ? 'rgba(255, 255, 255, 0.45)' : 'rgba(15, 23, 42, 0.55)' }}>
+            Current
+          </span>
+          <span style={{ fontSize: '10px', fontWeight: 600, color: isDarkMode ? 'rgba(255, 255, 255, 0.78)' : 'rgba(15, 23, 42, 0.82)', fontVariantNumeric: 'tabular-nums' }}>
+            {currentLabel}
+          </span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+          <span style={{ fontSize: '9px', fontWeight: 600, letterSpacing: '0.18px', color: isDarkMode ? 'rgba(255, 255, 255, 0.45)' : 'rgba(15, 23, 42, 0.55)' }}>
+            Firm
+          </span>
+          <span style={{ fontSize: '10px', fontWeight: 600, color: isDarkMode ? 'rgba(255, 255, 255, 0.66)' : 'rgba(15, 23, 42, 0.74)', fontVariantNumeric: 'tabular-nums' }}>
+            {firmLabel}
+          </span>
+        </div>
+      </div>
+    );
+  };
+
+  const isEnquiryPeriodMetric = (metric: TimeMetric | EnquiryMetric) => {
+    const title = (metric.title || '').toLowerCase();
+    return title === 'enquiries today' || title === 'enquiries this week' || title === 'enquiries this month';
+  };
+
+  const getEnquiryComparisonRows = (metric: TimeMetric) => {
+    const titleLower = (metric.title || '').toLowerCase();
+    const titleKey = metric.title || '';
+    const isTodayCard = titleLower === 'enquiries today';
+    const isWeekCard = titleLower === 'enquiries this week';
+    const isMonthCard = titleLower === 'enquiries this month';
+    const canToggleElapsed = !isTodayCard && typeof metric.elapsedPrevCount === 'number';
+    const mode = enquiryComparisonModeByTitle[titleKey] || 'previous';
+    const previousValue = (canToggleElapsed && mode === 'elapsed')
+      ? Math.round(metric.elapsedPrevCount || 0)
+      : Math.round(metric.prevCount || 0);
+    const currentLabel = isTodayCard ? 'Today' : isWeekCard ? 'This Week' : isMonthCard ? 'This Month' : 'Current';
+    const previousLabel = isTodayCard
+      ? 'Yesterday'
+      : isWeekCard
+        ? (canToggleElapsed && mode === 'elapsed' ? 'Last Week (to date)' : 'Last Week')
+        : isMonthCard
+          ? (canToggleElapsed && mode === 'elapsed' ? 'Last Month (to date)' : 'Last Month')
+          : 'Previous';
+    return (
+      <div style={{ marginTop: '7px', display: 'grid', gap: '3px' }}>
+        {canToggleElapsed && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '8px', marginBottom: '1px' }}>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setEnquiryComparisonModeByTitle((prev) => ({
+                  ...prev,
+                  [titleKey]: (prev[titleKey] || 'previous') === 'previous' ? 'elapsed' : 'previous',
+                }));
+              }}
+              onKeyDown={(e) => e.stopPropagation()}
+              style={{
+                border: 'none',
+                background: 'transparent',
+                color: isDarkMode ? 'rgba(135, 243, 243, 0.72)' : 'rgba(54, 144, 206, 0.82)',
+                fontSize: '10px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                lineHeight: 1.2,
+                padding: 0,
+                opacity: 0.9,
+                borderBottom: `1px dotted ${isDarkMode ? 'rgba(135, 243, 243, 0.45)' : 'rgba(54, 144, 206, 0.45)'}`,
+              }}
+              aria-label="Toggle enquiry comparison mode"
+              title={`${isWeekCard ? 'Last Week' : 'Last Month'} comparison (${mode === 'previous' ? 'full period' : 'to date'}) — click to toggle`}
+            >
+              <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: '5px' }}>
+                <span>
+                  {isWeekCard
+                    ? (mode === 'previous' ? 'Last Week (full)' : 'Last Week (to date)')
+                    : (mode === 'previous' ? 'Last Month (full)' : 'Last Month (to date)')}
+                </span>
+                <span style={{ fontSize: '8px', fontWeight: 600, opacity: 0.5, letterSpacing: '0.1px' }} aria-hidden="true">⇄</span>
+              </span>
+            </button>
+          </div>
+        )}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+          <span style={{ fontSize: '9px', fontWeight: 600, letterSpacing: '0.18px', color: isDarkMode ? 'rgba(255, 255, 255, 0.45)' : 'rgba(15, 23, 42, 0.55)' }}>
+            {currentLabel}
+          </span>
+          <span style={{ fontSize: '10px', fontWeight: 600, color: isDarkMode ? 'rgba(255, 255, 255, 0.78)' : 'rgba(15, 23, 42, 0.82)', fontVariantNumeric: 'tabular-nums' }}>
+            {Math.round(metric.count || 0)}
+          </span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+          <span style={{ fontSize: '9px', fontWeight: 600, letterSpacing: '0.18px', color: isDarkMode ? 'rgba(255, 255, 255, 0.45)' : 'rgba(15, 23, 42, 0.55)' }}>
+            {previousLabel}
+          </span>
+          <span style={{ fontSize: '10px', fontWeight: 600, color: isDarkMode ? 'rgba(255, 255, 255, 0.66)' : 'rgba(15, 23, 42, 0.74)', fontVariantNumeric: 'tabular-nums' }}>
+            {previousValue}
+          </span>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div style={{
       padding: '0',
@@ -753,11 +1101,9 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
       position: 'relative',
       background: 'transparent',
     }}>
-      {/* Unified dashboard container — flat motherboard surface */}
+      {/* Dashboard content — no container box */}
       <div style={{
-        background: isDarkMode 
-          ? colours.websiteBlue
-          : 'rgba(255, 255, 255, 0.98)',
+        background: 'transparent',
         borderRadius: '0',
         border: 'none',
         boxShadow: 'none',
@@ -767,183 +1113,215 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
         overflow: 'hidden',
         position: 'relative',
       }}>
-        {/* Top separator line — full-width highlight blue edge */}
-        <div style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          height: '1px',
-          background: colours.highlight,
-        }} />
-        {/* Header inside the container */}
-        <div className="tmv2-header" style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '7px 10px',
-          background: 'transparent',
-          borderBottom: isDarkMode 
-            ? '1px solid rgba(54, 144, 206, 0.08)'
-            : '1px solid rgba(148, 163, 184, 0.12)',
-          marginBottom: '0',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <h2 style={{
-              margin: 0,
-              fontSize: '12px',
-              fontWeight: 600,
-              color: isDarkMode ? colours.dark.text : colours.light.text,
-              letterSpacing: '-0.025em',
-            }}>
-              Time Metrics
-            </h2>
-            {/* Status badge slot: Syncing → Updated (morph in-place) */}
-            {(isLoading || showHeaderUpdatedBadge) && (
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '5px',
-                padding: '3px 8px',
-                borderRadius: '12px',
-                background: isLoading
-                  ? (isDarkMode ? 'rgba(6, 23, 51, 0.6)' : 'rgba(54, 144, 206, 0.1)')
-                  : (isDarkMode ? 'rgba(16, 185, 129, 0.14)' : 'rgba(16, 185, 129, 0.10)'),
-                border: `1px solid ${isLoading
-                  ? (isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.2)')
-                  : (isDarkMode ? 'rgba(16, 185, 129, 0.25)' : 'rgba(16, 185, 129, 0.22)')}`,
-                transition: 'background 180ms ease, border-color 180ms ease',
-              }}>
-                {isLoading ? (
-                  <svg 
-                    width="12" 
-                    height="12" 
-                    viewBox="0 0 24 24" 
-                    fill="none" 
-                    stroke={isDarkMode ? colours.subtleGrey : colours.highlight}
-                    strokeWidth="2"
-                    style={{ animation: 'spinReverse 1s linear infinite' }}
-                  >
-                    <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-                    <path d="M3 3v5h5" />
-                  </svg>
-                ) : (
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={colours.green} strokeWidth="2.5">
-                    <path d="M20 6L9 17l-5-5" />
-                  </svg>
-                )}
-                <span style={{ 
-                  fontSize: '10px', 
-                  fontWeight: 500, 
-                  color: isLoading ? (isDarkMode ? colours.subtleGrey : colours.highlight) : colours.green,
-                  transition: 'color 180ms ease',
-                }}>
-                  {isLoading ? 'Syncing Clio...' : 'Updated'}
-                </span>
-              </div>
-            )}
-            {onRefresh && !isLoading && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <button
-                  onClick={handleRefresh}
-                  disabled={isRefreshing}
-                  style={{
-                    background: 'transparent',
-                    border: 'none',
-                    cursor: isRefreshing ? 'default' : 'pointer',
-                    padding: '4px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    borderRadius: '4px',
-                    opacity: isRefreshing ? 0.5 : 0.6,
-                    transition: 'opacity 0.15s ease',
-                  }}
-                  onMouseEnter={(e) => { if (!isRefreshing) e.currentTarget.style.opacity = '1'; }}
-                  onMouseLeave={(e) => { if (!isRefreshing) e.currentTarget.style.opacity = '0.6'; }}
-                  aria-label="Refresh time metrics"
-                  title={`Refresh time metrics (auto-refresh in ${formatCountdown(countdown)})`}
-                >
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke={isDarkMode ? colours.dark.text : colours.light.text}
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    style={{
-                      animation: isRefreshing ? 'spin 1s linear infinite' : 'none',
-                    }}
-                  >
-                    <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-                    <path d="M3 3v5h5" />
-                    <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
-                    <path d="M16 21h5v-5" />
-                  </svg>
-                </button>
-                {/* Subtle countdown timer */}
-                <span
-                  style={{
-                    fontSize: '10px',
-                    fontFamily: 'SF Mono, Monaco, Consolas, monospace',
-                    color: isDarkMode ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.3)',
-                    fontWeight: 500,
-                    letterSpacing: '0.02em',
-                    transition: 'color 0.15s ease',
-                    minWidth: '32px',
-                  }}
-                  title={`Auto-refresh in ${formatCountdown(countdown)}`}
-                >
-                  {formatCountdown(countdown)}
-                </span>
-              </div>
-            )}
-          </div>
-          
-          {/* Right side: Toast notification */}
-          <div className="tmv2-header-right" style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '10px',
-          }}>
-            {toast && <Toast message={toast.message} type={toast.type} visible={toast.visible} isDarkMode={isDarkMode} />}
-          </div>
-        </div>
-        
         {/* ─── Dashboard data rows ─── */}
-        <div style={{ padding: '0 10px 10px 10px' }}>
+        <div style={{ padding: '0 0 10px 0' }}>
 
           {/* Time section panel */}
           <div style={{
-            background: isDarkMode ? 'rgba(6, 23, 51, 0.28)' : 'rgba(248, 250, 252, 0.7)',
-            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(148, 163, 184, 0.14)'}`,
+            background: 'transparent',
+            border: 'none',
             borderRadius: '0',
             padding: '0',
-            marginTop: '6px',
+            marginTop: '0',
           }}>
-            {/* Time heading */}
+            {/* Time heading with inline refresh/status */}
             <div style={{
-              fontSize: '10px',
-              fontWeight: 600,
-              letterSpacing: '0.06em',
-              textTransform: 'uppercase' as const,
-              color: isDarkMode ? colours.subtleGrey : colours.greyText,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
               padding: '8px 12px 4px 12px',
             }}>
-              Time
+              <div style={sectionHeaderStyle}>
+                <FiClock style={{ fontSize: 11, color: 'var(--text-accent)', strokeWidth: 2.2 }} />
+                <span>Time</span>
+                {toast && <Toast message={toast.message} type={toast.type} visible={toast.visible} isDarkMode={isDarkMode} />}
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowPreviousComparisons(prev => !prev)}
+                  style={{
+                    ...headerChipShellStyle,
+                    borderRadius: '10px',
+                    padding: '3px 8px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                    cursor: 'pointer',
+                    opacity: 0.82,
+                    color: isDarkMode ? 'rgba(255,255,255,0.62)' : 'rgba(15,23,42,0.64)',
+                  }}
+                  title={showPreviousComparisons ? 'Hide previous-period comparisons' : 'Show previous-period comparisons'}
+                  aria-label={showPreviousComparisons ? 'Hide previous-period comparisons' : 'Show previous-period comparisons'}
+                >
+                  <span style={{ fontSize: '9px', fontWeight: 600, letterSpacing: '0.08px' }}>
+                    Previous {showPreviousComparisons ? 'On' : 'Off'}
+                  </span>
+                </button>
+                {/* Status badge: Syncing with progress → Updated */}
+                {(isSyncing || showHeaderUpdatedBadge) && (
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    minWidth: isSyncing ? '126px' : '104px',
+                    padding: '3px 8px',
+                    ...headerChipShellStyle,
+                    transition: 'border-color 180ms ease, background 180ms ease',
+                    position: 'relative',
+                    overflow: 'hidden',
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px', width: '100%', justifyContent: 'space-between' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                        {isSyncing ? (
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={isDarkMode ? colours.subtleGrey : colours.highlight} strokeWidth="2" style={{ animation: 'spinReverse 1s linear infinite' }}>
+                            <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                            <path d="M3 3v5h5" />
+                          </svg>
+                        ) : (
+                          <span style={{
+                            width: '13px',
+                            height: '13px',
+                            borderRadius: '50%',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            background: isDarkMode ? 'rgba(16, 185, 129, 0.2)' : 'rgba(16, 185, 129, 0.16)',
+                            border: `1px solid ${isDarkMode ? 'rgba(16, 185, 129, 0.35)' : 'rgba(16, 185, 129, 0.30)'}`,
+                          }}>
+                            <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke={colours.green} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M20 6L9 17l-5-5" />
+                            </svg>
+                          </span>
+                        )}
+                        <span style={{
+                          fontSize: '9px',
+                          fontWeight: 600,
+                          letterSpacing: '0.08px',
+                          color: isSyncing ? (isDarkMode ? colours.subtleGrey : colours.highlight) : colours.green,
+                          transition: 'color 180ms ease',
+                        }}>
+                          {isSyncing ? 'Syncing with Clio' : 'Sync complete'}
+                        </span>
+                      </span>
+                      {isSyncing && (
+                        <span style={{
+                          fontSize: '8px',
+                          fontWeight: 600,
+                          fontVariantNumeric: 'tabular-nums',
+                          color: isDarkMode ? 'rgba(255,255,255,0.46)' : 'rgba(15, 23, 42, 0.52)',
+                          minWidth: '24px',
+                          textAlign: 'right',
+                        }}>
+                          {Math.round(syncProgress)}%
+                        </span>
+                      )}
+                    </div>
+                    {isSyncing && (
+                      <div style={{
+                        width: '100%',
+                        height: '2px',
+                        background: isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(15, 23, 42, 0.10)',
+                        borderRadius: 0,
+                        overflow: 'hidden',
+                        position: 'absolute',
+                        left: 0,
+                        bottom: 0,
+                      }}>
+                        <div style={{
+                          width: `${Math.max(6, Math.min(syncProgress, 100))}%`,
+                          height: '100%',
+                          background: isDarkMode
+                            ? 'linear-gradient(90deg, rgba(54, 144, 206, 0.55) 0%, rgba(135, 243, 243, 0.78) 100%)'
+                            : colours.highlightBlue,
+                          transition: 'width 240ms ease-out',
+                        }} />
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Refresh button + countdown badges */}
+                {onRefresh && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <button
+                    onClick={handleRefresh}
+                    disabled={isSyncing}
+                    style={{
+                      ...headerChipShellStyle,
+                      cursor: isSyncing ? 'default' : 'pointer',
+                      padding: '3px 7px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '4px',
+                      borderRadius: '10px',
+                      opacity: isSyncing ? 0.6 : 0.75,
+                      transition: 'opacity 0.15s ease, border-color 0.15s ease',
+                    }}
+                    onMouseEnter={(e) => { if (!isSyncing) e.currentTarget.style.opacity = '0.95'; }}
+                    onMouseLeave={(e) => { if (!isSyncing) e.currentTarget.style.opacity = '0.75'; }}
+                    aria-label="Refresh time metrics"
+                    title={`Refresh time metrics (auto-refresh in ${formatCountdown(countdown)})`}
+                  >
+                    <img
+                      src={clioIcon}
+                      alt="Clio"
+                      style={{
+                        width: '11px',
+                        height: '11px',
+                        objectFit: 'contain',
+                        opacity: isDarkMode ? 0.9 : 0.82,
+                      }}
+                    />
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={isDarkMode ? colours.dark.text : colours.light.text} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: isSyncing ? 'spin 1s linear infinite' : 'none' }}>
+                      <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                      <path d="M3 3v5h5" />
+                      <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
+                      <path d="M16 21h5v-5" />
+                    </svg>
+                    <span style={{
+                      fontSize: '9px',
+                      fontWeight: 600,
+                      letterSpacing: '0.08px',
+                      color: isDarkMode ? 'rgba(255,255,255,0.62)' : 'rgba(15,23,42,0.64)',
+                    }}>
+                      Refresh
+                    </span>
+                  </button>
+                  <span style={{
+                    fontSize: '9px',
+                    fontFamily: 'SF Mono, Monaco, Consolas, monospace',
+                    color: isDarkMode ? 'rgba(255,255,255,0.44)' : 'rgba(15,23,42,0.44)',
+                    fontWeight: 600,
+                    letterSpacing: '0.02em',
+                    minWidth: '44px',
+                    height: '24px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    textAlign: 'center',
+                    padding: '0 6px',
+                    lineHeight: 1,
+                    ...headerChipShellStyle,
+                  }} title={`Auto-refresh in ${formatCountdown(countdown)}`}>
+                    {formatCountdown(countdown)}
+                  </span>
+                </div>
+                )}
+              </div>
             </div>
 
           {/* Time metric tiles — 3:2 dashboard grid */}
           {isLoading ? (
             <div style={{ padding: '0 12px 10px 12px' }}>
               {/* Skeleton row 1: 3 across */}
-              <div className="metricsGridThree" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0' }}>
+              <div style={sectionRailStyle}>
+              <div className="metricsGridThree" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px' }}>
                 {[0,1,2].map(i => (
                   <div key={i} style={{
-                    padding: '10px 10px',
-                    borderRight: i < 2 ? `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(148, 163, 184, 0.08)'}` : 'none',
+                    padding: '12px 12px',
+                    borderRight: i < 2 ? `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'transparent'}` : 'none',
                   }}>
                     <SkeletonBox width="70px" height="9px" isDarkMode={isDarkMode} animate={false} />
                     <div style={{ marginTop: '6px' }}>
@@ -955,13 +1333,13 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
                   </div>
                 ))}
               </div>
-              <div style={{ borderTop: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(148, 163, 184, 0.08)'}` }} />
+              <div style={{ height: '4px' }} />
               {/* Skeleton row 2: 2 across */}
-              <div className="metricsGridTwo" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0' }}>
+              <div className="metricsGridTwo" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '4px' }}>
                 {[0,1].map(i => (
                   <div key={i} style={{
-                    padding: '10px 10px',
-                    borderRight: i < 1 ? `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(148, 163, 184, 0.08)'}` : 'none',
+                    padding: '12px 12px',
+                    borderRight: i < 1 ? `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'transparent'}` : 'none',
                   }}>
                     <SkeletonBox width="90px" height="9px" isDarkMode={isDarkMode} animate={false} />
                     <div style={{ marginTop: '6px' }}>
@@ -970,9 +1348,11 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
                   </div>
                 ))}
               </div>
+              </div>
             </div>
           ) : (
-            <div style={{ padding: '4px 8px 8px 8px' }}>
+            <div style={{ padding: '0 12px 10px 12px' }}>
+              <div style={sectionRailStyle}>
               {/* Row 1: first 3 metrics */}
               <div className="metricsGridThree" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px' }}>
                 {currentMetrics.slice(0, 3).map((metric, index) => {
@@ -982,23 +1362,31 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
                   const trend = getTrendDirection(currentValue, prevValue);
                   const trendColor = getTrendColor(trend);
                   const hasProgress = isTimeMetric(metric) && metric.showDial && metric.dialTarget;
+                  const progressIndicatorColor = progress >= 100 ? colours.green : colours.accent;
+                  const lightModeBorderColor = hasProgress ? `${progressIndicatorColor}66` : colours.highlightBlue;
+                  const isOutstandingCard = isTimeMetric(metric) && isOutstandingMetric(metric);
+                  const supportsDetailedComparisonRows = isTimeMetric(metric) && Boolean(metric.isTimeMoney || metric.isMoneyOnly) && !isOutstandingCard;
+                  const showDetailedComparisonRows = showPreviousComparisons && supportsDetailedComparisonRows;
                   const spec = getDisplaySpec(metric as TimeMetric, false);
+                  const showOutstandingLoadingCue = isOutstandingCard && isOutstandingLoading;
 
                   return (
                     <div
                       className="tmv2-metric-card"
                       key={metric.title}
                       style={{
-                        padding: '10px 12px 12px 12px',
+                        padding: '12px 12px',
                         background: isDarkMode
                           ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.08) 0%, rgba(54, 144, 206, 0.00) 60%), rgba(6, 23, 51, 0.45)'
-                          : 'linear-gradient(135deg, rgba(54, 144, 206, 0.05) 0%, rgba(54, 144, 206, 0.00) 60%), rgba(255, 255, 255, 0.55)',
-                        border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(148, 163, 184, 0.16)'}`,
-                        boxShadow: isDarkMode
-                          ? 'inset 0 1px 0 rgba(54, 144, 206, 0.06), 0 1px 3px rgba(0, 3, 25, 0.20)'
-                          : 'inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 1px 3px rgba(0, 0, 0, 0.04)',
-                        cursor: showDetailsFeature ? 'pointer' : 'default',
-                        transition: 'background 180ms ease, border-color 180ms ease, transform 180ms ease, box-shadow 180ms ease',
+                          : colours.grey,
+                        border: isDarkMode ? metricBlockStyle.border : `1px solid ${lightModeBorderColor}`,
+                        borderLeft: isDarkMode ? metricBlockStyle.borderLeft : `1px solid ${lightModeBorderColor}`,
+                        borderRight: isDarkMode
+                          ? (index < 2 ? '1px solid rgba(54, 144, 206, 0.06)' : 'none')
+                          : `1px solid ${lightModeBorderColor}`,
+                        boxShadow: 'none',
+                        cursor: (showDetailsFeature || (isTimeMetric(metric) && isOutstandingMetric(metric) && hasOutstandingBreakdown)) ? 'pointer' : 'default',
+                        transition: 'background 180ms ease, border-color 180ms ease',
                         borderRadius: '0',
                         ...staggerStyle(index),
                         animation: dataLanded 
@@ -1009,85 +1397,101 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
                       }}
                       role="button"
                       tabIndex={0}
-                      onClick={() => openTimeMetricDetails(metric)}
+                      onClick={() => handleMetricActivate(metric)}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openTimeMetricDetails(metric); }
+                        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleMetricActivate(metric); }
                       }}
                       onMouseEnter={(e) => {
                         e.currentTarget.style.background = isDarkMode
                           ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.14) 0%, rgba(54, 144, 206, 0.02) 60%), rgba(6, 23, 51, 0.55)'
-                          : 'linear-gradient(135deg, rgba(54, 144, 206, 0.08) 0%, rgba(54, 144, 206, 0.00) 60%), rgba(255, 255, 255, 0.75)';
-                        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.22)';
-                        e.currentTarget.style.transform = 'translateY(-1px)';
-                        e.currentTarget.style.boxShadow = isDarkMode
-                          ? '0 6px 16px rgba(0, 3, 25, 0.35)'
-                          : '0 4px 12px rgba(6, 23, 51, 0.08)';
+                          : colours.grey;
                       }}
                       onMouseLeave={(e) => {
                         e.currentTarget.style.background = isDarkMode
                           ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.08) 0%, rgba(54, 144, 206, 0.00) 60%), rgba(6, 23, 51, 0.45)'
-                          : 'linear-gradient(135deg, rgba(54, 144, 206, 0.05) 0%, rgba(54, 144, 206, 0.00) 60%), rgba(255, 255, 255, 0.55)';
-                        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(148, 163, 184, 0.16)';
-                        e.currentTarget.style.transform = 'translateY(0)';
-                        e.currentTarget.style.boxShadow = isDarkMode
-                          ? 'inset 0 1px 0 rgba(54, 144, 206, 0.06), 0 1px 3px rgba(0, 3, 25, 0.20)'
-                          : 'inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 1px 3px rgba(0, 0, 0, 0.04)';
+                          : colours.grey;
                       }}
                     >
                       {/* Label */}
-                      <div style={{
-                        fontSize: '10px',
-                        fontWeight: 500,
-                        color: isDarkMode ? 'rgba(243, 244, 246, 0.55)' : 'rgba(15, 23, 42, 0.50)',
-                        marginBottom: '4px',
-                        whiteSpace: 'nowrap' as const,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                      }}>
-                        {getDisplayTitle(metric.title)}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '4px' }}>
+                        <div style={{
+                          fontSize: '10px',
+                          fontWeight: 500,
+                          color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(15, 23, 42, 0.50)',
+                          whiteSpace: 'nowrap' as const,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          minWidth: 0,
+                          flex: 1,
+                        }}>
+                          {getDisplayTitle(metric.title)}
+                        </div>
+                        {isOutstandingCard && hasOutstandingBreakdown && (
+                          <span style={{
+                            fontSize: '8px',
+                            fontWeight: 600,
+                            color: isDarkMode ? 'rgba(255, 255, 255, 0.34)' : 'rgba(15, 23, 42, 0.36)',
+                            letterSpacing: '0.24px',
+                            textTransform: 'uppercase',
+                            whiteSpace: 'nowrap',
+                          }}>
+                            breakdown
+                          </span>
+                        )}
                       </div>
 
                       {/* Value row */}
                       <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px', flexWrap: 'wrap' }}>
-                        <AnimatedValueWithEnabled
-                          value={spec.value}
-                          formatter={spec.formatter}
-                          enabled={enableAnimationThisMount}
-                          replayKey={replayKey}
-                          className="tmv2-metric-value"
-                          style={{
-                            fontSize: '18px',
-                            fontWeight: 700,
-                            color: isDarkMode ? '#F9FAFB' : '#0f172a',
-                            letterSpacing: '-0.03em',
-                            fontVariantNumeric: 'tabular-nums',
-                            lineHeight: 1.1,
-                          }}
-                        />
+                        {showOutstandingLoadingCue ? (
+                          <>
+                            <SkeletonBox width="86px" height="18px" isDarkMode={isDarkMode} />
+                            <span style={{
+                              fontSize: '9px',
+                              fontWeight: 600,
+                              color: isDarkMode ? 'rgba(255,255,255,0.42)' : 'rgba(15,23,42,0.42)',
+                              letterSpacing: '0.08px',
+                            }}>
+                              Loading balances…
+                            </span>
+                          </>
+                        ) : (
+                          <AnimatedValueWithEnabled
+                            value={spec.value}
+                            formatter={spec.formatter}
+                            enabled={enableAnimationThisMount}
+                            replayKey={replayKey}
+                            className="tmv2-metric-value"
+                            style={{
+                              fontSize: '20px',
+                              fontWeight: 700,
+                              color: isDarkMode ? '#ffffff' : '#0f172a',
+                              letterSpacing: '-0.03em',
+                              fontVariantNumeric: 'tabular-nums',
+                              lineHeight: 1.1,
+                            }}
+                          />
+                        )}
                         {/* Money sub-value */}
-                        {isTimeMetric(metric) && metric.isTimeMoney && ((metric.money ?? 0) > 0) && (
+                        {!showOutstandingLoadingCue && isTimeMetric(metric) && metric.isTimeMoney && ((metric.money ?? 0) > 0) && (
                           <AnimatedValueWithEnabled
                             value={metric.money || 0}
                             formatter={(n) => formatCurrency(Math.round(n))}
                             enabled={enableAnimationThisMount}
                             replayKey={replayKey}
                             style={{
-                              fontSize: '11px',
-                              fontWeight: 500,
-                              color: isDarkMode ? colours.green : '#059669',
+                              fontSize: '18px',
+                              fontWeight: 600,
+                              color: isDarkMode ? 'rgba(255, 255, 255, 0.72)' : 'rgba(15, 23, 42, 0.70)',
+                              letterSpacing: '-0.02em',
                               fontVariantNumeric: 'tabular-nums',
                             }}
                           />
                         )}
                         {/* Previous period delta */}
-                        {(prevValue > 0 || metric.title === 'Time Today') && (
+                        {!showOutstandingLoadingCue && (prevValue > 0 || metric.title === 'Time Today') && !showDetailedComparisonRows && (
                           <span style={{
-                            display: 'inline-flex', alignItems: 'center', gap: '2px',
-                            fontSize: '10px', fontWeight: 500,
+                            ...getAnimatedInlineStyle(showPreviousComparisons),
                             color: trend !== 'neutral' ? trendColor : (isDarkMode ? colours.subtleGrey : colours.greyText),
-                            opacity: 0.8,
-                            overflow: 'hidden',
-                            whiteSpace: 'nowrap' as const, fontVariantNumeric: 'tabular-nums',
                           }}>
                             {prevValue > 0 && trend !== 'neutral' && (
                               <FiTrendingUp size={9} style={{ transform: trend === 'down' ? 'rotate(180deg)' : 'none', flexShrink: 0 }} />
@@ -1101,17 +1505,25 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
                         )}
                       </div>
 
+                      {isOutstandingCard && !showOutstandingLoadingCue && typeof metric.secondary === 'number' && getOutstandingComparisonRows(metric)}
+
+                      {supportsDetailedComparisonRows && (
+                        <div style={getAnimatedBlockStyle(showDetailedComparisonRows)}>
+                          {getTimeCardComparisonRows(metric)}
+                        </div>
+                      )}
+
                       {/* Progress bar */}
                       {hasProgress && (
                         <div style={{ marginTop: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                           <div style={{
                             flex: 1, height: '3px',
-                            background: isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(148, 163, 184, 0.15)',
+                            background: isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.1)',
                             borderRadius: '2px', overflow: 'hidden',
                           }}>
                             <div style={{
                               width: `${Math.min(progress, 100)}%`, height: '100%',
-                              background: progress >= 100 ? colours.green : colours.highlight,
+                              background: progress >= 100 ? 'var(--helix-green)' : 'var(--text-accent)',
                               borderRadius: '2px',
                               transition: enableAnimationThisMount ? 'width 0.6s cubic-bezier(0.4, 0, 0.2, 1)' : 'none',
                             }} />
@@ -1131,29 +1543,40 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
               </div>
 
               {/* Row 2: last 2 metrics */}
-              <div className="metricsGridTwo" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '4px', marginTop: '4px' }}>
+              <div className="metricsGridTwo" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '4px', marginTop: '4px', borderTop: 'none' }}>
                 {currentMetrics.slice(3).map((metric, index) => {
                   const currentValue = getCurrentValue(metric);
                   const prevValue = getPrevValue(metric);
+                  const progress = isTimeMetric(metric) ? calculateProgress(metric as TimeMetric, showPreviousPeriod) : 0;
                   const trend = getTrendDirection(currentValue, prevValue);
                   const trendColor = getTrendColor(trend);
+                  const hasProgress = isTimeMetric(metric) && metric.showDial && metric.dialTarget;
+                  const progressIndicatorColor = progress >= 100 ? colours.green : colours.accent;
+                  const lightModeBorderColor = hasProgress ? `${progressIndicatorColor}66` : colours.highlightBlue;
+                  const isOutstandingCard = isTimeMetric(metric) && isOutstandingMetric(metric);
+                  const isEnquiryPeriodCard = isTimeMetric(metric) && isEnquiryPeriodMetric(metric);
+                  const supportsDetailedComparisonRows = isTimeMetric(metric) && Boolean(metric.isTimeMoney || metric.isMoneyOnly) && !isOutstandingCard && !isEnquiryPeriodCard;
+                  const showDetailedComparisonRows = showPreviousComparisons && supportsDetailedComparisonRows;
                   const spec = getDisplaySpec(metric as TimeMetric, false);
+                  const showOutstandingLoadingCue = isOutstandingCard && isOutstandingLoading;
 
                   return (
                     <div
                       className="tmv2-metric-card"
                       key={metric.title}
                       style={{
-                        padding: '10px 12px 12px 12px',
+                        padding: '12px 12px',
                         background: isDarkMode
                           ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.08) 0%, rgba(54, 144, 206, 0.00) 60%), rgba(6, 23, 51, 0.45)'
-                          : 'linear-gradient(135deg, rgba(54, 144, 206, 0.05) 0%, rgba(54, 144, 206, 0.00) 60%), rgba(255, 255, 255, 0.55)',
-                        border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(148, 163, 184, 0.16)'}`,
-                        boxShadow: isDarkMode
-                          ? 'inset 0 1px 0 rgba(54, 144, 206, 0.06), 0 1px 3px rgba(0, 3, 25, 0.20)'
-                          : 'inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 1px 3px rgba(0, 0, 0, 0.04)',
-                        cursor: showDetailsFeature ? 'pointer' : 'default',
-                        transition: 'background 180ms ease, border-color 180ms ease, transform 180ms ease, box-shadow 180ms ease',
+                          : colours.grey,
+                        border: isDarkMode ? metricBlockStyle.border : `1px solid ${lightModeBorderColor}`,
+                        borderLeft: isDarkMode ? metricBlockStyle.borderLeft : `1px solid ${lightModeBorderColor}`,
+                        borderRight: isDarkMode
+                          ? (index < 1 ? '1px solid rgba(54, 144, 206, 0.06)' : 'none')
+                          : `1px solid ${lightModeBorderColor}`,
+                        boxShadow: 'none',
+                        cursor: (showDetailsFeature || (isTimeMetric(metric) && isOutstandingMetric(metric) && hasOutstandingBreakdown)) ? 'pointer' : 'default',
+                        transition: 'background 180ms ease, border-color 180ms ease',
                         borderRadius: '0',
                         ...staggerStyle(index + 3),
                         animation: dataLanded 
@@ -1164,70 +1587,97 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
                       }}
                       role="button"
                       tabIndex={0}
-                      onClick={() => openTimeMetricDetails(metric)}
+                      onClick={() => handleMetricActivate(metric)}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openTimeMetricDetails(metric); }
+                        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleMetricActivate(metric); }
                       }}
                       onMouseEnter={(e) => {
                         e.currentTarget.style.background = isDarkMode
                           ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.14) 0%, rgba(54, 144, 206, 0.02) 60%), rgba(6, 23, 51, 0.55)'
-                          : 'linear-gradient(135deg, rgba(54, 144, 206, 0.08) 0%, rgba(54, 144, 206, 0.00) 60%), rgba(255, 255, 255, 0.75)';
-                        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.22)';
-                        e.currentTarget.style.transform = 'translateY(-1px)';
-                        e.currentTarget.style.boxShadow = isDarkMode
-                          ? '0 6px 16px rgba(0, 3, 25, 0.35)'
-                          : '0 4px 12px rgba(6, 23, 51, 0.08)';
+                          : colours.grey;
                       }}
                       onMouseLeave={(e) => {
                         e.currentTarget.style.background = isDarkMode
                           ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.08) 0%, rgba(54, 144, 206, 0.00) 60%), rgba(6, 23, 51, 0.45)'
-                          : 'linear-gradient(135deg, rgba(54, 144, 206, 0.05) 0%, rgba(54, 144, 206, 0.00) 60%), rgba(255, 255, 255, 0.55)';
-                        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(148, 163, 184, 0.16)';
-                        e.currentTarget.style.transform = 'translateY(0)';
-                        e.currentTarget.style.boxShadow = isDarkMode
-                          ? 'inset 0 1px 0 rgba(54, 144, 206, 0.06), 0 1px 3px rgba(0, 3, 25, 0.20)'
-                          : 'inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 1px 3px rgba(0, 0, 0, 0.04)';
+                          : colours.grey;
                       }}
                     >
                       {/* Label */}
-                      <div style={{
-                        fontSize: '10px',
-                        fontWeight: 500,
-                        color: isDarkMode ? 'rgba(243, 244, 246, 0.55)' : 'rgba(15, 23, 42, 0.50)',
-                        marginBottom: '4px',
-                        whiteSpace: 'nowrap' as const,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                      }}>
-                        {getDisplayTitle(metric.title)}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '4px' }}>
+                        <div style={{
+                          fontSize: '10px',
+                          fontWeight: 500,
+                          color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(15, 23, 42, 0.50)',
+                          whiteSpace: 'nowrap' as const,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          minWidth: 0,
+                          flex: 1,
+                        }}>
+                          {getDisplayTitle(metric.title)}
+                        </div>
+                        {isEnquiryPeriodCard && typeof metric.pitchedCount === 'number' && (
+                          <span style={{
+                            fontSize: '8px',
+                            fontWeight: 600,
+                            color: isDarkMode ? 'rgba(255, 255, 255, 0.34)' : 'rgba(15, 23, 42, 0.36)',
+                            letterSpacing: '0.2px',
+                            textTransform: 'uppercase',
+                            whiteSpace: 'nowrap',
+                          }}>
+                            pitched {Math.max(0, Math.round(metric.pitchedCount || 0))}
+                          </span>
+                        )}
+                        {isOutstandingCard && hasOutstandingBreakdown && (
+                          <span style={{
+                            fontSize: '8px',
+                            fontWeight: 600,
+                            color: isDarkMode ? 'rgba(255, 255, 255, 0.34)' : 'rgba(15, 23, 42, 0.36)',
+                            letterSpacing: '0.24px',
+                            textTransform: 'uppercase',
+                            whiteSpace: 'nowrap',
+                          }}>
+                            breakdown
+                          </span>
+                        )}
                       </div>
 
                       {/* Value row */}
-                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
-                        <AnimatedValueWithEnabled
-                          value={spec.value}
-                          formatter={spec.formatter}
-                          enabled={enableAnimationThisMount}
-                          replayKey={replayKey}
-                          className="tmv2-metric-value"
-                          style={{
-                            fontSize: '18px',
-                            fontWeight: 700,
-                            color: isDarkMode ? '#F9FAFB' : '#0f172a',
-                            letterSpacing: '-0.03em',
-                            fontVariantNumeric: 'tabular-nums',
-                            lineHeight: 1.1,
-                          }}
-                        />
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px', flexWrap: 'wrap' }}>
+                        {showOutstandingLoadingCue ? (
+                          <>
+                            <SkeletonBox width="86px" height="18px" isDarkMode={isDarkMode} />
+                            <span style={{
+                              fontSize: '9px',
+                              fontWeight: 600,
+                              color: isDarkMode ? 'rgba(255,255,255,0.42)' : 'rgba(15,23,42,0.42)',
+                              letterSpacing: '0.08px',
+                            }}>
+                              Loading balances…
+                            </span>
+                          </>
+                        ) : (
+                          <AnimatedValueWithEnabled
+                            value={spec.value}
+                            formatter={spec.formatter}
+                            enabled={enableAnimationThisMount}
+                            replayKey={replayKey}
+                            className="tmv2-metric-value"
+                            style={{
+                              fontSize: '20px',
+                              fontWeight: 700,
+                              color: isDarkMode ? '#ffffff' : '#0f172a',
+                              letterSpacing: '-0.03em',
+                              fontVariantNumeric: 'tabular-nums',
+                              lineHeight: 1.1,
+                            }}
+                          />
+                        )}
                         {/* Previous period delta */}
-                        {prevValue > 0 && (
+                        {!showOutstandingLoadingCue && prevValue > 0 && !showDetailedComparisonRows && !isEnquiryPeriodCard && (
                           <span style={{
-                            display: 'inline-flex', alignItems: 'center', gap: '2px',
-                            fontSize: '10px', fontWeight: 500,
+                            ...getAnimatedInlineStyle(showPreviousComparisons),
                             color: trend !== 'neutral' ? trendColor : (isDarkMode ? colours.subtleGrey : colours.greyText),
-                            opacity: 0.8,
-                            overflow: 'hidden',
-                            whiteSpace: 'nowrap' as const, fontVariantNumeric: 'tabular-nums',
                           }}>
                             {trend !== 'neutral' && (
                               <FiTrendingUp size={9} style={{ transform: trend === 'down' ? 'rotate(180deg)' : 'none', flexShrink: 0 }} />
@@ -1240,9 +1690,24 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
                           </span>
                         )}
                       </div>
+
+                      {isOutstandingCard && !showOutstandingLoadingCue && typeof metric.secondary === 'number' && getOutstandingComparisonRows(metric)}
+
+                      {supportsDetailedComparisonRows && (
+                        <div style={getAnimatedBlockStyle(showDetailedComparisonRows)}>
+                          {getTimeCardComparisonRows(metric)}
+                        </div>
+                      )}
+
+                      {isEnquiryPeriodCard && (
+                        <div style={getAnimatedBlockStyle(showPreviousComparisons)}>
+                          {getEnquiryComparisonRows(metric)}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
+              </div>
               </div>
             </div>
           )}
@@ -1251,23 +1716,20 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
           {/* Conversion section panel */}
           {enquiryMetrics && enquiryMetrics.length > 0 && (
             <div style={{
-              background: isDarkMode ? 'rgba(6, 23, 51, 0.28)' : 'rgba(248, 250, 252, 0.7)',
-              border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(148, 163, 184, 0.14)'}`,
+              background: isDarkMode ? 'transparent' : 'rgba(248, 250, 252, 0.7)',
+              border: 'none',
               borderRadius: '0',
               padding: '0',
               marginTop: '4px',
             }}>
               <div style={{
-                fontSize: '10px',
-                fontWeight: 600,
-                letterSpacing: '0.06em',
-                textTransform: 'uppercase' as const,
-                color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                ...sectionHeaderStyle,
                 padding: '8px 12px 4px 12px',
               }}>
+                <FiTarget style={{ fontSize: 11, color: 'var(--text-accent)', strokeWidth: 2.2 }} />
                 Conversion
               </div>
-              <div style={{ padding: '0 12px 8px 12px' }}>
+              <div style={{ padding: '0 0 8px 0' }}>
                 <EnquiryMetricsV2 
                   metrics={enquiryMetrics} 
                   isDarkMode={isDarkMode} 
@@ -1277,13 +1739,14 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
                   refreshAnimationKey={refreshAnimationKey}
                   isLoading={isLoadingEnquiryMetrics ?? isLoading}
                   breakdown={enquiryMetricsBreakdown}
+                  showPreviousPeriod={showPreviousComparisons}
                   embedded
                 />
               </div>
             </div>
           )}
         </div>
-      </div> {/* Close unified container */}
+      </div> {/* Close dashboard wrapper */}
 
       <MetricDetailsModal
         isOpen={isMetricDetailsOpen}

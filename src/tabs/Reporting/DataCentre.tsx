@@ -10,6 +10,8 @@ import {
 } from './styles/reportingFoundation';
 import { colours } from '../../app/styles/colours';
 import { useTheme } from '../../app/functionality/ThemeContext';
+import { useNavigatorActions } from '../../app/functionality/NavigatorContext';
+import NavigatorDetailBar from '../../components/NavigatorDetailBar';
 
 type PlanData = {
   startDate: string;
@@ -178,35 +180,6 @@ const pageStyle = (isDarkMode: boolean): CSSProperties => ({
   flexDirection: 'column',
   gap: 24,
 });
-
-const headerStyle = (isDarkMode: boolean): CSSProperties => ({
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  flexWrap: 'wrap',
-  gap: 16,
-});
-
-const titleBlockStyle: CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 2,
-};
-
-const kickerStyle = (isDarkMode: boolean): CSSProperties => ({
-  fontSize: 10,
-  textTransform: 'uppercase',
-  letterSpacing: 1,
-  fontWeight: 700,
-  color: isDarkMode ? colours.subtleGrey : colours.greyText,
-});
-
-const titleStyle: CSSProperties = {
-  margin: 0,
-  fontSize: 20,
-  fontWeight: 700,
-  fontFamily: 'Raleway, sans-serif',
-};
 
 const bannerStyle = (
   variant: 'healthy' | 'loading' | 'error',
@@ -419,6 +392,49 @@ const DataCentre: React.FC<DataCentreProps> = ({
   userName,
 }) => {
   const { isDarkMode } = useTheme();
+  const { setContent } = useNavigatorActions();
+  type ActiveTab = 'collected' | 'wip' | 'people' | 'finance' | 'compliance' | 'ads';
+  const [activeOp, setActiveOp] = React.useState<ActiveTab>('collected');
+
+  /* ─── Navigator bar — managed by DataCentre itself ─── */
+  React.useEffect(() => {
+    setContent(
+      <NavigatorDetailBar
+        onBack={onBack}
+        backLabel="Back"
+        tabs={[
+          { key: 'collected', label: 'Collected' },
+          { key: 'wip', label: 'WIP' },
+          { key: 'people', label: 'People' },
+          { key: 'finance', label: 'Finance' },
+          { key: 'compliance', label: 'Compliance' },
+          { key: 'ads', label: 'Ads' },
+        ]}
+        activeTab={activeOp}
+        onTabChange={(key) => setActiveOp(key as ActiveTab)}
+        rightContent={
+          <DefaultButton
+            text={isRefreshing ? 'Refreshing…' : 'Refresh'}
+            onClick={onRefreshAll}
+            disabled={isRefreshing}
+            styles={{
+              root: {
+                borderRadius: 0,
+                height: 28,
+                padding: '0 10px',
+                fontWeight: 700,
+                fontSize: 11,
+                border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.55)' : 'rgba(54,144,206,0.45)'}`,
+                background: isDarkMode ? 'rgba(54,144,206,0.18)' : 'rgba(54,144,206,0.1)',
+                color: isDarkMode ? colours.dark.text : colours.helixBlue,
+              },
+            }}
+          />
+        }
+      />,
+    );
+    return () => { setContent(null); };
+  }, [activeOp, onBack, onRefreshAll, isRefreshing, isDarkMode, setContent]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ─── Per-operation independent range state ─── */
   const getDefaultRangeState = (): OperationRangeState => {
@@ -461,7 +477,6 @@ const DataCentre: React.FC<DataCentreProps> = ({
   const [wipConfirmChecked, setWipConfirmChecked] = React.useState(false);
   const [opsLog, setOpsLog] = React.useState<OperationLogEntry[]>([]);
   const [opsLogLoading, setOpsLogLoading] = React.useState(false);
-  const [activeOp, setActiveOp] = React.useState<'collected' | 'wip' | null>(null);
   const [syncExpanded, setSyncExpanded] = React.useState(false);
   const [wipWeekExclusionChecked, setWipWeekExclusionChecked] = React.useState(false);
 
@@ -513,7 +528,6 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
   const [backfillCurrent, setBackfillCurrent] = React.useState<string | null>(null);
   const [backfillDone, setBackfillDone] = React.useState<string[]>([]);
   const [backfillErrors, setBackfillErrors] = React.useState<string[]>([]);
-  const autoSyncAttemptedRef = React.useRef<Set<string>>(new Set());
 
   const syncMonthKey = React.useCallback(async (monthKey: string, op: 'collectedTime' | 'wip') => {
     const start = `${monthKey}-01`;
@@ -715,7 +729,6 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
 
   // Auto-open coverage panel and sync to active operation card
   React.useEffect(() => {
-    if (!activeOp) return;
     const opKey = activeOp === 'collected' ? 'collectedTime' as const : 'wip' as const;
     // Always open coverage and switch to the correct operation
     setCoverageOpen(true);
@@ -1208,99 +1221,11 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
     return { label: 'Monitor', color: colours.greyText, tint: `${colours.greyText}1A` };
   }, [getMonthAge]);
 
-  const shouldAutoSyncMonth = React.useCallback((entry: MonthAuditEntry): boolean => {
-    const monthAge = getMonthAge(entry.key);
-
-    if (!entry.lastSync) {
-      return true;
-    }
-
-    const syncMs = new Date(entry.lastSync.ts).getTime();
-    if (!Number.isFinite(syncMs)) {
-      return monthAge <= 2;
-    }
-
-    const daysSince = Math.floor((Date.now() - syncMs) / 86400000);
-    if (monthAge <= 2) {
-      return daysSince > 7;
-    }
-
-    if (monthAge <= 5) {
-      return daysSince > 30;
-    }
-
-    return daysSince > 120;
-  }, [getMonthAge]);
-
-  React.useEffect(() => {
-    if (!coverageOpen || !monthAuditOp || monthAuditLoading || backfillRunning || monthAuditData.length === 0) {
-      return;
-    }
-
-    const sortedByRecency = [...monthAuditData].sort((a, b) => a.key < b.key ? 1 : -1);
-    const unsyncedOrStale = sortedByRecency
-      .filter(shouldAutoSyncMonth)
-      .filter((entry) => !autoSyncAttemptedRef.current.has(`${monthAuditOp}:${entry.key}`));
-
-    const activeWindow = unsyncedOrStale.filter((entry) => getMonthAge(entry.key) <= 5);
-    const archiveWindow = unsyncedOrStale.filter((entry) => getMonthAge(entry.key) > 5);
-    const candidates = [...activeWindow.slice(0, 2), ...archiveWindow.slice(0, 1)];
-
-    if (candidates.length === 0) {
-      return;
-    }
-
-    let cancelled = false;
-
-    const runSmartAutoSync = async () => {
-      for (const month of candidates) {
-        if (cancelled) return;
-
-        const dedupeKey = `${monthAuditOp}:${month.key}`;
-        autoSyncAttemptedRef.current.add(dedupeKey);
-        setBackfillCurrent(month.key);
-        setBackfillRunning(true);
-        setBackfillDone((prev) => prev.filter((k) => k !== month.key));
-        setBackfillErrors((prev) => prev.filter((k) => k !== month.key));
-
-        try {
-          const result = await syncMonthKey(month.key, monthAuditOp);
-          const rows = result.insertedRows ?? result.totalInserted ?? 0;
-          if (cancelled) return;
-          setBackfillDone((prev) => [...prev, month.key]);
-          setBackfillLog((prev) => [...prev, { key: month.key, ts: new Date().toISOString(), status: 'completed', rows }]);
-          setMonthAuditData((prev) => prev.map((m) => (
-            m.key === month.key
-              ? {
-                  ...m,
-                  lastSync: { ts: new Date().toISOString(), status: 'completed', insertedRows: rows, invokedBy: 'system' },
-                  syncCount: m.syncCount + 1,
-                }
-              : m
-          )));
-        } catch {
-          if (cancelled) return;
-          setBackfillErrors((prev) => [...prev, month.key]);
-          setBackfillLog((prev) => [...prev, { key: month.key, ts: new Date().toISOString(), status: 'error' }]);
-        }
-      }
-
-      if (!cancelled) {
-        setBackfillCurrent(null);
-        setBackfillRunning(false);
-      }
-    };
-
-    void runSmartAutoSync();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [coverageOpen, monthAuditOp, monthAuditLoading, backfillRunning, monthAuditData, shouldAutoSyncMonth, syncMonthKey]);
+  // Manual-only month sync: do not auto-backfill on entry.
 
   const recentServerEntries = React.useMemo(() => {
-    const opToken = activeOp === 'wip' ? 'wip' : activeOp === 'collected' ? 'collected' : null;
-    if (!opToken) return [];
+    if (activeOp !== 'collected' && activeOp !== 'wip') return [];
+    const opToken = activeOp === 'wip' ? 'wip' : 'collected';
     return opsLog
       .filter((entry) => (entry.operation || '').toLowerCase().includes(opToken))
       .slice(0, 6)
@@ -1316,8 +1241,6 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
   }, [opsLog, activeOp]);
 
   const coverageMonthAuditLogMap = React.useMemo(() => {
-    if (!activeOp) return new Map<string, OperationLogEntry[]>();
-
     const opToken = activeOp === 'wip' ? 'wip' : 'collected';
     const parseDateRange = (entry: OperationLogEntry): { start: string; end: string } | null => {
       if (entry.startDate && entry.endDate) {
@@ -1492,68 +1415,6 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
 
   return (
     <div style={pageStyle(isDarkMode)}>
-      {/* Header */}
-      <div style={headerStyle(isDarkMode)}>
-        <div style={titleBlockStyle}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <h1 style={titleStyle}>Data Hub</h1>
-            {activeOp && (
-              <span style={{
-                fontSize: 11,
-                fontWeight: 700,
-                padding: '3px 8px',
-                borderRadius: 999,
-                border: `1px solid ${activeOp === 'collected' ? colours.blue : '#14b8a6'}`,
-                color: isDarkMode ? colours.dark.text : colours.light.text,
-                background: activeOp === 'collected'
-                  ? (isDarkMode ? 'rgba(54,144,206,0.2)' : 'rgba(54,144,206,0.12)')
-                  : (isDarkMode ? 'rgba(20,184,166,0.2)' : 'rgba(20,184,166,0.12)'),
-              }}>
-                {activeOp === 'collected' ? 'Collected lane' : 'WIP lane'}
-              </span>
-            )}
-          </div>
-          <span style={{ fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
-            {activeOp ? 'Coverage windows, audit trail, and sync actions' : 'Choose a lane to enter coverage windows'}
-          </span>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <DefaultButton
-            text={isRefreshing ? 'Refreshing…' : 'Refresh'}
-            onClick={onRefreshAll}
-            disabled={isRefreshing}
-            styles={{
-              root: {
-                borderRadius: 4,
-                height: 30,
-                padding: '0 12px',
-                fontWeight: 700,
-                fontSize: 11,
-                border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.55)' : 'rgba(54,144,206,0.45)'}`,
-                background: isDarkMode ? 'rgba(54,144,206,0.18)' : 'rgba(54,144,206,0.1)',
-                color: isDarkMode ? colours.dark.text : colours.helixBlue,
-              },
-            }}
-          />
-          <DefaultButton
-            text="Exit Data Hub"
-            onClick={onBack}
-            styles={{
-              root: {
-                borderRadius: 4,
-                height: 30,
-                padding: '0 12px',
-                fontWeight: 700,
-                fontSize: 11,
-                border: `1px solid ${isDarkMode ? 'rgba(214,85,65,0.6)' : 'rgba(214,85,65,0.4)'}`,
-                background: isDarkMode ? 'rgba(214,85,65,0.14)' : 'rgba(214,85,65,0.08)',
-                color: isDarkMode ? colours.dark.text : colours.cta,
-              },
-            }}
-          />
-        </div>
-      </div>
-
       {/* Status banner */}
       {bannerVariant !== 'healthy' && (
       <div style={{
@@ -1592,136 +1453,28 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
         </div>
       )}
 
-      {/* ─── Data Operations ─── */}
+      {/* ─── Data Operations (Collected / WIP) ─── */}
+      {(activeOp === 'collected' || activeOp === 'wip') && (
       <section style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {/* Section Header */}
-        {!activeOp && (
-          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            {isSyncBusy && <Spinner size={SpinnerSize.xSmall} />}
-          </div>
-        )}
-
-        {/* ─── Entry View — high-level position at a glance ─── */}
-        {!activeOp && (
-          <div style={{ display: 'flex', gap: 16 }}>
-            {(['collected', 'wip'] as const).map((op) => {
-              const label = op === 'collected' ? 'Collected Lane' : 'WIP Lane';
-              const accent = op === 'collected' ? colours.blue : '#14b8a6';
-              const rowCount = op === 'collected' ? opsStatus?.collectedTime?.rowCount : opsStatus?.wip?.rowCount;
-              const latestDate = op === 'collected' ? opsStatus?.collectedTime?.latestDate : opsStatus?.wip?.latestDate;
-              const staleness = op === 'collected' ? collectedStaleness : wipStaleness;
-              const purpose = op === 'collected'
-                ? 'Payments captured from Clio into SQL for reporting'
-                : 'Recorded work synced with current-week protection';
-              return (
-                <button
-                  key={op}
-                  onClick={() => setActiveOp(op)}
-                  style={{
-                    flex: 1,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 10,
-                    padding: '20px 24px',
-                    background: reportingPanelBackground(isDarkMode, 'elevated'),
-                    border: `1px solid ${reportingPanelBorder(isDarkMode, 'strong')}`,
-                    borderRadius: 6,
-                    boxShadow: reportingPanelShadow(isDarkMode),
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ width: 3, height: 14, borderRadius: 1, background: accent }} />
-                    <span style={{ fontSize: 13, fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                      {label}
-                    </span>
-                  </div>
-                  <div style={{ fontSize: 28, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text, letterSpacing: '-0.02em' }}>
-                    {rowCount?.toLocaleString() ?? '—'}
-                    <span style={{ fontSize: 12, fontWeight: 400, color: isDarkMode ? colours.greyText : colours.subtleGrey, marginLeft: 4 }}>rows</span>
-                  </div>
-                  <div style={{ fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
-                    {purpose}
-                  </div>
-                  {op === 'wip' && (
-                    <div style={{ fontSize: 10, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>
-                      Current week excluded from SQL · stitched from Clio API in dashboards
-                    </div>
-                  )}
-                  <div style={{ display: 'flex', gap: 16, fontSize: 11, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
-                    <span>{latestDate ? new Date(latestDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</span>
-                    {staleness && (
-                      <span style={{ color: staleness.colour, fontWeight: 500 }}>
-                        {staleness.label}
-                      </span>
-                    )}
-                    <span style={{ marginLeft: 'auto', fontWeight: 600, color: accent }}>Open lane</span>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        {/* ─── Drilled-in View ─── */}
-        {activeOp && (
         <>
-        {/* Hub lane controls */}
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
-          padding: '6px 8px',
-          border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`,
-          background: isDarkMode ? 'rgba(15,23,42,0.3)' : 'rgba(248,250,252,0.7)',
-          borderRadius: 2,
-        }}>
+        {/* Scheduler status */}
+        {schedulerStatus && (
           <div style={{
             display: 'flex',
             alignItems: 'center',
-            gap: 4,
-            padding: 3,
-            border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
-            borderRadius: 2,
-            background: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-            minWidth: 220,
+            gap: 6,
+            padding: '4px 8px',
+            fontSize: 9,
+            fontWeight: 500,
+            color: isDarkMode ? colours.greyText : colours.subtleGrey,
           }}>
-            {(['collected', 'wip'] as const).map((lane) => {
-              const isActiveLane = activeOp === lane;
-              const laneAccent = lane === 'collected' ? colours.blue : '#14b8a6';
-              return (
-                <button
-                  key={lane}
-                  onClick={() => setActiveOp(lane)}
-                  style={{
-                    border: 'none',
-                    borderRadius: 2,
-                    cursor: 'pointer',
-                    padding: '6px 12px',
-                    fontSize: 11,
-                    fontWeight: 700,
-                    flex: 1,
-                    color: isActiveLane
-                      ? (isDarkMode ? colours.dark.text : colours.light.text)
-                      : (isDarkMode ? colours.subtleGrey : colours.greyText),
-                    background: isActiveLane
-                      ? (isDarkMode ? `${laneAccent}2E` : `${laneAccent}20`)
-                      : 'transparent',
-                    boxShadow: isActiveLane ? (isDarkMode ? `inset 0 0 0 1px ${laneAccent}55` : `inset 0 0 0 1px ${laneAccent}44`) : 'none',
-                  }}
-                >
-                  {lane === 'collected' ? 'Collected' : 'WIP'}
-                </button>
-              );
-            })}
+            <span style={{
+              width: 6, height: 6, borderRadius: '50%',
+              background: schedulerStatus.enabled ? colours.green : colours.subtleGrey,
+            }} />
+            Scheduler {schedulerStatus.enabled ? 'active' : 'off'}
           </div>
-          {schedulerStatus && (
-            <span style={{ marginLeft: 'auto', fontSize: 9, fontWeight: 500, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>
-              Scheduler {schedulerStatus.enabled ? 'on' : 'off'}
-            </span>
-          )}
-        </div>
+        )}
 
         {/* ─── Main Layout: Integrity → Coverage → Custom Sync ─── */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -1957,7 +1710,7 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
                         style={{
                           background: 'none', border: 'none', cursor: backfillRunning ? 'not-allowed' : 'pointer',
                           padding: '1px 3px', display: 'flex', alignItems: 'center',
-                          color: hasSynced ? (isDarkMode ? colours.greyText : colours.highlightNeutral) : accent,
+                          color: accent,
                           opacity: backfillRunning ? 0.3 : 1,
                         }}
                       >
@@ -2712,24 +2465,187 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
 
           </div>{/* end main layout */}
         </>
-        )}
       </section>
+      )}
 
-      {/* Feed groups */}
-      <div style={{
-        padding: '10px 14px',
-        background: isDarkMode ? 'rgba(30,41,59,0.3)' : 'rgba(248,250,252,0.5)',
-        border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)'}`,
-        borderRadius: 4,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-      }}>
-        <span style={{ fontSize: 11, fontWeight: 500, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>
-          Feeds · {feedGroups.reduce((n, g) => n + g.feeds.length, 0)} across {feedGroups.length} groups
-        </span>
-        <span style={{ fontSize: 10, color: isDarkMode ? colours.greyText : colours.highlightNeutral }}>planned</span>
-      </div>
+      {/* ─── Feed Group Pages ─── */}
+      {(activeOp === 'people' || activeOp === 'finance' || activeOp === 'compliance' || activeOp === 'ads') && (() => {
+        const group = feedGroups.find(g => g.key === activeOp);
+        if (!group) return null;
+        return (
+          <section style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {/* Group header */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '8px 0',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{
+                  width: 3,
+                  height: 16,
+                  borderRadius: 1,
+                  background: isDarkMode ? colours.accent : colours.highlight,
+                }} />
+                <span style={{
+                  fontSize: 14,
+                  fontWeight: 700,
+                  color: isDarkMode ? colours.dark.text : colours.light.text,
+                }}>
+                  {group.title}
+                </span>
+              </div>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+              }}>
+                <span style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: '50%',
+                  background: groupHealth(group.feeds) === 'ok'
+                    ? colours.green
+                    : groupHealth(group.feeds) === 'loading'
+                      ? colours.blue
+                      : colours.cta,
+                }} />
+                <span style={{
+                  fontSize: 10,
+                  fontWeight: 500,
+                  color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                }}>
+                  {groupHealth(group.feeds) === 'ok' ? 'Healthy' : groupHealth(group.feeds) === 'loading' ? 'Loading' : 'Error'}
+                </span>
+              </div>
+            </div>
+
+            {/* Feed cards grid */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
+              gap: 12,
+            }}>
+              {group.feeds.map((feedKey) => {
+                const ds = getDataset(feedKey);
+                const previewTable = getPreviewTableForDataset(feedKey);
+                return (
+                  <div
+                    key={feedKey}
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 10,
+                      padding: '16px 18px',
+                      background: reportingPanelBackground(isDarkMode, 'base'),
+                      border: `1px solid ${reportingPanelBorder(isDarkMode, 'base')}`,
+                      borderRadius: 0,
+                      boxShadow: reportingPanelShadow(isDarkMode),
+                    }}
+                  >
+                    {/* Card header */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={statusDotStyle(ds?.status ?? 'idle')} />
+                        <span style={{
+                          fontSize: 13,
+                          fontWeight: 600,
+                          color: isDarkMode ? colours.dark.text : colours.light.text,
+                        }}>
+                          {ds?.definition.name ?? feedKey}
+                        </span>
+                      </div>
+                      <span style={{
+                        fontSize: 9,
+                        fontWeight: 500,
+                        color: isDarkMode ? colours.greyText : colours.subtleGrey,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.04em',
+                      }}>
+                        {ds?.status ?? 'idle'}
+                      </span>
+                    </div>
+
+                    {/* Stats row */}
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'baseline',
+                      gap: 6,
+                    }}>
+                      <span style={{
+                        fontSize: 24,
+                        fontWeight: 700,
+                        color: isDarkMode ? colours.dark.text : colours.light.text,
+                        letterSpacing: '-0.02em',
+                      }}>
+                        {ds?.count != null ? ds.count.toLocaleString() : '—'}
+                      </span>
+                      <span style={{
+                        fontSize: 11,
+                        fontWeight: 400,
+                        color: isDarkMode ? colours.greyText : colours.subtleGrey,
+                      }}>
+                        rows
+                      </span>
+                      {ds?.cached && (
+                        <span style={{
+                          fontSize: 9,
+                          fontWeight: 500,
+                          color: isDarkMode ? colours.greyText : colours.subtleGrey,
+                          marginLeft: 'auto',
+                          opacity: 0.7,
+                        }}>
+                          cached
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Updated at */}
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      fontSize: 10,
+                      color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                    }}>
+                      <span>
+                        {ds?.updatedAt
+                          ? new Date(ds.updatedAt).toLocaleString('en-GB', {
+                              day: '2-digit',
+                              month: 'short',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })
+                          : 'Not yet loaded'}
+                      </span>
+                      {previewTable && (
+                        <button
+                          onClick={() => {
+                            setPreviewTable(previewTable);
+                            setPreviewContextLabel(ds?.definition.name ?? feedKey);
+                          }}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            padding: 0,
+                            cursor: 'pointer',
+                            fontSize: 10,
+                            fontWeight: 600,
+                            color: isDarkMode ? colours.accent : colours.highlight,
+                          }}
+                        >
+                          Preview
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        );
+      })()}
 
       {/* Data Preview Modal */}
       <Modal

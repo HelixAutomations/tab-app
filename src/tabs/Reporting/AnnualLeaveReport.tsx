@@ -444,18 +444,19 @@ const dateStampButtonStyle = (isDarkMode: boolean): React.CSSProperties => ({
 const containerStyle = (isDarkMode: boolean): React.CSSProperties => ({
   display: 'flex',
   flexDirection: 'column',
-  gap: 16,
+  gap: 8,
   background: 'transparent',
   padding: 0,
   minHeight: '100%',
+  fontFamily: 'Raleway, sans-serif',
 });
 
 const surface = (isDarkMode: boolean, overrides: React.CSSProperties = {}): React.CSSProperties => ({
-  background: isDarkMode ? 'rgba(15, 23, 42, 0.88)' : '#FFFFFF',
-  borderRadius: 12,
-  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(15, 23, 42, 0.06)'}`,
-  boxShadow: isDarkMode ? '0 2px 10px rgba(0, 0, 0, 0.22)' : '0 2px 8px rgba(15, 23, 42, 0.06)',
-  padding: 16,
+  background: isDarkMode ? colours.darkBlue : '#ffffff',
+  borderRadius: 0,
+  border: `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}66` : 'rgba(6, 23, 51, 0.06)'}`,
+  boxShadow: isDarkMode ? 'none' : '0 2px 4px rgba(0, 0, 0, 0.04)',
+  padding: '12px 16px',
   ...overrides,
 });
 

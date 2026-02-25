@@ -500,19 +500,20 @@ const ConflictConfirmationCard: React.FC<ConflictConfirmationCardProps> = ({
               </button>
               <button
                 type="button"
+                disabled={!clientSearched || !opponentSearched || !resultsReviewed}
                 onClick={() => {
                   onConflictStatusChange(true);
                   setShowConfirmModal(false);
                 }}
                 style={{
                   padding: '10px 18px',
-                  background: colours.highlight,
-                  color: '#ffffff',
+                  background: (!clientSearched || !opponentSearched || !resultsReviewed) ? (isDarkMode ? 'rgba(75, 85, 99, 0.3)' : '#CBD5E1') : colours.highlight,
+                  color: (!clientSearched || !opponentSearched || !resultsReviewed) ? (isDarkMode ? 'rgba(160, 160, 160, 0.4)' : '#94a3b8') : '#ffffff',
                   border: 'none',
                   borderRadius: 0,
                   fontSize: 11,
                   fontWeight: 700,
-                  cursor: 'pointer',
+                  cursor: (!clientSearched || !opponentSearched || !resultsReviewed) ? 'not-allowed' : 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   gap: 6,

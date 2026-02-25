@@ -163,6 +163,8 @@ module.exports = async (req, res) => {
       if (linkOnly === true) return 'CHECKOUT_LINK';
       // CFA checkout mode: set deal status to 'CFA' so instruct-pitch derives CFA mode
       if (typeof providedCheckoutMode === 'string' && providedCheckoutMode.toUpperCase() === 'CFA') return 'CFA';
+      // ID-only checkout mode: identity verification only, no payment
+      if (typeof providedCheckoutMode === 'string' && providedCheckoutMode.toUpperCase() === 'ID_ONLY') return 'ID_ONLY';
       return 'pitched';
     })();
 

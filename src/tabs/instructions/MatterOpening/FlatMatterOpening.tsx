@@ -2181,6 +2181,18 @@ const handleClearAll = () => {
             }
         }
 
+        // Validate required form fields before processing
+        const formSnapshot = generateSampleJson();
+        if (!formSnapshot.matter_details?.practice_area || !formSnapshot.matter_details.practice_area.trim()) {
+            const errorMsg = 'Practice area is required. Please select a practice area before opening a matter.';
+            setFailureSummary(`Failed at: Pre-validation - ${errorMsg}`);
+            setProcessingLogs([`[x] Pre-validation: ${errorMsg}`]);
+            setProcessingSteps(prev => prev.map((s, idx) => idx === 0 ? { ...s, status: 'error', message: errorMsg } : s));
+            setDebugInspectorOpen(true);
+            reportMatterTelemetry('PreValidation.Failed', { error: errorMsg, phase: 'practiceAreaCheck' });
+            return { url: '' };
+        }
+
         // Validate required Asana credentials are present
         const user = workingUserData[0];
         if (!user.ASANASecret && !user.ASANA_Secret) {
@@ -3250,6 +3262,12 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                     ))}
                                                 </select>
                                                 <i className="ms-Icon ms-Icon--ChevronDown" style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 10, color: isDarkMode ? '#6B7280' : '#94A3B8', pointerEvents: 'none' }} />
+                                                {!practiceArea && (
+                                                    <div style={{ marginTop: 4, fontSize: 10, color: colours.cta, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                                        <i className="ms-Icon ms-Icon--Warning" style={{ fontSize: 10 }} />
+                                                        Required — select a practice area to proceed
+                                                    </div>
+                                                )}
                                             </div>
                                         ) : (
                                             <div style={{ fontSize: 11, color: isDarkMode ? '#6B7280' : '#94A3B8', fontStyle: 'italic', padding: '8px 0' }}>
@@ -3378,14 +3396,16 @@ ${JSON.stringify(debugInfo, null, 2)}
                                             <i className="ms-Icon ms-Icon--ChevronLeft" style={{ fontSize: 10 }} />
                                             Back
                                         </button>
-                                        <button onClick={handleGoToReview} style={{
-                                            background: colours.highlight, border: 'none', borderRadius: 0,
-                                            padding: '8px 16px', fontSize: 11, fontWeight: 700, color: '#FFFFFF',
-                                            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
-                                            textTransform: 'uppercase' as const, letterSpacing: '0.5px', transition: 'background-color 0.15s', boxShadow: 'none',
+                                        <button onClick={matterStepComplete ? handleGoToReview : undefined} disabled={!matterStepComplete} style={{
+                                            background: matterStepComplete ? colours.highlight : (isDarkMode ? '#1F2937' : '#E5E7EB'), border: 'none', borderRadius: 0,
+                                            padding: '8px 16px', fontSize: 11, fontWeight: 700, color: matterStepComplete ? '#FFFFFF' : (isDarkMode ? '#4B5563' : '#9CA3AF'),
+                                            cursor: matterStepComplete ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', gap: 6,
+                                            textTransform: 'uppercase' as const, letterSpacing: '0.5px', transition: 'all 0.15s', boxShadow: 'none',
+                                            opacity: matterStepComplete ? 1 : 0.7,
                                         }}
-                                            onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#2563EB'; }}
-                                            onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = colours.highlight; }}
+                                            title={!matterStepComplete ? 'Complete all required fields (area of work, practice area, description, date, team) before reviewing' : undefined}
+                                            onMouseEnter={(e) => { if (matterStepComplete) e.currentTarget.style.backgroundColor = '#2563EB'; }}
+                                            onMouseLeave={(e) => { if (matterStepComplete) e.currentTarget.style.backgroundColor = colours.highlight; }}
                                         >
                                             Review
                                             <i className="ms-Icon ms-Icon--ChevronRight" style={{ fontSize: 10 }} />

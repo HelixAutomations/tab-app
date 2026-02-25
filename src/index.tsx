@@ -39,6 +39,11 @@ const customTheme = createTheme({
     redDark: colours.cta,
     neutralPrimary: colours.websiteBlue,
   },
+  semanticColors: {
+    // Prevent Fluent's .body-XXX wrapper from imposing a static white
+    // background — let App.tsx control the page bg via isDarkMode.
+    bodyBackground: 'transparent',
+  },
   fonts: {
     small: { fontFamily: "Raleway, sans-serif" },
     medium: { fontFamily: "Raleway, sans-serif" },

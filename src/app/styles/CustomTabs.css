@@ -1,50 +1,54 @@
-/* ─── Custom Tabs ───────────────────────────────────────
-   Minimal CSS for tab bar — most styling is inline in CustomTabs.tsx.
-   Only animations, pseudo-elements, and hover states that need CSS live here.
+/* ─── Custom Tabs — Unified Navigation Surface ─────────
+   Frosted glass surface with architectural underlines.
    ────────────────────────────────────────────────────── */
 
-/* Tab button entrance animation (dropIn defined in animations.css) */
+/* Tab entrance animation */
 .custom-tab-btn {
   opacity: 0;
   animation: dropIn 0.3s ease forwards;
-}
-
-/* Press feedback handled inline via mouseDown/mouseUp for smooth transitions */
-
-/* ─── Tab underline (expands from center) ─────────────── */
-
-.custom-tab-btn {
   position: relative;
+  background: var(--tab-active-fill, transparent);
 }
+
+.custom-tab-btn:hover {
+  background: var(--tab-hover-fill, transparent);
+}
+
+.custom-tab-btn.custom-tab-active {
+  background: var(--tab-active-fill, transparent);
+}
+
+/* ─── Tab underline — inside tab bar ──────────────────── */
 
 .custom-tab-btn::after {
   content: '';
   position: absolute;
-  left: 50%;
-  bottom: 6px;
-  height: 1.5px;
-  width: calc(100% - 28px);
+  left: 0;
+  right: 0;
+  bottom: 1px;
+  height: 2px;
+  width: 100%;
   background-color: var(--tab-underline-colour, #3690CE);
-  transform: translateX(-50%) scaleX(0);
+  transform: scaleX(0);
   transform-origin: center;
-  transition: transform 0.22s ease, opacity 0.22s ease;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease;
   opacity: 0;
   border-radius: 0;
 }
 
 /* Hover — subtle partial expand */
 .custom-tab-btn:hover::after {
-  transform: translateX(-50%) scaleX(0.5);
-  opacity: 0.45;
+  transform: scaleX(0.35);
+  opacity: 0.4;
 }
 
-/* Active — full underline */
+/* Active — full underline inside bar */
 .custom-tab-btn.custom-tab-active::after {
-  transform: translateX(-50%) scaleX(1);
-  opacity: 0.85;
+  transform: scaleX(1);
+  opacity: 1;
 }
 
-/* Active + hover — full opacity */
+/* Active + hover */
 .custom-tab-btn.custom-tab-active:hover::after {
   opacity: 1;
 }
@@ -60,7 +64,7 @@
 .home-icon .icon-outline,
 .home-icon .icon-filled {
   position: absolute;
-  transition: opacity 0.15s ease;
+  transition: opacity 0.18s ease;
 }
 
 .home-icon .icon-outline { opacity: 1; }
@@ -92,46 +96,57 @@
 
 .enquiry-sub-tab {
   position: relative;
-  padding: 6px 12px;
+  padding: 0 14px;
   border: none;
   background: transparent;
   cursor: pointer;
   font-size: 13px;
   font-weight: 500;
   color: rgba(6, 23, 51, 0.78);
-  transition: color 0.15s ease;
+  transition: color 0.18s ease, background 0.18s ease;
+  /* Stretch to fill container height — underline sits flush at bottom edge */
+  align-self: stretch;
+  display: flex;
+  align-items: center;
 }
 
 .theme-dark .enquiry-sub-tab {
   color: rgba(255, 255, 255, 0.68);
 }
 
-/* Underline indicator */
+/* Underline indicator — flush at bottom edge */
 .enquiry-sub-tab::after {
   content: '';
   position: absolute;
-  left: 50%;
+  left: 0;
+  right: 0;
   bottom: 0;
   height: 2px;
-  width: calc(100% - 8px);
+  width: 100%;
   background-color: #3690CE;
   border-radius: 0;
-  transform: translateX(-50%) scaleX(0);
+  transform: scaleX(0);
   transform-origin: center;
-  transition: transform 0.2s ease;
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease;
+  opacity: 0;
 }
 
 .theme-dark .enquiry-sub-tab::after {
-  background-color: #87F3F3;
+  background-color: #f3f4f6;
 }
 
-/* Hover */
+/* Hover — partial underline expand (matches custom-tab-btn) */
 .enquiry-sub-tab:hover {
   color: rgba(6, 23, 51, 0.98);
 }
 
+.enquiry-sub-tab:hover::after {
+  transform: scaleX(0.35);
+  opacity: 0.4;
+}
+
 .theme-dark .enquiry-sub-tab:hover {
-  color: #87F3F3;
+  color: #f3f4f6;
 }
 
 /* Press */
@@ -139,18 +154,24 @@
   opacity: 0.7;
 }
 
-/* Active / selected */
+/* Active / selected — full underline flush at edge */
 .enquiry-sub-tab[data-active='true'] {
   font-weight: 600;
   color: #3690CE;
 }
 
 .theme-dark .enquiry-sub-tab[data-active='true'] {
-  color: #87F3F3;
+  color: #f3f4f6;
 }
 
 .enquiry-sub-tab[data-active='true']::after {
-  transform: translateX(-50%) scaleX(1);
+  transform: scaleX(1);
+  opacity: 1;
+}
+
+/* Active + hover */
+.enquiry-sub-tab[data-active='true']:hover::after {
+  opacity: 1;
 }
 
 /* Focus */
@@ -161,8 +182,12 @@
 
 /* ─── Mobile ──────────────────────────────────────────── */
 
-@media (max-width: 600px) {
+@media (max-width: 640px) {
   .customTabsContainer {
+    position: relative !important;
+    top: auto !important;
+    z-index: auto !important;
+    flex-shrink: 0;
     overflow-x: auto;
     padding: 0 12px !important;
   }

@@ -4,23 +4,14 @@
 /* Import Raleway font from Google Fonts */
 @import url('https://fonts.googleapis.com/css2?family=Raleway:wght@400;600;700&display=swap');
 
+/* Design tokens — canonical CSS custom properties (aligned with colours.ts) */
+@import './design-tokens.css';
+
 /* Global animation keyframes */
 @import './animations.css';
 
 /* Responsive helpers */
 @import './responsive.css';
-
-:root {
-  --helix-dark-blue: rgb(6, 23, 51);
-  --helix-blue: rgb(13, 47, 96);
-  --helix-highlight: rgb(54, 144, 206);
-  --helix-cta: rgb(214, 85, 65);
-  --helix-grey: rgb(244, 244, 246);
-  --helix-orange: rgb(240, 124, 80);
-  --helix-green: rgb(115, 171, 96);
-  --helix-yellow: rgb(214, 176, 70);
-  --helix-red: rgb(187, 62, 66);
-}
 
 *,
 *::before,
@@ -67,7 +58,34 @@ body {
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  -webkit-overflow-scrolling: touch;
+}
+
+/* Hard stop for Home dark-mode back-layer artefacts from runtime-generated classes */
+body.theme-dark .home-root,
+body[data-theme="dark"] .home-root,
+body.theme-contrast .home-root,
+body[data-theme="contrast"] .home-root {
+  background-image: none !important;
+  background-attachment: scroll !important;
+}
+
+/* ─── Mobile: single-scroll layout ─────────────────────
+   On narrow viewports the header bars (CustomTabs,
+   QuickActionsBar, ImmediateActions) should scroll with
+   content instead of eating half the screen. The root
+   becomes the scroll container; .app-scroll-region
+   yields its independent scroll. ─────────────────────── */
+@media (max-width: 640px) {
+  .app-root {
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+  }
+
+  .app-scroll-region {
+    flex: 0 0 auto !important;
+    overflow-y: visible !important;
+    overflow-x: visible !important;
+  }
 }
 /* Generic icon hover behaviour */
 .icon-outline {

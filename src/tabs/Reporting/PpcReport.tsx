@@ -19,8 +19,16 @@ import { initializeIcons } from '@fluentui/react/lib/Icons';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';
 import { debugLog, debugWarn } from '../../utils/debug';
-import { reportingPanelBackground, reportingPanelBorder, reportingPanelShadow, reportingShellBackground } from './styles/reportingFoundation';
 import './ManagementDashboard.css';
+
+const surface = (isDark: boolean, overrides: CSSProperties = {}): CSSProperties => ({
+  background: isDark ? colours.darkBlue : '#ffffff',
+  borderRadius: 0,
+  border: `0.5px solid ${isDark ? `${colours.dark.borderColor}66` : 'rgba(6, 23, 51, 0.06)'}`,
+  boxShadow: isDark ? 'none' : '0 2px 4px rgba(0, 0, 0, 0.04)',
+  padding: '12px 16px',
+  ...overrides,
+});
 
 // Ensure Fluent UI icons are available (fixes warnings for 'target', 'trendingup', etc.)
 initializeIcons();
@@ -290,10 +298,10 @@ const summaryChipStyle = (isDarkMode: boolean): CSSProperties => ({
   justifyContent: 'center',
   alignItems: 'center',
   padding: '12px 16px',
-  borderRadius: 10,
-  background: isDarkMode ? 'rgba(15, 23, 42, 0.72)' : '#ffffff',
-  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : '#e2e8f0'}`,
-  boxShadow: isDarkMode ? '0 4px 6px rgba(0, 0, 0, 0.3)' : '0 4px 6px rgba(0, 0, 0, 0.07)',
+  borderRadius: 0,
+  background: isDarkMode ? colours.darkBlue : '#ffffff',
+  border: `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}66` : 'rgba(6, 23, 51, 0.06)'}`,
+  boxShadow: isDarkMode ? 'none' : '0 2px 4px rgba(0, 0, 0, 0.04)',
   textAlign: 'center' as const,
   rowGap: 6,
   width: '100%',
@@ -1042,16 +1050,17 @@ const PpcReport: React.FC<PpcReportProps> = ({
   return (
     <div style={{ 
       padding: 0, 
-      background: reportingShellBackground(isDarkMode),
-      minHeight: '100vh'
+      background: 'transparent',
+      minHeight: '100vh',
+      display: 'flex',
+      flexDirection: 'column' as const,
+      gap: 8,
+      fontFamily: 'Raleway, sans-serif',
     }}>
       <div style={{
-        marginBottom: 16,
-        borderRadius: 12,
+        ...surface(isDarkMode),
+        marginBottom: 0,
         padding: '12px 14px',
-        background: reportingPanelBackground(isDarkMode, 'base'),
-        border: `1px solid ${reportingPanelBorder(isDarkMode)}`,
-        boxShadow: reportingPanelShadow(isDarkMode),
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
@@ -1404,18 +1413,7 @@ const PpcReport: React.FC<PpcReportProps> = ({
       </div>
 
       {/* Daily Performance Table (collapsible card) */}
-      <div style={{
-        background: isDarkMode 
-          ? 'linear-gradient(135deg, rgba(15, 23, 42, 0.9) 0%, rgba(30, 41, 59, 0.8) 100%)'
-          : 'linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.9) 100%)',
-        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(148, 163, 184, 0.18)'}`,
-        borderRadius: 12,
-        padding: 20,
-        boxShadow: isDarkMode 
-          ? '0 4px 12px rgba(0, 0, 0, 0.25)' 
-          : '0 2px 8px rgba(0, 0, 0, 0.08)',
-        marginBottom: 32
-      }}>
+      <div style={{ ...surface(isDarkMode, { padding: 20 }), marginBottom: 32 }}>
         <div
           role="button"
           aria-expanded={showDaily}
@@ -1530,10 +1528,9 @@ const PpcReport: React.FC<PpcReportProps> = ({
 
                 return (
                   <div key={dayGroup.date} style={{ 
+                    ...surface(isDarkMode),
                     marginBottom: 16,
-                    borderRadius: 8,
-                    background: isDarkMode ? 'linear-gradient(135deg, #0B1220 0%, #141C2C 100%)' : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
-                    border: isDarkMode ? '1px solid rgba(148,163,184,0.14)' : '1px solid rgba(13,47,96,0.06)',
+                    padding: 0,
                     overflow: 'hidden'
                   }}>
                     {/* Day Header */}

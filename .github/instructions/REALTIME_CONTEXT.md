@@ -1,20 +1,24 @@
 # Realtime Context
 
-Auto-generated: 2026-02-17T22:29:36.020Z
+Auto-generated: 2026-02-25T11:13:01.208Z
 
 ## Git State
 
 - **Branch**: main
-- **Uncommitted changes**: 92
-- **Last commit**: 120d9b67 CCL, roadmap items, forms, support
+- **Uncommitted changes**: 116
+- **Last commit**: 5bc39397 intruct handover
 
 ## Submodules
 
 | Name | Path | Branch | Last Commit |
 |------|------|--------|-------------|
-| submodules/instruct-pitch | submodules/instruct-pitch | workspace | 875f961 doc upload, id only and cta |
-| submodules/tab-app-clone | submodules/tab-app-clone | main | 566a614 disable logging |
-| submodules/enquiry-processing-v2 | submodules/enquiry-processing-v2 | - | 3b3c669 deep links |
+| submodules/instruct-pitch | submodules/instruct-pitch | workspace | 40195ac bc over the line |
+| submodules/enquiry-processing-v2 | submodules/enquiry-processing-v2 | facebook-lead-processing | a810218 call form |
+
+### Submodule Sync
+
+- Not run in this refresh.
+
 
 ## Local Servers
 
@@ -39,13 +43,13 @@ Auto-generated: 2026-02-17T22:29:36.020Z
 - .github/instructions/TEAM_DATA_REFERENCE.md
 - .github/instructions/WORKSPACE_OPTIMIZATION.md
 - .gitignore
+- .gitmodules
 - README.md
 - api/.deployment
-- api/src/functions/getReleaseNotes.ts
 - api/src/functions/insertDeal.ts
 - api/src/functions/insertNotableCaseInfo.ts
-- api/src/index.ts
 - build-and-deploy-staging.ps1
+- build-and-deploy.ps1
 
 ---
-*Run `node tools/sync-context.mjs` to refresh*
+*Run `node tools/sync-context.mjs` to refresh (you will be asked each run whether to sync submodules)*

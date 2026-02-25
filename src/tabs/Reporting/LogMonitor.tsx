@@ -320,8 +320,9 @@ const LogMonitor: React.FC<LogMonitorProps> = ({ onBack }) => {
       display: 'flex',
       flexDirection: 'column',
       height: '100%',
-      backgroundColor: isDarkMode ? colours.dark.background : colours.light.background,
+      backgroundColor: 'transparent',
       color: textColor,
+      fontFamily: 'Raleway, sans-serif',
     }}>
       {/* Header */}
       <div style={{
@@ -329,8 +330,8 @@ const LogMonitor: React.FC<LogMonitorProps> = ({ onBack }) => {
         alignItems: 'center',
         justifyContent: 'space-between',
         padding: '12px 16px',
-        borderBottom: `1px solid ${borderColor}`,
-        backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+        borderBottom: `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}66` : 'rgba(6, 23, 51, 0.06)'}`,
+        backgroundColor: isDarkMode ? colours.darkBlue : '#ffffff',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <IconButton

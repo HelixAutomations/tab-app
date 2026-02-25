@@ -1747,7 +1747,7 @@ const Instructions: React.FC<InstructionsProps> = ({
   const quickLinksStyle = (dark: boolean) =>
     mergeStyles({
       backgroundColor: dark
-        ? colours.dark.sectionBackground
+        ? colours.darkBlue
         : colours.light.sectionBackground,
       boxShadow: dark
         ? "0 2px 6px rgba(0,0,0,0.5)"
@@ -1780,7 +1780,7 @@ const Instructions: React.FC<InstructionsProps> = ({
   const detailNavStyle = (dark: boolean) =>
     mergeStyles({
       backgroundColor: dark
-        ? colours.dark.sectionBackground
+        ? colours.darkBlue
         : colours.light.sectionBackground,
       boxShadow: dark
         ? "0 2px 6px rgba(0,0,0,0.5)"
@@ -1801,7 +1801,7 @@ const Instructions: React.FC<InstructionsProps> = ({
   const pivotBarStyle = (dark: boolean) =>
     mergeStyles({
       backgroundColor: dark
-        ? colours.dark.sectionBackground
+        ? colours.darkBlue
         : colours.light.sectionBackground,
       boxShadow: dark
         ? "0 2px 4px rgba(0,0,0,0.4)"

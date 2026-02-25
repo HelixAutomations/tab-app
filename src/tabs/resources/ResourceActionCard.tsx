@@ -9,35 +9,38 @@ import {
   IStackStyles,
   IStackTokens,
   mergeStyles,
-  IStyle,
 } from '@fluentui/react';
 import { ResourceAction } from '../../app/customisation/ResourceActions';
+import { useTheme } from '../../app/functionality/ThemeContext';
+import { colours } from '../../app/styles/colours';
 
-// Define styles for the card
-const cardStyles: IStyle = mergeStyles({
-  backgroundColor: '#ffffff',
-  border: '1px solid #e1e1e1',
-  borderRadius: '12px',
-  boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-  padding: '16px',
-  cursor: 'pointer',
-  transition: 'transform 0.2s, box-shadow 0.2s',
-  ':hover': {
-    transform: 'translateY(-4px)',
-    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-  },
-  ':focus': {
-    outline: 'none',
-    border: '1px solid #0078D4',
-    boxShadow: '0 0 0 2px rgba(0, 120, 212, 0.3)',
-  },
-});
+const cardStyles = (isDarkMode: boolean): string =>
+  mergeStyles({
+    backgroundColor: isDarkMode ? colours.darkBlue : colours.light.cardBackground,
+    border: `0.5px solid ${isDarkMode ? colours.dark.borderColor : colours.light.border}`,
+    borderRadius: 0,
+    boxShadow: 'none',
+    padding: '16px',
+    cursor: 'pointer',
+    transition: 'transform 0.18s ease, background 0.18s ease, border-color 0.18s ease',
+    ':hover': {
+      transform: 'translateY(-1px)',
+      backgroundColor: isDarkMode ? colours.dark.cardHover : colours.light.cardHover,
+      borderColor: isDarkMode ? colours.highlight : colours.blue,
+      boxShadow: 'none',
+    },
+    ':focus': {
+      outline: 'none',
+      border: `1px solid ${isDarkMode ? colours.highlight : colours.blue}`,
+      boxShadow: 'none',
+    },
+  });
 
-// Define styles for the icon container
-const iconContainerStyle: IStyle = mergeStyles({
-  fontSize: '28px',
-  color: '#0078D4',
-});
+const iconContainerStyle = (isDarkMode: boolean): string =>
+  mergeStyles({
+    fontSize: '28px',
+    color: isDarkMode ? colours.highlight : colours.blue,
+  });
 
 // Define stack styles
 const stackStyles: IStackStyles = {
@@ -54,12 +57,14 @@ interface ResourceActionCardProps {
 }
 
 const ResourceActionCard: React.FC<ResourceActionCardProps> = ({ actions, onSelectAction }) => {
+  const { isDarkMode } = useTheme();
+
   return (
     <Stack horizontal wrap tokens={stackTokens} styles={stackStyles}>
       {actions.map((action, index) => (
         <div
           key={index}
-          className={cardStyles}
+          className={cardStyles(isDarkMode)}
           onClick={() => onSelectAction(action)}
           role="button"
           tabIndex={0}
@@ -71,8 +76,8 @@ const ResourceActionCard: React.FC<ResourceActionCardProps> = ({ actions, onSele
           aria-label={`Action: ${action.label}`}
         >
           <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 16 }}>
-            <Icon iconName={action.icon} className={iconContainerStyle} />
-            <Text variant="large" styles={{ root: { fontWeight: '600', color: '#333333' } }}>
+            <Icon iconName={action.icon} className={iconContainerStyle(isDarkMode)} />
+            <Text variant="large" styles={{ root: { fontWeight: '600', color: isDarkMode ? colours.dark.text : colours.light.text } }}>
               {action.label}
             </Text>
           </Stack>

@@ -1,4 +1,6 @@
 const express = require('express');
+const crypto = require('crypto');
+const multer = require('multer');
 const { DefaultAzureCredential } = require('@azure/identity');
 const {
   BlobServiceClient,
@@ -6,12 +8,42 @@ const {
   BlobSASPermissions,
   generateBlobSASQueryParameters,
 } = require('@azure/storage-blob');
+const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
 
 const router = express.Router();
 
 const STORAGE_ACCOUNT_NAME = process.env.INSTRUCTIONS_STORAGE_ACCOUNT_NAME || 'instructionfiles';
 const PROSPECT_CONTAINER = process.env.PROSPECT_FILES_CONTAINER || 'prospect-files';
 const DOC_WORKSPACE_TTL_DAYS = 14;
+
+// Multer: 20 MB, memory storage (streams to blob)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const blocked = /\.(exe|bat|cmd|sh|ps1|msi|dll|com|scr|vbs|js)$/i;
+    if (blocked.test(file.originalname)) {
+      return cb(new Error('File type not allowed'));
+    }
+    cb(null, true);
+  },
+});
+
+// Allowed upload subfolder names. Anything not in this set is rejected.
+const ALLOWED_SUBFOLDERS = new Set([
+  'Evidence',
+  'Holding',
+  'Telephone Attendance Notes',
+  'Common - Clio',
+  'Common - Finance',
+  'Common - Correspondence',
+  'Common - Documents',
+  'Incoming Post',
+  'Adjudication',
+  'Litigation',
+  'Employment',
+  'Possession Proceedings',
+]);
 
 let blobServiceClient = null;
 let blobServiceClientMode = 'unknown';
@@ -692,6 +724,177 @@ router.get('/pending-actions', async (req, res) => {
       pendingActions: [],
       total: 0,
     });
+  }
+});
+
+// ─── POST /upload ─────────────────────────────────────────────────────────────
+// Upload a document directly to the prospect-files storage account.
+//
+// This gives tab-app first-class write access to the same storage that
+// instruct-pitch and enquiry-processing-v2 already read/write, creating a
+// single, immutable evidence layer across all three surfaces.
+//
+// Body (multipart/form-data):
+//   file          — the file buffer (required)
+//   enquiry_id    — numeric enquiry id (required)
+//   passcode      — workspace passcode (optional; auto-resolved if missing)
+//   subfolder     — target folder inside the workspace, e.g. "Evidence" or "Holding" (default: "Evidence")
+//   document_type — freeform label, e.g. "eid-raw-record", "risk-assessment" (optional)
+//   uploaded_by   — email or name of the uploader (optional; defaults to "Hub")
+//
+// Blob path: enquiries/{enquiryId}/{passcode}/{subfolder}/{timestamp}-{rand}-{filename}
+//
+// Folder creation is handled automatically (blob storage is prefix-based; a
+// .keep marker is written when the subfolder doesn't yet exist).
+// ──────────────────────────────────────────────────────────────────────────────
+router.post('/upload', upload.single('file'), async (req, res) => {
+  const start = Date.now();
+  try {
+    // ── Validate inputs ────────────────────────────────────────────────────
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file provided' });
+    }
+
+    const enquiryIdRaw = req.body?.enquiry_id;
+    const enquiryId = Number.parseInt(String(enquiryIdRaw ?? ''), 10);
+    if (!Number.isFinite(enquiryId) || enquiryId <= 0) {
+      return res.status(400).json({ error: 'Missing or invalid enquiry_id' });
+    }
+
+    const subfolder = String(req.body?.subfolder || 'Evidence').trim();
+    if (!ALLOWED_SUBFOLDERS.has(subfolder)) {
+      return res.status(400).json({ error: `Subfolder "${subfolder}" is not allowed`, allowedSubfolders: Array.from(ALLOWED_SUBFOLDERS) });
+    }
+
+    const documentType = String(req.body?.document_type || '').trim() || null;
+    const uploadedBy = String(req.body?.uploaded_by || 'Hub').trim();
+
+    // ── Resolve passcode ───────────────────────────────────────────────────
+    let passcode = String(req.body?.passcode || '').trim();
+    if (!passcode) {
+      // Auto-resolve from existing workspace
+      const svc = getBlobServiceClient();
+      const containerClient = svc.getContainerClient(PROSPECT_CONTAINER);
+      const workspace = await resolveLatestWorkspace(containerClient, enquiryId);
+      passcode = workspace?.passcode || '';
+    }
+
+    if (!passcode) {
+      return res.status(404).json({
+        error: 'No workspace found for this enquiry. Create a doc-request workspace first.',
+      });
+    }
+
+    // ── Storage setup ──────────────────────────────────────────────────────
+    const svc = getBlobServiceClient();
+    const containerClient = svc.getContainerClient(PROSPECT_CONTAINER);
+
+    // Ensure the subfolder exists (idempotent .keep marker)
+    const keepBlobName = `enquiries/${enquiryId}/${passcode}/${subfolder}/.keep`;
+    try {
+      const keepBlob = containerClient.getBlockBlobClient(keepBlobName);
+      const keepExists = await keepBlob.exists();
+      if (!keepExists) {
+        await keepBlob.uploadData(Buffer.from(''), {
+          blobHTTPHeaders: { blobContentType: 'text/plain' },
+        });
+        safeLog('upload:subfolderCreated', { enquiryId, passcode, subfolder });
+      }
+    } catch (keepErr) {
+      // Non-fatal; the upload itself may still succeed because blob storage
+      // doesn't truly require folder prefixes to exist.
+      safeLog('upload:keepMarkerFailed', { enquiryId, subfolder, error: keepErr?.message });
+    }
+
+    // ── Upload the file ────────────────────────────────────────────────────
+    const safeFilename = String(req.file.originalname || 'document')
+      .replace(/[^\w.\-() ]/g, '_')
+      .replace(/\s+/g, '_')
+      .slice(0, 200);
+
+    const unique = `${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
+    const blobName = `enquiries/${enquiryId}/${passcode}/${subfolder}/${unique}-${safeFilename}`;
+    const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+
+    await blockBlobClient.uploadData(req.file.buffer, {
+      blobHTTPHeaders: {
+        blobContentType: req.file.mimetype || 'application/octet-stream',
+      },
+      metadata: {
+        enquiryId: String(enquiryId),
+        passcode,
+        subfolder,
+        documentType: documentType || '',
+        uploadedBy,
+        uploadedAt: new Date().toISOString(),
+        source: 'hub',
+      },
+    });
+
+    const durationMs = Date.now() - start;
+
+    // Generate a read URL for immediate use
+    const sasUrl = await generateBlobReadSasUrl(PROSPECT_CONTAINER, blobName, safeFilename, 60);
+
+    safeLog('upload:completed', {
+      enquiryId,
+      passcode,
+      subfolder,
+      blobName,
+      sizeBytes: req.file.size,
+      documentType,
+      uploadedBy,
+      durationMs,
+    });
+
+    trackEvent('DocWorkspace.Upload.Completed', {
+      enquiryId: String(enquiryId),
+      passcode,
+      subfolder,
+      documentType: documentType || '',
+      uploadedBy,
+      fileName: safeFilename,
+      sizeBytes: String(req.file.size),
+      durationMs: String(durationMs),
+    });
+    trackMetric('DocWorkspace.Upload.Duration', durationMs, { enquiryId: String(enquiryId) });
+
+    return res.json({
+      ok: true,
+      blobName,
+      blobUrl: sasUrl || blockBlobClient.url,
+      originalFilename: safeFilename,
+      fileSize: req.file.size,
+      contentType: req.file.mimetype || 'application/octet-stream',
+      documentType,
+      subfolder,
+      enquiryId,
+      passcode,
+      uploadedBy,
+      uploadedAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    const durationMs = Date.now() - start;
+    const enquiryId = req.body?.enquiry_id;
+
+    console.error('[doc-workspace] upload failed', {
+      enquiryId,
+      name: err?.name,
+      message: err?.message,
+    });
+
+    trackException(err, {
+      operation: 'DocWorkspace.Upload',
+      enquiryId: String(enquiryId ?? ''),
+      phase: 'upload',
+    });
+    trackEvent('DocWorkspace.Upload.Failed', {
+      enquiryId: String(enquiryId ?? ''),
+      error: err?.message || 'unknown',
+      durationMs: String(durationMs),
+    });
+
+    return res.status(500).json({ error: 'Failed to upload document' });
   }
 });
 

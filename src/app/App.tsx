@@ -16,7 +16,7 @@ import { hasActiveMatterOpening } from './functionality/matterOpeningUtils';
 import localIdVerifications from '../localData/localIdVerifications.json';
 import localInstructionData from '../localData/localInstructionData.json';
 import { getProxyBaseUrl } from '../utils/getProxyBaseUrl';
-import { ADMIN_USERS, isAdminUser, hasInstructionsAccess } from './admin';
+import { ADMIN_USERS, isAdminUser } from './admin';
 import Loading from './styles/Loading';
 import MaintenanceNotice from './MaintenanceNotice';
 import { useServiceHealthMonitor } from './functionality/useServiceHealthMonitor';
@@ -24,7 +24,6 @@ import { useServiceHealthMonitor } from './functionality/useServiceHealthMonitor
 const proxyBaseUrl = getProxyBaseUrl();
 
 const Home = lazy(() => import('../tabs/home/Home'));
-const Forms = lazy(() => import('../tabs/forms/Forms'));
 const Enquiries = lazy(() => import('../tabs/enquiries/Enquiries'));
 const Instructions = lazy(() => import('../tabs/instructions/Instructions'));
 const Matters = lazy(() => import('../tabs/matters/Matters'));
@@ -136,9 +135,13 @@ const App: React.FC<AppProps> = ({
   // Ensure body background matches theme immediately for smooth transitions
   React.useEffect(() => {
     if (typeof document !== 'undefined') {
+      const bg = isDarkMode ? colours.websiteBlue : colours.light.background;
+      // Set on <html> so no layer can leak a stale background
+      document.documentElement.style.backgroundColor = bg;
+      document.documentElement.style.transition = 'background-color 0.15s ease';
       const body = document.body;
       if (body) {
-        body.style.backgroundColor = isDarkMode ? colours.websiteBlue : colours.light.background;
+        body.style.backgroundColor = bg;
         body.style.transition = 'background-color 0.15s ease';
         body.dataset.theme = isDarkMode ? 'dark' : 'light';
         body.classList.toggle('theme-dark', isDarkMode);
@@ -264,13 +267,16 @@ const App: React.FC<AppProps> = ({
       const saved = localStorage.getItem('featureToggles');
       const parsed = saved ? JSON.parse(saved) : {};
       // rateChangeTracker defaults to false - users opt-in via UserBubble
-      return { rateChangeTracker: false, ...parsed };
+      return { rateChangeTracker: false, showPhasedOutCustomTab: false, ...parsed };
     } catch {
-      return { rateChangeTracker: false };
+      return { rateChangeTracker: false, showPhasedOutCustomTab: false };
     }
   });
 
   const [teamWideEnquiries, setTeamWideEnquiries] = useState<Enquiry[] | null>(null);
+  const currentUser = userData?.[0] || null;
+  const isProductionPreview = Boolean(featureToggles?.viewAsProd);
+  const showPhasedOutCustomTab = featureToggles?.showPhasedOutCustomTab ?? false;
   
   const handleFeatureToggle = useCallback((feature: string, enabled: boolean) => {
     setFeatureToggles(prev => {
@@ -427,12 +433,12 @@ const App: React.FC<AppProps> = ({
 
   // Modal handlers with mutual exclusivity
   const openFormsModal = () => {
-    setIsResourcesModalOpen(false); // Close resources modal first
+    setIsResourcesModalOpen(false);
     setIsFormsModalOpen(true);
   };
 
   const openResourcesModal = () => {
-    setIsFormsModalOpen(false); // Close forms modal first
+    setIsFormsModalOpen(false);
     setIsResourcesModalOpen(true);
   };
 
@@ -523,6 +529,10 @@ const App: React.FC<AppProps> = ({
   // Listen for navigation events from child components
   useEffect(() => {
     const handleNavigateToInstructions = () => {
+      if (!showPhasedOutCustomTab) {
+        setActiveTab('enquiries');
+        return;
+      }
       setActiveTab('instructions');
     };
     const handleNavigateToEnquiries = () => {
@@ -550,7 +560,7 @@ const App: React.FC<AppProps> = ({
       window.removeEventListener('navigateToReporting', handleNavigateToReporting);
       window.removeEventListener('navigateToMatter', handleNavigateToMatter);
     };
-  }, []);
+  }, [showPhasedOutCustomTab]);
 
   // State to trigger instruction data refresh
   const [instructionRefreshTrigger, setInstructionRefreshTrigger] = useState<number>(0);
@@ -636,15 +646,9 @@ const App: React.FC<AppProps> = ({
   // Enquiries and Matters also need access to this dataset for InlineWorkbench expansion.
   useEffect(() => {
     const currentUser = userData?.[0] || null;
-    const hasAccess = hasInstructionsAccess(currentUser);
 
     // Only fetch instructions when Instructions/Enquiries/Matters are active.
     if (activeTab !== 'instructions' && activeTab !== 'enquiries' && activeTab !== 'matters') {
-      return;
-    }
-
-    // Don't attempt to fetch instruction data for users without access.
-    if (!hasAccess) {
       return;
     }
 
@@ -858,25 +862,20 @@ const App: React.FC<AppProps> = ({
   }, [activeTab, userInitials, userData, instructionData.length, allInstructionData.length, instructionRefreshTrigger]);
 
   // Tabs visible to all users start with the Enquiries tab.
-  // Instructions tab is available to admins plus BR, LA, SP
   // Only show the Reports tab to admins.
   const tabs: Tab[] = useMemo(() => {
-    const currentUser = userData?.[0] || null;
     const isAdmin = isAdminUser(currentUser);
-    const viewAsProd = Boolean(featureToggles?.viewAsProd);
-    
-    const showInstructionsTab = hasInstructionsAccess(currentUser);
     const showReportsTab = isAdmin;
 
     return [
       { key: 'enquiries', text: 'Prospects' },
-      ...(showInstructionsTab ? [{ key: 'instructions', text: 'Clients' }] : []),
+      ...(showPhasedOutCustomTab ? [{ key: 'instructions', text: 'Custom (phased out)' }] : []),
       { key: 'matters', text: 'Matters' },
-      { key: 'forms', text: 'Forms', disabled: true }, // Disabled tab that triggers modal
-      { key: 'resources', text: 'Resources', disabled: true }, // Disabled tab that triggers modal
+      { key: 'forms', text: 'Forms', disabled: true },
+      { key: 'resources', text: 'Resources', disabled: true },
       ...(showReportsTab ? [{ key: 'reporting', text: 'Reports' }] : []),
     ];
-  }, [userData, featureToggles?.viewAsProd, isLocalDev]);
+  }, [currentUser, showPhasedOutCustomTab]);
 
   // Ensure the active tab is still valid when tabs change (e.g., when switching users)
   // If current tab is no longer available, redirect to home instead of breaking navigation
@@ -1017,8 +1016,9 @@ const App: React.FC<AppProps> = ({
       <ThemeProvider isDarkMode={isDarkMode || false}>
         <ToastProvider isDarkMode={isDarkMode} position="bottom-right">
         <div
+          className="app-root"
           style={{
-            backgroundColor: isDarkMode ? colours.websiteBlue : colours.light.background,
+            backgroundColor: isDarkMode ? colours.dark.background : colours.light.background,
             height: '100vh',
             display: 'flex',
             flexDirection: 'column',
@@ -1100,7 +1100,7 @@ const App: React.FC<AppProps> = ({
               } as React.CSSProperties}
             />
           )}
-          
+
           {/* Full-width Modal Overlays */}
           <FormsModal
             userData={userData}
@@ -1117,6 +1117,7 @@ const App: React.FC<AppProps> = ({
             isLocalDev={isLocalDev}
             viewAsProd={Boolean(featureToggles?.viewAsProd)}
           />
+          
           <MaintenanceNotice
             state={serviceHealth}
             isDarkMode={Boolean(isDarkMode)}

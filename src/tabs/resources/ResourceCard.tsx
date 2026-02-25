@@ -26,17 +26,17 @@ const iconButtonStyles = (iconColor: string): IButtonStyles => ({
     height: '32px',
     width: '32px',
     padding: '0px',
-    borderRadius: '6px',
+    borderRadius: 0,
     transition: 'all 0.15s ease',
     selectors: {
       ':hover': {
-        backgroundColor: '#0D2F60',
-        color: '#ffffff',
+        backgroundColor: `${colours.blue}16`,
+        color: colours.dark.text,
         transform: 'scale(1.05)',
       },
       ':focus': {
-        backgroundColor: '#0D2F60',
-        color: '#ffffff',
+        backgroundColor: `${colours.blue}16`,
+        color: colours.dark.text,
       },
     },
   },
@@ -60,10 +60,10 @@ interface ResourceCardProps {
 const cardStyle = (isDarkMode: boolean) =>
   mergeStyles({
     padding: '16px',
-    backgroundColor: isDarkMode ? '#252525' : '#ffffff',
-    border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'}`,
-    borderRadius: '12px',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+    backgroundColor: isDarkMode ? colours.darkBlue : colours.light.cardBackground,
+    border: `0.5px solid ${isDarkMode ? colours.dark.borderColor : colours.light.border}`,
+    borderRadius: 0,
+    boxShadow: 'none',
     transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
     cursor: 'pointer',
     display: 'flex',
@@ -72,12 +72,13 @@ const cardStyle = (isDarkMode: boolean) =>
     height: '100%',
     position: 'relative',
     overflow: 'hidden',
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+    fontFamily: 'Raleway, sans-serif',
     selectors: {
       ':hover': {
-        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-        transform: 'translateY(-2px)',
-        backgroundColor: isDarkMode ? '#2a2a2a' : '#f8f9fa',
+        boxShadow: 'none',
+        transform: 'translateY(-1px)',
+        backgroundColor: isDarkMode ? colours.helixBlue : colours.light.cardHover,
+        borderColor: isDarkMode ? colours.highlight : colours.blue,
       },
     },
   });
@@ -106,6 +107,7 @@ const resourceTitleStyle = mergeStyles({
   color: 'inherit',
   cursor: 'pointer',
   marginTop: '0px',
+  fontFamily: 'Raleway, sans-serif',
 });
 
 const tabsContainerStyle = (isDarkMode: boolean) =>
@@ -225,7 +227,7 @@ const ResourceCard: React.FC<ResourceCardProps> = React.memo(
                 ) : (
                   <Icon
                     iconName={resource.icon}
-                    styles={{ root: { fontSize: 32, color: colours.highlight } }}
+                    styles={{ root: { fontSize: 32, color: colours.blue } }}
                   />
                 )
               )}
@@ -239,8 +241,8 @@ const ResourceCard: React.FC<ResourceCardProps> = React.memo(
                       gap: 4,
                       padding: '2px 6px',
                       borderRadius: 999,
-                      border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.3)' : 'rgba(15,23,42,0.12)'}`,
-                      color: isDarkMode ? 'rgba(226,232,240,0.8)' : 'rgba(30,41,59,0.7)',
+                      border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                      color: isDarkMode ? '#d1d5db' : '#374151',
                       fontSize: 10,
                       fontWeight: 600,
                       letterSpacing: 0.2,
@@ -252,8 +254,8 @@ const ResourceCard: React.FC<ResourceCardProps> = React.memo(
                         width: 6,
                         height: 6,
                         borderRadius: '50%',
-                        background: isDarkMode ? 'rgba(96,165,250,0.7)' : 'rgba(37,99,235,0.6)',
-                        boxShadow: isDarkMode ? '0 0 6px rgba(96,165,250,0.35)' : 'none',
+                        background: colours.highlight,
+                        boxShadow: 'none',
                       }}
                     />
                     Ops
@@ -296,7 +298,7 @@ const ResourceCard: React.FC<ResourceCardProps> = React.memo(
                   e.stopPropagation();
                   onCopy(resource.url, resource.title);
                 }}
-                styles={iconButtonStyles(isDarkMode ? '#8a8a8a' : '#6a6a6a')}
+                styles={iconButtonStyles(isDarkMode ? colours.dark.text : colours.darkBlue)}
               />
             </TooltipHost>
 
@@ -313,7 +315,7 @@ const ResourceCard: React.FC<ResourceCardProps> = React.memo(
                   e.stopPropagation();
                   onToggleFavorite(resource);
                 }}
-                styles={iconButtonStyles(isFavorite ? '#D65541' : (isDarkMode ? '#8a8a8a' : '#6a6a6a'))}
+                styles={iconButtonStyles(isFavorite ? colours.cta : (isDarkMode ? colours.dark.text : colours.darkBlue))}
               />
             </TooltipHost>
 
@@ -330,7 +332,7 @@ const ResourceCard: React.FC<ResourceCardProps> = React.memo(
                   e.stopPropagation();
                   onGoTo(resource.url);
                 }}
-                styles={iconButtonStyles(isDarkMode ? '#8a8a8a' : '#6a6a6a')}
+                styles={iconButtonStyles(isDarkMode ? colours.dark.text : colours.darkBlue)}
               />
             </TooltipHost>
           </div>

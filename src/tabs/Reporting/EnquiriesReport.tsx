@@ -322,7 +322,7 @@ const PieChartComponent: React.FC<{
             dataKey="value"
             label={false}
             labelLine={false}
-            stroke={isDarkMode ? '#1f2937' : '#ffffff'}
+            stroke={isDarkMode ? colours.dark.border : '#ffffff'}
             strokeWidth={1}
             animationBegin={0}
             animationDuration={800}
@@ -334,7 +334,7 @@ const PieChartComponent: React.FC<{
               <Cell 
                 key={`cell-${index}`} 
                 fill={entry.color}
-                stroke={activeFilter === entry.name ? (isDarkMode ? colours.accent : colours.highlight) : (isDarkMode ? '#1f2937' : '#ffffff')}
+                stroke={activeFilter === entry.name ? (isDarkMode ? colours.accent : colours.highlight) : (isDarkMode ? colours.dark.border : '#ffffff')}
                 strokeWidth={activeFilter === entry.name ? 3 : 2}
                 style={{
                   opacity: activeFilter && activeFilter !== entry.name ? 0.4 : 1,
@@ -350,7 +350,7 @@ const PieChartComponent: React.FC<{
             contentStyle={{
               backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
               border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-              borderRadius: '8px',
+              borderRadius: 0,
               color: isDarkMode ? colours.dark.text : colours.light.text,
               boxShadow: isDarkMode ? '0 4px 12px rgba(0,0,0,0.3)' : '0 4px 12px rgba(0,0,0,0.1)',
               fontSize: '12px',
@@ -416,7 +416,7 @@ const PieChartComponent: React.FC<{
           color: isDarkMode ? colours.accent : colours.highlight,
           backgroundColor: isDarkMode ? 'rgba(135, 206, 255, 0.1)' : 'rgba(54, 144, 206, 0.1)',
           padding: '2px 6px',
-          borderRadius: '4px',
+          borderRadius: 0,
           border: `1px solid ${isDarkMode ? colours.accent : colours.highlight}`,
           cursor: 'pointer'
         }}
@@ -452,16 +452,16 @@ const displayName = (record?: TeamData | null): string => {
 };
 
 const getDatePickerStyles = (isDarkMode: boolean): Partial<IDatePickerStyles> => {
-  const baseBorder = isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(13, 47, 96, 0.18)';
-  const hoverBorder = isDarkMode ? 'rgba(135, 206, 255, 0.5)' : 'rgba(54, 144, 206, 0.4)';
-  const focusBorder = isDarkMode ? '#87ceeb' : colours.highlight;
-  const backgroundColour = isDarkMode ? 'rgba(15, 23, 42, 0.9)' : 'rgba(255, 255, 255, 0.95)';
-  const hoverBackground = isDarkMode ? 'rgba(15, 23, 42, 0.95)' : 'rgba(248, 250, 252, 1)';
-  const focusBackground = isDarkMode ? 'rgba(15, 23, 42, 1)' : 'rgba(255, 255, 255, 1)';
+  const baseBorder = isDarkMode ? `${colours.dark.borderColor}66` : 'rgba(6, 23, 51, 0.12)';
+  const hoverBorder = isDarkMode ? 'rgba(135, 243, 243, 0.2)' : 'rgba(54, 144, 206, 0.3)';
+  const focusBorder = isDarkMode ? colours.accent : colours.highlight;
+  const backgroundColour = isDarkMode ? colours.websiteBlue : 'rgba(255, 255, 255, 0.95)';
+  const hoverBackground = isDarkMode ? colours.dark.cardBackground : colours.grey;
+  const focusBackground = isDarkMode ? colours.websiteBlue : '#ffffff';
 
   return {
     root: {
-      maxWidth: 220,
+      maxWidth: 180,
       '.ms-DatePicker': {
         fontFamily: 'Raleway, sans-serif !important',
       },
@@ -472,38 +472,35 @@ const getDatePickerStyles = (isDarkMode: boolean): Partial<IDatePickerStyles> =>
         width: '100% !important',
       },
       fieldGroup: {
-        height: '36px !important',
-        borderRadius: '8px !important',
-        border: `1px solid ${baseBorder} !important`,
+        height: '32px !important',
+        borderRadius: '0 !important',
+        border: `0.5px solid ${baseBorder} !important`,
         background: `${backgroundColour} !important`,
         padding: '0 14px !important',
-        boxShadow: isDarkMode
-          ? '0 2px 4px rgba(0, 0, 0, 0.2) !important'
-          : '0 1px 3px rgba(15, 23, 42, 0.08) !important',
+        boxShadow: 'none !important',
         transition: 'all 0.2s ease !important',
         selectors: {
           ':hover': {
-            border: `1px solid ${hoverBorder} !important`,
+            border: `0.5px solid ${hoverBorder} !important`,
             background: `${hoverBackground} !important`,
-            boxShadow: isDarkMode
-              ? '0 4px 8px rgba(0, 0, 0, 0.25) !important'
-              : '0 2px 6px rgba(15, 23, 42, 0.12) !important',
+            boxShadow: 'none !important',
           },
           ':focus-within': {
-            border: `1px solid ${focusBorder} !important`,
+            border: `0.5px solid ${focusBorder} !important`,
             background: `${focusBackground} !important`,
             boxShadow: isDarkMode
-              ? '0 2px 4px rgba(135, 206, 255, 0.12) !important'
-              : '0 2px 6px rgba(54, 144, 206, 0.15) !important',
+              ? '0 0 0 2px rgba(135, 243, 243, 0.08) !important'
+              : '0 0 0 2px rgba(54, 144, 206, 0.08) !important',
           },
         },
       },
       field: {
-        fontSize: '14px !important',
+        fontSize: '12px !important',
+        color: `${isDarkMode ? colours.dark.text : colours.light.text} !important`,
         fontFamily: 'Raleway, sans-serif !important',
         fontWeight: '500 !important',
         background: 'transparent !important',
-        lineHeight: '20px !important',
+        lineHeight: '18px !important',
         border: 'none !important',
         outline: 'none !important',
       },
@@ -515,14 +512,14 @@ const getDatePickerStyles = (isDarkMode: boolean): Partial<IDatePickerStyles> =>
     },
     callout: {
       fontSize: '14px !important',
-      borderRadius: '12px !important',
-      border: `1px solid ${baseBorder} !important`,
+      borderRadius: '0 !important',
+      border: `0.5px solid ${baseBorder} !important`,
       boxShadow: isDarkMode
-        ? '0 8px 24px rgba(0, 0, 0, 0.4) !important'
-        : '0 6px 20px rgba(15, 23, 42, 0.15) !important',
+        ? '0 8px 24px rgba(0, 0, 0, 0.35) !important'
+        : '0 6px 20px rgba(6, 23, 51, 0.12) !important',
     },
     wrapper: {
-      borderRadius: '12px !important',
+      borderRadius: '0 !important',
     },
   };
 };
@@ -532,69 +529,62 @@ const getRangeButtonStyles = (
   active: boolean,
   disabled: boolean = false,
 ): IButtonStyles => {
-  const activeBackground = colours.highlight;
-  const inactiveBackground = isDarkMode ? 'rgba(148, 163, 184, 0.16)' : 'transparent';
+  const inactiveColor = isDarkMode ? colours.dark.text : colours.missedBlue;
+  const disabledColor = isDarkMode ? colours.subtleGrey : colours.greyText;
 
   const resolvedBackground = disabled
-    ? isDarkMode
-      ? 'rgba(15, 23, 42, 0.8)'
-      : 'transparent'
+    ? (isDarkMode ? colours.websiteBlue : 'transparent')
     : active
-      ? activeBackground
-      : inactiveBackground;
+      ? (isDarkMode ? `${colours.blue}18` : `${colours.blue}12`)
+      : (isDarkMode ? colours.websiteBlue : 'transparent');
 
-  const resolvedBorder = active
-    ? `1px solid ${isDarkMode ? 'rgba(135, 176, 255, 0.5)' : 'rgba(13, 47, 96, 0.32)'}`
-    : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(13, 47, 96, 0.16)'}`;
-
-  const resolvedColor = disabled
-    ? isDarkMode
-      ? '#E2E8F0'
-      : colours.missedBlue
+  const resolvedBorder = disabled
+    ? `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}40` : 'rgba(6, 23, 51, 0.12)'}`
     : active
-      ? '#ffffff'
-      : isDarkMode
-        ? '#E2E8F0'
-        : colours.missedBlue;
+      ? `1px solid ${isDarkMode ? `${colours.blue}33` : `${colours.blue}25`}`
+      : `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}40` : 'rgba(6, 23, 51, 0.12)'}`;
+
+  const activeTextColor = isDarkMode ? colours.highlight : colours.helixBlue;
 
   return {
     root: {
       display: 'inline-flex',
       alignItems: 'center',
-      whiteSpace: 'nowrap',
+      whiteSpace: 'nowrap' as const,
       overflow: 'hidden',
       textOverflow: 'ellipsis',
-      borderRadius: 999,
+      borderRadius: 0,
       border: resolvedBorder,
-      padding: '0 12px',
+      padding: '0 10px',
       minHeight: 32,
       height: 32,
-      fontWeight: 600,
-      fontSize: 13,
-      color: resolvedColor,
+      fontWeight: active ? 700 : 600,
+      fontSize: 12,
+      color: disabled ? disabledColor : active ? activeTextColor : inactiveColor,
       background: resolvedBackground,
-      boxShadow: active && !disabled ? '0 2px 8px rgba(54, 144, 206, 0.25)' : 'none',
+      boxShadow: 'none',
       fontFamily: 'Raleway, sans-serif',
       cursor: disabled ? 'default' : 'pointer',
-      transition: 'all 0.2s ease',
+      transition: 'background 0.18s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.18s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.18s cubic-bezier(0.4, 0, 0.2, 1), color 0.18s cubic-bezier(0.4, 0, 0.2, 1)',
     },
     rootHovered: {
       background: disabled
         ? resolvedBackground
         : active
-          ? '#2f7cb3'
-          : isDarkMode
-            ? 'rgba(148, 163, 184, 0.24)'
-            : 'rgba(54, 144, 206, 0.12)',
+          ? (isDarkMode ? `${colours.blue}24` : `${colours.blue}1a`)
+          : (isDarkMode ? colours.dark.cardBackground : 'rgba(54, 144, 206, 0.06)'),
+      color: disabled ? disabledColor : active ? activeTextColor : (isDarkMode ? colours.highlight : colours.highlight),
+      boxShadow: 'none',
     },
     rootPressed: {
       background: disabled
         ? resolvedBackground
         : active
-          ? '#266795'
-          : isDarkMode
-            ? 'rgba(148, 163, 184, 0.3)'
-            : 'rgba(54, 144, 206, 0.16)',
+          ? (isDarkMode ? `${colours.blue}30` : `${colours.blue}22`)
+          : (isDarkMode ? colours.dark.cardHover : 'rgba(54, 144, 206, 0.1)'),
+    },
+    label: {
+      color: 'inherit',
     },
   };
 };
@@ -604,137 +594,92 @@ const getTeamButtonStyles = (
   active: boolean,
   hasEnquiries: boolean = true,
 ): IButtonStyles => {
-  const activeBackground = active
-    ? `linear-gradient(135deg, ${colours.highlight} 0%, #2f7cb3 100%)`
-    : isDarkMode
-      ? 'rgba(15, 23, 42, 0.8)'
-      : 'transparent';
-
-  const activeBorder = active
-    ? `2px solid ${isDarkMode ? '#87ceeb' : colours.highlight}`
-    : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(13, 47, 96, 0.16)'}`;
-
+  // Three visual states: active (explicitly selected), included (default), excluded
   const greyedOut = !hasEnquiries;
   const opacity = greyedOut ? 0.4 : 1;
+
+  const activeBackground = active
+    ? (isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.08)')
+    : 'transparent';
+
+  const activeBorder = active
+    ? `1.5px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.55)' : 'rgba(54, 144, 206, 0.50)'}`
+    : `0.5px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.30)' : 'rgba(6, 23, 51, 0.10)'}`;
+
   const textColor = active
-    ? '#ffffff'
+    ? (isDarkMode ? colours.accent : colours.highlight)
     : greyedOut
-      ? isDarkMode
-        ? '#64748B'
-        : '#94A3B8'
-      : isDarkMode
-        ? '#E2E8F0'
-        : colours.missedBlue;
+      ? (isDarkMode ? colours.subtleGrey : colours.greyText)
+      : (isDarkMode ? colours.dark.text : colours.missedBlue);
 
   return {
     root: {
-      borderRadius: 999,
+      borderRadius: 0,
       minHeight: 32,
       height: 32,
-      padding: '0 8px',
+      padding: '0 10px',
       fontWeight: active ? 700 : 600,
       fontSize: 12,
       border: activeBorder,
       background: activeBackground,
       color: textColor,
       opacity,
-      boxShadow: active
-        ? isDarkMode
-          ? '0 2px 8px rgba(54, 144, 206, 0.3)'
-          : '0 2px 8px rgba(54, 144, 206, 0.25)'
-        : 'none',
+      boxShadow: 'none',
       fontFamily: 'Raleway, sans-serif',
-      transform: active ? 'translateY(-1px)' : 'none',
-      transition: 'all 0.2s ease',
+      transition: 'background 0.18s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.18s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.18s cubic-bezier(0.4, 0, 0.2, 1), color 0.18s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.18s cubic-bezier(0.4, 0, 0.2, 1)',
     },
     rootHovered: {
       background: active
-        ? 'linear-gradient(135deg, #2f7cb3 0%, #266795 100%)'
-        : isDarkMode
-          ? 'rgba(15, 23, 42, 0.86)'
-          : 'rgba(54, 144, 206, 0.1)',
-      transform: 'translateY(-1px)',
-      boxShadow: active
-        ? isDarkMode
-          ? '0 4px 12px rgba(54, 144, 206, 0.4)'
-          : '0 4px 12px rgba(54, 144, 206, 0.35)'
-        : isDarkMode
-          ? '0 2px 4px rgba(0, 0, 0, 0.1)'
-          : '0 2px 4px rgba(15, 23, 42, 0.05)',
+        ? (isDarkMode ? 'rgba(135, 243, 243, 0.14)' : 'rgba(54, 144, 206, 0.14)')
+        : (isDarkMode ? 'rgba(135, 243, 243, 0.06)' : 'rgba(54, 144, 206, 0.06)'),
+      boxShadow: 'none',
     },
     rootPressed: {
       background: active
-        ? 'linear-gradient(135deg, #266795 0%, #1e5a7a 100%)'
-        : isDarkMode
-          ? 'rgba(15, 23, 42, 0.9)'
-          : 'rgba(54, 144, 206, 0.14)',
-      transform: 'translateY(0)',
+        ? (isDarkMode ? 'rgba(135, 243, 243, 0.18)' : 'rgba(54, 144, 206, 0.18)')
+        : (isDarkMode ? 'rgba(135, 243, 243, 0.10)' : 'rgba(54, 144, 206, 0.10)'),
     },
   };
 };
 
 const getRoleButtonStyles = (isDarkMode: boolean, active: boolean, hasData: boolean = true): IButtonStyles => {
   const activeBackground = active
-    ? `linear-gradient(135deg, ${colours.highlight} 0%, #2f7cb3 100%)`
-    : isDarkMode
-      ? 'rgba(15, 23, 42, 0.8)'
-      : 'transparent';
+    ? (isDarkMode ? `${colours.blue}18` : `${colours.blue}12`)
+    : (isDarkMode ? colours.websiteBlue : 'transparent');
 
   const activeBorder = active
-    ? `2px solid ${isDarkMode ? '#87ceeb' : colours.highlight}`
-    : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(13, 47, 96, 0.16)'}`;
+    ? `1px solid ${isDarkMode ? `${colours.blue}33` : `${colours.blue}25`}`
+    : `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}40` : 'rgba(6, 23, 51, 0.12)'}`;
 
-  const textColor = active
-    ? '#ffffff'
-    : hasData
-      ? (isDarkMode ? '#E2E8F0' : colours.missedBlue)
-      : (isDarkMode ? '#64748B' : '#94A3B8');
+  const textColor = active ? (isDarkMode ? colours.highlight : colours.helixBlue) : (isDarkMode ? colours.dark.text : colours.missedBlue);
   const opacity = hasData ? 1 : 0.55;
 
   return {
     root: {
-      borderRadius: 999,
+      borderRadius: 0,
       minHeight: 32,
       height: 32,
-      padding: '0 12px',
+      padding: '0 10px',
       fontWeight: active ? 700 : 600,
       fontSize: 12,
       border: activeBorder,
       background: activeBackground,
       color: textColor,
       opacity,
-      boxShadow: active
-        ? isDarkMode
-          ? '0 2px 8px rgba(54, 144, 206, 0.3)'
-          : '0 2px 8px rgba(54, 144, 206, 0.25)'
-        : 'none',
+      boxShadow: 'none',
       fontFamily: 'Raleway, sans-serif',
-      transform: active ? 'translateY(-1px)' : 'none',
-      transition: 'all 0.2s ease',
+      transition: 'background 0.18s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.18s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.18s cubic-bezier(0.4, 0, 0.2, 1), color 0.18s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.18s cubic-bezier(0.4, 0, 0.2, 1)',
     },
     rootHovered: {
       background: active
-        ? 'linear-gradient(135deg, #2f7cb3 0%, #266795 100%)'
-        : isDarkMode
-          ? 'rgba(15, 23, 42, 0.86)'
-          : 'rgba(54, 144, 206, 0.1)',
-      transform: hasData ? 'translateY(-1px)' : 'none',
-      opacity: hasData ? 1 : opacity,
-      boxShadow: active
-        ? isDarkMode
-          ? '0 4px 12px rgba(54, 144, 206, 0.4)'
-          : '0 4px 12px rgba(54, 144, 206, 0.35)'
-        : isDarkMode
-          ? '0 2px 4px rgba(0, 0, 0, 0.1)'
-          : '0 2px 4px rgba(15, 23, 42, 0.05)',
+        ? (isDarkMode ? `${colours.blue}24` : `${colours.blue}1a`)
+        : (isDarkMode ? colours.dark.cardBackground : 'rgba(54, 144, 206, 0.06)'),
+      boxShadow: 'none',
     },
     rootPressed: {
       background: active
-        ? 'linear-gradient(135deg, #266795 0%, #1e5a7a 100%)'
-        : isDarkMode
-          ? 'rgba(15, 23, 42, 0.9)'
-          : 'rgba(54, 144, 206, 0.14)',
-      transform: hasData ? 'translateY(0)' : 'none',
+        ? (isDarkMode ? `${colours.blue}30` : `${colours.blue}22`)
+        : (isDarkMode ? colours.dark.cardHover : 'rgba(54, 144, 206, 0.1)'),
     },
   };
 };
@@ -743,18 +688,18 @@ const clearFilterButtonStyle = (isDarkMode: boolean): React.CSSProperties => ({
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-  padding: '0 12px',
+  padding: '0 14px',
   height: 32,
-  borderRadius: 8,
-  border: `1px solid ${isDarkMode ? 'rgba(239, 68, 68, 0.35)' : 'rgba(239, 68, 68, 0.25)'}`,
-  background: isDarkMode ? 'rgba(239, 68, 68, 0.12)' : 'rgba(254, 242, 242, 0.85)',
-  color: isDarkMode ? '#fca5a5' : '#dc2626',
+  borderRadius: 0,
+  border: `1px solid ${isDarkMode ? 'rgba(214, 85, 65, 0.4)' : 'rgba(214, 85, 65, 0.3)'}`,
+  background: isDarkMode ? 'rgba(214, 85, 65, 0.12)' : 'rgba(214, 85, 65, 0.06)',
+  color: colours.cta,
   gap: 6,
   cursor: 'pointer',
-  transition: 'all 0.2s ease',
+  transition: 'background 0.18s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.18s cubic-bezier(0.4, 0, 0.2, 1)',
   fontFamily: 'Raleway, sans-serif',
   fontWeight: 600,
-  fontSize: 13,
+  fontSize: 12,
   whiteSpace: 'nowrap',
 });
 
@@ -764,14 +709,17 @@ const dateStampButtonStyle = (isDarkMode: boolean): React.CSSProperties => ({
   alignItems: 'flex-start',
   justifyContent: 'center',
   gap: 2,
-  padding: '8px 12px',
-  borderRadius: 10,
-  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(13, 47, 96, 0.16)'}`,
-  background: isDarkMode ? 'rgba(15, 23, 42, 0.8)' : 'rgba(255, 255, 255, 0.95)',
-  color: isDarkMode ? '#E2E8F0' : colours.missedBlue,
-  minWidth: 120,
-  transition: 'all 0.2s ease',
+  padding: '6px 12px',
+  borderRadius: 0,
+  border: '1px solid transparent',
+  background: isDarkMode ? colours.darkBlue : '#ffffff',
+  color: isDarkMode ? colours.dark.text : colours.helixBlue,
+  minWidth: 132,
+  transition: 'background 0.18s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.18s cubic-bezier(0.4, 0, 0.2, 1), transform 0.18s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.18s cubic-bezier(0.4, 0, 0.2, 1)',
   cursor: 'pointer',
+  fontFamily: 'Raleway, sans-serif',
+  whiteSpace: 'nowrap',
+  lineHeight: 1.3,
 });
 
 const computeRange = (range: RangeKey): { start: Date; end: Date } => {
@@ -994,16 +942,17 @@ function containerStyle(isDark: boolean): React.CSSProperties {
     background: 'transparent',
     padding: 0,
     minHeight: '100%',
+    fontFamily: 'Raleway, sans-serif',
   };
 }
 
 function surface(isDark: boolean, overrides: React.CSSProperties = {}): React.CSSProperties {
   return {
-    background: isDark ? 'rgba(15, 23, 42, 0.88)' : '#FFFFFF',
-    borderRadius: 10,
-    border: `1px solid ${isDark ? 'rgba(148, 163, 184, 0.24)' : 'rgba(15, 23, 42, 0.06)'}`,
-    boxShadow: isDark ? '0 2px 10px rgba(0, 0, 0, 0.22)' : '0 2px 8px rgba(15, 23, 42, 0.06)',
-    padding: 12,
+    background: isDark ? colours.darkBlue : '#ffffff',
+    borderRadius: 0,
+    border: `0.5px solid ${isDark ? `${colours.dark.borderColor}66` : 'rgba(6, 23, 51, 0.06)'}`,
+    boxShadow: isDark ? 'none' : '0 2px 4px rgba(0, 0, 0, 0.04)',
+    padding: '12px 16px',
     ...overrides,
   };
 }
@@ -2381,216 +2330,16 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [reassignmentDropdown, closeReassignmentDropdown]);
 
+  const themeClass = isDarkMode ? 'dark-theme' : 'light-theme';
+
   return (
-    <div style={containerStyle(isDarkMode)}>
-      {(reportingRangeLabel || (reportingRangeOptions && reportingRangeOptions.length > 0) || reportingRangeCoverageNote || (reportingRangeDatasets && reportingRangeDatasets.length > 0)) && (
-        <div style={{
-          marginBottom: 18,
-          padding: '16px 20px',
-          borderRadius: 16,
-          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.22)' : 'rgba(15, 23, 42, 0.08)'}`,
-          background: isDarkMode ? 'rgba(15, 23, 42, 0.8)' : 'rgba(255, 255, 255, 0.95)',
-          boxShadow: isDarkMode ? '0 10px 30px rgba(0,0,0,0.35)' : '0 10px 30px rgba(15,23,42,0.08)'
-        }}>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'center', marginBottom: reportingRangeOptions && reportingRangeOptions.length > 0 ? 12 : 0 }}>
-            <div>
-              <div style={{ fontSize: 12, opacity: 0.7, textTransform: 'uppercase', fontWeight: 600 }}>Data window</div>
-              <div style={{ fontSize: 18, fontWeight: 700 }}>
-                {reportingRangeLabel ?? 'Auto-selected'}
-              </div>
-            </div>
-            <div style={{
-              display: 'flex',
-              gap: 12,
-              flexWrap: 'wrap',
-              alignItems: 'center'
-            }}>
-              <div style={{
-                padding: '6px 12px',
-                borderRadius: 999,
-                border: `1px solid ${isDarkMode ? 'rgba(129, 140, 248, 0.5)' : 'rgba(54, 144, 206, 0.35)'}`,
-                fontSize: 12,
-                fontWeight: 600,
-                color: isDarkMode ? '#c4b5fd' : colours.missedBlue,
-                background: isDarkMode ? 'rgba(79, 70, 229, 0.15)' : 'rgba(54, 144, 206, 0.08)'
-              }}>
-                {pitchCount.toLocaleString()} pitches
-              </div>
-              <div style={{
-                padding: '6px 12px',
-                borderRadius: 999,
-                border: `1px solid ${isDarkMode ? 'rgba(74, 222, 128, 0.4)' : 'rgba(16, 185, 129, 0.35)'}`,
-                fontSize: 12,
-                fontWeight: 600,
-                color: isDarkMode ? '#86efac' : colours.green,
-                background: isDarkMode ? 'rgba(34, 197, 94, 0.12)' : 'rgba(16, 185, 129, 0.08)'
-              }}>
-                {instructionCount.toLocaleString()} instructions
-              </div>
-            </div>
-            {reportingRangeCoverageNote && (
-              <div style={{
-                flex: 1,
-                minWidth: 200,
-                fontSize: 12,
-                color: isDarkMode ? '#bae6fd' : '#0f172a',
-                opacity: 0.85,
-                fontWeight: 600,
-              }}>
-                {reportingRangeCoverageNote}
-              </div>
-            )}
-          </div>
-          {reportingRangeDatasets && reportingRangeDatasets.length > 0 && (
-            <div style={{
-              marginTop: 8,
-              borderRadius: 12,
-              border: `1px solid ${isDarkMode ? 'rgba(59, 130, 246, 0.3)' : 'rgba(147, 197, 253, 0.45)'}`,
-              background: isDarkMode ? 'rgba(2, 6, 23, 0.85)' : 'rgba(191, 219, 254, 0.3)',
-              padding: '12px 16px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 8,
-            }}>
-              {reportingRangeDatasets.map((dataset) => (
-                <div
-                  key={dataset.key}
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    gap: 12,
-                    fontSize: 12,
-                    color: isDarkMode ? '#e2e8f0' : '#0f172a',
-                  }}
-                >
-                  <span style={{ fontWeight: 600 }}>{dataset.label}</span>
-                  <span style={{ fontWeight: 700, color: isDarkMode ? '#f8fafc' : '#0f172a' }}>{dataset.range}</span>
-                </div>
-              ))}
-            </div>
-          )}
-          {reportingRangeOptions && reportingRangeOptions.length > 0 && onReportingRangeChange && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {reportingRangeOptions.map((option) => {
-                const isActive = reportingRangeKey === option.key;
-                return (
-                  <DefaultButton
-                    key={option.key}
-                    text={option.label}
-                    onClick={() => onReportingRangeChange(option.key)}
-                    disabled={reportingRangeIsRefreshing || isActive}
-                    styles={{
-                      root: {
-                        borderRadius: 999,
-                        padding: '0 14px',
-                        height: 30,
-                        border: isActive
-                          ? `1px solid ${isDarkMode ? '#60a5fa' : colours.highlight}`
-                          : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.35)'}`,
-                        background: isActive
-                          ? (isDarkMode ? 'rgba(37, 99, 235, 0.25)' : 'rgba(54, 144, 206, 0.15)')
-                          : 'transparent',
-                        color: isActive ? (isDarkMode ? '#bfdbfe' : colours.missedBlue) : (isDarkMode ? '#cbd5f5' : '#475569'),
-                        fontWeight: isActive ? 700 : 500,
-                        fontSize: 12,
-                      },
-                      rootDisabled: {
-                        background: isActive ? (isDarkMode ? 'rgba(37, 99, 235, 0.2)' : 'rgba(54, 144, 206, 0.12)') : 'transparent',
-                        color: isActive ? (isDarkMode ? '#bfdbfe' : colours.missedBlue) : (isDarkMode ? '#94a3b8' : '#94a3b8'),
-                      },
-                    }}
-                  />
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
-      {/* Active Filters Indicator */}
-      {(sourceFilter || mocFilter || pocFilter) && (
-        <div style={{
-          marginBottom: 16,
-          padding: '12px 16px',
-          backgroundColor: isDarkMode ? 'rgba(135, 206, 255, 0.1)' : 'rgba(54, 144, 206, 0.1)',
-          borderLeft: `4px solid ${isDarkMode ? colours.accent : colours.highlight}`,
-          borderRadius: '0 8px 8px 0',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 12,
-          fontSize: '14px',
-          color: isDarkMode ? colours.dark.text : colours.light.text
-        }}>
-          <span style={{ fontWeight: 600, color: isDarkMode ? colours.accent : colours.highlight }}>
-            Active Filters:
-          </span>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {sourceFilter && (
-              <span style={{
-                padding: '4px 8px',
-                backgroundColor: isDarkMode ? 'rgba(135, 206, 255, 0.2)' : 'rgba(54, 144, 206, 0.2)',
-                borderRadius: '4px',
-                border: `1px solid ${isDarkMode ? colours.accent : colours.highlight}`,
-                cursor: 'pointer'
-              }}
-              onClick={() => setSourceFilter(null)}
-              title="Click to remove filter">
-                Source: {sourceFilter} ×
-              </span>
-            )}
-            {mocFilter && (
-              <span style={{
-                padding: '4px 8px',
-                backgroundColor: isDarkMode ? 'rgba(135, 206, 255, 0.2)' : 'rgba(54, 144, 206, 0.2)',
-                borderRadius: '4px',
-                border: `1px solid ${isDarkMode ? colours.accent : colours.highlight}`,
-                cursor: 'pointer'
-              }}
-              onClick={() => setMocFilter(null)}
-              title="Click to remove filter">
-                Contact: {mocFilter} ×
-              </span>
-            )}
-            {pocFilter && (
-              <span style={{
-                padding: '4px 8px',
-                backgroundColor: isDarkMode ? 'rgba(135, 206, 255, 0.2)' : 'rgba(54, 144, 206, 0.2)',
-                borderRadius: '4px',
-                border: `1px solid ${isDarkMode ? colours.accent : colours.highlight}`,
-                cursor: 'pointer'
-              }}
-              onClick={() => setPocFilter(null)}
-              title="Click to remove filter">
-                Fee Earner: {pocFilter} ×
-              </span>
-            )}
-          </div>
-          <button
-            onClick={() => {
-              setSourceFilter(null);
-              setMocFilter(null);
-              setPocFilter(null);
-            }}
-            style={{
-              marginLeft: 'auto',
-              padding: '4px 8px',
-              backgroundColor: 'transparent',
-              border: `1px solid ${isDarkMode ? colours.accent : colours.highlight}`,
-              borderRadius: '4px',
-              color: isDarkMode ? colours.accent : colours.highlight,
-              cursor: 'pointer',
-              fontSize: '12px'
-            }}
-            title="Clear all filters"
-          >
-            Clear All
-          </button>
-        </div>
-      )}
-      <div style={surface(isDarkMode)}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
+    <div className={`management-dashboard-container ${themeClass}`} style={containerStyle(isDarkMode)}>
+      <div className="filter-toolbar">
+        <div className="filter-toolbar__top">
+          <span className="filter-section-label">Date range</span>
+          <div className="filter-toolbar__date-inputs">
             {showCustomPickers ? (
-              <div style={{ display: 'flex', gap: 8 }}>
+              <div className="date-pickers">
                 <DatePicker
                   label="From"
                   styles={getDatePickerStyles(isDarkMode)}
@@ -2613,259 +2362,139 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                 />
               </div>
             ) : (
-              <div style={{ display: 'flex', gap: 8 }}>
+              <div className="date-stamp-group">
                 <button
                   type="button"
+                  className="date-stamp-button toolbar-control"
                   style={dateStampButtonStyle(isDarkMode)}
                   onClick={() => handleRangeSelect('custom')}
                   title="Click to customise the start date"
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = isDarkMode ? 'rgba(30, 41, 59, 0.86)' : 'rgba(248, 250, 252, 1)';
-                    e.currentTarget.style.transform = 'translateY(-1px)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = isDarkMode ? 'rgba(15, 23, 42, 0.8)' : 'rgba(255, 255, 255, 0.95)';
-                    e.currentTarget.style.transform = 'translateY(0)';
-                  }}
                 >
-                  <span style={{ fontSize: 11, opacity: 0.7, fontWeight: 600 }}>From</span>
-                  <span style={{ fontSize: 16, fontWeight: 700 }}>{fromLabel}</span>
+                  <span className="date-stamp-button__label">From</span>
+                  <span className="date-stamp-button__value">{fromLabel}</span>
                 </button>
                 <button
                   type="button"
+                  className="date-stamp-button toolbar-control"
                   style={dateStampButtonStyle(isDarkMode)}
                   onClick={() => handleRangeSelect('custom')}
                   title="Click to customise the end date"
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = isDarkMode ? 'rgba(30, 41, 59, 0.86)' : 'rgba(248, 250, 252, 1)';
-                    e.currentTarget.style.transform = 'translateY(-1px)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = isDarkMode ? 'rgba(15, 23, 42, 0.8)' : 'rgba(255, 255, 255, 0.95)';
-                    e.currentTarget.style.transform = 'translateY(0)';
-                  }}
                 >
-                  <span style={{ fontSize: 11, opacity: 0.7, fontWeight: 600 }}>To</span>
-                  <span style={{ fontSize: 16, fontWeight: 700 }}>{toLabel}</span>
+                  <span className="date-stamp-button__label">To</span>
+                  <span className="date-stamp-button__value">{toLabel}</span>
                 </button>
               </div>
             )}
-
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <div 
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '6px 12px',
-                  borderRadius: 8,
-                  border: `1px solid ${isFetching ? (isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)') : getRefreshIndicatorColor()}`,
-                  background: isDarkMode ? 'rgba(15, 23, 42, 0.8)' : 'rgba(255, 255, 255, 0.95)',
-                  fontSize: 12,
-                  fontWeight: 600,
-                  color: isDarkMode ? '#E2E8F0' : colours.missedBlue,
-                  transition: 'border-color 1s ease',
-                }}
-                title={
-                  isFetching 
-                    ? 'Refreshing data...' 
-                    : `Next auto-refresh in ${Math.floor((15 * 60 - timeElapsed) / 60)}m ${(15 * 60 - timeElapsed) % 60}s`
-                }
-              >
-                {isFetching ? (
-                  <>
-                    <div style={{
-                      width: 8,
-                      height: 8,
-                      borderRadius: '50%',
-                      background: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(13, 47, 96, 0.5)',
-                    }} />
-                    Refreshing
-                  </>
-                ) : (
-                  <>
-                    <div 
-                      style={{ 
-                        width: 8,
-                        height: 8,
-                        borderRadius: '50%',
-                        background: getRefreshIndicatorColor(),
-                        transition: 'background 1s ease',
-                      }}
-                    />
-                    {lastRefreshLabel}
-                  </>
-                )}
-              </div>
-
-              {triggerRefresh && (
-                <button
-                  type="button"
-                  onClick={handleRefresh}
-                  disabled={isFetching}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    width: 32,
-                    height: 32,
-                    borderRadius: 8,
-                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(13, 47, 96, 0.16)'}`,
-                    background: isDarkMode ? 'rgba(15, 23, 42, 0.8)' : 'rgba(255, 255, 255, 0.95)',
-                    color: isDarkMode ? '#E2E8F0' : colours.missedBlue,
-                    cursor: isFetching ? 'default' : 'pointer',
-                    opacity: isFetching ? 0.6 : 1,
-                    transition: 'all 0.2s ease',
-                  }}
-                  title={isFetching ? 'Refreshing data...' : 'Refresh datasets (auto-refreshes every 15 min)'}
-                  aria-label={isFetching ? 'Refreshing data' : 'Refresh datasets'}
-                  onMouseEnter={(e) => {
-                    if (!isFetching) {
-                      e.currentTarget.style.transform = 'translateY(-1px)';
-                      e.currentTarget.style.background = isDarkMode ? 'rgba(30, 41, 59, 0.86)' : 'rgba(248, 250, 252, 1)';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!isFetching) {
-                      e.currentTarget.style.transform = 'translateY(0)';
-                      e.currentTarget.style.background = isDarkMode ? 'rgba(15, 23, 42, 0.8)' : 'rgba(255, 255, 255, 0.95)';
-                    }
-                  }}
-                >
-                  <Icon 
-                    iconName="Refresh" 
-                    style={{ 
-                      fontSize: 16,
-                      animation: isFetching ? 'spin 1s linear infinite' : 'none'
-                    }} 
-                  />
-                </button>
-              )}
-
-              <button
-                type="button"
-                onClick={() => setShowRoleFilter(!showRoleFilter)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  width: 32,
-                  height: 32,
-                  borderRadius: 8,
-                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(13, 47, 96, 0.16)'}`,
-                  background: isDarkMode ? 'rgba(15, 23, 42, 0.8)' : 'rgba(255, 255, 255, 0.95)',
-                  color: showRoleFilter 
-                    ? (isDarkMode ? '#60a5fa' : colours.highlight)
-                    : (isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(13, 47, 96, 0.5)'),
-                  cursor: 'pointer',
-                  transform: showRoleFilter ? 'translateY(-1px)' : 'translateY(0)',
-                  transition: 'all 0.2s ease',
-                }}
-                title={showRoleFilter ? 'Hide role filter' : 'Show role filter'}
-                aria-label={showRoleFilter ? 'Hide role filter' : 'Show role filter'}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.transform = 'translateY(-1px)';
-                  e.currentTarget.style.background = isDarkMode ? 'rgba(30, 41, 59, 0.86)' : 'rgba(248, 250, 252, 1)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.transform = showRoleFilter ? 'translateY(-1px)' : 'translateY(0)';
-                  e.currentTarget.style.background = isDarkMode ? 'rgba(15, 23, 42, 0.8)' : 'rgba(255, 255, 255, 0.95)';
-                }}
-              >
-                <Icon iconName="People" style={{ fontSize: 16 }} />
-              </button>
-
-              <div style={{ position: 'relative' }}>
-                <button
-                  type="button"
-                  onMouseEnter={() => setShowDatasetInfo(true)}
-                  onMouseLeave={() => setShowDatasetInfo(false)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    width: 32,
-                    height: 32,
-                    borderRadius: 8,
-                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(13, 47, 96, 0.16)'}`,
-                    background: isDarkMode ? 'rgba(15, 23, 42, 0.8)' : 'rgba(255, 255, 255, 0.95)',
-                    color: isDarkMode ? '#60a5fa' : colours.highlight,
-                    cursor: 'pointer',
-                    transform: showDatasetInfo ? 'translateY(-1px)' : 'translateY(0)',
-                    transition: 'all 0.2s ease',
-                  }}
-                  title="Dataset information"
-                  aria-label="Dataset information"
-                >
-                  <Icon iconName="Info" style={{ fontSize: 16 }} />
-                </button>
-
-                {showDatasetInfo && (
-                  <div style={{
-                    position: 'absolute',
-                    top: '100%',
-                    right: 0,
-                    marginTop: 8,
-                    padding: '10px 12px',
-                    background: isDarkMode ? 'rgba(15, 23, 42, 0.98)' : 'rgba(255, 255, 255, 0.98)',
-                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)'}`,
-                    borderRadius: 8,
-                    boxShadow: isDarkMode ? '0 8px 16px rgba(0, 0, 0, 0.4)' : '0 4px 12px rgba(0, 0, 0, 0.15)',
-                    fontSize: 11,
-                    lineHeight: 1.5,
-                    width: 240,
-                    zIndex: 1000,
-                    color: isDarkMode ? '#e2e8f0' : '#334155',
-                    textAlign: 'left',
-                  }}>
-                    <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 13, color: isDarkMode ? '#60a5fa' : colours.highlight }}>
-                      Dataset Information
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-                        <span style={{ opacity: 0.8 }}>Enquiries:</span>
-                        <span style={{ fontWeight: 600 }}>Last 24 months</span>
-                      </div>
-                    </div>
-                    <div style={{
-                      marginTop: 10,
-                      paddingTop: 8,
-                      borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.3)'}`,
-                      fontSize: 11,
-                      opacity: 0.7,
-                      fontStyle: 'italic'
-                    }}>
-                      Data outside this range won't appear in metrics
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
           </div>
 
-          {dataDateRange && (
-            <div style={{ 
-              padding: '8px 12px',
-              borderRadius: 8,
-              background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(13, 47, 96, 0.04)',
-              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.16)' : 'rgba(13, 47, 96, 0.08)'}`,
-              fontSize: 12,
-              color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(13, 47, 96, 0.75)',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              gap: 12
-            }}>
-              <span>
-                Available data: {dataDateRange.earliest.toLocaleDateString()} to {dataDateRange.latest.toLocaleDateString()} 
-                ({enquiries?.length.toLocaleString()} total)
-              </span>
-              <span>{workingDaysLabel}</span>
+          <div className="filter-toolbar__actions">
+            <div 
+              className={`filter-status-chip toolbar-control ${isFetching ? 'is-refreshing' : ''}`}
+              style={{
+                borderColor: isFetching ? undefined : getRefreshIndicatorColor(),
+                transition: 'border-color 1s ease',
+              }}
+              title={
+                isFetching 
+                  ? 'Refreshing data…' 
+                  : `Next auto-refresh in ${Math.floor((15 * 60 - timeElapsed) / 60)}m ${(15 * 60 - timeElapsed) % 60}s`
+              }
+            >
+              {isFetching ? (
+                <>
+                  <div className="filter-status-indicator" />
+                  <span>Refreshing…</span>
+                </>
+              ) : (
+                <>
+                  <div 
+                    className="filter-status-indicator" 
+                    style={{ 
+                      background: getRefreshIndicatorColor(),
+                      transition: 'background 1s ease',
+                    }}
+                  />
+                  <span>{lastRefreshLabel}</span>
+                </>
+              )}
             </div>
-          )}
 
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-            {/* All */}
+            {triggerRefresh && (
+              <button
+                type="button"
+                onClick={handleRefresh}
+                disabled={isFetching}
+                className="filter-icon-button toolbar-control"
+                title={isFetching ? 'Refreshing data…' : 'Refresh datasets (auto-refreshes every 15 min)'}
+                aria-label={isFetching ? 'Refreshing data' : 'Refresh datasets'}
+              >
+                <Icon 
+                  iconName="Refresh" 
+                  style={{ 
+                    fontSize: 16,
+                    animation: isFetching ? 'spin 1s linear infinite' : 'none'
+                  }} 
+                />
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setShowRoleFilter(!showRoleFilter)}
+              className={`filter-icon-button toolbar-control icon-button--role ${showRoleFilter ? 'is-active' : ''}`}
+              title={showRoleFilter ? 'Hide role filter' : 'Show role filter'}
+              aria-label={showRoleFilter ? 'Hide role filter' : 'Show role filter'}
+            >
+              <Icon iconName="People" style={{ fontSize: 16 }} />
+            </button>
+
+            <div className="filter-icon-button-wrapper">
+              <button
+                type="button"
+                onMouseEnter={() => setShowDatasetInfo(true)}
+                onMouseLeave={() => setShowDatasetInfo(false)}
+                className={`filter-icon-button toolbar-control icon-button--info ${showDatasetInfo ? 'is-active' : ''}`}
+                title="Dataset information"
+                aria-label="Dataset information"
+              >
+                <Icon iconName="Info" style={{ fontSize: 16 }} />
+              </button>
+
+              {showDatasetInfo && (
+                <div className="filter-dataset-tooltip">
+                  <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 13, color: isDarkMode ? colours.accent : colours.highlight }}>
+                    Dataset Information
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                      <span style={{ opacity: 0.8 }}>Enquiries:</span>
+                      <span style={{ fontWeight: 600 }}>Last 24 months</span>
+                    </div>
+                  </div>
+                  {dataDateRange && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginTop: 6 }}>
+                      <span style={{ opacity: 0.8 }}>Available:</span>
+                      <span style={{ fontWeight: 600 }}>{dataDateRange.earliest.toLocaleDateString()} – {dataDateRange.latest.toLocaleDateString()}</span>
+                    </div>
+                  )}
+                  <div style={{
+                    marginTop: 10,
+                    paddingTop: 8,
+                    borderTop: `0.5px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.12)'}`,
+                    fontSize: 11,
+                    opacity: 0.7,
+                    fontStyle: 'italic'
+                  }}>
+                    {enquiries?.length.toLocaleString() ?? '0'} total records · {workingDaysLabel}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="filter-toolbar__presets">
+          <div className="filter-preset-group">
             {quickRanges.slice(0, 1).map(r => {
               const active = isActive(r.key);
               const disabled = r.key === 'all' ? false : isPresetDisabled(r.key);
@@ -2879,14 +2508,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                 />
               );
             })}
-            <div style={{ 
-              color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(148, 163, 184, 0.5)', 
-              fontSize: 16, 
-              fontWeight: 300, 
-              padding: '0 4px',
-              userSelect: 'none'
-            }}>|</div>
-            {/* Today, Yesterday */}
+            <div className="preset-separator">|</div>
             {quickRanges.slice(1, 3).map(r => {
               const active = isActive(r.key);
               const disabled = isPresetDisabled(r.key);
@@ -2900,14 +2522,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                 />
               );
             })}
-            <div style={{ 
-              color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(148, 163, 184, 0.5)', 
-              fontSize: 16, 
-              fontWeight: 300, 
-              padding: '0 4px',
-              userSelect: 'none'
-            }}>|</div>
-            {/* This Week, Last Week */}
+            <div className="preset-separator">|</div>
             {quickRanges.slice(3, 5).map(r => {
               const active = isActive(r.key);
               const disabled = isPresetDisabled(r.key);
@@ -2921,14 +2536,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                 />
               );
             })}
-            <div style={{ 
-              color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(148, 163, 184, 0.5)', 
-              fontSize: 16, 
-              fontWeight: 300, 
-              padding: '0 4px',
-              userSelect: 'none'
-            }}>|</div>
-            {/* This Month, Last Month */}
+            <div className="preset-separator">|</div>
             {quickRanges.slice(5, 7).map(r => {
               const active = isActive(r.key);
               const disabled = isPresetDisabled(r.key);
@@ -2942,14 +2550,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                 />
               );
             })}
-            <div style={{ 
-              color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(148, 163, 184, 0.5)', 
-              fontSize: 16, 
-              fontWeight: 300, 
-              padding: '0 4px',
-              userSelect: 'none'
-            }}>|</div>
-            {/* Last 90 Days, This Quarter */}
+            <div className="preset-separator">|</div>
             {quickRanges.slice(7, 9).map(r => {
               const active = isActive(r.key);
               const disabled = isPresetDisabled(r.key);
@@ -2963,14 +2564,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                 />
               );
             })}
-            <div style={{ 
-              color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(148, 163, 184, 0.5)', 
-              fontSize: 16, 
-              fontWeight: 300, 
-              padding: '0 4px',
-              userSelect: 'none'
-            }}>|</div>
-            {/* Year To Date, Current Year */}
+            <div className="preset-separator">|</div>
             {quickRanges.slice(9, 11).map(r => {
               const active = isActive(r.key);
               const disabled = isPresetDisabled(r.key);
@@ -2995,60 +2589,103 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
               </button>
             )}
           </div>
-
-          {showRoleFilter && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-                {ROLE_OPTIONS.map(({ key, label }) => (
-                  <DefaultButton
-                    key={key}
-                    text={label}
-                    onClick={() => handleRoleToggle(key)}
-                    styles={getRoleButtonStyles(isDarkMode, selectedRoles.has(key))}
-                  />
-                ))}
-                {selectedRoles.size > 0 && (
-                  <button
-                    onClick={handleClearRoles}
-                    style={clearFilterButtonStyle(isDarkMode)}
-                    title="Clear role filter"
-                  >
-                    <span style={{ fontSize: 16 }}>×</span>
-                    Clear
-                  </button>
-                )}
-              </div>
-
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-                {teamMembers
-                  .filter((member) => memberCounts.has(member.initials))
-                  .map((member) => {
-                    const count = memberCounts.get(member.initials) || 0;
-                    const isSelected = selectedTeams.has(member.initials);
-                    return (
-                      <DefaultButton
-                        key={member.initials}
-                        text={member.initials}
-                        onClick={() => handleTeamToggle(member.initials)}
-                        title={`${member.display} (${count} enquiries)`}
-                        styles={getTeamButtonStyles(isDarkMode, isSelected, count > 0)}
-                      />
-                    );
-                  })}
-                {selectedTeams.size > 0 && (
-                  <button
-                    onClick={handleClearTeams}
-                    style={clearFilterButtonStyle(isDarkMode)}
-                    title="Clear team filter"
-                  >
-                    <span style={{ fontSize: 16 }}>×</span>
-                    Clear
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
         </div>
+
+        {showRoleFilter && (
+          <div className="filter-toolbar__roles">
+            <span className="filter-section-label">Filter by role</span>
+            <div className="role-slicer-buttons" style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {ROLE_OPTIONS.map(({ key, label }) => (
+                <DefaultButton
+                  key={key}
+                  text={label}
+                  onClick={() => handleRoleToggle(key)}
+                  styles={getRoleButtonStyles(isDarkMode, selectedRoles.has(key))}
+                />
+              ))}
+              {selectedRoles.size > 0 && (
+                <button
+                  onClick={handleClearRoles}
+                  style={clearFilterButtonStyle(isDarkMode)}
+                  title="Clear role filter"
+                >
+                  <span style={{ fontSize: 16 }}>×</span>
+                  Clear
+                </button>
+              )}
+            </div>
+
+            <span className="filter-section-label" style={{ marginTop: 6 }}>Active members</span>
+            <div className="team-slicer-buttons" style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {teamMembers
+                .filter((member) => memberCounts.has(member.initials))
+                .map((member) => {
+                  const count = memberCounts.get(member.initials) || 0;
+                  const isSelected = selectedTeams.has(member.initials);
+                  return (
+                    <DefaultButton
+                      key={member.initials}
+                      text={member.initials}
+                      onClick={() => handleTeamToggle(member.initials)}
+                      title={`${member.display} (${count} enquiries)`}
+                      styles={getTeamButtonStyles(isDarkMode, isSelected, count > 0)}
+                    />
+                  );
+                })}
+              {selectedTeams.size > 0 && (
+                <button
+                  onClick={handleClearTeams}
+                  style={clearFilterButtonStyle(isDarkMode)}
+                  title="Clear team filter"
+                >
+                  <span style={{ fontSize: 16 }}>×</span>
+                  Clear
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {(sourceFilter || mocFilter || pocFilter) && (
+          <div className="filter-toolbar__bottom" style={{ alignItems: 'center' }}>
+            <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' as const, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+              Active filters
+            </span>
+            {sourceFilter && (
+              <DefaultButton
+                text={`Source: ${sourceFilter} ×`}
+                onClick={() => setSourceFilter(null)}
+                styles={getRangeButtonStyles(isDarkMode, true, false)}
+                title="Click to remove filter"
+              />
+            )}
+            {mocFilter && (
+              <DefaultButton
+                text={`Contact: ${mocFilter} ×`}
+                onClick={() => setMocFilter(null)}
+                styles={getRangeButtonStyles(isDarkMode, true, false)}
+                title="Click to remove filter"
+              />
+            )}
+            {pocFilter && (
+              <DefaultButton
+                text={`Fee Earner: ${pocFilter} ×`}
+                onClick={() => setPocFilter(null)}
+                styles={getRangeButtonStyles(isDarkMode, true, false)}
+                title="Click to remove filter"
+              />
+            )}
+            <button
+              onClick={() => { setSourceFilter(null); setMocFilter(null); setPocFilter(null); }}
+              style={clearFilterButtonStyle(isDarkMode)}
+              title="Clear all filters"
+            >
+              <span style={{ fontSize: 16 }}>×</span>
+              Clear All
+            </button>
+          </div>
+        )}
+      </div>
 
         {/* Reassignment status message */}
         {reassignmentMessage && (
@@ -3058,7 +2695,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
             styles={{
               root: {
                 marginTop: 12,
-                borderRadius: 8,
+                borderRadius: 0,
               }
             }}
           >
@@ -3071,10 +2708,10 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
           <div style={{ 
             marginTop: 12, 
             padding: 16, 
-            borderRadius: 12, 
-            background: isDarkMode ? 'rgba(220,38,38,0.12)' : 'rgba(220,38,38,0.08)',
-            border: isDarkMode ? '1px solid rgba(248,113,113,0.28)' : '1px solid rgba(220,38,38,0.18)',
-            color: isDarkMode ? '#fda4af' : '#b91c1c',
+            borderRadius: 0, 
+            background: isDarkMode ? `${colours.cta}1F` : `${colours.cta}14`,
+            border: `1px solid ${isDarkMode ? `${colours.cta}47` : `${colours.cta}30`}`,
+            color: colours.cta,
             fontSize: 14
           }}>
             ⚠️ No enquiry data loaded. Click refresh or check console for errors.
@@ -3084,10 +2721,10 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
           <div style={{ 
             marginTop: 12, 
             padding: 16, 
-            borderRadius: 12, 
-            background: isDarkMode ? 'rgba(251,191,36,0.12)' : 'rgba(251,191,36,0.08)',
-            border: isDarkMode ? '1px solid rgba(251,191,36,0.28)' : '1px solid rgba(251,191,36,0.18)',
-            color: isDarkMode ? '#fcd34d' : '#d97706',
+            borderRadius: 0, 
+            background: isDarkMode ? `${colours.orange}1F` : `${colours.orange}14`,
+            border: `1px solid ${isDarkMode ? `${colours.orange}47` : `${colours.orange}30`}`,
+            color: isDarkMode ? colours.yellow : colours.orange,
             fontSize: 14
           }}>
             ℹ️ No enquiries found in database for the last 24 months. Check server logs or database.
@@ -3097,10 +2734,10 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
           <div style={{ 
             marginTop: 12, 
             padding: 16, 
-            borderRadius: 12, 
-            background: isDarkMode ? 'rgba(251,191,36,0.12)' : 'rgba(251,191,36,0.08)',
-            border: isDarkMode ? '1px solid rgba(251,191,36,0.28)' : '1px solid rgba(251,191,36,0.18)',
-            color: isDarkMode ? '#fcd34d' : '#d97706',
+            borderRadius: 0, 
+            background: isDarkMode ? `${colours.orange}1F` : `${colours.orange}14`,
+            border: `1px solid ${isDarkMode ? `${colours.orange}47` : `${colours.orange}30`}`,
+            color: isDarkMode ? colours.yellow : colours.orange,
             fontSize: 14
           }}>
             ℹ️ {enquiries.length} enquiries loaded, but none match the selected date range "{currentRangeLabel}". Try "All" to see all data.
@@ -3111,14 +2748,14 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
         <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: 'repeat(3, minmax(220px, 1fr))', gap: 12 }}>
           {/* Total Enquiries */}
           <div style={{
-            borderRadius: 12,
+            borderRadius: 0,
             padding: 16,
-            background: isDarkMode ? 'linear-gradient(135deg, #0B1220 0%, #141C2C 100%)' : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
-            boxShadow: isDarkMode ? '0 4px 6px rgba(0, 0, 0, 0.3)' : '0 4px 6px rgba(0, 0, 0, 0.07)',
-            border: isDarkMode ? '1px solid rgba(148,163,184,0.18)' : '1px solid rgba(13,47,96,0.08)'
+            background: isDarkMode ? colours.dark.cardBackground : '#ffffff',
+            boxShadow: isDarkMode ? '0 4px 16px rgba(0, 0, 0, 0.4)' : '0 2px 8px rgba(0, 0, 0, 0.06)',
+            border: `0.5px solid ${isDarkMode ? `${colours.dark.border}30` : 'rgba(6, 23, 51, 0.08)'}`,
           }}>
             <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.7, marginBottom: 6 }}>Enquiries</div>
-            <div style={{ fontSize: 28, fontWeight: 800, color: isDarkMode ? '#E2E8F0' : colours.missedBlue }}>
+            <div style={{ fontSize: 28, fontWeight: 800, color: isDarkMode ? colours.dark.text : colours.missedBlue }}>
               {filtered.length.toLocaleString()}
             </div>
             <div style={{ fontSize: 12, opacity: 0.8, marginTop: 6 }}>~ {Math.round(stats.perDay)} per working day</div>
@@ -3126,14 +2763,14 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
 
           {/* Claimed */}
           <div style={{
-            borderRadius: 12,
+            borderRadius: 0,
             padding: 16,
-            background: isDarkMode ? 'linear-gradient(135deg, #0B1220 0%, #12263A 100%)' : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
-            boxShadow: isDarkMode ? '0 4px 6px rgba(0, 0, 0, 0.3)' : '0 4px 6px rgba(0, 0, 0, 0.07)',
-            border: isDarkMode ? '1px solid rgba(148,163,184,0.18)' : '1px solid rgba(13,47,96,0.08)'
+            background: isDarkMode ? colours.dark.cardBackground : '#ffffff',
+            boxShadow: isDarkMode ? '0 4px 16px rgba(0, 0, 0, 0.4)' : '0 2px 8px rgba(0, 0, 0, 0.06)',
+            border: `0.5px solid ${isDarkMode ? `${colours.dark.border}30` : 'rgba(6, 23, 51, 0.08)'}`,
           }}>
             <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.7, marginBottom: 6 }}>Claimed</div>
-            <div style={{ fontSize: 28, fontWeight: 800, color: isDarkMode ? '#E2E8F0' : colours.missedBlue }}>
+            <div style={{ fontSize: 28, fontWeight: 800, color: isDarkMode ? colours.dark.text : colours.missedBlue }}>
               {stats.claimed.toLocaleString()}
             </div>
             <div style={{ fontSize: 12, opacity: 0.8, marginTop: 6 }}>
@@ -3143,14 +2780,14 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
 
           {/* Unclaimed */}
           <div style={{
-            borderRadius: 12,
+            borderRadius: 0,
             padding: 16,
-            background: isDarkMode ? 'linear-gradient(135deg, #0B1220 0%, #2A1B1B 100%)' : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
-            boxShadow: isDarkMode ? '0 4px 6px rgba(0, 0, 0, 0.3)' : '0 4px 6px rgba(0, 0, 0, 0.07)',
-            border: isDarkMode ? '1px solid rgba(148,163,184,0.18)' : '1px solid rgba(13,47,96,0.08)'
+            background: isDarkMode ? colours.dark.cardBackground : '#ffffff',
+            boxShadow: isDarkMode ? '0 4px 16px rgba(0, 0, 0, 0.4)' : '0 2px 8px rgba(0, 0, 0, 0.06)',
+            border: `0.5px solid ${isDarkMode ? `${colours.dark.border}30` : 'rgba(6, 23, 51, 0.08)'}`,
           }}>
             <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.7, marginBottom: 6 }}>Unclaimed</div>
-            <div style={{ fontSize: 28, fontWeight: 800, color: isDarkMode ? '#E2E8F0' : colours.missedBlue }}>
+            <div style={{ fontSize: 28, fontWeight: 800, color: isDarkMode ? colours.dark.text : colours.missedBlue }}>
               {stats.unclaimed.toLocaleString()}
             </div>
             <div style={{ fontSize: 12, opacity: 0.8, marginTop: 6 }}>
@@ -3162,11 +2799,11 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
         {/* Enquiries Over Time Line Chart */}
         <div style={{
           marginTop: 24,
-          borderRadius: 12,
+          borderRadius: 0,
           padding: 20,
-          background: isDarkMode ? 'linear-gradient(135deg, #0B1220 0%, #141C2C 100%)' : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
-          boxShadow: isDarkMode ? '0 4px 6px rgba(0, 0, 0, 0.3)' : '0 4px 6px rgba(0, 0, 0, 0.07)',
-          border: isDarkMode ? '1px solid rgba(148,163,184,0.18)' : '1px solid rgba(13,47,96,0.08)'
+          background: isDarkMode ? colours.dark.cardBackground : '#ffffff',
+          boxShadow: isDarkMode ? '0 4px 16px rgba(0, 0, 0, 0.4)' : '0 2px 8px rgba(0, 0, 0, 0.06)',
+          border: `0.5px solid ${isDarkMode ? `${colours.dark.border}30` : 'rgba(6, 23, 51, 0.08)'}`,
         }}>
           <h3 style={{
             margin: '0 0 16px 0',
@@ -3202,7 +2839,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
               <LineChart data={lineChartData} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
                 <CartesianGrid 
                   strokeDasharray="3 3" 
-                  stroke={isDarkMode ? 'rgba(148,163,184,0.2)' : 'rgba(15,23,42,0.1)'} 
+                  stroke={isDarkMode ? `${colours.dark.border}33` : 'rgba(6, 23, 51, 0.1)'} 
                 />
                 
                 {/* Weekend highlighting - only for daily view */}
@@ -3221,7 +2858,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                           key={`weekend-${weekendStart}-${index}`}
                           x1={lineChartData[weekendStart].formattedDate}
                           x2={lineChartData[index - 1].formattedDate}
-                          fill={isDarkMode ? 'rgba(148,163,184,0.08)' : 'rgba(15,23,42,0.04)'}
+                          fill={isDarkMode ? `${colours.dark.border}14` : 'rgba(6, 23, 51, 0.04)'}
                           fillOpacity={1}
                         />
                       );
@@ -3236,7 +2873,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                         key={`weekend-${weekendStart}-end`}
                         x1={lineChartData[weekendStart].formattedDate}
                         x2={lineChartData[lineChartData.length - 1].formattedDate}
-                        fill={isDarkMode ? 'rgba(148,163,184,0.08)' : 'rgba(15,23,42,0.04)'}
+                        fill={isDarkMode ? `${colours.dark.border}14` : 'rgba(6, 23, 51, 0.04)'}
                         fillOpacity={1}
                       />
                     );
@@ -3262,9 +2899,9 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                   contentStyle={{
                     backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
                     border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-                    borderRadius: '8px',
+                    borderRadius: 0,
                     color: isDarkMode ? colours.dark.text : colours.light.text,
-                    boxShadow: isDarkMode ? '0 4px 12px rgba(0,0,0,0.3)' : '0 4px 12px rgba(0,0,0,0.1)',
+                    boxShadow: isDarkMode ? '0 4px 16px rgba(0, 0, 0, 0.4)' : '0 2px 8px rgba(0, 0, 0, 0.06)',
                     fontSize: '12px',
                     fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif"
                   }}
@@ -3360,35 +2997,35 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
           
           const { stats } = migrationData;
           return (
-            <div style={{ marginTop: 16, padding: 14, borderRadius: 8, 
-              background: isDarkMode ? 'rgba(15, 23, 42, 0.4)' : 'rgba(248, 250, 252, 0.8)',
-              border: isDarkMode ? '1px solid rgba(148,163,184,0.15)' : '1px solid rgba(13,47,96,0.08)',
+            <div style={{ marginTop: 16, padding: 14, borderRadius: 0, 
+              background: isDarkMode ? colours.dark.cardBackground : colours.grey,
+              border: `0.5px solid ${isDarkMode ? `${colours.dark.border}26` : 'rgba(6, 23, 51, 0.08)'}`,
               boxShadow: 'none'
             }}>
-              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10, color: isDarkMode ? '#cbd5e1' : '#475569', opacity: 0.8 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText, opacity: 0.8 }}>
                 Data Migration Status
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, fontSize: 11 }}>
                 <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: isDarkMode ? '#86efac' : '#22c55e' }}>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: colours.green }}>
                     {stats.migrated || 0}
                   </div>
                   <div style={{ opacity: 0.6 }}>● Synced</div>
                 </div>
                 <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: isDarkMode ? '#fcd34d' : '#d97706' }}>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: isDarkMode ? colours.yellow : colours.orange }}>
                     {stats.partial || 0}
                   </div>
                   <div style={{ opacity: 0.6 }}>◐ Partial</div>
                 </div>
                 <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: isDarkMode ? '#94a3b8' : '#64748b' }}>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
                     {stats.notMigrated || 0}
                   </div>
                   <div style={{ opacity: 0.6 }}>○ Legacy</div>
                 </div>
                 <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: isDarkMode ? '#c4b5fd' : '#8b5cf6' }}>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: isDarkMode ? colours.accent : colours.highlight }}>
                     {stats.instructionsOnly || 0}
                   </div>
                   <div style={{ opacity: 0.6 }}>● New Only</div>
@@ -3400,7 +3037,6 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
             </div>
           );
         })()}
-      </div>
 
       {/* Marketing Metrics Section */}
       {metaMetrics && metaMetrics.length > 0 && (
@@ -3417,8 +3053,8 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                 alignItems: 'center',
                 gap: 6,
                 padding: '4px 8px',
-                borderRadius: 8,
-                border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.22)' : 'rgba(13,47,96,0.12)'}`,
+                borderRadius: 0,
+                border: `0.5px solid ${isDarkMode ? `${colours.dark.border}38` : 'rgba(6, 23, 51, 0.12)'}`,
                 background: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(6,23,51,0.03)',
                 color: isDarkMode ? colours.dark.text : colours.light.text,
                 cursor: 'pointer'
@@ -3436,9 +3072,9 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
           }}>
             {/* Google Analytics Card */}
             <div style={{
-              background: isDarkMode ? 'rgba(66, 165, 245, 0.1)' : 'rgba(66, 165, 245, 0.05)',
-              border: `1px solid ${isDarkMode ? 'rgba(66, 165, 245, 0.3)' : 'rgba(66, 165, 245, 0.2)'}`,
-              borderRadius: 12,
+              background: isDarkMode ? `${colours.highlight}1A` : `${colours.highlight}0D`,
+              border: `0.5px solid ${isDarkMode ? `${colours.highlight}4D` : `${colours.highlight}33`}`,
+              borderRadius: 0,
               padding: 16
             }}>
               <div style={{ 
@@ -3446,7 +3082,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                 alignItems: 'center', 
                 gap: 8, 
                 marginBottom: 12,
-                color: '#42a5f5'
+                color: colours.highlight
               }}>
                 <Icon iconName="BarChart4" style={{ fontSize: 16 }} />
                 <span style={{ fontWeight: 600, fontSize: 14 }}>Google Analytics</span>
@@ -3491,9 +3127,9 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
 
             {/* Google Ads Card */}
             <div style={{
-              background: isDarkMode ? 'rgba(76, 175, 80, 0.1)' : 'rgba(76, 175, 80, 0.05)',
-              border: `1px solid ${isDarkMode ? 'rgba(76, 175, 80, 0.3)' : 'rgba(76, 175, 80, 0.2)'}`,
-              borderRadius: 12,
+              background: isDarkMode ? `${colours.green}1A` : `${colours.green}0D`,
+              border: `0.5px solid ${isDarkMode ? `${colours.green}4D` : `${colours.green}33`}`,
+              borderRadius: 0,
               padding: 16
             }}>
               <div style={{ 
@@ -3501,7 +3137,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                 alignItems: 'center', 
                 gap: 8, 
                 marginBottom: 12,
-                color: '#4caf50'
+                color: colours.green
               }}>
                 <Icon iconName="Money" style={{ fontSize: 16 }} />
                 <span style={{ fontWeight: 600, fontSize: 14 }}>Google Ads</span>
@@ -3555,9 +3191,9 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
 
             {/* Meta Ads Card */}
             <div style={{
-              background: isDarkMode ? 'rgba(59, 89, 152, 0.1)' : 'rgba(59, 89, 152, 0.05)',
-              border: `1px solid ${isDarkMode ? 'rgba(59, 89, 152, 0.3)' : 'rgba(59, 89, 152, 0.2)'}`,
-              borderRadius: 12,
+              background: isDarkMode ? `${colours.highlight}1A` : `${colours.highlight}0D`,
+              border: `0.5px solid ${isDarkMode ? `${colours.highlight}4D` : `${colours.highlight}33`}`,
+              borderRadius: 0,
               padding: 16
             }}>
               <div style={{ 
@@ -3565,7 +3201,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                 alignItems: 'center', 
                 gap: 8, 
                 marginBottom: 12,
-                color: '#3b5998'
+                color: colours.highlight
               }}>
                 <Icon iconName="People" style={{ fontSize: 16 }} />
                 <span style={{ fontWeight: 600, fontSize: 14 }}>Meta Ads</span>
@@ -3624,8 +3260,8 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
               alignItems: 'center',
               gap: 6,
               padding: '4px 8px',
-              borderRadius: 8,
-              border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.22)' : 'rgba(13,47,96,0.12)'}`,
+              borderRadius: 0,
+              border: `0.5px solid ${isDarkMode ? `${colours.dark.border}38` : 'rgba(6, 23, 51, 0.12)'}`,
               background: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(6,23,51,0.03)',
               color: isDarkMode ? colours.dark.text : colours.light.text,
               cursor: 'pointer'
@@ -3674,7 +3310,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                     display: 'flex', 
                     justifyContent: 'space-between', 
                     alignItems: 'center',
-                    borderBottom: `1px dashed ${isDarkMode ? 'rgba(148,163,184,0.2)' : 'rgba(15,23,42,0.08)'}`, 
+                    borderBottom: `1px dashed ${isDarkMode ? `${colours.dark.border}33` : 'rgba(6, 23, 51, 0.08)'}`, 
                     padding: '8px 0',
                     fontSize: '14px'
                   }}>
@@ -3736,7 +3372,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                     display: 'flex', 
                     justifyContent: 'space-between', 
                     alignItems: 'center',
-                    borderBottom: `1px dashed ${isDarkMode ? 'rgba(148,163,184,0.2)' : 'rgba(15,23,42,0.08)'}`, 
+                    borderBottom: `1px dashed ${isDarkMode ? `${colours.dark.border}33` : 'rgba(6, 23, 51, 0.08)'}`, 
                     padding: '8px 0',
                     fontSize: '14px'
                   }}>
@@ -3798,7 +3434,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                     display: 'flex', 
                     justifyContent: 'space-between', 
                     alignItems: 'center',
-                    borderBottom: `1px dashed ${isDarkMode ? 'rgba(148,163,184,0.2)' : 'rgba(15,23,42,0.08)'}`, 
+                    borderBottom: `1px dashed ${isDarkMode ? `${colours.dark.border}33` : 'rgba(6, 23, 51, 0.08)'}`, 
                     padding: '8px 0',
                     fontSize: '14px'
                   }}>
@@ -3860,21 +3496,21 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                 top: 16,
                 width: 10,
                 height: 10,
-                borderRadius: 5,
+                borderRadius: '50%',
                 background: isDarkMode ? 'rgba(255,255,255,0.15)' : '#fff',
                 border: `2px solid ${accent}`,
                 zIndex: 2,
               };
               const blockStyle: React.CSSProperties = {
-                borderRadius: 12,
+                borderRadius: 0,
                 padding: 12,
-                background: isDarkMode ? 'linear-gradient(135deg, #0B1220 0%, #141C2C 100%)' : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
+                background: isDarkMode ? colours.dark.cardBackground : '#ffffff',
                 boxShadow: isHovered
-                  ? (isDarkMode ? '0 6px 16px rgba(15,23,42,0.45)' : '0 10px 24px rgba(15,23,42,0.12)')
-                  : (isDarkMode ? '0 2px 6px rgba(0,0,0,0.25)' : '0 2px 6px rgba(15,23,42,0.04)'),
-                border: isDarkMode
-                  ? `1px solid ${isHovered ? 'rgba(148,163,184,0.35)' : 'rgba(148,163,184,0.14)'}`
-                  : `1px solid ${isHovered ? 'rgba(13,47,96,0.18)' : 'rgba(13,47,96,0.06)'}`,
+                  ? (isDarkMode ? '0 4px 16px rgba(0, 0, 0, 0.4)' : '0 4px 16px rgba(0, 0, 0, 0.1)')
+                  : (isDarkMode ? '0 2px 6px rgba(0, 0, 0, 0.25)' : '0 2px 6px rgba(0, 0, 0, 0.04)'),
+                border: `0.5px solid ${isDarkMode
+                  ? (isHovered ? `${colours.dark.border}59` : `${colours.dark.border}24`)
+                  : (isHovered ? 'rgba(6, 23, 51, 0.18)' : 'rgba(6, 23, 51, 0.06)')}`,
                 opacity: isHovered ? 1 : 0.6,
                 filter: isHovered ? 'none' : 'grayscale(0.12)',
                 transition: 'all 0.24s ease'
@@ -3913,9 +3549,9 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                 alignItems: 'center',
                 gap: 8,
                 padding: '6px 10px',
-                borderRadius: 8,
-                background: isDarkMode ? 'rgba(148,163,184,0.12)' : 'rgba(13,47,96,0.05)',
-                border: isDarkMode ? '1px solid rgba(148,163,184,0.18)' : '1px solid rgba(13,47,96,0.08)',
+                borderRadius: 0,
+                background: isDarkMode ? `${colours.dark.border}1F` : 'rgba(6, 23, 51, 0.05)',
+                border: `0.5px solid ${isDarkMode ? `${colours.dark.border}30` : 'rgba(6, 23, 51, 0.08)'}`,
                 fontWeight: 700,
                 marginBottom: 8,
               };
@@ -3923,8 +3559,8 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                 display: 'inline-block',
                 padding: '1px 6px',
                 borderRadius: 999,
-                background: isDarkMode ? 'rgba(148,163,184,0.12)' : 'rgba(13,47,96,0.05)',
-                border: isDarkMode ? '1px solid rgba(148,163,184,0.18)' : '1px solid rgba(13,47,96,0.08)',
+                background: isDarkMode ? `${colours.dark.border}1F` : 'rgba(6, 23, 51, 0.05)',
+                border: `0.5px solid ${isDarkMode ? `${colours.dark.border}30` : 'rgba(6, 23, 51, 0.08)'}`,
                 fontSize: 11,
                 fontWeight: 600,
               };
@@ -4053,12 +3689,12 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                             }}>
                               <div style={{
                                 padding: '8px 12px',
-                                borderRadius: '8px',
-                                background: isDarkMode ? 'rgba(239, 68, 68, 0.1)' : 'rgba(239, 68, 68, 0.05)',
-                                border: `1px solid ${isDarkMode ? 'rgba(239, 68, 68, 0.2)' : 'rgba(239, 68, 68, 0.1)'}`,
+                                borderRadius: 0,
+                                background: isDarkMode ? `${colours.cta}1A` : `${colours.cta}0D`,
+                                border: `0.5px solid ${isDarkMode ? `${colours.cta}33` : `${colours.cta}1A`}`,
                                 textAlign: 'center'
                               }}>
-                                <div style={{ fontSize: '20px', fontWeight: 700, color: '#ef4444' }}>
+                                <div style={{ fontSize: '20px', fontWeight: 700, color: colours.cta }}>
                                   {summary.unclaimed}
                                 </div>
                                 <div style={{ fontSize: '10px', opacity: 0.7, textTransform: 'uppercase' }}>
@@ -4067,12 +3703,12 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                               </div>
                               <div style={{
                                 padding: '8px 12px',
-                                borderRadius: '8px',
-                                background: isDarkMode ? 'rgba(34, 197, 94, 0.1)' : 'rgba(34, 197, 94, 0.05)',
-                                border: `1px solid ${isDarkMode ? 'rgba(34, 197, 94, 0.2)' : 'rgba(34, 197, 94, 0.1)'}`,
+                                borderRadius: 0,
+                                background: isDarkMode ? `${colours.green}1A` : `${colours.green}0D`,
+                                border: `0.5px solid ${isDarkMode ? `${colours.green}33` : `${colours.green}1A`}`,
                                 textAlign: 'center'
                               }}>
-                                <div style={{ fontSize: '20px', fontWeight: 700, color: '#22c55e' }}>
+                                <div style={{ fontSize: '20px', fontWeight: 700, color: colours.green }}>
                                   {summary.claimed}
                                 </div>
                                 <div style={{ fontSize: '10px', opacity: 0.7, textTransform: 'uppercase' }}>
@@ -4081,12 +3717,12 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                               </div>
                               <div style={{
                                 padding: '8px 12px',
-                                borderRadius: '8px',
-                                background: isDarkMode ? 'rgba(59, 130, 246, 0.1)' : 'rgba(59, 130, 246, 0.05)',
-                                border: `1px solid ${isDarkMode ? 'rgba(59, 130, 246, 0.2)' : 'rgba(59, 130, 246, 0.1)'}`,
+                                borderRadius: 0,
+                                background: isDarkMode ? `${colours.highlight}1A` : `${colours.highlight}0D`,
+                                border: `0.5px solid ${isDarkMode ? `${colours.highlight}33` : `${colours.highlight}1A`}`,
                                 textAlign: 'center'
                               }}>
-                                <div style={{ fontSize: '20px', fontWeight: 700, color: '#3b82f6' }}>
+                                <div style={{ fontSize: '20px', fontWeight: 700, color: colours.highlight }}>
                                   {summary.triaged}
                                 </div>
                                 <div style={{ fontSize: '10px', opacity: 0.7, textTransform: 'uppercase' }}>
@@ -4112,7 +3748,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                                         fontSize: '10px',
                                         padding: '4px 8px',
                                         background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)',
-                                        borderRadius: '4px'
+                                        borderRadius: 0
                                       }}>
                                         <span style={{ fontWeight: 500 }}>{claimer.initials}</span>
                                         <span style={{ 
@@ -4148,7 +3784,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                                         fontSize: '9px',
                                         padding: '3px 4px',
                                         backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)',
-                                        borderRadius: '3px',
+                                        borderRadius: 0,
                                         textAlign: 'center',
                                         display: 'flex',
                                         flexDirection: 'column',
@@ -4201,10 +3837,10 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                             style={{
                               fontSize: 11,
                               padding: '6px 8px',
-                              borderRadius: 8,
-                              border: isDarkMode ? '1px solid rgba(148,163,184,0.22)' : '1px solid rgba(15,23,42,0.14)',
-                              background: isDarkMode ? 'rgba(15,23,42,0.6)' : 'rgba(241,245,249,0.8)',
-                              color: isDarkMode ? '#e2e8f0' : '#1f2937'
+                              borderRadius: 0,
+                              border: isDarkMode ? `0.5px solid ${colours.dark.border}38` : '0.5px solid rgba(6, 23, 51, 0.14)',
+                              background: isDarkMode ? 'rgba(6, 23, 51, 0.6)' : `rgba(244, 244, 246, 0.8)`,
+                              color: isDarkMode ? colours.dark.text : colours.light.text
                             }}
                           />
                           <input
@@ -4214,10 +3850,10 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                             style={{
                               fontSize: 11,
                               padding: '6px 8px',
-                              borderRadius: 8,
-                              border: isDarkMode ? '1px solid rgba(148,163,184,0.22)' : '1px solid rgba(15,23,42,0.14)',
-                              background: isDarkMode ? 'rgba(15,23,42,0.6)' : 'rgba(241,245,249,0.8)',
-                              color: isDarkMode ? '#e2e8f0' : '#1f2937'
+                              borderRadius: 0,
+                              border: isDarkMode ? `0.5px solid ${colours.dark.border}38` : '0.5px solid rgba(6, 23, 51, 0.14)',
+                              background: isDarkMode ? 'rgba(6, 23, 51, 0.6)' : `rgba(244, 244, 246, 0.8)`,
+                              color: isDarkMode ? colours.dark.text : colours.light.text
                             }}
                           />
                           {/* Email (no filter for now, spacer to align columns) */}
@@ -4231,10 +3867,10 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                             style={{
                               fontSize: 11,
                               padding: '6px 8px',
-                              borderRadius: 8,
-                              border: isDarkMode ? '1px solid rgba(148,163,184,0.22)' : '1px solid rgba(15,23,42,0.14)',
-                              background: isDarkMode ? 'rgba(15,23,42,0.6)' : 'rgba(241,245,249,0.8)',
-                              color: isDarkMode ? '#e2e8f0' : '#1f2937'
+                              borderRadius: 0,
+                              border: isDarkMode ? `0.5px solid ${colours.dark.border}38` : '0.5px solid rgba(6, 23, 51, 0.14)',
+                              background: isDarkMode ? 'rgba(6, 23, 51, 0.6)' : `rgba(244, 244, 246, 0.8)`,
+                              color: isDarkMode ? colours.dark.text : colours.light.text
                             }}
                           />
                           <select
@@ -4243,10 +3879,10 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                             style={{
                               fontSize: 11,
                               padding: '6px 8px',
-                              borderRadius: 8,
-                              border: isDarkMode ? '1px solid rgba(148,163,184,0.22)' : '1px solid rgba(15,23,42,0.14)',
-                              background: isDarkMode ? 'rgba(15,23,42,0.6)' : 'rgba(241,245,249,0.8)',
-                              color: isDarkMode ? '#e2e8f0' : '#1f2937'
+                              borderRadius: 0,
+                              border: isDarkMode ? `0.5px solid ${colours.dark.border}38` : '0.5px solid rgba(6, 23, 51, 0.14)',
+                              background: isDarkMode ? 'rgba(6, 23, 51, 0.6)' : `rgba(244, 244, 246, 0.8)`,
+                              color: isDarkMode ? colours.dark.text : colours.light.text
                             }}
                           >
                         <option value="">All statuses</option>
@@ -4309,8 +3945,8 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                         const isRowHighlighted = isHighlightActive && hoverHighlight!.poc === pocRaw;
                         const highlightedCellStyle: React.CSSProperties = isRowHighlighted
                           ? (isDarkMode
-                              ? { background: 'rgba(135, 243, 243, 0.12)', outline: '1px solid rgba(135, 243, 243, 0.38)', borderRadius: 6 }
-                              : { background: 'rgba(13, 47, 96, 0.06)', outline: '1px solid rgba(13, 47, 96, 0.18)', borderRadius: 6 })
+                              ? { background: `${colours.accent}1F`, outline: `0.5px solid ${colours.accent}61`, borderRadius: 0 }
+                              : { background: `${colours.helixBlue}0F`, outline: `0.5px solid ${colours.helixBlue}2E`, borderRadius: 0 })
                           : {};
                         
                         // Migration status indicators for transition management (with local override)
@@ -4329,17 +3965,17 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                         const getMigrationIndicator = (status: string) => {
                           switch (status) {
                             case 'migrated':
-                              return { icon: '●', color: isDarkMode ? '#86efac' : '#22c55e', label: 'Synced', title: `Synced to new system (ID: ${instructionsId})` };
+                              return { icon: '●', color: isDarkMode ? colours.green : colours.green, label: 'Synced', title: `Synced to new system (ID: ${instructionsId})` };
                             case 'partial':
-                              return { icon: '◐', color: isDarkMode ? '#fcd34d' : '#d97706', label: 'Partial', title: `Partially synced (Score: ${matchScore})` };
+                              return { icon: '◐', color: isDarkMode ? colours.yellow : colours.orange, label: 'Partial', title: `Partially synced (Score: ${matchScore})` };
                             case 'not-migrated':
-                              return { icon: '○', color: isDarkMode ? '#94a3b8' : '#64748b', label: 'Legacy', title: 'Legacy system only' };
+                              return { icon: '○', color: isDarkMode ? colours.subtleGrey : colours.greyText, label: 'Legacy', title: 'Legacy system only' };
                             case 'sync-pending':
-                              return { icon: '◒', color: isDarkMode ? '#93c5fd' : '#3b82f6', label: 'Pending', title: 'Sync pending' };
+                              return { icon: '◒', color: isDarkMode ? colours.accent : colours.highlight, label: 'Pending', title: 'Sync pending' };
                             case 'instructions-only':
                               return { icon: '●', color: isDarkMode ? '#c4b5fd' : '#8b5cf6', label: 'New', title: 'New system only' };
                             default:
-                              return { icon: '○', color: isDarkMode ? '#64748b' : '#94a3b8', label: 'Unknown', title: 'Migration status unknown' };
+                              return { icon: '○', color: isDarkMode ? colours.greyText : colours.subtleGrey, label: 'Unknown', title: 'Migration status unknown' };
                           }
                         };
                         
@@ -4349,11 +3985,11 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                           alignItems: 'center', 
                           gap: 4,
                           padding: '1px 4px', 
-                          borderRadius: 6, 
+                          borderRadius: 0, 
                           fontSize: 9, 
                           fontWeight: 500,
                           background: isDarkMode ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.7)',
-                          border: `1px solid ${migrationIndicator.color}30`,
+                          border: `0.5px solid ${migrationIndicator.color}30`,
                           color: migrationIndicator.color,
                           marginLeft: 4,
                           opacity: 0.9,
@@ -4373,22 +4009,22 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                           ? {
                               ...subtleBadge,
                               background: isTriaged
-                                ? (isDarkMode ? 'rgba(59,130,246,0.12)' : 'rgba(59,130,246,0.08)') // blue for Triaged departments
-                                : (isDarkMode ? 'rgba(220,38,38,0.12)' : 'rgba(220,38,38,0.08)'),
+                                ? (isDarkMode ? `${colours.highlight}1F` : `${colours.highlight}14`) // blue for Triaged departments
+                                : (isDarkMode ? `${colours.cta}1F` : `${colours.cta}14`),
                               border: isTriaged
-                                ? (isDarkMode ? '1px solid rgba(96,165,250,0.28)' : '1px solid rgba(59,130,246,0.18)')
-                                : (isDarkMode ? '1px solid rgba(248,113,113,0.28)' : '1px solid rgba(220,38,38,0.18)'),
+                                ? (isDarkMode ? `0.5px solid ${colours.highlight}47` : `0.5px solid ${colours.highlight}2E`)
+                                : (isDarkMode ? `0.5px solid ${colours.cta}47` : `0.5px solid ${colours.cta}2E`),
                               color: isTriaged
-                                ? (isDarkMode ? '#93c5fd' : '#1d4ed8')
-                                : (isDarkMode ? '#fda4af' : '#b91c1c'),
+                                ? (isDarkMode ? colours.accent : colours.highlight)
+                                : (isDarkMode ? `${colours.cta}CC` : colours.cta),
                             }
                           : {};
                         const taker = (e.Call_Taker || '').trim();
                         const takerLabel = taker.toLowerCase() === 'operations' ? 'Internal' : 'External';
                         const takerStyle: React.CSSProperties = subtleBadge;
                         const claimedBadge: React.CSSProperties = isDarkMode
-                          ? { ...subtleBadge, background: 'rgba(32,178,108,0.12)', border: '1px solid rgba(32,178,108,0.28)', color: '#86efac', marginRight: 6 }
-                          : { ...subtleBadge, background: 'rgba(32,178,108,0.08)', border: '1px solid rgba(32,178,108,0.18)', color: colours.green, marginRight: 6 };
+                          ? { ...subtleBadge, background: `${colours.green}1F`, border: `0.5px solid ${colours.green}47`, color: colours.green, marginRight: 6 }
+                          : { ...subtleBadge, background: `${colours.green}14`, border: `0.5px solid ${colours.green}2E`, color: colours.green, marginRight: 6 };
                         // Claimed status: clear text instead of confusing dots
                         const rowDim: React.CSSProperties = {};
                         const nameCellExtra: React.CSSProperties = {};
@@ -4396,13 +4032,13 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                         const statusPrimaryBadge: React.CSSProperties = (() => {
                           if (isUnclaimed) {
                             return isDarkMode
-                              ? { ...subtleBadge, background: 'rgba(248,113,113,0.12)', border: '1px solid rgba(248,113,113,0.28)', color: '#fca5a5' }
-                              : { ...subtleBadge, background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.18)', color: '#b91c1c' };
+                              ? { ...subtleBadge, background: `${colours.cta}1F`, border: `0.5px solid ${colours.cta}47`, color: `${colours.cta}CC` }
+                              : { ...subtleBadge, background: `${colours.cta}14`, border: `0.5px solid ${colours.cta}2E`, color: colours.cta };
                           }
                           if (isTriaged) {
                             return isDarkMode
-                              ? { ...subtleBadge, background: 'rgba(96,165,250,0.12)', border: '1px solid rgba(96,165,250,0.28)', color: '#93c5fd' }
-                              : { ...subtleBadge, background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.18)', color: '#1d4ed8' };
+                              ? { ...subtleBadge, background: `${colours.highlight}1F`, border: `0.5px solid ${colours.highlight}47`, color: colours.accent }
+                              : { ...subtleBadge, background: `${colours.highlight}14`, border: `0.5px solid ${colours.highlight}2E`, color: colours.highlight };
                           }
                           return { ...claimedBadge, marginRight: 0 };
                         })();
@@ -4413,24 +4049,24 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                         };
                         // Align with Instructions module semantics and colours: Pitched (blue), Instructed (green)
                         const dealTag: React.CSSProperties = isDarkMode
-                          ? { ...tagBase, background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(147,197,253,0.28)', color: '#93c5fd' }
-                          : { ...tagBase, background: 'rgba(37,99,235,0.08)', border: '1px solid rgba(37,99,235,0.18)', color: '#1e40af' };
+                          ? { ...tagBase, background: `${colours.highlight}1F`, border: `0.5px solid ${colours.highlight}47`, color: colours.accent }
+                          : { ...tagBase, background: `${colours.highlight}14`, border: `0.5px solid ${colours.highlight}2E`, color: colours.highlight };
                         const instructionTag: React.CSSProperties = isDarkMode
-                          ? { ...tagBase, background: 'rgba(32,178,108,0.12)', border: '1px solid rgba(32,178,108,0.28)', color: '#86efac' }
-                          : { ...tagBase, background: 'rgba(32,178,108,0.08)', border: '1px solid rgba(32,178,108,0.18)', color: colours.green };
+                          ? { ...tagBase, background: `${colours.green}1F`, border: `0.5px solid ${colours.green}47`, color: colours.green }
+                          : { ...tagBase, background: `${colours.green}14`, border: `0.5px solid ${colours.green}2E`, color: colours.green };
                         const initialsPillStyle: React.CSSProperties = {
                           display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                           width: 22, height: 22, borderRadius: 999, fontSize: 10, fontWeight: 800,
-                          color: isDarkMode ? '#E2E8F0' : colours.missedBlue,
-                          background: isDarkMode ? 'linear-gradient(135deg, #0B1220 0%, #12263A 100%)' : 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
-                          border: isDarkMode ? '1px solid rgba(148,163,184,0.35)' : '1px solid rgba(13,47,96,0.18)',
-                          boxShadow: isDarkMode ? '0 1px 2px rgba(0,0,0,0.35)' : '0 1px 2px rgba(15,23,42,0.08)',
+                          color: isDarkMode ? colours.dark.text : colours.missedBlue,
+                          background: isDarkMode ? colours.dark.sectionBackground : colours.grey,
+                          border: isDarkMode ? `0.5px solid ${colours.dark.border}59` : `0.5px solid rgba(6, 23, 51, 0.18)`,
+                          boxShadow: isDarkMode ? '0 1px 2px rgba(0,0,0,0.35)' : '0 1px 2px rgba(6, 23, 51, 0.08)',
                           marginRight: 8, cursor: 'pointer'
                         };
                         const isV2Entry = Boolean((e as any)?.aow || (e as any)?.first || (e as any)?.point_of_contact || (e as any)?.enquiry_id || (e as any)?.instructionsId);
                         const v2Pill: React.CSSProperties = isDarkMode
-                          ? { display: 'inline-flex', alignItems: 'center', padding: '1px 6px', borderRadius: 999, fontSize: 9, fontWeight: 700, color: '#93c5fd', background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(147,197,253,0.28)', marginLeft: 4 }
-                          : { display: 'inline-flex', alignItems: 'center', padding: '1px 6px', borderRadius: 999, fontSize: 9, fontWeight: 700, color: colours.highlight, background: 'rgba(54,144,206,0.08)', border: '1px solid rgba(54,144,206,0.18)', marginLeft: 4 };
+                          ? { display: 'inline-flex', alignItems: 'center', padding: '1px 6px', borderRadius: 999, fontSize: 9, fontWeight: 700, color: colours.accent, background: `${colours.highlight}1F`, border: `0.5px solid ${colours.highlight}47`, marginLeft: 4 }
+                          : { display: 'inline-flex', alignItems: 'center', padding: '1px 6px', borderRadius: 999, fontSize: 9, fontWeight: 700, color: colours.highlight, background: `${colours.highlight}14`, border: `0.5px solid ${colours.highlight}2E`, marginLeft: 4 };
                         return (
                           <React.Fragment key={idx2}>
                             <div style={{ ...rowDim, ...nameCellExtra, ...highlightedCellStyle, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -4465,7 +4101,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                                   alignItems: 'center',
                                   justifyContent: 'center',
                                   background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-                                  border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.25)' : 'rgba(15,23,42,0.12)'}`
+                                  border: `0.5px solid ${isDarkMode ? `${colours.dark.border}40` : 'rgba(6, 23, 51, 0.12)'}`
                                 }}>
                                   <Icon iconName={aow.icon} style={{ fontSize: 10, color: aow.color }} />
                                 </span>
@@ -4567,7 +4203,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
           main: {
             backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
             border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-            borderRadius: 12,
+            borderRadius: 0,
             boxShadow: isDarkMode 
               ? '0 25px 50px -12px rgba(0, 0, 0, 0.8)' 
               : '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
@@ -4589,7 +4225,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
             <div style={{
               backgroundColor: isDarkMode ? colours.dark.background : colours.light.background,
               border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-              borderRadius: 8,
+              borderRadius: 0,
               padding: 16,
               overflow: 'auto',
               maxHeight: '65vh'
@@ -4616,7 +4252,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                   opacity: 0.7,
                   backgroundColor: isDarkMode ? colours.dark.border : colours.light.border,
                   padding: '2px 6px',
-                  borderRadius: 4,
+                  borderRadius: 0,
                   fontFamily: 'monospace'
                 }}>
                   ID: {String(migrationLegacy.ID ?? 'unknown')}
@@ -4821,7 +4457,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                   marginTop: 16,
                   padding: 12,
                   backgroundColor: isDarkMode ? colours.dark.inputBackground : colours.light.inputBackground,
-                  borderRadius: 6,
+                  borderRadius: 0,
                   border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`
                 }}>
                   <div style={{ 
@@ -4848,7 +4484,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
             <div style={{
               backgroundColor: isDarkMode ? colours.dark.background : colours.light.background,
               border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-              borderRadius: 8,
+              borderRadius: 0,
               padding: 16,
               overflow: 'auto',
               maxHeight: '65vh'
@@ -4876,7 +4512,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                   backgroundColor: colours.blue,
                   color: '#ffffff',
                   padding: '2px 6px',
-                  borderRadius: 4,
+                  borderRadius: 0,
                   fontWeight: 500
                 }}>
                   EDITABLE
@@ -5376,7 +5012,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
               root: {
                 backgroundColor: colours.blue,
                 border: 'none',
-                borderRadius: 4,
+                borderRadius: 0,
                 padding: '6px 12px',
                 fontWeight: 600,
                 fontSize: 12,
@@ -5405,7 +5041,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
               root: {
                 backgroundColor: 'transparent',
                 border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-                borderRadius: 4,
+                borderRadius: 0,
                 padding: '6px 12px',
                 fontWeight: 500,
                 fontSize: 12,
@@ -5433,10 +5069,10 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
             minWidth: 250,
             maxHeight: 400,
             overflowY: 'auto',
-            background: isDarkMode ? '#1e293b' : '#ffffff',
-            border: `2px solid ${isDarkMode ? '#3b82f6' : '#2563eb'}`,
-            borderRadius: 8,
-            boxShadow: '0 20px 50px rgba(0, 0, 0, 0.6)',
+            background: isDarkMode ? colours.dark.sectionBackground : '#ffffff',
+            border: `0.5px solid ${isDarkMode ? colours.highlight : colours.highlight}`,
+            borderRadius: 0,
+            boxShadow: isDarkMode ? '0 4px 16px rgba(0,0,0,0.4)' : '0 2px 8px rgba(0,0,0,0.06)',
             padding: 16,
           }}
         >
@@ -5444,7 +5080,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
             fontSize: 14, 
             fontWeight: 600, 
             marginBottom: 12,
-            color: isDarkMode ? '#e2e8f0' : '#334155'
+            color: isDarkMode ? colours.dark.text : colours.light.text
           }}>
             Reassign to:
           </div>
@@ -5455,10 +5091,10 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
             style={{
               width: '100%',
               padding: '8px 12px',
-              borderRadius: 6,
-              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(13, 47, 96, 0.16)'}`,
-              background: isDarkMode ? 'rgba(15, 23, 42, 0.9)' : 'rgba(255, 255, 255, 0.95)',
-              color: isDarkMode ? '#e2e8f0' : '#334155',
+              borderRadius: 0,
+              border: `0.5px solid ${isDarkMode ? `${colours.dark.border}3D` : 'rgba(6, 23, 51, 0.16)'}`,
+              background: isDarkMode ? 'rgba(6, 23, 51, 0.9)' : 'rgba(255, 255, 255, 0.95)',
+              color: isDarkMode ? colours.dark.text : colours.light.text,
               fontSize: 14,
               fontFamily: 'Raleway, sans-serif',
               cursor: isReassigning ? 'default' : 'pointer',
@@ -5476,7 +5112,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
             <div style={{ 
               marginTop: 8, 
               fontSize: 12, 
-              color: isDarkMode ? '#94a3b8' : '#64748b',
+              color: isDarkMode ? colours.subtleGrey : colours.greyText,
               display: 'flex',
               alignItems: 'center',
               gap: 6
@@ -5488,7 +5124,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
           <div style={{ 
             marginTop: 12, 
             fontSize: 11, 
-            color: isDarkMode ? '#64748b' : '#94a3b8',
+            color: isDarkMode ? colours.greyText : colours.subtleGrey,
             fontStyle: 'italic'
           }}>
             Click outside to cancel
@@ -5514,7 +5150,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
         onClick={closeModal}>
           <div style={{
             backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-            borderRadius: '12px',
+            borderRadius: 0,
             padding: '24px',
             maxWidth: '80vw',
             maxHeight: '80vh',
@@ -5561,7 +5197,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                     cursor: 'pointer',
                     color: isDarkMode ? colours.dark.subText : colours.light.subText,
                     padding: '4px',
-                    borderRadius: '4px'
+                    borderRadius: 0
                   }}
                   title="Close"
                 >
@@ -5603,7 +5239,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                         backgroundColor: index % 2 === 0 ? 
                           (isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)') : 
                           'transparent',
-                        borderRadius: '4px',
+                        borderRadius: 0,
                         fontSize: '13px',
                         lineHeight: '1.4'
                       }}>
@@ -5716,7 +5352,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                   backgroundColor: colours.blue,
                   color: 'white',
                   border: 'none',
-                  borderRadius: '6px',
+                  borderRadius: 0,
                   cursor: 'pointer',
                   fontSize: '13px',
                   fontWeight: 500
@@ -5731,7 +5367,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                   backgroundColor: 'transparent',
                   color: isDarkMode ? colours.dark.subText : colours.light.subText,
                   border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-                  borderRadius: '6px',
+                  borderRadius: 0,
                   cursor: 'pointer',
                   fontSize: '13px'
                 }}

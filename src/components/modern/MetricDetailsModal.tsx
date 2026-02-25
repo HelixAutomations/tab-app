@@ -22,6 +22,8 @@ interface MetricDetailsModalProps {
 
 const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({ isOpen, onClose, isDarkMode, details }) => {
   const rows = details?.rows ?? [];
+  const shellBackground = isDarkMode ? 'rgba(6, 23, 51, 0.35)' : 'rgba(248, 250, 252, 0.9)';
+  const shellBorder = `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(15, 23, 42, 0.08)'}`;
 
   return (
     <BespokePanel
@@ -36,18 +38,50 @@ const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({ isOpen, onClose
       <div
         style={{
           display: 'grid',
-          gap: 12,
+          gap: 10,
         }}
       >
+        <div
+          style={{
+            border: shellBorder,
+            background: shellBackground,
+            padding: '12px 14px',
+            borderLeft: `2px solid ${isDarkMode ? colours.accent : colours.highlight}`,
+          }}
+        >
+          <div
+            style={{
+              fontSize: 10,
+              letterSpacing: 0.7,
+              textTransform: 'uppercase',
+              fontWeight: 700,
+              color: isDarkMode ? 'rgba(255, 255, 255, 0.52)' : 'rgba(15, 23, 42, 0.55)',
+              marginBottom: 6,
+            }}
+          >
+            Metric context
+          </div>
+          <div
+            style={{
+              fontSize: 13,
+              fontWeight: 500,
+              color: isDarkMode ? '#d1d5db' : '#374151',
+              lineHeight: 1.4,
+            }}
+          >
+            {details?.subtitle || 'Quick reference for what this metric includes and how the comparison is calculated.'}
+          </div>
+        </div>
+
         {rows.length === 0 ? (
           <div
             style={{
               padding: 14,
-              borderRadius: 8,
-              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(15, 23, 42, 0.08)'}`,
-              background: isDarkMode ? 'rgba(2, 6, 23, 0.35)' : 'rgba(248, 250, 252, 0.85)',
-              color: isDarkMode ? colours.dark.text : colours.light.text,
+              border: shellBorder,
+              background: shellBackground,
+              color: isDarkMode ? '#d1d5db' : '#374151',
               fontSize: 13,
+              lineHeight: 1.4,
             }}
           >
             No extra details available for this metric.
@@ -58,12 +92,12 @@ const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({ isOpen, onClose
               key={row.label}
               style={{
                 padding: 14,
-                borderRadius: 8,
-                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(15, 23, 42, 0.08)'}`,
-                background: isDarkMode ? 'rgba(2, 6, 23, 0.35)' : 'rgba(248, 250, 252, 0.85)',
+                border: shellBorder,
+                background: shellBackground,
+                borderLeft: `2px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.38)' : 'rgba(54, 144, 206, 0.42)'}`,
                 display: 'flex',
                 alignItems: 'flex-start',
-                justifyContent: 'space-between',
+                justifyContent: 'flex-start',
                 gap: 16,
               }}
             >
@@ -73,7 +107,7 @@ const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({ isOpen, onClose
                   letterSpacing: 0.6,
                   textTransform: 'uppercase',
                   fontWeight: 700,
-                  color: isDarkMode ? 'rgba(148, 163, 184, 0.85)' : 'rgba(100, 116, 139, 0.95)',
+                  color: isDarkMode ? 'rgba(255, 255, 255, 0.52)' : 'rgba(15, 23, 42, 0.56)',
                   lineHeight: 1.2,
                   flex: '0 0 170px',
                 }}
@@ -84,10 +118,10 @@ const MetricDetailsModal: React.FC<MetricDetailsModalProps> = ({ isOpen, onClose
                 style={{
                   fontSize: 13,
                   fontWeight: 500,
-                  color: isDarkMode ? colours.dark.text : colours.light.text,
-                  lineHeight: 1.35,
+                  color: isDarkMode ? '#d1d5db' : '#374151',
+                  lineHeight: 1.4,
                   flex: 1,
-                  textAlign: 'right',
+                  textAlign: 'left',
                 }}
               >
                 {row.value}

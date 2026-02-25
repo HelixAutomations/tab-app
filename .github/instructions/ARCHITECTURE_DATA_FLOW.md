@@ -54,7 +54,8 @@ helix-hub-v1/
 ├── server/                       # Local dev server
 │   └── routes/
 │       ├── instructions.js       # Instructions CRUD
-│       └── matter-operations.js  # Matter management
+│       ├── matter-operations.js  # Matter management
+│       └── legacyMigration.js    # Legacy pipeline migration (/api/migration)
 │
 ├── tools/                        # Reusable ops scripts (tracked)
 ├── scripts/                      # Local-only scratch (excluded from git)
@@ -209,6 +210,17 @@ WHERE InstructionRef = ? AND Status = 'MatterRequest'
 DELETE FROM Matters 
 WHERE InstructionRef = ? AND Status = 'MatterRequest'
 ```
+
+**Operational one-off rule (matter replay failures)**:
+- If `/api/clio-matters` fails but previous steps succeed, run `tools/run-matter-oneoff.mjs`.
+- Always dry-run first, then run live with explicit `--practice-area` when deal area is a generic bucket (e.g. `construction`) rather than a canonical Clio label.
+- Canonical labels come from `server/utils/clioConstants.js` (`PRACTICE_AREAS`).
+- After success, clear only stale placeholder rows left by failed attempts using strict conditions:
+  - same `InstructionRef`
+  - `Status='MatterRequest'`
+  - null/empty `ClientID`
+  - null/empty `DisplayNumber`
+  - specific stale `MatterID`
 
 **Recommendation**: Add UNIQUE constraint on `(InstructionRef, Status)` where Status='MatterRequest' to prevent future duplicates.
 

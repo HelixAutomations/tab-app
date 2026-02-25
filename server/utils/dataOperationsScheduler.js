@@ -4,6 +4,10 @@ const { trackEvent, trackException } = require('./appInsights');
 
 const schedulerLogger = createLogger('DataOpsScheduler');
 
+const WIP_HOT_DAYS_BACK = 7;
+const WIP_WARM_DAYS_BACK = 21;
+const WIP_COLD_DAYS_BACK = 56;
+
 function getLondonNow() {
   return new Date(new Date().toLocaleString('en-GB', { timeZone: 'Europe/London' }));
 }
@@ -36,6 +40,7 @@ function formatSlotKey(date) {
  * ~29 API calls/day per operation (24 hot + 4 warm + 1 cold).
  * Each tier has its own running guard + last-slot dedup.
  * WIP runs at :08 offset to avoid overlapping Clio API calls with collected.
+ * WIP windows are wider than collected to catch delayed backfills in recent history.
  */
 function startDataOperationsScheduler() {
   const state = {
@@ -137,16 +142,16 @@ function startDataOperationsScheduler() {
     // WIP — runs at :08 (5 min offset from collected)
     // ═══════════════════════════════════════════════
 
-    // ─── HOT: every 60 min at :08 — today + yesterday ───
+    // ─── HOT: every 60 min at :08 — rolling recent history ───
     if (minute === 8) {
       const slotKey = formatSlotKey(now);
       if (!state.wipHotRunning && state.wipHotLastSlot !== slotKey) {
         state.wipHotRunning = true;
         state.wipHotLastSlot = slotKey;
         const opName = 'syncWipHot';
-        logProgress(opName, `WIP hot sync triggered (${slotKey}) — today+yesterday`, { triggeredBy: 'scheduler' });
+        logProgress(opName, `WIP hot sync triggered (${slotKey}) — rolling ${WIP_HOT_DAYS_BACK} days`, { triggeredBy: 'scheduler' });
         try {
-          await syncWip({ daysBack: 1, triggeredBy: 'scheduler' });
+          await syncWip({ daysBack: WIP_HOT_DAYS_BACK, triggeredBy: 'scheduler' });
           schedulerLogger.info(`WIP hot sync completed (${slotKey})`);
           trackEvent('Scheduler.Wip.Hot.Completed', { slotKey });
         } catch (error) {
@@ -159,16 +164,16 @@ function startDataOperationsScheduler() {
       }
     }
 
-    // ─── WARM: every 6h at :08 (00:08, 06:08, 12:08, 18:08) — rolling 3 days ───
+    // ─── WARM: every 6h at :08 (00:08, 06:08, 12:08, 18:08) — rolling medium history ───
     if (hour % 6 === 0 && minute === 8) {
       const slotKey = formatSlotKey(now);
       if (!state.wipWarmRunning && state.wipWarmLastSlot !== slotKey) {
         state.wipWarmRunning = true;
         state.wipWarmLastSlot = slotKey;
         const opName = 'syncWipWarm';
-        logProgress(opName, `WIP warm sync triggered (${slotKey}) — rolling 3 days`, { triggeredBy: 'scheduler' });
+        logProgress(opName, `WIP warm sync triggered (${slotKey}) — rolling ${WIP_WARM_DAYS_BACK} days`, { triggeredBy: 'scheduler' });
         try {
-          await syncWip({ daysBack: 3, triggeredBy: 'scheduler' });
+          await syncWip({ daysBack: WIP_WARM_DAYS_BACK, triggeredBy: 'scheduler' });
           schedulerLogger.info(`WIP warm sync completed (${slotKey})`);
           trackEvent('Scheduler.Wip.Warm.Completed', { slotKey });
         } catch (error) {
@@ -181,16 +186,16 @@ function startDataOperationsScheduler() {
       }
     }
 
-    // ─── COLD: nightly at 23:08 — rolling 14 days ───
+    // ─── COLD: nightly at 23:08 — rolling deeper history ───
     if (hour === 23 && minute === 8) {
       const dateKey = formatDateKey(now);
       if (!state.wipColdRunning && state.wipColdLastDate !== dateKey) {
         state.wipColdRunning = true;
         state.wipColdLastDate = dateKey;
         const opName = 'syncWipCold';
-        logProgress(opName, `WIP cold sync triggered (${dateKey} 23:08) — rolling 14 days`, { triggeredBy: 'scheduler' });
+        logProgress(opName, `WIP cold sync triggered (${dateKey} 23:08) — rolling ${WIP_COLD_DAYS_BACK} days`, { triggeredBy: 'scheduler' });
         try {
-          await syncWip({ daysBack: 14, triggeredBy: 'scheduler' });
+          await syncWip({ daysBack: WIP_COLD_DAYS_BACK, triggeredBy: 'scheduler' });
           schedulerLogger.info(`WIP cold sync completed (${dateKey})`);
           trackEvent('Scheduler.Wip.Cold.Completed', { dateKey });
         } catch (error) {

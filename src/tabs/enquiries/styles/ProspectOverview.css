@@ -1,0 +1,385 @@
+/* ═══════════════════════════════════════════════════════════
+   ProspectOverview.css — Elite-level Prospects Overview
+   Helix Hub · Built for purpose · Apple/MS-grade UX
+   ═══════════════════════════════════════════════════════════ */
+
+/* ─── Pipeline Progress Rail ─────────────────────────────── */
+
+.prospect-pipeline-rail {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 20px 12px 8px;
+  gap: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.prospect-pipeline-rail::-webkit-scrollbar {
+  display: none;
+}
+
+.prospect-pipeline-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-family: var(--font-primary);
+  min-width: 64px;
+  flex-shrink: 0;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  position: relative;
+}
+
+.prospect-pipeline-node:disabled {
+  cursor: default;
+}
+
+.prospect-pipeline-node[data-disabled="true"] {
+  opacity: 0.3;
+}
+
+.prospect-pipeline-node:not([data-disabled="true"]):hover {
+  transform: translateY(-2px);
+}
+
+.prospect-pipeline-node:not([data-disabled="true"]):active {
+  transform: translateY(0);
+}
+
+/* The circle indicator */
+.prospect-pipeline-dot {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+  position: relative;
+  z-index: 1;
+}
+
+.prospect-pipeline-dot[data-active="true"] {
+  width: 36px;
+  height: 36px;
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.2),
+              0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.prospect-pipeline-dot[data-status="complete"] {
+  background: rgba(var(--green-rgb), 0.15);
+  border: 2px solid var(--helix-green);
+  color: var(--helix-green);
+}
+
+.prospect-pipeline-dot[data-status="complete"][data-active="true"] {
+  background: var(--helix-green);
+  color: #fff;
+}
+
+.prospect-pipeline-dot[data-status="current"] {
+  background: rgba(var(--highlight-rgb), 0.12);
+  border: 2px solid var(--helix-highlight);
+  color: var(--helix-highlight);
+  animation: pipelinePulse 2.5s ease-in-out infinite;
+}
+
+.prospect-pipeline-dot[data-status="current"][data-active="true"] {
+  background: var(--helix-highlight);
+  color: #fff;
+  animation: none;
+}
+
+.prospect-pipeline-dot[data-status="review"] {
+  background: rgba(var(--cta-rgb), 0.12);
+  border: 2px solid var(--helix-cta);
+  color: var(--helix-cta);
+}
+
+.prospect-pipeline-dot[data-status="review"][data-active="true"] {
+  background: var(--helix-cta);
+  color: #fff;
+}
+
+.prospect-pipeline-dot[data-status="pending"],
+.prospect-pipeline-dot[data-status="neutral"] {
+  background: var(--surface-card);
+  border: 2px solid var(--border-base);
+  color: var(--text-muted);
+}
+
+.prospect-pipeline-dot[data-status="disabled"] {
+  background: transparent;
+  border: 2px solid var(--border-base);
+  color: var(--text-muted);
+  opacity: 0.4;
+}
+
+/* Pipeline label */
+.prospect-pipeline-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  line-height: 1.2;
+  text-align: center;
+  white-space: nowrap;
+  transition: color 0.15s ease;
+}
+
+.prospect-pipeline-label[data-active="true"] {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+/* Pipeline status descriptor */
+.prospect-pipeline-status {
+  font-size: 9px;
+  font-weight: 500;
+  line-height: 1;
+  margin-top: -2px;
+  letter-spacing: 0.2px;
+}
+
+/* Pipeline connector */
+.prospect-pipeline-connector {
+  flex: 1;
+  min-width: 16px;
+  max-width: 48px;
+  height: 2px;
+  align-self: flex-start;
+  margin-top: 15px;
+  border-radius: 1px;
+  transition: background 0.25s ease;
+  position: relative;
+}
+
+.prospect-pipeline-connector[data-active="true"][data-filled="true"] {
+  margin-top: 17px;
+}
+
+/* (Status bar removed — v2 uses two-column hero instead) */
+
+/* ─── Section Separator ──────────────────────────────────── */
+
+.prospect-section-divider {
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--border-base) 20%,
+    var(--border-base) 80%,
+    transparent 100%
+  );
+  margin: 8px 0;
+}
+
+/* ─── Timeline Section ───────────────────────────────────── */
+
+.prospect-timeline-section {
+  background: var(--surface-page);
+  border: 1px solid var(--border-base);
+  border-radius: 0;
+  padding: 16px 20px;
+  transition: padding 0.2s ease;
+}
+
+.prospect-timeline-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.prospect-timeline-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.prospect-timeline-count {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 2px;
+  background: transparent;
+  border: 1px solid var(--border-base);
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+/* ─── Animations ─────────────────────────────────────────── */
+
+@keyframes pipelinePulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(var(--highlight-rgb), 0.25);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(var(--highlight-rgb), 0);
+  }
+}
+
+/* (statusFadeIn removed — status bar deleted in v2) */
+
+/* ─── View Toggle ────────────────────────────────────────── */
+
+.prospect-view-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  height: 32px;
+  padding: 3px;
+  background: var(--surface-page);
+  border: 1px solid var(--border-base);
+  border-radius: 2px;
+}
+
+.prospect-view-toggle-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 12px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: all 200ms ease;
+  font-family: var(--font-primary);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.prospect-view-toggle-btn[data-active="true"] {
+  background: transparent;
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.prospect-view-toggle-btn:not([data-active="true"]):hover {
+  color: var(--text-body);
+}
+
+/* ─── Hero Header Enhancements ───────────────────────────── */
+
+.prospect-hero {
+  position: relative;
+  border-radius: 0;
+  font-family: var(--font-primary);
+  overflow: hidden;
+}
+
+.prospect-hero-identity {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.prospect-hero-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+
+.prospect-hero:hover .prospect-hero-icon {
+  transform: scale(1.03);
+}
+
+.prospect-hero-name {
+  font-size: 18px;
+  font-weight: 700;
+  margin: 0;
+  line-height: 1.25;
+  letter-spacing: -0.4px;
+}
+
+.prospect-hero-meta {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
+.prospect-hero-meta-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.prospect-hero-meta-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.prospect-hero-meta-value {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* ─── Filter Bar ─────────────────────────────────────────── */
+
+.prospect-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  background: var(--surface-page);
+  border-radius: 2px;
+  border: 1px solid var(--border-base);
+}
+
+.prospect-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 2px;
+  border: 1px solid var(--border-base);
+  background: transparent;
+  font-family: var(--font-primary);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  color: var(--text-secondary);
+}
+
+.prospect-filter-chip:hover {
+  background: var(--surface-card-hover);
+  border-color: var(--border-strong);
+}
+
+.prospect-filter-chip[data-active="true"] {
+  border-color: var(--text-accent);
+  color: var(--text-accent);
+}
+
+.prospect-filter-chip-count {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 2px;
+  background: var(--surface-card);
+  color: var(--text-body);
+}

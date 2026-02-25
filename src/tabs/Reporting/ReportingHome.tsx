@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import type { CSSProperties } from 'react';
 import {
+  ActionButton,
   DefaultButton,
   PrimaryButton,
   Spinner,
@@ -37,6 +38,7 @@ import type { PpcIncomeMetrics } from './PpcReport';
 import { useToast } from '../../components/feedback/ToastProvider';
 import type { DealRecord, InstructionRecord } from './dataSources';
 import { reportingPanelBackground, reportingPanelBorder } from './styles/reportingFoundation';
+import NavigatorDetailBar from '../../components/NavigatorDetailBar';
 
 // Add spinner animation CSS
 const spinnerStyle = `
@@ -94,6 +96,24 @@ const spinnerStyle = `
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
+}
+
+@keyframes feedDotReady {
+  0%   { transform: scale(1); }
+  35%  { transform: scale(1.35); }
+  65%  { transform: scale(0.9); }
+  100% { transform: scale(1); }
+}
+
+@keyframes feedTickDraw {
+  0%   { stroke-dashoffset: 8; opacity: 0; }
+  40%  { opacity: 1; }
+  100% { stroke-dashoffset: 0; opacity: 1; }
+}
+
+@keyframes feedDotSpin {
+  0%   { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 
 @keyframes slideInRight {
@@ -631,6 +651,7 @@ interface AvailableReport {
   requiredDatasets: DatasetKey[];
   description?: string;
   disabled?: boolean;
+  development?: boolean;
 }
 
 const AVAILABLE_REPORTS: AvailableReport[] = [
@@ -644,9 +665,10 @@ const AVAILABLE_REPORTS: AvailableReport[] = [
   {
     key: 'enquiries',
     name: 'Enquiries report',
-    status: 'Live today',
+    status: 'In development',
     action: 'enquiries',
     requiredDatasets: ENQUIRIES_REPORT_DATASETS,
+    development: true,
   },
   {
     key: 'annualLeave',
@@ -665,14 +687,15 @@ const AVAILABLE_REPORTS: AvailableReport[] = [
   {
     key: 'metaMetrics',
     name: 'Meta ads',
-    status: 'Live today',
+    status: 'Disabled',
     action: 'metaMetrics',
     requiredDatasets: META_REPORT_DATASETS,
+    disabled: true,
   },
   {
     key: 'seo',
     name: 'SEO report',
-    status: 'In beta',
+    status: 'Disabled',
     action: 'seoReport',
     requiredDatasets: ['googleAnalytics', 'googleAds'],
     disabled: true,
@@ -770,37 +793,44 @@ const brandSurfaceLift = (isDarkMode: boolean): string => (
 );
 
 const surfaceShadow = (isDarkMode: boolean): string => (
-  isDarkMode ? '0 1px 3px rgba(0, 0, 0, 0.16)' : '0 1px 2px rgba(6, 23, 51, 0.05)'
+  isDarkMode ? '0 2px 8px rgba(0, 0, 0, 0.12)' : '0 1px 4px rgba(6, 23, 51, 0.04)'
 );
 
 const subtleStroke = (isDarkMode: boolean): string => (
-  isDarkMode ? 'rgba(75, 85, 99, 0.42)' : 'rgba(6, 23, 51, 0.08)'
+  isDarkMode ? 'rgba(75, 85, 99, 0.28)' : 'rgba(6, 23, 51, 0.06)'
 );
+
+/** Frosted glass surface — matches nav bar language */
+const glassSurface = (isDarkMode: boolean): CSSProperties => ({
+  backdropFilter: 'blur(20px) saturate(1.5)',
+  WebkitBackdropFilter: 'blur(20px) saturate(1.5)',
+});
 
 const containerStyle = (isDarkMode: boolean): CSSProperties => ({
   minHeight: '100vh',
   width: '100%',
-  padding: '26px 30px 40px',
+  padding: '24px 28px 36px',
   background: isDarkMode ? colours.websiteBlue : colours.light.background,
   color: isDarkMode ? colours.dark.text : colours.light.text,
   display: 'flex',
   flexDirection: 'column',
-  gap: 18,
-  transition: 'background 0.3s ease, color 0.3s ease',
+  gap: 16,
+  transition: 'background 0.3s cubic-bezier(0.4, 0, 0.2, 1), color 0.3s ease',
   fontFamily: 'Raleway, sans-serif',
 });
 
 const sectionSurfaceStyle = (isDarkMode: boolean, overrides: CSSProperties = {}): CSSProperties => ({
-  background: brandSurfaceLift(isDarkMode),
+  background: isDarkMode ? 'rgba(6, 23, 51, 0.65)' : 'rgba(255, 255, 255, 0.72)',
+  ...glassSurface(isDarkMode),
   borderRadius: 0,
-  border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.22)' : 'rgba(54, 144, 206, 0.18)'}`,
+  border: `0.5px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.22)' : 'rgba(6, 23, 51, 0.06)'}`,
   boxShadow: surfaceShadow(isDarkMode),
   padding: '20px 22px',
   display: 'flex',
   flexDirection: 'column',
   gap: 12,
-  transition: 'background 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease, opacity 0.3s ease',
-  animation: 'fadeInUp 0.4s ease forwards',
+  transition: 'background 0.25s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.25s ease, box-shadow 0.25s ease, opacity 0.3s ease',
+  animation: 'fadeInUp 0.4s cubic-bezier(0.4, 0, 0.2, 1) forwards',
   ...overrides,
 });
 
@@ -815,19 +845,19 @@ const heroRightMarkStyle = (isDarkMode: boolean, isHovered: boolean = false): CS
   backgroundRepeat: 'no-repeat',
   backgroundPosition: 'center',
   backgroundSize: 'contain',
-  opacity: isHovered ? (isDarkMode ? 0.22 : 0.14) : (isDarkMode ? 0.14 : 0.08),
+  opacity: isHovered ? (isDarkMode ? 0.18 : 0.1) : (isDarkMode ? 0.1 : 0.05),
   pointerEvents: 'none',
   zIndex: 0,
-  transition: 'opacity 0.45s ease',
+  transition: 'opacity 0.5s cubic-bezier(0.4, 0, 0.2, 1)',
 });
 
 const heroRightOverlayStyle = (isDarkMode: boolean): CSSProperties => ({
   position: 'absolute',
   top: 0,
   right: 0,
-  width: 100,
+  width: 80,
   height: '100%',
-  background: isDarkMode ? `${colours.darkBlue}47` : `${colours.darkBlue}08`,
+  background: isDarkMode ? `${colours.darkBlue}33` : `${colours.darkBlue}05`,
   pointerEvents: 'none',
   zIndex: 1,
 });
@@ -847,10 +877,11 @@ const reportRowStyle = (isDarkMode: boolean, animationIndex?: number): CSSProper
   gap: 6,
   padding: '12px 14px',
   borderRadius: 0,
-  border: `1px solid ${subtleStroke(isDarkMode)}`,
-  background: isDarkMode ? reportingPanelBackground(isDarkMode, 'base') : 'rgba(255, 255, 255, 0.95)',
+  border: `0.5px solid ${subtleStroke(isDarkMode)}`,
+  background: isDarkMode ? 'rgba(10, 28, 50, 0.6)' : 'rgba(255, 255, 255, 0.7)',
+  ...glassSurface(isDarkMode),
   opacity: animationIndex !== undefined ? 0 : 1,
-  animation: animationIndex !== undefined ? 'fadeInUp 0.3s ease forwards' : 'none',
+  animation: animationIndex !== undefined ? 'fadeInUp 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards' : 'none',
   animationDelay: animationIndex !== undefined ? `${animationIndex * 0.06}s` : '0s',
 });
 
@@ -886,8 +917,8 @@ const feedRowStyle = (isDarkMode: boolean): CSSProperties => ({
   alignItems: 'center',
   borderRadius: 0,
   padding: '8px 12px',
-  background: isDarkMode ? reportingPanelBackground(isDarkMode, 'base') : colours.light.cardBackground,
-  border: `1px solid ${isDarkMode ? reportingPanelBorder(isDarkMode, 'base') : colours.light.borderColor}`,
+  background: isDarkMode ? 'rgba(10, 28, 50, 0.55)' : 'rgba(255, 255, 255, 0.65)',
+  border: `0.5px solid ${subtleStroke(isDarkMode)}`,
   gap: 12,
 });
 
@@ -914,13 +945,14 @@ const statusPillStyle = (
   display: 'inline-flex',
   alignItems: 'center',
   gap: 6,
-  padding: '4px 10px',
-  borderRadius: 999,
-  fontSize: 12,
+  padding: '3px 10px',
+  borderRadius: 2,
+  fontSize: 11,
   fontWeight: 600,
   background: isDarkMode ? palette.darkBg : palette.lightBg,
   color: isDarkMode ? colours.dark.text : colours.missedBlue,
   boxShadow: 'none',
+  letterSpacing: 0.2,
 });
 
 const statusDotStyle = (colour: string): CSSProperties => ({
@@ -938,20 +970,22 @@ const statusIconStyle = (isDarkMode: boolean): CSSProperties => ({
 const reportCardsGridStyle = (): CSSProperties => ({
   display: 'grid',
   gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-  gap: 12,
+  gap: 10,
   marginTop: 4,
 });
 
 const reportCardBaseStyle = (isDarkMode: boolean): CSSProperties => ({
   borderRadius: 0,
   padding: 16,
-  background: isDarkMode ? colours.dark.cardBackground : colours.light.sectionBackground,
-  border: `1px solid ${isDarkMode ? reportingPanelBorder(isDarkMode, 'base') : 'rgba(54, 144, 206, 0.16)'}`,
+  background: isDarkMode ? 'rgba(8, 28, 48, 0.55)' : 'rgba(255, 255, 255, 0.6)',
+  ...glassSurface(isDarkMode),
+  border: `0.5px solid ${subtleStroke(isDarkMode)}`,
   boxShadow: 'none',
   display: 'flex',
   flexDirection: 'column',
   gap: 12,
   minHeight: 150,
+  transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
 });
 
 type ReportVisualState = 'neutral' | 'warming' | 'ready' | 'disabled';
@@ -981,10 +1015,10 @@ const REPORT_CARD_STATE_TOKENS: Record<ReportVisualState, {
     darkBadgeBg: `${colours.dark.borderColor}52`,
   },
   disabled: {
-    label: 'In beta',
-    accent: colours.blue,
-    lightBadgeBg: 'rgba(54, 144, 206, 0.15)',
-    darkBadgeBg: 'rgba(54, 144, 206, 0.3)',
+    label: 'Disabled',
+    accent: colours.subtleGrey,
+    lightBadgeBg: 'rgba(160, 160, 160, 0.12)',
+    darkBadgeBg: 'rgba(160, 160, 160, 0.18)',
   },
 };
 
@@ -1003,11 +1037,11 @@ const dependencyChipStyle = (isDarkMode: boolean): CSSProperties => ({
   alignItems: 'center',
   gap: 6,
   padding: '4px 8px',
-  borderRadius: 999,
+  borderRadius: 2,
   fontSize: 11,
   fontWeight: 500,
-  background: isDarkMode ? reportingPanelBackground(isDarkMode, 'base') : `${colours.grey}E6`,
-  border: `1px solid ${isDarkMode ? reportingPanelBorder(isDarkMode, 'base') : colours.highlightNeutral}`,
+  background: isDarkMode ? 'rgba(10, 28, 50, 0.55)' : 'rgba(244, 244, 246, 0.8)',
+  border: `0.5px solid ${subtleStroke(isDarkMode)}`,
   color: isDarkMode ? colours.dark.text : colours.light.text,
 });
 
@@ -1043,8 +1077,9 @@ const refreshProgressPanelStyle = (isDarkMode: boolean): CSSProperties => ({
   gap: 10,
   padding: '14px 16px',
   borderRadius: 0,
-  background: reportingPanelBackground(isDarkMode, 'elevated'),
-  border: `1px solid ${isDarkMode ? colours.dark.borderColor : `${colours.blue}2E`}`,
+  background: isDarkMode ? 'rgba(14, 36, 62, 0.6)' : 'rgba(255, 255, 255, 0.75)',
+  ...glassSurface(isDarkMode),
+  border: `0.5px solid ${subtleStroke(isDarkMode)}`,
   boxShadow: 'none',
 });
 
@@ -1075,8 +1110,8 @@ const refreshProgressDatasetRowStyle = (isDarkMode: boolean): CSSProperties => (
   justifyContent: 'space-between',
   padding: '6px 10px',
   borderRadius: 0,
-  background: isDarkMode ? reportingPanelBackground(isDarkMode, 'base') : 'rgba(244, 244, 246, 0.85)',
-  border: `1px solid ${isDarkMode ? reportingPanelBorder(isDarkMode, 'base') : 'rgba(75, 85, 99, 0.28)'}`,
+  background: isDarkMode ? 'rgba(10, 28, 50, 0.5)' : 'rgba(244, 244, 246, 0.65)',
+  border: `0.5px solid ${subtleStroke(isDarkMode)}`,
   gap: 10,
 });
 
@@ -1130,8 +1165,9 @@ const heroLeftColumnStyle = (isDarkMode: boolean): CSSProperties => ({
 const heroRightColumnStyle = (isDarkMode: boolean): CSSProperties => ({
   borderRadius: 0,
   padding: '18px 20px',
-  background: isDarkMode ? reportingPanelBackground(isDarkMode, 'base') : 'rgba(255, 255, 255, 0.88)',
-  border: `1px solid ${isDarkMode ? reportingPanelBorder(isDarkMode, 'base') : 'rgba(6, 23, 51, 0.08)'}`,
+  background: isDarkMode ? 'rgba(10, 28, 50, 0.5)' : 'rgba(255, 255, 255, 0.6)',
+  ...glassSurface(isDarkMode),
+  border: `0.5px solid ${subtleStroke(isDarkMode)}`,
   boxShadow: 'none',
   display: 'flex',
   flexDirection: 'column',
@@ -1160,10 +1196,10 @@ const heroMetaChipStyle = (isDarkMode: boolean): CSSProperties => ({
   display: 'inline-flex',
   alignItems: 'center',
   gap: 6,
-  padding: '5px 10px',
-  borderRadius: 999,
-  background: isDarkMode ? reportingPanelBackground(isDarkMode, 'base') : 'rgba(255, 255, 255, 0.9)',
-  border: `1px solid ${subtleStroke(isDarkMode)}`,
+  padding: '4px 10px',
+  borderRadius: 2,
+  background: isDarkMode ? 'rgba(10, 28, 50, 0.5)' : 'rgba(255, 255, 255, 0.7)',
+  border: `0.5px solid ${subtleStroke(isDarkMode)}`,
   boxShadow: 'none',
   color: isDarkMode ? colours.dark.text : colours.missedBlue,
   fontSize: 12,
@@ -1182,8 +1218,8 @@ const fullScreenWrapperStyle = (isDarkMode: boolean): CSSProperties => ({
   color: isDarkMode ? colours.dark.text : colours.light.text,
   display: 'flex',
   flexDirection: 'column',
-  gap: 16,
-  transition: 'background 0.3s ease, color 0.3s ease',
+  gap: 14,
+  transition: 'background 0.3s cubic-bezier(0.4, 0, 0.2, 1), color 0.3s ease',
   position: 'relative',
   overflow: 'hidden',
 });
@@ -1234,17 +1270,17 @@ const conditionalButtonStyles = (isDarkMode: boolean, state: ButtonState): IButt
     border: (() => {
       switch (state) {
         case 'ready':
-          return `1px solid ${isDarkMode ? 'rgba(34, 197, 94, 0.3)' : 'rgba(13, 47, 96, 0.2)'}`;
+          return `0.5px solid ${isDarkMode ? 'rgba(34, 197, 94, 0.25)' : 'rgba(13, 47, 96, 0.16)'}`;
         case 'warming':
-          return `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.28)' : 'rgba(13, 47, 96, 0.2)'}`;
+          return `0.5px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.22)' : 'rgba(13, 47, 96, 0.16)'}`;
         case 'neutral':
         default:
-          return `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`;
+          return `0.5px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.28)' : 'rgba(75, 85, 99, 0.14)'}`;
       }
     })(),
     fontWeight: 600,
     boxShadow: 'none',
-    transition: 'all 0.15s ease',
+    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
     fontFamily: 'Raleway, sans-serif',
   },
   rootHovered: {
@@ -1298,7 +1334,7 @@ const conditionalButtonStyles = (isDarkMode: boolean, state: ButtonState): IButt
   rootDisabled: {
     background: isDarkMode ? `${colours.dark.border}1A` : `${colours.subtleGrey}0D`,
     color: isDarkMode ? colours.greyText : colours.subtleGrey,
-    border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
+    border: `0.5px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.22)' : 'rgba(75, 85, 99, 0.1)'}`,
   },
 });
 
@@ -1306,14 +1342,14 @@ const primaryButtonStyles = (isDarkMode: boolean): IButtonStyles => ({
   root: {
     borderRadius: 0,
     padding: '0 18px',
-    height: 36,
+    height: 34,
     background: colours.cta,
     color: '#ffffff',
     border: 'none',
     fontWeight: 600,
     fontSize: 13,
     boxShadow: 'none',
-    transition: 'all 0.15s ease',
+    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
     fontFamily: 'Raleway, sans-serif',
   },
   rootHovered: {
@@ -1324,7 +1360,7 @@ const primaryButtonStyles = (isDarkMode: boolean): IButtonStyles => ({
     background: '#9e3e30',
   },
   rootDisabled: {
-    background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)',
+    background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
     color: isDarkMode ? colours.greyText : colours.subtleGrey,
     border: 'none',
   },
@@ -1338,22 +1374,22 @@ const subtleButtonStyles = (isDarkMode: boolean): IButtonStyles => ({
   root: {
     borderRadius: 0,
     padding: '0 14px',
-    height: 36,
-    background: isDarkMode ? `${colours.dark.border}14` : 'transparent',
+    height: 34,
+    background: isDarkMode ? 'rgba(75, 85, 99, 0.08)' : 'transparent',
     color: isDarkMode ? colours.dark.text : colours.greyText,
-    border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
+    border: `0.5px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.28)' : 'rgba(75, 85, 99, 0.14)'}`,
     fontWeight: 500,
     fontSize: 13,
     boxShadow: 'none',
-    transition: 'all 0.15s ease',
+    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
     fontFamily: 'Raleway, sans-serif',
   },
   rootHovered: {
-    background: isDarkMode ? colours.dark.cardHover : `${colours.subtleGrey}14`,
-    borderColor: isDarkMode ? colours.dark.borderColor : colours.highlightNeutral,
+    background: isDarkMode ? 'rgba(75, 85, 99, 0.14)' : 'rgba(75, 85, 99, 0.06)',
+    borderColor: isDarkMode ? 'rgba(75, 85, 99, 0.36)' : 'rgba(75, 85, 99, 0.2)',
   },
   rootPressed: {
-    background: isDarkMode ? colours.dark.cardHover : `${colours.subtleGrey}1F`,
+    background: isDarkMode ? 'rgba(75, 85, 99, 0.2)' : 'rgba(75, 85, 99, 0.1)',
   },
   icon: {
     color: isDarkMode ? colours.subtleGrey : colours.greyText,
@@ -1361,46 +1397,18 @@ const subtleButtonStyles = (isDarkMode: boolean): IButtonStyles => ({
   },
 });
 
-const dashboardNavigatorStyle = (isDarkMode: boolean): CSSProperties => ({
-  display: 'flex',
-  alignItems: 'center',
-  gap: 12,
-  padding: '8px 16px',
-  color: isDarkMode ? colours.dark.text : colours.missedBlue,
-});
+/** Navigator tabs for report sub-views — matches Matters/Enquiries pivot pattern */
+const REPORT_NAV_TABS: { key: typeof ACTIVE_VIEW_TYPE; label: string }[] = [
+  { key: 'dashboard' as const, label: 'Dashboard' },
+  { key: 'enquiries' as const, label: 'Enquiries' },
+  { key: 'matters' as const, label: 'Matters' },
+  { key: 'annualLeave' as const, label: 'Leave' },
+  { key: 'ppcReport' as const, label: 'PPC' },
+];
+type ActiveViewType = 'overview' | 'dashboard' | 'annualLeave' | 'enquiries' | 'metaMetrics' | 'seoReport' | 'ppcReport' | 'matters' | 'logMonitor' | 'dataCentre';
+const ACTIVE_VIEW_TYPE: ActiveViewType = 'overview';
 
-const dashboardNavigatorTitleStyle = (isDarkMode: boolean): CSSProperties => ({
-  fontSize: 14,
-  fontWeight: 600,
-  fontFamily: 'Raleway, sans-serif',
-  color: isDarkMode ? colours.dark.text : colours.missedBlue,
-});
-
-const dashboardNavigatorButtonStyles = (isDarkMode: boolean): IButtonStyles => ({
-  root: {
-    borderRadius: 999,
-    height: 32,
-    padding: '0 12px',
-    background: isDarkMode ? 'rgba(6, 23, 51, 0.86)' : 'rgba(244, 244, 246, 0.95)',
-    border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(13, 47, 96, 0.18)'}`,
-    color: isDarkMode ? colours.dark.text : colours.missedBlue,
-    fontWeight: 600,
-    fontFamily: 'Raleway, sans-serif',
-    boxShadow: 'none',
-  },
-  rootHovered: {
-    background: isDarkMode ? 'rgba(11, 30, 55, 0.92)' : 'rgba(236, 244, 251, 0.96)',
-  },
-  rootPressed: {
-    background: isDarkMode ? 'rgba(13, 47, 96, 0.88)' : 'rgba(222, 235, 249, 0.96)',
-  },
-  icon: {
-    color: isDarkMode ? colours.dark.text : colours.missedBlue,
-  },
-  label: {
-    fontSize: 12,
-  },
-});
+// reportNavigatorBackStyles removed — now shared via NavigatorDetailBar
 
 const formatRelativeTime = (timestamp: number): string => {
   const diff = Date.now() - timestamp;
@@ -2527,93 +2535,34 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   }, [activeView, fetchGoogleAnalyticsData]);
 
   useEffect(() => {
-  if (activeView === 'dashboard') {
-      setContent(
-        <div style={dashboardNavigatorStyle(isDarkMode)}>
-          <DefaultButton
-            text="Back to overview"
-            iconProps={{ iconName: 'Back' }}
-            onClick={handleBackToOverview}
-            styles={dashboardNavigatorButtonStyles(isDarkMode)}
-          />
-          <span style={dashboardNavigatorTitleStyle(isDarkMode)}>Management dashboard</span>
-        </div>,
-      );
-  } else if (activeView === 'annualLeave') {
-      setContent(
-        <div style={dashboardNavigatorStyle(isDarkMode)}>
-          <DefaultButton
-            text="Back to overview"
-            iconProps={{ iconName: 'Back' }}
-            onClick={handleBackToOverview}
-            styles={dashboardNavigatorButtonStyles(isDarkMode)}
-          />
-          <span style={dashboardNavigatorTitleStyle(isDarkMode)}>Annual leave report</span>
-        </div>,
-      );
-    } else if (activeView === 'enquiries') {
-      setContent(
-        <div style={dashboardNavigatorStyle(isDarkMode)}>
-          <DefaultButton
-            text="Back to overview"
-            iconProps={{ iconName: 'Back' }}
-            onClick={handleBackToOverview}
-            styles={dashboardNavigatorButtonStyles(isDarkMode)}
-          />
-          <span style={dashboardNavigatorTitleStyle(isDarkMode)}>Enquiries report</span>
-        </div>,
-      );
-    } else if (activeView === 'matters') {
-      setContent(
-        <div style={dashboardNavigatorStyle(isDarkMode)}>
-          <DefaultButton
-            text="Back to overview"
-            iconProps={{ iconName: 'Back' }}
-            onClick={handleBackToOverview}
-            styles={dashboardNavigatorButtonStyles(isDarkMode)}
-          />
-          <span style={dashboardNavigatorTitleStyle(isDarkMode)}>Matters report</span>
-        </div>,
-      );
-    } else if (activeView === 'seoReport') {
-      setContent(
-        <div style={dashboardNavigatorStyle(isDarkMode)}>
-          <DefaultButton
-            text="Back to overview"
-            iconProps={{ iconName: 'Back' }}
-            onClick={handleBackToOverview}
-            styles={dashboardNavigatorButtonStyles(isDarkMode)}
-          />
-          <span style={dashboardNavigatorTitleStyle(isDarkMode)}>SEO report</span>
-        </div>,
-      );
-    } else if (activeView === 'ppcReport') {
-      setContent(
-        <div style={dashboardNavigatorStyle(isDarkMode)}>
-          <DefaultButton
-            text="Back to overview"
-            iconProps={{ iconName: 'Back' }}
-            onClick={handleBackToOverview}
-            styles={dashboardNavigatorButtonStyles(isDarkMode)}
-          />
-          <span style={dashboardNavigatorTitleStyle(isDarkMode)}>PPC report</span>
-        </div>,
-      );
-    } else if (activeView === 'metaMetrics') {
-      setContent(
-        <div style={dashboardNavigatorStyle(isDarkMode)}>
-          <DefaultButton
-            text="Back to overview"
-            iconProps={{ iconName: 'Back' }}
-            onClick={handleBackToOverview}
-            styles={dashboardNavigatorButtonStyles(isDarkMode)}
-          />
-          <span style={dashboardNavigatorTitleStyle(isDarkMode)}>Meta ads report</span>
-        </div>,
-      );
-    } else {
+    if (activeView === 'overview') {
       setContent(null);
+      return () => { setContent(null); };
     }
+
+    // dataCentre manages its own NavigatorDetailBar internally
+    if (activeView === 'dataCentre') {
+      return () => { setContent(null); };
+    }
+
+    // Utility views (logMonitor, etc.) that sit outside the main report tabs
+    const isTabView = REPORT_NAV_TABS.some(t => t.key === activeView);
+    const utilityLabels: Record<string, string> = {
+      seoReport: 'SEO Report',
+      metaMetrics: 'Meta Ads',
+      logMonitor: 'Log Monitor',
+    };
+
+    setContent(
+      <NavigatorDetailBar
+        onBack={handleBackToOverview}
+        backLabel="Back"
+        tabs={isTabView ? REPORT_NAV_TABS.map(t => ({ key: t.key, label: t.label })) : undefined}
+        activeTab={activeView}
+        onTabChange={(key) => setActiveView(key as ActiveViewType)}
+        staticLabel={!isTabView ? (utilityLabels[activeView] || activeView) : undefined}
+      />,
+    );
 
     return () => {
       setContent(null);
@@ -2802,6 +2751,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       let googleAnalyticsData: GoogleAnalyticsData[] = cachedData.googleAnalytics || [];
       let googleAdsData: GoogleAdsData[] = cachedData.googleAds || [];
       let refreshedTeamData: TeamData[] | undefined;
+      let settledErrors: string[] = [];
 
       if (shouldFetchAnnualLeave || shouldFetchMeta || shouldFetchGA || shouldFetchGAds) {
         setDatasetStatus(prev => ({
@@ -2810,30 +2760,63 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
           ...(shouldFetchGAds && { googleAds: { status: 'loading', updatedAt: prev.googleAds?.updatedAt ?? null } }),
         }));
 
-        const [annualLeaveResult, metaMetrics, gaData, gAdsData] = await Promise.all([
+        // Use Promise.allSettled so one dataset failure doesn't kill the others
+        const [annualLeaveSettled, metaSettled, gaSettled, gAdsSettled] = await Promise.allSettled([
           shouldFetchAnnualLeave ? fetchAnnualLeaveDataset(forceRefresh) : Promise.resolve<AnnualLeaveFetchResult | null>(null),
           shouldFetchMeta ? fetchMetaMetrics(effectiveMetaDaysBack) : Promise.resolve(metaMetricsData),
           shouldFetchGA ? fetchGoogleAnalyticsData(RANGE_MONTH_LOOKUP[effectiveEnquiriesKey]) : Promise.resolve(googleAnalyticsData),
           shouldFetchGAds ? fetchGoogleAdsData(RANGE_MONTH_LOOKUP[effectiveEnquiriesKey]) : Promise.resolve(googleAdsData),
         ]);
 
-        if (shouldFetchAnnualLeave && annualLeaveResult) {
-          annualLeaveData = annualLeaveResult.records;
-          if (annualLeaveResult.team.length > 0) {
-            refreshedTeamData = annualLeaveResult.team;
+        // settledErrors is declared in outer scope so setDatasetStatus can read it after the if-block
+
+        if (annualLeaveSettled.status === 'fulfilled') {
+          const annualLeaveResult = annualLeaveSettled.value;
+          if (shouldFetchAnnualLeave && annualLeaveResult) {
+            annualLeaveData = annualLeaveResult.records;
+            if (annualLeaveResult.team.length > 0) {
+              refreshedTeamData = annualLeaveResult.team;
+            }
           }
+        } else if (shouldFetchAnnualLeave) {
+          settledErrors.push('annualLeave');
+          debugWarn('Annual leave fetch failed independently:', annualLeaveSettled.reason);
         }
 
-        if (shouldFetchMeta) {
-          metaMetricsData = Array.isArray(metaMetrics) ? metaMetrics : [];
+        if (metaSettled.status === 'fulfilled') {
+          if (shouldFetchMeta) {
+            metaMetricsData = Array.isArray(metaSettled.value) ? metaSettled.value : [];
+          }
+        } else if (shouldFetchMeta) {
+          settledErrors.push('metaMetrics');
+          debugWarn('Meta metrics fetch failed independently:', metaSettled.reason);
         }
 
-        if (shouldFetchGA) {
-          googleAnalyticsData = Array.isArray(gaData) ? gaData : [];
+        if (gaSettled.status === 'fulfilled') {
+          if (shouldFetchGA) {
+            googleAnalyticsData = Array.isArray(gaSettled.value) ? gaSettled.value : [];
+          }
+        } else if (shouldFetchGA) {
+          settledErrors.push('googleAnalytics');
+          debugWarn('Google Analytics fetch failed independently:', gaSettled.reason);
         }
 
-        if (shouldFetchGAds) {
-          googleAdsData = Array.isArray(gAdsData) ? gAdsData : [];
+        if (gAdsSettled.status === 'fulfilled') {
+          if (shouldFetchGAds) {
+            googleAdsData = Array.isArray(gAdsSettled.value) ? gAdsSettled.value : [];
+          }
+        } else if (shouldFetchGAds) {
+          settledErrors.push('googleAds');
+          debugWarn('Google Ads fetch failed independently:', gAdsSettled.reason);
+        }
+
+        // Show a warning toast if some (but not all) datasets failed
+        if (settledErrors.length > 0) {
+          showToast({
+            message: `Some datasets failed to load: ${settledErrors.join(', ')}. Other data loaded successfully.`,
+            type: 'warning',
+            duration: 7000,
+          });
         }
       }
 
@@ -2852,11 +2835,19 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
 
       setDatasetStatus(prev => ({
         ...prev,
-        annualLeave: { status: 'ready', updatedAt: shouldFetchAnnualLeave ? nowTs : (prev.annualLeave?.updatedAt ?? nowTs) },
+        annualLeave: settledErrors.includes('annualLeave')
+          ? { status: 'error', updatedAt: prev.annualLeave?.updatedAt ?? null }
+          : { status: 'ready', updatedAt: shouldFetchAnnualLeave ? nowTs : (prev.annualLeave?.updatedAt ?? nowTs) },
         ...(includeMarketingFeeds && {
-          metaMetrics: { status: 'ready', updatedAt: shouldFetchMeta ? nowTs : (prev.metaMetrics?.updatedAt ?? nowTs) },
-          googleAnalytics: { status: 'ready', updatedAt: shouldFetchGA ? nowTs : (prev.googleAnalytics?.updatedAt ?? nowTs) },
-          googleAds: { status: 'ready', updatedAt: shouldFetchGAds ? nowTs : (prev.googleAds?.updatedAt ?? nowTs) },
+          metaMetrics: settledErrors.includes('metaMetrics')
+            ? { status: 'error', updatedAt: prev.metaMetrics?.updatedAt ?? null }
+            : { status: 'ready', updatedAt: shouldFetchMeta ? nowTs : (prev.metaMetrics?.updatedAt ?? nowTs) },
+          googleAnalytics: settledErrors.includes('googleAnalytics')
+            ? { status: 'error', updatedAt: prev.googleAnalytics?.updatedAt ?? null }
+            : { status: 'ready', updatedAt: shouldFetchGA ? nowTs : (prev.googleAnalytics?.updatedAt ?? nowTs) },
+          googleAds: settledErrors.includes('googleAds')
+            ? { status: 'error', updatedAt: prev.googleAds?.updatedAt ?? null }
+            : { status: 'ready', updatedAt: shouldFetchGAds ? nowTs : (prev.googleAds?.updatedAt ?? nowTs) },
         }),
       }));
 
@@ -2876,6 +2867,17 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     } catch (fetchError) {
       debugWarn('Failed to refresh non-streaming datasets:', fetchError);
       setError(fetchError instanceof Error ? fetchError.message : 'Unknown error');
+      // Mark all non-streaming datasets as 'error' so they don't stay stuck in 'loading'
+      setDatasetStatus(prev => {
+        const next = { ...prev };
+        const nonStreamKeys: DatasetKey[] = ['annualLeave', 'metaMetrics', 'googleAnalytics', 'googleAds'];
+        nonStreamKeys.forEach(key => {
+          if (next[key]?.status === 'loading') {
+            next[key] = { status: 'error', updatedAt: next[key]?.updatedAt ?? null };
+          }
+        });
+        return next;
+      });
       showToast({
         message: `Failed to refresh reporting data: ${fetchError instanceof Error ? fetchError.message : 'Unexpected error'}`,
         type: 'error',
@@ -3604,10 +3606,10 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
 
     const timeout = setTimeout(() => {
       const elapsed = Date.now() - refreshStartedAt;
-      const maxWait = 10 * 60 * 1000; // 10 minutes
+      const maxWait = 3 * 60 * 1000; // 3 minutes (was 10 — too long for non-streaming fetch failures)
       
       if (elapsed > maxWait) {
-        debugWarn('ReportingHome: Refresh timeout exceeded (10 minutes). Forcing clear of loading state.');
+        debugWarn('ReportingHome: Refresh timeout exceeded (3 minutes). Forcing clear of loading state.');
         setIsFetching(false);
         setRefreshStartedAt(null);
         showToast({
@@ -4051,9 +4053,11 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     }
 
     // Check if data needs to be refreshed
+    // 'loading' is NOT treated as needing a new refresh — it means a fetch is already in progress.
+    // Only 'idle', 'error', or missing status triggers a fresh load.
     const needsRefresh = dependencies.some(dep => {
       const status = datasetStatus[dep as keyof typeof datasetStatus];
-      return !status || status.status === 'idle' || status.status === 'loading';
+      return !status || status.status === 'idle' || status.status === 'error';
     });
 
     if (needsRefresh) {
@@ -4269,8 +4273,10 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   const renderAvailableReportCards = () => {
     // Hero: dashboard stands alone
     const heroCard = reportCards.find(card => card.key === 'dashboard');
-    // Everything else groups into the rework zone
-    const otherCards = reportCards.filter(card => card.key !== 'dashboard');
+    // Split remaining into active vs disabled
+    const activeCards = reportCards.filter(card => card.key !== 'dashboard' && !card.disabled && !card.development);
+    const developmentCards = reportCards.filter(card => card.development && !card.disabled);
+    const disabledCards = reportCards.filter(card => card.disabled);
     
     return (
       <>
@@ -4284,21 +4290,21 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                 gap: 6,
                 marginBottom: 10,
                 paddingLeft: 10,
-                borderLeft: `3px solid ${isDarkMode ? colours.accent : colours.highlight}`,
+                borderLeft: `2px solid ${isDarkMode ? colours.subtleGrey : colours.greyText}`,
               }}
             >
               <span style={{
                 fontSize: 9,
                 fontWeight: 700,
                 textTransform: 'uppercase' as const,
-                letterSpacing: '0.5px',
-                color: isDarkMode ? 'rgba(135, 243, 243, 0.7)' : colours.highlight,
+                letterSpacing: '0.06em',
+                color: isDarkMode ? colours.subtleGrey : colours.greyText,
               }}>
                 Production
               </span>
               <span style={{
-                width: 6,
-                height: 6,
+                width: 5,
+                height: 5,
                 borderRadius: '50%',
                 background: colours.green,
                 display: 'inline-block',
@@ -4313,40 +4319,124 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
           </div>
         )}
 
-        {/* ── Other reports ── */}
-        <div style={{
-          position: 'relative' as const,
-          padding: '4px 0 0',
-        }}>
+        {/* ── Active reports ── */}
+        {activeCards.length > 0 && (
           <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            marginBottom: 12,
-            paddingLeft: 10,
-            borderLeft: `3px solid ${isDarkMode ? colours.subtleGrey : colours.greyText}`,
+            position: 'relative' as const,
+            padding: '4px 0 0',
           }}>
-            <span style={{
-              fontSize: 9,
-              fontWeight: 700,
-              textTransform: 'uppercase' as const,
-              letterSpacing: '0.5px',
-              color: isDarkMode ? colours.subtleGrey : colours.greyText,
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              marginBottom: 12,
+              paddingLeft: 10,
+              borderLeft: `2px solid ${isDarkMode ? colours.subtleGrey : colours.greyText}`,
             }}>
-              Reports
-            </span>
-          </div>
+              <span style={{
+                fontSize: 9,
+                fontWeight: 700,
+                textTransform: 'uppercase' as const,
+                letterSpacing: '0.06em',
+                color: isDarkMode ? colours.subtleGrey : colours.greyText,
+              }}>
+                Reports
+              </span>
+            </div>
 
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(max(260px, calc(33.333% - 10px)), 1fr))',
-              gap: 14,
-            }}
-          >
-            {otherCards.map((card, index) => renderReportCard(card, false, index + 1))}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(max(260px, calc(33.333% - 10px)), 1fr))',
+                gap: 10,
+              }}
+            >
+              {activeCards.map((card, index) => renderReportCard(card, false, index + 1))}
+            </div>
           </div>
-        </div>
+        )}
+
+        {/* ── Development ── */}
+        {developmentCards.length > 0 && (
+          <div style={{
+            position: 'relative' as const,
+            padding: '4px 0 0',
+            marginTop: 16,
+          }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              marginBottom: 12,
+              paddingLeft: 10,
+              borderLeft: `2px solid ${isDarkMode ? colours.orange : colours.orange}`,
+            }}>
+              <span style={{
+                fontSize: 9,
+                fontWeight: 700,
+                textTransform: 'uppercase' as const,
+                letterSpacing: '0.06em',
+                color: isDarkMode ? colours.orange : colours.orange,
+              }}>
+                In development
+              </span>
+              <span style={{
+                width: 5,
+                height: 5,
+                borderRadius: '50%',
+                background: colours.orange,
+                display: 'inline-block',
+                animation: 'pulse 2s ease-in-out infinite',
+              }} />
+            </div>
+
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(max(260px, calc(33.333% - 10px)), 1fr))',
+                gap: 10,
+              }}
+            >
+              {developmentCards.map((card, index) => renderReportCard(card, false, activeCards.length + index + 1))}
+            </div>
+          </div>
+        )}
+
+        {/* ── Disabled / coming soon ── */}
+        {disabledCards.length > 0 && (
+          <div style={{
+            position: 'relative' as const,
+            padding: '4px 0 0',
+            marginTop: 16,
+          }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              marginBottom: 12,
+              paddingLeft: 10,
+              borderLeft: `2px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.35)' : 'rgba(107, 107, 107, 0.2)'}`,
+            }}>
+              <span style={{
+                fontSize: 9,
+                fontWeight: 700,
+                textTransform: 'uppercase' as const,
+                letterSpacing: '0.06em',
+                color: isDarkMode ? 'rgba(160, 160, 160, 0.5)' : 'rgba(107, 107, 107, 0.5)',
+              }}>
+                Coming soon
+              </span>
+            </div>
+
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(max(260px, calc(33.333% - 10px)), 1fr))',
+                gap: 10,
+              }}
+            >
+              {disabledCards.map((card, index) => renderReportCard(card, false, activeCards.length + index + 1))}
+            </div>
+          </div>
+        )}
       </>
     );
   };
@@ -4367,7 +4457,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
           : `${readyDependencies}/${totalDependencies} feeds ready`;
         const resolvePrimaryButtonLabel = (readyLabel: string) => {
           if (visualState === 'disabled') {
-            return report.status || 'Coming soon';
+            return report.status || 'Disabled';
           }
           if (isReportReady) {
             return readyLabel;
@@ -4405,11 +4495,12 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
             style={{
               padding: 0,
               borderRadius: 0,
-              background: reportingPanelBackground(isDarkMode, 'base'),
-              border: `1px solid ${isDarkMode ? reportingPanelBorder(isDarkMode, 'base') : `${colours.highlight}1A`}`,
+              background: isDarkMode ? 'rgba(6, 23, 51, 0.45)' : 'rgba(255, 255, 255, 0.6)',
+              border: `0.5px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.18)' : 'rgba(6, 23, 51, 0.06)'}`,
               overflow: 'hidden',
               transition: 'all 0.2s ease',
-              opacity: visualState === 'disabled' ? 0.6 : 1,
+              opacity: visualState === 'disabled' ? 0.38 : 1,
+              filter: visualState === 'disabled' ? 'grayscale(100%)' : 'none',
               cursor: isPrimary && isExpanded ? 'pointer' : 'default',
               animation: 'fadeInUp 0.35s ease forwards',
               animationDelay: `${animationIndex * 0.06}s`,
@@ -4423,7 +4514,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                 }
               }}
               style={{
-                padding: '18px 18px',
+                padding: '16px 18px',
                 cursor: (report.action && (!report.disabled || testMode)) ? 
                   (reportProgressStates[report.key]?.isLoading ? 'wait' : 'pointer') : 'default',
                 display: 'flex',
@@ -4431,43 +4522,41 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                 justifyContent: 'space-between',
                 gap: 14,
                 background: reportProgressStates[report.key]?.isLoading
-                  ? (isDarkMode ? `${colours.blue}1F` : `${colours.highlight}14`)
+                  ? (isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.04)')
                   : (isPrimary && isActive && isExpanded)
-                  ? (isDarkMode ? `${colours.blue}24` : `${colours.highlight}1A`)
-                  : isReportReady
-                  ? (isDarkMode ? `${colours.blue}14` : `${colours.highlight}0D`)
-                  : (isDarkMode ? 'rgba(8, 28, 48, 0.72)' : 'rgba(0,0,0,0.015)'),
+                  ? (isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.03)')
+                  : 'transparent',
                 transition: 'all 0.2s ease',
-                boxShadow: isDarkMode ? 'none' : '0 2px 4px rgba(6, 23, 51, 0.06)',
+                boxShadow: 'none',
                 position: 'relative' as const,
                 zIndex: 1,
               }}
               onMouseEnter={(e) => {
                 if (report.action && (!report.disabled || testMode) && !reportProgressStates[report.key]?.isLoading) {
-                  e.currentTarget.style.background = isDarkMode ? `${colours.blue}1A` : `${colours.highlight}14`;
+                  e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.04)' : 'rgba(54, 144, 206, 0.03)';
                 }
               }}
               onMouseLeave={(e) => {
                 const currentProgress = reportProgressStates[report.key];
                 e.currentTarget.style.background = currentProgress?.isLoading
-                  ? (isDarkMode ? `${colours.blue}1F` : `${colours.highlight}14`)
-                  : isReportReady
-                  ? (isDarkMode ? `${colours.blue}14` : `${colours.highlight}0D`)
-                  : (isDarkMode ? 'rgba(8, 28, 48, 0.72)' : 'rgba(0,0,0,0.015)');
+                  ? (isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.04)')
+                  : (isPrimary && isActive && isExpanded)
+                  ? (isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.03)')
+                  : 'transparent';
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 14, flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1 }}>
                 <div style={{
-                  width: 44,
-                  height: 44,
+                  width: 36,
+                  height: 36,
                   borderRadius: 0,
                   background: isReportReady
-                    ? `${stateTokens.accent}1A`
-                    : (isDarkMode ? colours.dark.cardHover : `${colours.subtleGrey}1F`),
+                    ? (isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.06)')
+                    : (isDarkMode ? 'rgba(75, 85, 99, 0.15)' : 'rgba(160, 160, 160, 0.08)'),
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  border: `2px solid ${isReportReady ? stateTokens.accent + '33' : (isDarkMode ? colours.dark.borderColor : colours.highlightNeutral)}`,
+                  border: `0.5px solid ${isReportReady ? (isDarkMode ? 'rgba(135, 243, 243, 0.2)' : 'rgba(54, 144, 206, 0.18)') : (isDarkMode ? 'rgba(75, 85, 99, 0.25)' : 'rgba(107, 107, 107, 0.12)')}`,
                   color: isReportReady ? stateTokens.accent : (isDarkMode ? colours.subtleGrey : colours.greyText),
                   flexShrink: 0,
                 }}>
@@ -4475,10 +4564,10 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{
-                    fontSize: 15,
+                    fontSize: 14,
                     fontWeight: 600,
                     color: isDarkMode ? colours.dark.text : colours.light.text,
-                    marginBottom: 8,
+                    marginBottom: 6,
                     fontFamily: 'Raleway, sans-serif',
                     whiteSpace: 'nowrap',
                     overflow: 'hidden',
@@ -4516,24 +4605,24 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                       </div>
                     ) : (
                       <span style={{
-                        fontSize: 11,
+                        fontSize: 10,
                         fontWeight: 600,
-                        padding: '6px 14px',
-                        borderRadius: 999,
+                        padding: '4px 10px',
+                        borderRadius: 2,
                         background: reportProgressStates[report.key]?.isLoading
-                          ? (isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)')
+                          ? (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)')
                           : isReportReady
-                          ? (isDarkMode ? stateTokens.accent + '22' : stateTokens.accent + '15')
-                          : (isDarkMode ? colours.dark.cardHover : `${colours.subtleGrey}26`),
+                          ? (isDarkMode ? 'rgba(135, 243, 243, 0.1)' : `${stateTokens.accent}12`)
+                          : (isDarkMode ? 'rgba(75, 85, 99, 0.15)' : 'rgba(160, 160, 160, 0.08)'),
                         color: reportProgressStates[report.key]?.isLoading
-                          ? (isDarkMode ? colours.blue : colours.blue)
+                          ? colours.blue
                           : isReportReady ? stateTokens.accent : (isDarkMode ? colours.subtleGrey : colours.greyText),
-                        border: `1px solid ${reportProgressStates[report.key]?.isLoading
-                          ? (isDarkMode ? 'rgba(54, 144, 206, 0.4)' : 'rgba(54, 144, 206, 0.3)')
-                          : isReportReady ? stateTokens.accent + '33' : (isDarkMode ? colours.dark.borderColor : colours.highlightNeutral)}`,
+                        border: `0.5px solid ${reportProgressStates[report.key]?.isLoading
+                          ? (isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.18)')
+                          : isReportReady ? (isDarkMode ? 'rgba(135, 243, 243, 0.18)' : `${stateTokens.accent}20`) : (isDarkMode ? 'rgba(75, 85, 99, 0.25)' : 'rgba(107, 107, 107, 0.1)')}`,
                         whiteSpace: 'nowrap',
                         textTransform: 'uppercase',
-                        letterSpacing: 0.5,
+                        letterSpacing: '0.06em',
                         position: 'relative',
                         overflow: 'hidden',
                       }}>
@@ -4563,7 +4652,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                             width: `${reportProgressStates[report.key]?.progress || 0}%`,
                             background: colours.highlight,
                             transition: 'width 0.3s ease',
-                            borderRadius: '0 0 999px 999px',
+                            borderRadius: '0 0 2px 2px',
                           }} />
                         )}
                       </span>
@@ -4608,7 +4697,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                       transition: 'all 0.2s ease',
                     }}
                     onMouseEnter={(e) => {
-                      e.currentTarget.style.background = isDarkMode ? colours.dark.borderColor : colours.highlightNeutral;
+                      e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)';
                     }}
                     onMouseLeave={(e) => {
                       e.currentTarget.style.background = 'transparent';
@@ -4621,7 +4710,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
             {!isExpanded && dependencies.length > 0 && (
               <div style={{
                 padding: '10px 28px 14px',
-                borderTop: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(6, 23, 51, 0.04)'}`,
+                borderTop: `0.5px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.12)' : 'rgba(6, 23, 51, 0.03)'}`,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
@@ -4646,7 +4735,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                     {dependencies.slice(0, 8).map((dependency, index) => {
                       const palette = STATUS_BADGE_COLOURS[dependency.status];
                       const dotColour = dependency.status === 'ready'
-                        ? (isDarkMode ? '#4ade80' : '#15803d')
+                        ? colours.green
                         : palette.dot;
                       return (
                         <div
@@ -4685,8 +4774,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
             {isExpanded && (
               <div style={{
                 padding: '0 28px 24px',
-                borderTop: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
-                background: isDarkMode ? 'rgba(6, 23, 51, 0.55)' : 'rgba(244, 244, 246, 0.5)',
+                borderTop: `0.5px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.18)' : 'rgba(6, 23, 51, 0.04)'}`,
+                background: isDarkMode ? 'rgba(6, 23, 51, 0.4)' : 'rgba(244, 244, 246, 0.35)',
                 opacity: (isPrimary && !isActive) ? 0.5 : 1,
                 transition: 'opacity 0.2s ease',
               }}>
@@ -4742,8 +4831,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                               width: '100%',
                               borderRadius: 0,
                               padding: 12,
-                              background: isDarkMode ? 'rgba(11, 30, 55, 0.86)' : 'rgba(241, 248, 255, 0.9)',
-                              border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.35)'}`,
+                              background: isDarkMode ? 'rgba(10, 28, 50, 0.5)' : 'rgba(241, 248, 255, 0.6)',
+                              border: `0.5px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.22)' : 'rgba(54, 144, 206, 0.18)'}`,
                             }}
                           >
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
@@ -4802,7 +4891,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                                 style={{
                                   marginTop: 8,
                                   padding: 8,
-                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)',
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)',
                                   borderRadius: 0,
                                   fontSize: 12,
                                   color: isDarkMode ? colours.dark.text : colours.greyText,
@@ -4827,24 +4916,24 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                                     borderRadius: 0,
                                     padding: '0 16px',
                                     height: 36,
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.07)',
                                     color: isDarkMode ? colours.subtleGrey : colours.greyText,
-                                    border: `1px solid ${colours.highlight}`,
+                                    border: `0.5px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)'}`,
                                     fontWeight: 600,
                                     boxShadow: 'none',
-                                    transition: 'all 0.15s ease',
+                                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                                     fontFamily: 'Raleway, sans-serif',
                                   },
                                   rootHovered: {
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.18)',
+                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.14)' : 'rgba(54, 144, 206, 0.1)',
                                   },
                                   rootPressed: {
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)',
+                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)',
                                   },
                                   rootDisabled: {
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.07)',
                                     color: isDarkMode ? colours.subtleGrey : colours.greyText,
-                                    border: `1px solid ${colours.highlight}`,
+                                    border: `0.5px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)'}`,
                                   },
                                 }}
                             disabled={!isReportReady}
@@ -4873,24 +4962,24 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                                   borderRadius: 0,
                                   padding: '0 16px',
                                   height: 36,
-                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.07)',
                                   color: isDarkMode ? colours.subtleGrey : colours.greyText,
-                                  border: `1px solid ${colours.highlight}`,
+                                  border: `0.5px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)'}`,
                                   fontWeight: 600,
                                   boxShadow: 'none',
-                                  transition: 'all 0.15s ease',
+                                  transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                                   fontFamily: 'Raleway, sans-serif',
                                 },
                                 rootHovered: {
-                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.18)',
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.14)' : 'rgba(54, 144, 206, 0.1)',
                                 },
                                 rootPressed: {
-                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)',
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)',
                                 },
                                 rootDisabled: {
-                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.07)',
                                   color: isDarkMode ? colours.subtleGrey : colours.greyText,
-                                  border: `1px solid ${colours.highlight}`,
+                                  border: `0.5px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)'}`,
                                 },
                               }}
                           disabled={!isReportReady}
@@ -4912,8 +5001,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                             width: '100%',
                             borderRadius: 0,
                             padding: 12,
-                            background: isDarkMode ? 'rgba(11, 30, 55, 0.86)' : 'rgba(241, 248, 255, 0.9)',
-                            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.35)'}`,
+                            background: isDarkMode ? 'rgba(10, 28, 50, 0.5)' : 'rgba(241, 248, 255, 0.6)',
+                            border: `0.5px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.22)' : 'rgba(54, 144, 206, 0.18)'}`,
                           }}
                         >
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
@@ -4972,7 +5061,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                             <div style={{ 
                               marginTop: 8, 
                               padding: 8, 
-                              background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)',
+                              background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)',
                               borderRadius: 0,
                               fontSize: 12,
                               color: isDarkMode ? colours.dark.text : colours.greyText,
@@ -4996,24 +5085,24 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                                     borderRadius: 0,
                                     padding: '0 16px',
                                     height: 36,
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.07)',
                                     color: isDarkMode ? colours.subtleGrey : colours.greyText,
-                                    border: `1px solid ${colours.highlight}`,
+                                    border: `0.5px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)'}`,
                                     fontWeight: 600,
                                     boxShadow: 'none',
-                                    transition: 'all 0.15s ease',
+                                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                                     fontFamily: 'Raleway, sans-serif',
                                   },
                                   rootHovered: {
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.18)',
+                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.14)' : 'rgba(54, 144, 206, 0.1)',
                                   },
                                   rootPressed: {
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)',
+                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)',
                                   },
                                   rootDisabled: {
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.07)',
                                     color: isDarkMode ? colours.subtleGrey : colours.greyText,
-                                    border: `1px solid ${colours.highlight}`,
+                                    border: `0.5px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)'}`,
                                   },
                                 }}
                             disabled={!isReportReady || (report.disabled && !testMode)}
@@ -5036,8 +5125,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                             width: '100%',
                             borderRadius: 0,
                             padding: 12,
-                            background: isDarkMode ? 'rgba(11, 30, 55, 0.86)' : 'rgba(241, 248, 255, 0.9)',
-                            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.35)'}`,
+                            background: isDarkMode ? 'rgba(10, 28, 50, 0.5)' : 'rgba(241, 248, 255, 0.6)',
+                            border: `0.5px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.22)' : 'rgba(54, 144, 206, 0.18)'}`,
                           }}
                         >
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
@@ -5099,7 +5188,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                             <div style={{ 
                               marginTop: 8, 
                               padding: 8, 
-                              background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)',
+                              background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)',
                               borderRadius: 0,
                               fontSize: 12,
                               color: isDarkMode ? colours.dark.text : colours.greyText,
@@ -5123,24 +5212,24 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                                     borderRadius: 0,
                                     padding: '0 16px',
                                     height: 36,
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.07)',
                                     color: isDarkMode ? colours.subtleGrey : colours.greyText,
-                                    border: `1px solid ${colours.highlight}`,
+                                    border: `0.5px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)'}`,
                                     fontWeight: 600,
                                     boxShadow: 'none',
-                                    transition: 'all 0.15s ease',
+                                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                                     fontFamily: 'Raleway, sans-serif',
                                   },
                                   rootHovered: {
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.18)',
+                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.14)' : 'rgba(54, 144, 206, 0.1)',
                                   },
                                   rootPressed: {
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)',
+                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)',
                                   },
                                   rootDisabled: {
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.07)',
                                     color: isDarkMode ? colours.subtleGrey : colours.greyText,
-                                    border: `1px solid ${colours.highlight}`,
+                                    border: `0.5px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)'}`,
                                   },
                                 }}
                             disabled={!isReportReady}
@@ -5169,24 +5258,24 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                                   borderRadius: 0,
                                   padding: '0 16px',
                                   height: 36,
-                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.07)',
                                   color: isDarkMode ? colours.subtleGrey : colours.greyText,
-                                  border: `1px solid ${colours.highlight}`,
+                                  border: `0.5px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)'}`,
                                   fontWeight: 600,
                                   boxShadow: 'none',
-                                  transition: 'all 0.15s ease',
+                                  transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                                   fontFamily: 'Raleway, sans-serif',
                                 },
                                 rootHovered: {
-                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.18)',
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.14)' : 'rgba(54, 144, 206, 0.1)',
                                 },
                                 rootPressed: {
-                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)',
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)',
                                 },
                                 rootDisabled: {
-                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.07)',
                                   color: isDarkMode ? colours.subtleGrey : colours.greyText,
-                                  border: `1px solid ${colours.highlight}`,
+                                  border: `0.5px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)'}`,
                                 },
                               }}
                           disabled={!isReportReady}
@@ -5214,24 +5303,24 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                                   borderRadius: 0,
                                   padding: '0 16px',
                                   height: 36,
-                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.07)',
                                   color: isDarkMode ? colours.subtleGrey : colours.greyText,
-                                  border: `1px solid ${colours.highlight}`,
+                                  border: `0.5px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)'}`,
                                   fontWeight: 600,
                                   boxShadow: 'none',
-                                  transition: 'all 0.15s ease',
+                                  transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                                   fontFamily: 'Raleway, sans-serif',
                                 },
                                 rootHovered: {
-                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.18)',
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.14)' : 'rgba(54, 144, 206, 0.1)',
                                 },
                                 rootPressed: {
-                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)',
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)',
                                 },
                                 rootDisabled: {
-                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.07)',
                                   color: isDarkMode ? colours.subtleGrey : colours.greyText,
-                                  border: `1px solid ${colours.highlight}`,
+                                  border: `0.5px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)'}`,
                                 },
                               }}
                           disabled={(report.disabled && !testMode) || !isReportReady}
@@ -5259,24 +5348,24 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                                   borderRadius: 0,
                                   padding: '0 16px',
                                   height: 36,
-                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.07)',
                                   color: isDarkMode ? colours.subtleGrey : colours.greyText,
-                                  border: `1px solid ${colours.highlight}`,
+                                  border: `0.5px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)'}`,
                                   fontWeight: 600,
                                   boxShadow: 'none',
-                                  transition: 'all 0.15s ease',
+                                  transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                                   fontFamily: 'Raleway, sans-serif',
                                 },
                                 rootHovered: {
-                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.18)',
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.14)' : 'rgba(54, 144, 206, 0.1)',
                                 },
                                 rootPressed: {
-                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)',
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)',
                                 },
                                 rootDisabled: {
-                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.07)',
                                   color: isDarkMode ? colours.subtleGrey : colours.greyText,
-                                  border: `1px solid ${colours.highlight}`,
+                                  border: `0.5px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)'}`,
                                 },
                               }}
                           disabled={(report.disabled && !testMode) || !isReportReady}
@@ -5623,28 +5712,6 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   if (activeView === 'dashboard') {
     return (
       <div style={fullScreenWrapperStyle(isDarkMode)}>
-        <div style={{
-          padding: '8px 12px',
-          border: `1px solid ${reportingPanelBorder(isDarkMode, 'base')}`,
-          background: reportingPanelBackground(isDarkMode, 'base'),
-          borderRadius: 0,
-          marginBottom: 10,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-        }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text }}>Management Dashboard</span>
-            <span style={{ fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Live operations overview</span>
-          </div>
-          <button
-            type="button"
-            onClick={handleBackToOverview}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, fontWeight: 600, color: isDarkMode ? colours.subtleGrey : colours.greyText }}
-          >
-            Back to reports
-          </button>
-        </div>
         <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
           <ManagementDashboard
             enquiries={datasetData.enquiries}
@@ -5668,22 +5735,6 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   if (activeView === 'annualLeave') {
     return (
       <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
-        <div style={{
-          padding: '8px 12px',
-          border: `1px solid ${reportingPanelBorder(isDarkMode, 'base')}`,
-          background: reportingPanelBackground(isDarkMode, 'base'),
-          borderRadius: 0,
-          marginBottom: 10,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-        }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text }}>Annual Leave</span>
-            <span style={{ fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Absence and capacity reporting</span>
-          </div>
-          <button type="button" onClick={handleBackToOverview} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, fontWeight: 600, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Back to reports</button>
-        </div>
         <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
 
           <AnnualLeaveReport
@@ -5701,22 +5752,6 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   if (activeView === 'matters') {
     return (
       <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
-        <div style={{
-          padding: '8px 12px',
-          border: `1px solid ${reportingPanelBorder(isDarkMode, 'base')}`,
-          background: reportingPanelBackground(isDarkMode, 'base'),
-          borderRadius: 0,
-          marginBottom: 10,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-        }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text }}>Matters</span>
-            <span style={{ fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Matter pipeline and WIP context</span>
-          </div>
-          <button type="button" onClick={handleBackToOverview} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, fontWeight: 600, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Back to reports</button>
-        </div>
         <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
           <MattersReport
               matters={datasetData.allMatters ?? []}
@@ -5743,22 +5778,6 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   if (activeView === 'enquiries') {
     return (
       <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
-        <div style={{
-          padding: '8px 12px',
-          border: `1px solid ${reportingPanelBorder(isDarkMode, 'base')}`,
-          background: reportingPanelBackground(isDarkMode, 'base'),
-          borderRadius: 0,
-          marginBottom: 10,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-        }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text }}>Enquiries</span>
-            <span style={{ fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Lead and conversion reporting</span>
-          </div>
-          <button type="button" onClick={handleBackToOverview} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, fontWeight: 600, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Back to reports</button>
-        </div>
         <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
           <EnquiriesReport 
               enquiries={datasetData.enquiries} 
@@ -5787,22 +5806,6 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   if (activeView === 'metaMetrics') {
     return (
       <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
-        <div style={{
-          padding: '8px 12px',
-          border: `1px solid ${reportingPanelBorder(isDarkMode, 'base')}`,
-          background: reportingPanelBackground(isDarkMode, 'base'),
-          borderRadius: 0,
-          marginBottom: 10,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-        }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text }}>Meta Metrics</span>
-            <span style={{ fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Paid social performance</span>
-          </div>
-          <button type="button" onClick={handleBackToOverview} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, fontWeight: 600, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Back to reports</button>
-        </div>
         <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
           <MetaMetricsReport
               metaMetrics={datasetData.metaMetrics}
@@ -5819,22 +5822,6 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   if (activeView === 'seoReport') {
     return (
       <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
-        <div style={{
-          padding: '8px 12px',
-          border: `1px solid ${reportingPanelBorder(isDarkMode, 'base')}`,
-          background: reportingPanelBackground(isDarkMode, 'base'),
-          borderRadius: 0,
-          marginBottom: 10,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-        }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text }}>SEO Report</span>
-            <span style={{ fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Organic search performance</span>
-          </div>
-          <button type="button" onClick={handleBackToOverview} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, fontWeight: 600, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Back to reports</button>
-        </div>
         <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
           <SeoReport 
               cachedGa4Data={(datasetData.googleAnalytics ?? cachedData.googleAnalytics) || []}
@@ -5851,22 +5838,6 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   if (activeView === 'ppcReport') {
     return (
       <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
-        <div style={{
-          padding: '8px 12px',
-          border: `1px solid ${reportingPanelBorder(isDarkMode, 'base')}`,
-          background: reportingPanelBackground(isDarkMode, 'base'),
-          borderRadius: 0,
-          marginBottom: 10,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-        }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text }}>PPC Report</span>
-            <span style={{ fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Ads performance and ROI</span>
-          </div>
-          <button type="button" onClick={handleBackToOverview} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, fontWeight: 600, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Back to reports</button>
-        </div>
         <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
           <PpcReport 
               cachedGoogleAdsData={(ppcGoogleAdsData ?? datasetData.googleAds ?? cachedData.googleAds) || []}
@@ -5882,22 +5853,6 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   if (activeView === 'logMonitor') {
     return (
       <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
-        <div style={{
-          padding: '8px 12px',
-          border: `1px solid ${reportingPanelBorder(isDarkMode, 'base')}`,
-          background: reportingPanelBackground(isDarkMode, 'base'),
-          borderRadius: 0,
-          marginBottom: 10,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-        }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text }}>Log Monitor</span>
-            <span style={{ fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Operational log visibility</span>
-          </div>
-          <button type="button" onClick={handleBackToOverview} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, fontWeight: 600, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Back to reports</button>
-        </div>
         <LogMonitor onBack={handleBackToOverview} />
       </div>
     );
@@ -5927,18 +5882,17 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
 
       <div className="reporting-home-container" style={containerStyle(isDarkMode)}>
         <section style={{
-          padding: '32px 28px',
-          background: isDarkMode ? colours.darkBlue : colours.light.sectionBackground,
-          border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.24)' : 'rgba(54, 144, 206, 0.2)'}`,
+          padding: 0,
+          background: 'transparent',
+          border: 'none',
           borderRadius: 0,
-          marginBottom: 20,
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24, paddingBottom: 20, borderBottom: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)'}` }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22, paddingBottom: 18, borderBottom: `0.5px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.18)' : 'rgba(6, 23, 51, 0.04)'}` }}>
             <div>
-              <h1 style={{ margin: '0 0 8px 0', fontSize: 22, fontWeight: 600, fontFamily: 'Raleway, sans-serif', color: isDarkMode ? colours.dark.text : colours.light.text }}>
+              <h1 style={{ margin: '0 0 6px 0', fontSize: 20, fontWeight: 600, fontFamily: 'Raleway, sans-serif', color: isDarkMode ? colours.dark.text : colours.light.text, letterSpacing: '-0.01em' }}>
                 Reporting workspace
               </h1>
-              <p style={{ margin: 0, fontSize: 13, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+              <p style={{ margin: 0, fontSize: 12, color: isDarkMode ? '#d1d5db' : '#374151', letterSpacing: 0.1 }}>
                 {isActivelyLoading ? 'Refreshing data feeds...' : (readyCount > 0 ? 'All systems ready' : 'Click a report or refresh to load data')}
               </p>
             </div>
@@ -5951,13 +5905,13 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                   root: {
                     borderRadius: 0,
                     padding: '0 20px',
-                    height: 36,
+                    height: 34,
                     background: colours.cta,
                     border: 'none',
                     fontWeight: 600,
                     fontSize: 13,
                     fontFamily: 'Raleway, sans-serif',
-                    transition: 'all 0.15s ease',
+                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                     marginRight: 6,
                   },
                   rootHovered: {
@@ -5965,7 +5919,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                     boxShadow: 'none',
                   },
                   rootDisabled: {
-                    background: isDarkMode ? colours.dark.cardHover : `${colours.subtleGrey}33`,
+                    background: isDarkMode ? 'rgba(75, 85, 99, 0.12)' : `${colours.subtleGrey}22`,
                   },
                   icon: {
                     color: '#ffffff',
@@ -5981,7 +5935,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                 display: 'flex',
                 alignItems: 'center',
                 gap: 2,
-                borderLeft: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
+                borderLeft: `0.5px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.2)' : 'rgba(6, 23, 51, 0.05)'}`,
                 paddingLeft: 8,
               }}>
                 <TooltipHost content={isActivelyLoading ? 'Refreshing…' : 'Refresh all datasets'}>
@@ -5992,20 +5946,20 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                     disabled={isActivelyLoading}
                     styles={{
                       root: {
-                        width: 34,
-                        height: 34,
+                        width: 32,
+                        height: 32,
                         borderRadius: 0,
                         border: 'none',
                         background: 'transparent',
                         color: isDarkMode ? colours.subtleGrey : colours.greyText,
-                        transition: 'all 0.15s ease',
+                        transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                         animation: isActivelyLoading ? 'spin 1s linear infinite' : 'none',
                       },
                       rootHovered: {
-                        background: isDarkMode ? `${colours.dark.borderColor}1F` : `${colours.subtleGrey}14`,
+                        background: isDarkMode ? 'rgba(75, 85, 99, 0.12)' : 'rgba(75, 85, 99, 0.06)',
                         color: isDarkMode ? colours.dark.text : colours.greyText,
                       },
-                      icon: { fontSize: 15 },
+                      icon: { fontSize: 14 },
                     }}
                   />
                 </TooltipHost>
@@ -6017,19 +5971,19 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                       onClick={handleToggleRefreshRangeCallout}
                       styles={{
                         root: {
-                          width: 34,
-                          height: 34,
+                          width: 32,
+                          height: 32,
                           borderRadius: 0,
                           border: 'none',
                           background: 'transparent',
                           color: isDarkMode ? colours.subtleGrey : colours.greyText,
-                          transition: 'all 0.15s ease',
+                          transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                         },
                         rootHovered: {
-                          background: isDarkMode ? `${colours.dark.borderColor}1F` : `${colours.subtleGrey}14`,
+                          background: isDarkMode ? 'rgba(75, 85, 99, 0.12)' : 'rgba(75, 85, 99, 0.06)',
                           color: isDarkMode ? colours.dark.text : colours.greyText,
                         },
-                        icon: { fontSize: 15 },
+                        icon: { fontSize: 14 },
                       }}
                     />
                   </span>
@@ -6048,26 +6002,26 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                   width: 360,
                   borderRadius: 0,
                   boxShadow: isDarkMode 
-                    ? '0 8px 20px rgba(2, 6, 23, 0.28)' 
-                    : '0 8px 20px rgba(6, 23, 51, 0.14)',
-                  border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.4)' : 'rgba(6, 23, 51, 0.08)'}`,
-                  background: reportingPanelBackground(isDarkMode, 'elevated'),
-                  backdropFilter: 'blur(24px) saturate(160%)',
+                    ? '0 4px 16px rgba(0, 0, 0, 0.2)' 
+                    : '0 4px 16px rgba(6, 23, 51, 0.08)',
+                  border: `0.5px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.28)' : 'rgba(6, 23, 51, 0.06)'}`,
+                  background: isDarkMode ? 'rgba(6, 23, 51, 0.85)' : 'rgba(255, 255, 255, 0.9)',
+                  backdropFilter: 'blur(24px) saturate(1.6)',
                   padding: 0,
                 },
                 calloutMain: {
                   borderRadius: 0,
-                  background: reportingPanelBackground(isDarkMode, 'elevated'),
+                  background: isDarkMode ? 'rgba(6, 23, 51, 0.85)' : 'rgba(255, 255, 255, 0.9)',
                   color: isDarkMode ? colours.dark.text : colours.light.text,
                   padding: 0,
                 },
                 beak: {
-                  background: reportingPanelBackground(isDarkMode, 'elevated'),
-                  border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.4)' : 'rgba(6, 23, 51, 0.1)'}`,
+                  background: isDarkMode ? 'rgba(6, 23, 51, 0.85)' : 'rgba(255, 255, 255, 0.9)',
+                  border: `0.5px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.28)' : 'rgba(6, 23, 51, 0.06)'}`,
                   boxShadow: 'none',
                 },
                 beakCurtain: {
-                  background: reportingPanelBackground(isDarkMode, 'elevated'),
+                  background: isDarkMode ? 'rgba(6, 23, 51, 0.85)' : 'rgba(255, 255, 255, 0.9)',
                   borderRadius: 0,
                 },
               }}
@@ -6123,10 +6077,10 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                             ? (isDarkMode ? colours.blue : colours.highlight)
                             : (isDarkMode ? colours.subtleGrey : colours.greyText),
                           padding: '4px 12px',
-                          borderRadius: 999,
+                          borderRadius: 2,
                           border: isSelected
-                            ? `1.5px solid ${brandSignal(isDarkMode)}`
-                            : `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.3)' : 'rgba(75, 85, 99, 0.4)'}`,
+                            ? `1px solid ${brandSignal(isDarkMode)}`
+                            : `0.5px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.22)' : 'rgba(75, 85, 99, 0.14)'}`,
                           background: isSelected
                             ? (isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.14)')
                             : (isDarkMode ? 'rgba(107, 107, 107, 0.25)' : 'rgba(244, 244, 246, 0.9)'),
@@ -6141,12 +6095,12 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                 </div>
                 {(enquiriesCoverageEntriesForDisplay.length > 0 || mattersCoverageEntriesForDisplay.length > 0) && (
                   <div style={{
-                    background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(214, 232, 255, 0.5)',
+                    background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(214, 232, 255, 0.4)',
                     borderRadius: 0,
                     padding: '12px 14px',
                     fontSize: 12,
                     color: isDarkMode ? colours.dark.text : colours.light.text,
-                    border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.26)' : 'rgba(54, 144, 206, 0.2)'}`,
+                    border: `0.5px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.12)'}`,
                     display: 'flex',
                     flexDirection: 'column',
                     gap: 8,
@@ -6196,11 +6150,12 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
           {resumeNotice && (
             <div
               style={{
-                marginBottom: 18,
-                padding: '14px 18px',
+                marginBottom: 16,
+                padding: '12px 16px',
                 borderRadius: 0,
-                border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.28)' : 'rgba(54, 144, 206, 0.2)'}`,
-                background: isDarkMode ? 'rgba(6, 23, 51, 0.9)' : 'rgba(214, 232, 255, 0.5)',
+                border: `0.5px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.22)' : 'rgba(6, 23, 51, 0.06)'}`,
+                background: isDarkMode ? 'rgba(6, 23, 51, 0.6)' : 'rgba(214, 232, 255, 0.4)',
+                backdropFilter: 'blur(16px) saturate(1.4)',
                 display: 'flex',
                 alignItems: 'flex-start',
                 gap: 12,
@@ -6253,22 +6208,24 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
             onMouseEnter={() => setDataHubHovered(true)}
             onMouseLeave={() => setDataHubHovered(false)}
             style={{
-              marginBottom: 20,
-              padding: '12px 18px',
+              marginBottom: 18,
+              padding: '11px 16px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
               cursor: 'pointer',
               borderRadius: 0,
-              border: `1px solid ${
+              border: `0.5px solid ${
                 isActivelyLoading
-                  ? reportingPanelBorder(isDarkMode, 'strong')
-                  : reportingPanelBorder(isDarkMode, 'base')
+                  ? (isDarkMode ? 'rgba(54, 144, 206, 0.22)' : 'rgba(54, 144, 206, 0.14)')
+                  : subtleStroke(isDarkMode)
               }`,
               background: isActivelyLoading
-                ? reportingPanelBackground(isDarkMode, 'elevated')
-                : reportingPanelBackground(isDarkMode, 'base'),
-              transition: 'background-color 0.18s ease, border-color 0.18s ease',
+                ? (isDarkMode ? 'rgba(14, 36, 62, 0.5)' : 'rgba(255, 255, 255, 0.7)')
+                : (isDarkMode ? 'rgba(10, 28, 50, 0.45)' : 'rgba(255, 255, 255, 0.55)'),
+              backdropFilter: 'blur(16px) saturate(1.4)',
+              WebkitBackdropFilter: 'blur(16px) saturate(1.4)',
+              transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
               position: 'relative',
               overflow: 'hidden',
             }}
@@ -6279,19 +6236,19 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                 position: 'absolute',
                 left: 0,
                 bottom: 0,
-                height: 2,
+                height: 1.5,
                 width: `${streamingProgress.percentage}%`,
                 background: brandSignal(isDarkMode),
-                transition: 'width 0.4s ease',
+                transition: 'width 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
                 borderRadius: '0 1px 1px 0',
               }} />
             )}
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 14, flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 }}>
               {/* Status indicator */}
               <div style={{
-                width: 32,
-                height: 32,
+                width: 30,
+                height: 30,
                 borderRadius: 0,
                 display: 'flex',
                 alignItems: 'center',
@@ -6363,7 +6320,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
               justifyContent: 'space-between',
               gap: 12,
               flexWrap: 'wrap',
-              marginBottom: 18,
+              marginBottom: 16,
             }}
           >
             <h3
@@ -6373,7 +6330,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                 fontWeight: 700,
                 textTransform: 'uppercase',
                 letterSpacing: '0.5px',
-                color: isDarkMode ? 'rgba(75, 85, 99, 0.8)' : 'rgba(107, 107, 107, 0.85)',
+                color: isDarkMode ? 'rgba(75, 85, 99, 0.7)' : 'rgba(107, 107, 107, 0.7)',
               }}
             >
               Reporting suite
@@ -6383,14 +6340,14 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                 style={{
                   fontSize: 10,
                   fontWeight: 600,
-                  padding: '3px 8px',
-                  borderRadius: 0,
+                  padding: '2px 8px',
+                  borderRadius: 2,
                   background: isActivelyLoading
-                    ? (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)')
-                    : (isDarkMode ? 'rgba(32, 178, 108, 0.14)' : 'rgba(32, 178, 108, 0.08)'),
-                  border: `1px solid ${isActivelyLoading
-                    ? (isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)')
-                    : (isDarkMode ? 'rgba(32, 178, 108, 0.28)' : 'rgba(32, 178, 108, 0.2)')}`,
+                    ? (isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)')
+                    : (isDarkMode ? 'rgba(32, 178, 108, 0.1)' : 'rgba(32, 178, 108, 0.06)'),
+                  border: `0.5px solid ${isActivelyLoading
+                    ? (isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.12)')
+                    : (isDarkMode ? 'rgba(32, 178, 108, 0.2)' : 'rgba(32, 178, 108, 0.14)')}`,
                   color: isActivelyLoading
                     ? (isDarkMode ? colours.blue : colours.blue)
                     : (isDarkMode ? colours.green : colours.green),
@@ -6408,46 +6365,99 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
             <div style={{
               display: 'flex',
               flexWrap: 'wrap',
-              gap: '4px 6px',
-              marginBottom: 14,
-              padding: '8px 12px',
-              background: isDarkMode ? reportingPanelBackground(isDarkMode, 'base') : 'rgba(244, 244, 246, 0.5)',
-              border: `1px solid ${isDarkMode ? reportingPanelBorder(isDarkMode, 'base') : 'rgba(75, 85, 99, 0.1)'}`,
+              gap: '4px 5px',
+              marginBottom: 12,
+              padding: '7px 11px',
+              background: isDarkMode ? 'rgba(10, 28, 50, 0.4)' : 'rgba(244, 244, 246, 0.4)',
+              border: `0.5px solid ${subtleStroke(isDarkMode)}`,
               borderRadius: 0,
             }}>
               {datasetSummaries.map((ds) => {
                 const isLoading = ds.status === 'loading';
                 const isReady = ds.status === 'ready';
+                const dotColour = isLoading
+                  ? (isDarkMode ? colours.blue : colours.blue)
+                  : isReady
+                  ? colours.green
+                  : (isDarkMode ? colours.subtleGrey : colours.greyText);
                 return (
                   <span
                     key={ds.definition.key}
                     style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 5,
                       fontSize: 9,
                       fontWeight: 600,
-                      padding: '2px 6px',
-                      borderRadius: 0,
+                      padding: '3px 7px',
+                      borderRadius: 2,
                       whiteSpace: 'nowrap',
                       textTransform: 'uppercase',
                       letterSpacing: 0.3,
                       background: isLoading
-                        ? (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.1)')
+                        ? (isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.04)')
                         : isReady
-                        ? (isDarkMode ? 'rgba(32, 178, 108, 0.1)' : 'rgba(32, 178, 108, 0.08)')
-                        : (isDarkMode ? `${colours.dark.borderColor}1A` : `${colours.subtleGrey}14`),
-                      color: isLoading
-                        ? (isDarkMode ? colours.blue : colours.blue)
+                        ? (isDarkMode ? 'rgba(32, 178, 108, 0.06)' : 'rgba(32, 178, 108, 0.04)')
+                        : (isDarkMode ? 'rgba(75, 85, 99, 0.06)' : 'rgba(75, 85, 99, 0.03)'),
+                      color: isDarkMode ? 'rgba(243, 244, 246, 0.85)' : colours.light.text,
+                      border: `0.5px solid ${isLoading
+                        ? (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)')
                         : isReady
-                        ? (isDarkMode ? colours.green : colours.green)
-                        : (isDarkMode ? colours.subtleGrey : colours.greyText),
-                      border: `1px solid ${isLoading
-                        ? (isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.18)')
-                        : isReady
-                        ? (isDarkMode ? 'rgba(32, 178, 108, 0.18)' : 'rgba(32, 178, 108, 0.15)')
-                        : (isDarkMode ? `${colours.dark.borderColor}33` : `${colours.subtleGrey}22`)}`,
-                      transition: 'all 0.3s ease',
+                        ? (isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.08)')
+                        : (isDarkMode ? 'rgba(75, 85, 99, 0.12)' : 'rgba(75, 85, 99, 0.06)')}`,
+                      transition: 'all 0.35s cubic-bezier(0.4, 0, 0.2, 1)',
                     }}
                   >
-                    {ds.definition.name}{isLoading ? ' …' : isReady ? ' ✓' : ''}
+                    {/* Status dot — spins when loading, pops when ready */}
+                    <span style={{
+                      position: 'relative',
+                      width: 8,
+                      height: 8,
+                      flexShrink: 0,
+                    }}>
+                      {/* Dot circle */}
+                      <span style={{
+                        position: 'absolute',
+                        inset: 0,
+                        borderRadius: '50%',
+                        background: isLoading ? 'transparent' : dotColour,
+                        border: isLoading ? `1.5px solid ${dotColour}` : 'none',
+                        borderTopColor: isLoading ? 'transparent' : undefined,
+                        animation: isLoading
+                          ? 'feedDotSpin 0.8s linear infinite'
+                          : isReady
+                          ? 'feedDotReady 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards'
+                          : 'none',
+                        transition: 'background 0.3s ease, border 0.3s ease',
+                      }} />
+                      {/* Tick SVG — only visible when ready */}
+                      {isReady && (
+                        <svg
+                          width="8"
+                          height="8"
+                          viewBox="0 0 8 8"
+                          fill="none"
+                          style={{
+                            position: 'absolute',
+                            inset: 0,
+                          }}
+                        >
+                          <path
+                            d="M2 4.2 L3.4 5.6 L6 2.8"
+                            stroke="#fff"
+                            strokeWidth="1.4"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            style={{
+                              strokeDasharray: 8,
+                              strokeDashoffset: 0,
+                              animation: 'feedTickDraw 0.35s cubic-bezier(0.4, 0, 0.2, 1) forwards',
+                            }}
+                          />
+                        </svg>
+                      )}
+                    </span>
+                    <span>{ds.definition.name}</span>
                   </span>
                 );
               })}
@@ -6460,25 +6470,26 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
           <div
             onClick={() => navigateToReport('logMonitor')}
             style={{
-              marginTop: 20,
-              padding: '10px 16px',
+              marginTop: 18,
+              padding: '10px 14px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
               cursor: 'pointer',
               borderRadius: 0,
-              border: `1px solid ${isDarkMode ? reportingPanelBorder(isDarkMode, 'base') : 'rgba(75, 85, 99, 0.12)'}`,
-              background: isDarkMode ? reportingPanelBackground(isDarkMode, 'base') : 'rgba(244, 244, 246, 0.4)',
-              transition: 'all 0.15s ease',
-              opacity: 0.82,
+              border: `0.5px solid ${subtleStroke(isDarkMode)}`,
+              background: isDarkMode ? 'rgba(10, 28, 50, 0.35)' : 'rgba(244, 244, 246, 0.35)',
+              backdropFilter: 'blur(12px) saturate(1.3)',
+              transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+              opacity: 0.78,
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.opacity = '1';
-              e.currentTarget.style.borderColor = isDarkMode ? reportingPanelBorder(isDarkMode, 'strong') : colours.highlightNeutral;
+              e.currentTarget.style.borderColor = isDarkMode ? 'rgba(75, 85, 99, 0.36)' : 'rgba(6, 23, 51, 0.1)';
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.opacity = '0.82';
-              e.currentTarget.style.borderColor = isDarkMode ? reportingPanelBorder(isDarkMode, 'base') : 'rgba(75, 85, 99, 0.12)';
+              e.currentTarget.style.opacity = '0.78';
+              e.currentTarget.style.borderColor = isDarkMode ? 'rgba(75, 85, 99, 0.28)' : 'rgba(6, 23, 51, 0.06)';
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

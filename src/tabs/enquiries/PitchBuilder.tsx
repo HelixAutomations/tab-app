@@ -818,6 +818,7 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
   // Default estimated fee now set to 1,500 per request
   const [amount, setAmount] = useState<string>('1500');
   const [linkActivationMode, setLinkActivationMode] = useState<'pitch' | 'manual'>('pitch');
+  const [noAmountMode, setNoAmountMode] = useState<boolean>(false);
   function handleAmountChange(val?: string) {
     setAmount(val ?? '');
   }
@@ -2984,7 +2985,8 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
         setDealStatus('processing');
       }
 
-      const numericAmount = options?.background ? 0 : (isCfaMode ? 0 : (parseFloat(amount.replace(/,/g, '')) || 0));
+      const isNoAmount = options?.linkOnly && noAmountMode;
+      const numericAmount = options?.background ? 0 : (isCfaMode || isNoAmount ? 0 : (parseFloat(amount.replace(/,/g, '')) || 0));
       // Updated to use server route instead of Azure Function
       const url = `/api/deal-capture`;
       
@@ -3077,6 +3079,8 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
         passcode: dealPasscode,
         // CFA mode: send CheckoutMode so deal is created with Status='CFA' and Amount=0
         ...(isCfaMode && { checkoutMode: 'CFA' }),
+        // ID-only mode: no payment, identity verification only
+        ...(isNoAmount && { checkoutMode: 'ID_ONLY' }),
         // Include email recipient details for monitoring notification
         emailRecipients: {
           to: to || enquiry.Point_of_Contact || enquiry.Email,
@@ -4686,6 +4690,8 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
         dealStatus={dealStatus}
         dealCreationInProgress={dealCreationInProgress}
         onCaptureDealForLink={() => insertDealIfNeeded({ linkOnly: true })}
+        noAmountMode={noAmountMode}
+        onNoAmountModeChange={setNoAmountMode}
       />
 
       <main className={bodyWrapperStyle}>

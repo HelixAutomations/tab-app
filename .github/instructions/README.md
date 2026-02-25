@@ -38,6 +38,9 @@ Each document focuses on a specific aspect of the system:
 **Task**: Fix Clio API error  
 **Reference**: `CLIO_API_REFERENCE.md` → "Error Handling" + "Troubleshooting Checklist"
 
+**Task**: Replay failed matter opening (one-off)  
+**Reference**: `CLIO_API_REFERENCE.md` → "One-off Replay Pattern (`tools/run-matter-oneoff.mjs`)"
+
 **Task**: Identify redundant code  
 **Reference**: `ARCHITECTURE_DATA_FLOW.md` → "Redundant Code & Cleanup Opportunities"
 

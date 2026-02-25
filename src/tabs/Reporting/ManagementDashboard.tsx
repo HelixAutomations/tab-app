@@ -89,16 +89,16 @@ const RANGE_OPTIONS: RangeOption[] = [
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const getDatePickerStyles = (isDarkMode: boolean): Partial<IDatePickerStyles> => {
-  const baseBorder = isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(13, 47, 96, 0.18)';
-  const hoverBorder = isDarkMode ? 'rgba(135, 206, 255, 0.5)' : 'rgba(54, 144, 206, 0.4)';
-  const focusBorder = isDarkMode ? '#87ceeb' : colours.highlight;
-  const backgroundColour = isDarkMode ? 'rgba(15, 23, 42, 0.9)' : 'rgba(255, 255, 255, 0.95)';
-  const hoverBackground = isDarkMode ? 'rgba(15, 23, 42, 0.95)' : 'rgba(248, 250, 252, 1)';
-  const focusBackground = isDarkMode ? 'rgba(15, 23, 42, 1)' : 'rgba(255, 255, 255, 1)';
+  const baseBorder = isDarkMode ? `${colours.dark.borderColor}66` : 'rgba(6, 23, 51, 0.12)';
+  const hoverBorder = isDarkMode ? 'rgba(135, 243, 243, 0.2)' : 'rgba(54, 144, 206, 0.3)';
+  const focusBorder = isDarkMode ? colours.accent : colours.highlight;
+  const backgroundColour = isDarkMode ? colours.websiteBlue : 'rgba(255, 255, 255, 0.95)';
+  const hoverBackground = isDarkMode ? colours.dark.cardBackground : colours.grey;
+  const focusBackground = isDarkMode ? colours.websiteBlue : '#ffffff';
 
   return {
     root: { 
-      maxWidth: 220,
+      maxWidth: 180,
       '.ms-DatePicker': {
         fontFamily: 'Raleway, sans-serif !important',
       }
@@ -109,41 +109,35 @@ const getDatePickerStyles = (isDarkMode: boolean): Partial<IDatePickerStyles> =>
         width: '100% !important',
       },
       fieldGroup: {
-        height: '36px !important',
-        borderRadius: '8px !important',
-        border: `1px solid ${baseBorder} !important`,
+        height: '32px !important',
+        borderRadius: '0 !important',
+        border: `0.5px solid ${baseBorder} !important`,
         background: `${backgroundColour} !important`,
         padding: '0 14px !important',
-        boxShadow: isDarkMode 
-          ? '0 2px 4px rgba(0, 0, 0, 0.2) !important' 
-          : '0 1px 3px rgba(15, 23, 42, 0.08) !important',
+        boxShadow: 'none !important',
         transition: 'all 0.2s ease !important',
         selectors: {
           ':hover': {
-            border: `1px solid ${hoverBorder} !important`,
+            border: `0.5px solid ${hoverBorder} !important`,
             background: `${hoverBackground} !important`,
-            boxShadow: isDarkMode 
-              ? '0 4px 8px rgba(0, 0, 0, 0.25) !important' 
-              : '0 2px 6px rgba(15, 23, 42, 0.12) !important',
-            transform: 'translateY(-1px) !important',
+            boxShadow: 'none !important',
           },
           ':focus-within': {
-            border: `1px solid ${focusBorder} !important`,
+            border: `0.5px solid ${focusBorder} !important`,
             background: `${focusBackground} !important`,
             boxShadow: isDarkMode 
-              ? `0 0 0 3px rgba(135, 206, 235, 0.1), 0 4px 12px rgba(0, 0, 0, 0.25) !important`
-              : `0 0 0 3px rgba(54, 144, 206, 0.1), 0 2px 8px rgba(15, 23, 42, 0.15) !important`,
-            transform: 'translateY(-1px) !important',
+              ? `0 0 0 2px rgba(135, 243, 243, 0.08) !important`
+              : `0 0 0 2px rgba(54, 144, 206, 0.08) !important`,
           }
         }
       },
       field: {
-        fontSize: '14px !important',
+        fontSize: '12px !important',
         color: `${isDarkMode ? colours.dark.text : colours.light.text} !important`,
         fontFamily: 'Raleway, sans-serif !important',
         fontWeight: '500 !important',
         background: 'transparent !important',
-        lineHeight: '20px !important',
+        lineHeight: '18px !important',
         border: 'none !important',
         outline: 'none !important',
       },
@@ -155,35 +149,35 @@ const getDatePickerStyles = (isDarkMode: boolean): Partial<IDatePickerStyles> =>
     },
     callout: {
       fontSize: '14px !important',
-      borderRadius: '12px !important',
-      border: `1px solid ${baseBorder} !important`,
+      borderRadius: '0 !important',
+      border: `0.5px solid ${baseBorder} !important`,
       boxShadow: isDarkMode 
-        ? '0 8px 24px rgba(0, 0, 0, 0.4) !important' 
-        : '0 6px 20px rgba(15, 23, 42, 0.15) !important',
+        ? '0 8px 24px rgba(0, 0, 0, 0.35) !important' 
+        : '0 6px 20px rgba(6, 23, 51, 0.12) !important',
     },
     wrapper: { 
-      borderRadius: '12px !important',
+      borderRadius: '0 !important',
     },
   };
 };
 
 const getRangeButtonStyles = (isDarkMode: boolean, active: boolean, disabled: boolean = false): IButtonStyles => {
-  const activeBackground = colours.highlight;
-  const inactiveBackground = isDarkMode ? 'rgba(148, 163, 184, 0.16)' : 'transparent';
+  const inactiveColor = isDarkMode ? colours.dark.text : colours.missedBlue;
+  const disabledColor = isDarkMode ? colours.subtleGrey : colours.greyText;
 
   const resolvedBackground = disabled
-    ? (isDarkMode ? 'rgba(15, 23, 42, 0.8)' : 'transparent')
-    : active ? activeBackground : inactiveBackground;
-
-  const resolvedBorder = active
-    ? `1px solid ${isDarkMode ? 'rgba(135, 176, 255, 0.5)' : 'rgba(13, 47, 96, 0.32)'}`
-    : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(13, 47, 96, 0.16)'}`;
-
-  const resolvedColor = disabled
-    ? (isDarkMode ? '#E2E8F0' : colours.missedBlue)
+    ? (isDarkMode ? colours.websiteBlue : 'transparent')
     : active
-      ? '#ffffff'
-      : (isDarkMode ? '#E2E8F0' : colours.missedBlue);
+      ? (isDarkMode ? `${colours.blue}18` : `${colours.blue}12`)
+      : (isDarkMode ? colours.websiteBlue : 'transparent');
+
+  const resolvedBorder = disabled
+    ? `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}40` : 'rgba(6, 23, 51, 0.12)'}`
+    : active
+      ? `1px solid ${isDarkMode ? `${colours.blue}33` : `${colours.blue}25`}`
+      : `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}40` : 'rgba(6, 23, 51, 0.12)'}`;
+
+  const activeTextColor = isDarkMode ? colours.highlight : colours.helixBlue;
 
   return {
     root: {
@@ -192,136 +186,154 @@ const getRangeButtonStyles = (isDarkMode: boolean, active: boolean, disabled: bo
       whiteSpace: 'nowrap' as const,
       overflow: 'hidden',
       textOverflow: 'ellipsis',
-      borderRadius: 999,
+      borderRadius: 0,
       border: resolvedBorder,
-  padding: '0 12px',
-  minHeight: 32,
-  height: 32,
-  fontWeight: 600,
-      fontSize: 13,
-      color: resolvedColor,
+      padding: '0 10px',
+      minHeight: 32,
+      height: 32,
+      fontWeight: active ? 700 : 600,
+      fontSize: 12,
+      color: disabled ? disabledColor : active ? activeTextColor : inactiveColor,
       background: resolvedBackground,
-  boxShadow: active && !disabled ? '0 2px 8px rgba(54, 144, 206, 0.25)' : 'none',
+      boxShadow: 'none',
       fontFamily: 'Raleway, sans-serif',
       cursor: disabled ? 'default' : 'pointer',
+      transition: 'background 0.18s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.18s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.18s cubic-bezier(0.4, 0, 0.2, 1), color 0.18s cubic-bezier(0.4, 0, 0.2, 1)',
     },
     rootHovered: {
       background: disabled
         ? resolvedBackground
         : active
-          ? '#2f7cb3'
-          : (isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(54, 144, 206, 0.12)'),
+          ? (isDarkMode ? `${colours.blue}24` : `${colours.blue}1a`)
+          : (isDarkMode ? colours.dark.cardBackground : 'rgba(54, 144, 206, 0.06)'),
+      color: disabled ? disabledColor : active ? activeTextColor : (isDarkMode ? colours.highlight : colours.highlight),
+      boxShadow: 'none',
     },
     rootPressed: {
       background: disabled
         ? resolvedBackground
         : active
-          ? '#266795'
-          : (isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(54, 144, 206, 0.16)'),
+          ? (isDarkMode ? `${colours.blue}30` : `${colours.blue}22`)
+          : (isDarkMode ? colours.dark.cardHover : 'rgba(54, 144, 206, 0.1)'),
+    },
+    label: {
+      color: 'inherit',
     },
   };
 };
 
-const getTeamButtonStyles = (isDarkMode: boolean, active: boolean, hasWorked: boolean, isInactive?: boolean): IButtonStyles => {
-  const activeBackground = active 
-    ? `linear-gradient(135deg, ${colours.highlight} 0%, #2f7cb3 100%)`
-    : (isDarkMode ? 'rgba(15, 23, 42, 0.8)' : 'transparent');
-  
+const getTeamButtonStyles = (isDarkMode: boolean, active: boolean, hasWorked: boolean, isInactive?: boolean, allIncluded?: boolean): IButtonStyles => {
+  // Three visual states:
+  //   "included" — implicitly selected (all buttons on, no explicit filter)
+  //   "solo/active" — explicitly selected member(s)
+  //   "excluded" — deselected / filtered out
+  const included = allIncluded && !active;
+  const excluded = !allIncluded && !active;
+
+  // ── Backgrounds ──────────────────────────────────────
+  // Included (default): brand border + 50% opacity tint fill (NOT full fill)
+  // Solo/active: stronger brand border + 50% opacity tint fill
+  // Excluded: no fill, faint border — clearly "off"
+  const activeBackground = active
+    ? (isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.08)')
+    : included
+      ? (isDarkMode ? 'rgba(135, 243, 243, 0.05)' : 'rgba(54, 144, 206, 0.05)')
+      : 'transparent';
+
   const activeBorder = active
-    ? `2px solid ${isDarkMode ? '#87ceeb' : colours.highlight}`
-    : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(13, 47, 96, 0.16)'}`;
+    ? `1.5px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.55)' : 'rgba(54, 144, 206, 0.50)'}`
+    : included
+      ? `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.28)' : 'rgba(54, 144, 206, 0.22)'}`
+      : `0.5px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.30)' : 'rgba(6, 23, 51, 0.10)'}`;
 
   // Greyed out styling when member hasn't worked
   const greyedOut = !hasWorked;
   const opacity = greyedOut ? 0.4 : 1;
+
   const textColor = active
-    ? '#ffffff'
-    : greyedOut
-      ? (isDarkMode ? '#64748B' : '#94A3B8')
-      : (isDarkMode ? '#E2E8F0' : colours.missedBlue);
+    ? (isDarkMode ? colours.accent : colours.highlight)
+    : included
+      ? (isDarkMode ? colours.dark.text : colours.helixBlue)
+      : excluded
+        ? (isDarkMode ? colours.subtleGrey : colours.greyText)
+        : (isDarkMode ? '#f3f4f6' : colours.missedBlue);
 
   return {
     root: {
-      borderRadius: 999,
+      borderRadius: 0,
       minHeight: 32,
       height: 32,
-      padding: '0 8px',
-      fontWeight: active ? 700 : 600,
+      padding: '0 10px',
+      fontWeight: active ? 700 : included ? 600 : 500,
       fontSize: 12,
       border: activeBorder,
       borderStyle: isInactive ? 'dashed' : undefined,
       background: activeBackground,
       color: textColor,
       opacity: isInactive ? opacity * 0.78 : opacity,
-      boxShadow: active 
-        ? (isDarkMode ? '0 2px 8px rgba(54, 144, 206, 0.3)' : '0 2px 8px rgba(54, 144, 206, 0.25)')
-        : 'none',
+      boxShadow: 'none',
       fontFamily: 'Raleway, sans-serif',
       fontStyle: isInactive ? 'italic' : 'normal',
-      transform: active ? 'translateY(-1px)' : 'none',
-      transition: 'all 0.2s ease',
+      transition: 'background 0.18s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.18s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.18s cubic-bezier(0.4, 0, 0.2, 1), color 0.18s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.18s cubic-bezier(0.4, 0, 0.2, 1)',
     },
     rootHovered: {
       background: active 
-        ? `linear-gradient(135deg, #2f7cb3 0%, #266795 100%)` 
-        : (isDarkMode ? 'rgba(15, 23, 42, 0.86)' : 'rgba(54, 144, 206, 0.1)'),
-      transform: 'translateY(-1px)',
-      boxShadow: active 
-        ? (isDarkMode ? '0 4px 12px rgba(54, 144, 206, 0.4)' : '0 4px 12px rgba(54, 144, 206, 0.35)')
-        : (isDarkMode ? '0 2px 4px rgba(0, 0, 0, 0.1)' : '0 2px 4px rgba(15, 23, 42, 0.05)'),
+        ? (isDarkMode ? 'rgba(135, 243, 243, 0.14)' : 'rgba(54, 144, 206, 0.14)')
+        : included
+          ? (isDarkMode ? 'rgba(135, 243, 243, 0.10)' : 'rgba(54, 144, 206, 0.10)')
+          : (isDarkMode ? 'rgba(135, 243, 243, 0.06)' : 'rgba(54, 144, 206, 0.06)'),
+      boxShadow: 'none',
     },
     rootPressed: {
       background: active 
-        ? `linear-gradient(135deg, #266795 0%, #1e5a7a 100%)` 
-        : (isDarkMode ? 'rgba(15, 23, 42, 0.9)' : 'rgba(54, 144, 206, 0.14)'),
-      transform: 'translateY(0)',
+        ? (isDarkMode ? 'rgba(135, 243, 243, 0.18)' : 'rgba(54, 144, 206, 0.18)')
+        : (isDarkMode ? 'rgba(135, 243, 243, 0.10)' : 'rgba(54, 144, 206, 0.10)'),
     },
   };
 };
 
-const getRoleButtonStyles = (isDarkMode: boolean, active: boolean): IButtonStyles => {
+const getRoleButtonStyles = (isDarkMode: boolean, active: boolean, allIncluded?: boolean): IButtonStyles => {
+  const included = allIncluded && !active;
+
   const activeBackground = active 
-    ? `linear-gradient(135deg, ${colours.highlight} 0%, #2f7cb3 100%)`
-    : (isDarkMode ? 'rgba(15, 23, 42, 0.8)' : 'transparent');
+    ? (isDarkMode ? `${colours.blue}18` : `${colours.blue}12`)
+    : included
+      ? (isDarkMode ? colours.dark.cardBackground : 'rgba(54, 144, 206, 0.06)')
+      : (isDarkMode ? colours.websiteBlue : 'transparent');
   
   const activeBorder = active
-    ? `2px solid ${isDarkMode ? '#87ceeb' : colours.highlight}`
-    : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(13, 47, 96, 0.16)'}`;
+    ? `1px solid ${isDarkMode ? `${colours.blue}33` : `${colours.blue}25`}`
+    : included
+      ? `1px solid ${isDarkMode ? `${colours.highlight}40` : 'rgba(54, 144, 206, 0.25)'}`
+      : `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}40` : 'rgba(6, 23, 51, 0.12)'}`;
 
-  const textColor = active ? '#ffffff' : (isDarkMode ? '#E2E8F0' : colours.missedBlue);
+  const textColor = active ? (isDarkMode ? colours.highlight : colours.helixBlue) : (isDarkMode ? '#f3f4f6' : colours.missedBlue);
 
   return {
     root: {
-      borderRadius: 999,
+      borderRadius: 0,
       minHeight: 32,
       height: 32,
-      padding: '0 12px',
+      padding: '0 10px',
       fontWeight: active ? 700 : 600,
       fontSize: 12,
       border: activeBorder,
       background: activeBackground,
       color: textColor,
-      boxShadow: active 
-        ? (isDarkMode ? '0 2px 8px rgba(54, 144, 206, 0.3)' : '0 2px 8px rgba(54, 144, 206, 0.25)')
-        : 'none',
+      boxShadow: 'none',
       fontFamily: 'Raleway, sans-serif',
-      transform: active ? 'translateY(-1px)' : 'none',
-      transition: 'all 0.2s ease',
+      transition: 'background 0.18s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.18s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.18s cubic-bezier(0.4, 0, 0.2, 1), color 0.18s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.18s cubic-bezier(0.4, 0, 0.2, 1)',
     },
     rootHovered: {
       background: active 
-        ? `linear-gradient(135deg, #2f7cb3 0%, #266795 100%)` 
-        : (isDarkMode ? 'rgba(15, 23, 42, 0.86)' : 'rgba(54, 144, 206, 0.1)'),
-      transform: 'translateY(-1px)',
-      boxShadow: active 
-        ? (isDarkMode ? '0 4px 12px rgba(54, 144, 206, 0.4)' : '0 4px 12px rgba(54, 144, 206, 0.35)')
-        : (isDarkMode ? '0 2px 4px rgba(0, 0, 0, 0.1)' : '0 2px 4px rgba(15, 23, 42, 0.05)'),
+        ? (isDarkMode ? `${colours.blue}24` : `${colours.blue}1a`) 
+        : (isDarkMode ? colours.dark.cardBackground : 'rgba(54, 144, 206, 0.06)'),
+      boxShadow: 'none',
     },
     rootPressed: {
       background: active 
-        ? `linear-gradient(135deg, #266795 0%, #1e5a7a 100%)` 
-        : (isDarkMode ? 'rgba(15, 23, 42, 0.9)' : 'rgba(54, 144, 206, 0.14)'),
-      transform: 'translateY(0)',
+        ? (isDarkMode ? `${colours.blue}30` : `${colours.blue}22`) 
+        : (isDarkMode ? colours.dark.cardHover : 'rgba(54, 144, 206, 0.1)'),
     },
   };
 };
@@ -330,16 +342,15 @@ const summaryChipStyle = (isDarkMode: boolean): CSSProperties => ({
   display: 'flex',
   flexDirection: 'column',
   justifyContent: 'center',
-  alignItems: 'center',
+  alignItems: 'flex-start',
   padding: '12px 16px',
   borderRadius: 0,
-  background: isDarkMode ? 'rgba(15, 23, 42, 0.72)' : '#ffffff',
-  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : '#e2e8f0'}`,
-  boxShadow: isDarkMode ? '0 4px 6px rgba(0, 0, 0, 0.3)' : '0 4px 6px rgba(0, 0, 0, 0.07)',
-  textAlign: 'center' as const,
+  background: isDarkMode ? colours.darkBlue : '#ffffff',
+  border: `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}66` : 'rgba(6, 23, 51, 0.06)'}`,
+  boxShadow: isDarkMode ? 'none' : '0 2px 4px rgba(0, 0, 0, 0.04)',
+  textAlign: 'left' as const,
   rowGap: 6,
   width: '100%',
-  transition: 'all 0.25s ease',
   cursor: 'default',
 });
 
@@ -358,13 +369,13 @@ const dateStampButtonStyle = (isDarkMode: boolean): CSSProperties => ({
   justifyContent: 'center',
   padding: '6px 12px',
   borderRadius: 0,
-  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.28)' : 'rgba(13, 47, 96, 0.14)'}`,
-  background: isDarkMode ? 'rgba(15, 23, 42, 0.8)' : 'rgba(255, 255, 255, 0.95)',
-  color: isDarkMode ? '#e2e8f0' : '#0d2f60',
+  border: '1px solid transparent',
+  background: isDarkMode ? colours.darkBlue : '#ffffff',
+  color: isDarkMode ? colours.dark.text : colours.helixBlue,
   minWidth: 132,
   gap: 2,
   cursor: 'pointer',
-  transition: 'all 0.2s ease',
+  transition: 'background 0.18s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.18s cubic-bezier(0.4, 0, 0.2, 1), transform 0.18s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.18s cubic-bezier(0.4, 0, 0.2, 1)',
   fontFamily: 'Raleway, sans-serif',
   whiteSpace: 'nowrap',
   lineHeight: 1.3,
@@ -377,12 +388,12 @@ const clearAllTimeButtonStyle = (isDarkMode: boolean): CSSProperties => ({
   padding: '0 14px',
   height: 58,
   borderRadius: 0,
-  border: `1px solid ${isDarkMode ? 'rgba(239, 68, 68, 0.4)' : 'rgba(239, 68, 68, 0.3)'}`,
-  background: isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(254, 242, 242, 0.9)',
-  color: isDarkMode ? '#fca5a5' : '#dc2626',
+  border: `1px solid ${isDarkMode ? 'rgba(214, 85, 65, 0.4)' : 'rgba(214, 85, 65, 0.3)'}`,
+  background: isDarkMode ? 'rgba(214, 85, 65, 0.12)' : 'rgba(214, 85, 65, 0.06)',
+  color: colours.cta,
   gap: 8,
   cursor: 'pointer',
-  transition: 'all 0.2s ease',
+  transition: 'background 0.18s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.18s cubic-bezier(0.4, 0, 0.2, 1), transform 0.18s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.18s cubic-bezier(0.4, 0, 0.2, 1)',
   fontFamily: 'Raleway, sans-serif',
   fontWeight: 600,
   fontSize: 14,
@@ -396,16 +407,52 @@ const clearFilterButtonStyle = (isDarkMode: boolean): CSSProperties => ({
   padding: '0 12px',
   height: 32,
   borderRadius: 0,
-  border: `1px solid ${isDarkMode ? 'rgba(239, 68, 68, 0.35)' : 'rgba(239, 68, 68, 0.25)'}`,
-  background: isDarkMode ? 'rgba(239, 68, 68, 0.12)' : 'rgba(254, 242, 242, 0.85)',
-  color: isDarkMode ? '#fca5a5' : '#dc2626',
+  border: `1px solid ${isDarkMode ? 'rgba(214, 85, 65, 0.35)' : 'rgba(214, 85, 65, 0.25)'}`,
+  background: isDarkMode ? 'rgba(214, 85, 65, 0.10)' : 'rgba(214, 85, 65, 0.05)',
+  color: colours.cta,
   gap: 6,
   cursor: 'pointer',
-  transition: 'all 0.2s ease',
+  transition: 'background 0.18s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.18s cubic-bezier(0.4, 0, 0.2, 1), transform 0.18s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.18s cubic-bezier(0.4, 0, 0.2, 1)',
   fontFamily: 'Raleway, sans-serif',
   fontWeight: 600,
   fontSize: 13,
   whiteSpace: 'nowrap',
+});
+
+const getDisbursementButtonStyles = (isDarkMode: boolean, active: boolean): IButtonStyles => ({
+  root: {
+    height: 32,
+    borderRadius: 0,
+    padding: '0 12px',
+    fontSize: 12,
+    fontWeight: 600,
+    border: active
+      ? `1px solid ${isDarkMode ? `${colours.blue}33` : `${colours.blue}25`}`
+      : `1px solid ${isDarkMode ? `${colours.dark.borderColor}40` : 'rgba(6, 23, 51, 0.12)'}`,
+    background: active
+      ? (isDarkMode ? `${colours.blue}18` : `${colours.blue}12`)
+      : (isDarkMode ? colours.darkBlue : '#ffffff'),
+    color: active
+      ? (isDarkMode ? colours.highlight : colours.helixBlue)
+      : (isDarkMode ? colours.dark.text : colours.darkBlue),
+    boxShadow: 'none',
+    fontFamily: 'Raleway, sans-serif',
+    transition: 'background 0.18s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.18s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.18s cubic-bezier(0.4, 0, 0.2, 1), color 0.18s cubic-bezier(0.4, 0, 0.2, 1)',
+  },
+  rootHovered: {
+    background: active
+      ? (isDarkMode ? `${colours.blue}24` : `${colours.blue}1a`)
+      : (isDarkMode ? colours.dark.cardBackground : 'rgba(54, 144, 206, 0.06)'),
+    color: active
+      ? (isDarkMode ? colours.highlight : colours.helixBlue)
+      : (isDarkMode ? colours.dark.text : colours.darkBlue),
+    boxShadow: 'none',
+  },
+  rootPressed: {
+    background: active
+      ? (isDarkMode ? `${colours.blue}30` : `${colours.blue}22`)
+      : (isDarkMode ? colours.dark.cardHover : colours.grey),
+  },
 });
 
 const computeRange = (range: RangeKey): { start: Date; end: Date } => {
@@ -843,10 +890,10 @@ const getTrendArrow = (direction: 'up' | 'down' | 'neutral' | 'away'): string =>
 
 const getTrendColor = (direction: 'up' | 'down' | 'neutral' | 'away', isDarkMode: boolean): string => {
   switch (direction) {
-    case 'up': return '#10B981'; // Green
-    case 'down': return '#EF4444'; // Red
-    case 'away': return isDarkMode ? '#94A3B8' : '#64748B'; // Blue-gray for away
-    default: return isDarkMode ? '#9CA3AF' : '#6B7280'; // Gray
+    case 'up': return colours.green;
+    case 'down': return colours.cta;
+    case 'away': return isDarkMode ? colours.subtleGrey : colours.greyText;
+    default: return isDarkMode ? colours.subtleGrey : colours.greyText;
   }
 };
 
@@ -990,12 +1037,14 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     }
   }, [lastRefreshTimestamp]);
 
-  // Show success toast when refresh completes
+  // Show success toast when refresh completes + bump refreshCycle for animations
   const prevIsFetchingRef = React.useRef(isFetching);
+  const [refreshCycle, setRefreshCycle] = useState(0);
   useEffect(() => {
     if (prevIsFetchingRef.current && !isFetching) {
       setProcessingModal({ visible: false, title: '', message: '' });
       showToast({ type: 'success', message: 'Dashboard data refreshed' });
+      setRefreshCycle(c => c + 1); // Force re-animation of values
     }
     prevIsFetchingRef.current = isFetching;
   }, [isFetching, showToast]);
@@ -1845,22 +1894,22 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
 
   // Helper function to render trend indicator
   const renderTrendIndicator = (current: number, previous: number | undefined, type: 'count' | 'currency' | 'hours' = 'count', metricName: string) => {
-    if (!previousMetrics || previous === undefined) return null;
+    // No comparison available (All Time, custom, or no data)
+    if (!previousMetrics || previous === undefined || rangeKey === 'all') return null;
 
     const change = calculateChange(current, previous);
     if (change.direction === 'neutral') return null;
 
     const color = change.direction === 'up' 
-      ? (isDarkMode ? '#22c55e' : '#16a34a') 
-      : (isDarkMode ? '#ef4444' : '#dc2626');
+      ? (isDarkMode ? colours.green : colours.green) 
+      : (isDarkMode ? colours.cta : colours.cta);
 
-    const arrow = change.direction === 'up' ? '↗' : '↘';
+    const arrow = change.direction === 'up' ? '↑' : '↓';
     
     // Different display logic based on type
     let displayText: string;
     
     if (type === 'currency') {
-      // For currency, show actual amount difference
       const difference = current - previous;
       const absChange = Math.abs(difference);
       if (absChange >= 1000) {
@@ -1869,7 +1918,6 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
         displayText = `£${absChange.toFixed(0)}`;
       }
     } else if (type === 'hours') {
-      // For hours, show hour difference for small changes, percentage for large
       const difference = Math.abs(current - previous);
       if (difference < 10) {
         displayText = `${difference.toFixed(1)}h`;
@@ -1877,7 +1925,6 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
         displayText = `${change.percentage.toFixed(0)}%`;
       }
     } else {
-      // For counts (enquiries, matters), show numbers for small changes, percentages for large
       const difference = Math.abs(current - previous);
       if (previous === 0 && current > 0) {
         displayText = `+${current}`;
@@ -1890,21 +1937,27 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
       }
     }
 
+    const comparisonLabel = getPreviousRangeLabel(rangeKey);
+    // Shorten the label for compact display
+    const shortLabel = comparisonLabel
+      .replace('Previous ', 'Prev ')
+      .replace('Working ', '')
+      .replace('Financial ', 'Fin ');
+
     return (
       <span 
+        className="trend-indicator-enter"
         style={{
           fontSize: 10,
           fontWeight: 600,
           color,
-          display: 'flex',
+          display: 'inline-flex',
           alignItems: 'center',
           gap: 2,
           fontFamily: 'Raleway, sans-serif',
           letterSpacing: '0.02em',
           cursor: 'help',
-          padding: '2px 4px',
-          borderRadius: 4,
-          transition: 'all 0.2s ease',
+          opacity: 0.85,
         }}
         onMouseEnter={(e) => {
           const rect = e.currentTarget.getBoundingClientRect();
@@ -1915,9 +1968,9 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
           });
         }}
         onMouseLeave={() => setHoveredMetric(null)}
-        title={`Compare ${getRangeLabel(rangeKey)} vs ${getPreviousRangeLabel(rangeKey)}`}
+        title={`${arrow} ${displayText} vs ${comparisonLabel}`}
       >
-        {arrow} {displayText}
+        {arrow}{displayText}
       </span>
     );
   };
@@ -1971,11 +2024,32 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
   };
 
   const toggleTeamSelection = (initials: string) => {
-    setSelectedTeams((prev) => (
-      prev.includes(initials)
-        ? prev.filter((item) => item !== initials)
-        : [...prev, initials]
-    ));
+    setSelectedTeams((prev) => {
+      const allInitials = displayableTeamMembers.map(m => m.initials);
+
+      if (prev.length === 0) {
+        // Phase 1 → 2: "all" → solo this person
+        return [initials];
+      }
+
+      if (prev.length === 1 && prev[0] === initials) {
+        // Phase 2 → 3: solo → exclude (everyone except this person)
+        return allInitials.filter(i => i !== initials);
+      }
+
+      if (prev.includes(initials)) {
+        // Deselect this person
+        const next = prev.filter(i => i !== initials);
+        // If everyone remaining equals full roster, collapse to []
+        if (next.length >= allInitials.length) return [];
+        return next.length === 0 ? [] : next;
+      } else {
+        // Select this person
+        const next = [...prev, initials];
+        // If adding completes the full roster, collapse to []
+        return next.length >= allInitials.length ? [] : next;
+      }
+    });
   };
 
   const toggleInactiveTeamSelection = (initials: string) => {
@@ -2128,10 +2202,299 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
     handleRangeSelect('all');
   };
 
+  const hasRenderableData = summaryTotals.enquiries > 0
+    || summaryTotals.matters > 0
+    || summaryTotals.wipHours > 0
+    || summaryTotals.wipValue > 0
+    || summaryTotals.collected > 0
+    || sortedMetricsByMember.length > 0;
+
+  const showInitialSkeleton = isFetching && !hasRenderableData;
+  const showRefreshSkeleton = isFetching && hasRenderableData; // Refresh while data exists
+  const refreshCountdown = Math.max(0, 15 * 60 - timeElapsed);
+  const statusStateClass = isFetching ? 'is-refreshing' : 'is-idle';
+
+  // Helper: render metric value with skeleton/animation states
+  const renderMetricValue = (formattedValue: string, width?: number) => {
+    if (isFetching) {
+      return (
+        <span
+          className="metric-value-loading skeleton-shimmer"
+          style={width ? { width } : undefined}
+        />
+      );
+    }
+    return (
+      <span
+        key={refreshCycle}
+        className="metric-value-enter"
+        style={{ fontSize: 20, fontWeight: 700, opacity: 0 }}
+      >
+        {formattedValue}
+      </span>
+    );
+  };
+
   return (
     <div className={`management-dashboard-container animate-dashboard ${dashboardThemeClass}`}>
+      {showInitialSkeleton ? (
+          <div className="summary-skeleton-grid">
+            {Array.from({ length: 5 }).map((_, index) => (
+              <div key={`summary-skeleton-${index}`} className="summary-skeleton-card">
+                <div className="summary-skeleton-label skeleton-shimmer" />
+                <div className="summary-skeleton-value skeleton-shimmer" />
+              </div>
+            ))}
+          </div>
+      ) : (
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
+        <div className="summary-chip" style={summaryChipStyle(isDarkMode)}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%' }}>
+            <span style={summaryChipLabelStyle()}>Enquiries</span>
+            {!isFetching && renderTrendIndicator(summaryTotals.enquiries, previousMetrics?.enquiries, 'count', 'enquiries')}
+          </div>
+          {renderMetricValue(summaryTotals.enquiries.toLocaleString('en-GB'), 48)}
+        </div>
+        <div className="summary-chip" style={summaryChipStyle(isDarkMode)}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%' }}>
+            <span style={summaryChipLabelStyle()}>Matters</span>
+            {!isFetching && renderTrendIndicator(summaryTotals.matters, previousMetrics?.matters, 'count', 'matters')}
+          </div>
+          {renderMetricValue(summaryTotals.matters.toLocaleString('en-GB'), 48)}
+        </div>
+        <div
+          className="summary-chip"
+          style={{
+            ...summaryChipStyle(isDarkMode),
+            position: 'relative',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={summaryChipLabelStyle()}>WIP Hours</span>
+              <span
+                onMouseEnter={() => setShowWipInfo(true)}
+                onMouseLeave={() => setShowWipInfo(false)}
+                style={{ display: 'inline-flex', alignItems: 'center' }}
+              >
+                <Icon
+                  iconName="Info"
+                  style={{
+                    fontSize: 10,
+                    opacity: 0.35,
+                    cursor: 'help',
+                  }}
+                />
+              </span>
+            </div>
+            {!isFetching && renderTrendIndicator(summaryTotals.wipHours, previousMetrics?.wipHours, 'hours', 'wipHours')}
+          </div>
+          {renderMetricValue(formatHours(summaryTotals.wipHours), 72)}
+
+          {showWipInfo && (
+            <div
+              style={{
+                position: 'absolute',
+                top: '100%',
+                right: 0,
+                marginTop: 8,
+                padding: '10px 12px',
+                background: isDarkMode ? colours.websiteBlue : 'rgba(255, 255, 255, 0.98)',
+                border: `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}40` : 'rgba(54, 144, 206, 0.15)'}`,
+                borderRadius: 0,
+                boxShadow: isDarkMode ? '0 8px 16px rgba(0, 0, 0, 0.4)' : '0 4px 12px rgba(0, 0, 0, 0.15)',
+                fontSize: 11,
+                lineHeight: 1.5,
+                width: 260,
+                zIndex: 1000,
+                color: isDarkMode ? colours.dark.text : colours.darkBlue,
+                textAlign: 'left',
+              }}
+            >
+              <div style={{ fontWeight: 800, marginBottom: 6, fontSize: 12 }}>
+                WIP totals (current view)
+              </div>
+              <div style={{ opacity: 0.85 }}>
+                Includes non-chargeable time from Clio and SQL sources.
+              </div>
+            </div>
+          )}
+        </div>
+        <div
+          className="summary-chip"
+          style={{
+            ...summaryChipStyle(isDarkMode),
+            position: 'relative',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={summaryChipLabelStyle()}>WIP (£)</span>
+              <span
+                onMouseEnter={() => setShowWipValueInfo(true)}
+                onMouseLeave={() => setShowWipValueInfo(false)}
+                style={{ display: 'inline-flex', alignItems: 'center' }}
+              >
+                <Icon
+                  iconName="Info"
+                  style={{
+                    fontSize: 10,
+                    opacity: 0.35,
+                    cursor: 'help',
+                  }}
+                />
+              </span>
+            </div>
+            {!isFetching && renderTrendIndicator(summaryTotals.wipValue, previousMetrics?.wipValue, 'currency', 'wipValue')}
+          </div>
+          {renderMetricValue(formatCurrency(summaryTotals.wipValue), 80)}
+
+          {showWipValueInfo && (
+            <div
+              style={{
+                position: 'absolute',
+                top: '100%',
+                right: 0,
+                marginTop: 8,
+                padding: '10px 12px',
+                background: isDarkMode ? colours.websiteBlue : 'rgba(255, 255, 255, 0.98)',
+                border: `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}40` : 'rgba(54, 144, 206, 0.15)'}`,
+                borderRadius: 0,
+                boxShadow: isDarkMode ? '0 8px 16px rgba(0, 0, 0, 0.4)' : '0 4px 12px rgba(0, 0, 0, 0.15)',
+                fontSize: 11,
+                lineHeight: 1.5,
+                width: 260,
+                zIndex: 1000,
+                color: isDarkMode ? colours.dark.text : colours.darkBlue,
+                textAlign: 'left',
+              }}
+            >
+              <div style={{ fontWeight: 800, marginBottom: 6, fontSize: 12 }}>
+                WIP totals (current view)
+              </div>
+              <div style={{ opacity: 0.85 }}>
+                Includes non-chargeable time from Clio and SQL sources.
+              </div>
+            </div>
+          )}
+        </div>
+        <div 
+          className="summary-chip"
+          style={{
+            ...summaryChipStyle(isDarkMode),
+            position: 'relative',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={summaryChipLabelStyle()}>Collected</span>
+              <span
+                onMouseEnter={() => setShowCollectedInfo(true)}
+                onMouseLeave={() => setShowCollectedInfo(false)}
+                style={{ display: 'inline-flex', alignItems: 'center' }}
+              >
+                <Icon 
+                  iconName="Info" 
+                  style={{ 
+                    fontSize: 10, 
+                    opacity: 0.35,
+                    cursor: 'help'
+                  }} 
+                />
+              </span>
+            </div>
+            {!isFetching && renderTrendIndicator(summaryTotals.collected, previousMetrics?.collected, 'currency', 'collected')}
+          </div>
+          {renderMetricValue(formatCurrency(summaryTotals.collected), 80)}
+          
+          {showCollectedInfo && (
+            <div
+              style={{
+                position: 'absolute',
+                top: '100%',
+                right: 0,
+                marginTop: 8,
+                padding: '10px 12px',
+                background: isDarkMode ? colours.websiteBlue : 'rgba(255, 255, 255, 0.98)',
+                border: `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}40` : 'rgba(54, 144, 206, 0.15)'}`,
+                borderRadius: 0,
+                boxShadow: isDarkMode ? '0 8px 16px rgba(0, 0, 0, 0.4)' : '0 4px 12px rgba(0, 0, 0, 0.15)',
+                fontSize: 11,
+                lineHeight: 1.5,
+                width: 280,
+                zIndex: 1000,
+                color: isDarkMode ? colours.dark.text : colours.darkBlue,
+                textAlign: 'left',
+              }}
+            >
+              <div style={{ fontWeight: 800, marginBottom: 8, fontSize: 12 }}>
+                Collected totals (current view)
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                <span style={{ opacity: 0.75 }}>Top card (all fee entries)</span>
+                <span style={{ fontWeight: 700 }}>{formatCurrency(summaryTotals.collected)}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginTop: 4 }}>
+                <span style={{ opacity: 0.75 }}>Table Total (visible members)</span>
+                <span style={{ fontWeight: 700 }}>{formatCurrency(totals.collected)}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginTop: 4 }}>
+                <span style={{ opacity: 0.75 }}>Difference (top − table)</span>
+                <span style={{ fontWeight: 800 }}>{formatCurrency(summaryTotals.collected - totals.collected)}</span>
+              </div>
+
+              <div
+                style={{
+                  marginTop: 8,
+                  paddingTop: 8,
+                  borderTop: `0.5px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.12)'}`,
+                }}
+              >
+                <div style={{ fontWeight: 700, fontSize: 11, marginBottom: 4, opacity: 0.9 }}>
+                  Active filters
+                </div>
+                <div style={{ opacity: 0.8 }}>
+                  Teams: <span style={{ fontWeight: 600 }}>{collectedTooltipDetails.selectedTeamsLabel}</span>
+                </div>
+                <div style={{ opacity: 0.8 }}>
+                  Roles: <span style={{ fontWeight: 600 }}>{collectedTooltipDetails.selectedRolesLabel}</span>
+                </div>
+                <div style={{ opacity: 0.8 }}>
+                  Visible members: <span style={{ fontWeight: 600 }}>{collectedTooltipDetails.visibleMembers.toLocaleString('en-GB')}</span>
+                  {' '} / {collectedTooltipDetails.totalTeamMembers.toLocaleString('en-GB')}
+                </div>
+                <div style={{ opacity: 0.75, marginTop: 4, fontSize: 10 }}>
+                  Ops shown: {collectedTooltipDetails.showOps ? 'Yes' : 'No'}
+                  {collectedTooltipDetails.hiddenOpsCount > 0 ? ` (${collectedTooltipDetails.hiddenOpsCount} hidden)` : ''}
+                  {' · '}Inactive shown: {collectedTooltipDetails.showInactive ? 'Yes' : 'No'}
+                  {collectedTooltipDetails.hiddenInactiveCount > 0 ? ` (${collectedTooltipDetails.hiddenInactiveCount} hidden)` : ''}
+                </div>
+              </div>
+
+              <div
+                style={{
+                  marginTop: 8,
+                  paddingTop: 8,
+                  borderTop: `0.5px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.12)'}`,
+                  fontSize: 10,
+                  opacity: 0.75,
+                }}
+              >
+                Disbursements: {includeDisbursements ? 'Included' : 'Excluded'}
+                {disbursementStats.inRangeAllCount > 0
+                  ? ` · In range: ${formatCurrency(disbursementStats.inRangeAllTotal)} (visible members: ${formatCurrency(disbursementStats.inRangeVisibleTotal)})`
+                  : ''}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+      )}
+
       <div className="filter-toolbar">
         <div className="filter-toolbar__top">
+          <span className="filter-section-label">Date range</span>
           <div className="filter-toolbar__date-inputs">
             {isCustomRange ? (
               <div className="date-pickers">
@@ -2166,39 +2529,23 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
               <div className="date-stamp-group">
                 <button
                   type="button"
-                  className="date-stamp-button"
+                  className="date-stamp-button toolbar-control"
                   style={dateStampButtonStyle(isDarkMode)}
                   onClick={handleActivateCustomRange}
                   title="Click to customise the start date"
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = isDarkMode ? 'rgba(30, 41, 59, 0.86)' : 'rgba(248, 250, 252, 1)';
-                    e.currentTarget.style.transform = 'translateY(-1px)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = isDarkMode ? 'rgba(15, 23, 42, 0.8)' : 'rgba(255, 255, 255, 0.95)';
-                    e.currentTarget.style.transform = 'translateY(0)';
-                  }}
                 >
-                  <span style={{ fontSize: 11, opacity: 0.7, fontWeight: 600 }}>From</span>
-                  <span style={{ fontSize: 16, fontWeight: 700 }}>{formattedFromLabel}</span>
+                  <span className="date-stamp-button__label">From</span>
+                  <span className="date-stamp-button__value">{formattedFromLabel}</span>
                 </button>
                 <button
                   type="button"
-                  className="date-stamp-button"
+                  className="date-stamp-button toolbar-control"
                   style={dateStampButtonStyle(isDarkMode)}
                   onClick={handleActivateCustomRange}
                   title="Click to customise the end date"
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = isDarkMode ? 'rgba(30, 41, 59, 0.86)' : 'rgba(248, 250, 252, 1)';
-                    e.currentTarget.style.transform = 'translateY(-1px)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = isDarkMode ? 'rgba(15, 23, 42, 0.8)' : 'rgba(255, 255, 255, 0.95)';
-                    e.currentTarget.style.transform = 'translateY(0)';
-                  }}
                 >
-                  <span style={{ fontSize: 11, opacity: 0.7, fontWeight: 600 }}>To</span>
-                  <span style={{ fontSize: 16, fontWeight: 700 }}>{formattedToLabel}</span>
+                  <span className="date-stamp-button__label">To</span>
+                  <span className="date-stamp-button__value">{formattedToLabel}</span>
                 </button>
               </div>
             )}
@@ -2206,21 +2553,21 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
 
           <div className="filter-toolbar__actions">
             <div 
-              className="filter-status-chip"
+              className={`filter-status-chip toolbar-control ${statusStateClass}`}
               style={{
                 borderColor: isFetching ? undefined : getRefreshIndicatorColor(),
                 transition: 'border-color 1s ease',
               }}
               title={
                 isFetching 
-                  ? 'Refreshing data...' 
-                  : `Next auto-refresh in ${Math.floor((15 * 60 - timeElapsed) / 60)}m ${(15 * 60 - timeElapsed) % 60}s`
+                  ? 'Refreshing data…' 
+                  : `Last sync ${formatTimeAgo(lastRefreshTimestamp)} · Next auto-refresh in ${Math.floor(refreshCountdown / 60)}m ${refreshCountdown % 60}s`
               }
             >
               {isFetching ? (
                 <>
                   <div className="filter-status-indicator" />
-                  Refreshing
+                  <span>Refreshing…</span>
                 </>
               ) : (
                 <>
@@ -2231,7 +2578,9 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                       transition: 'background 1s ease',
                     }}
                   />
-                  {formatTimeAgo(lastRefreshTimestamp)}
+                  <span>Last sync {formatTimeAgo(lastRefreshTimestamp)}</span>
+                  <span className="filter-status-separator">·</span>
+                  <span className="filter-status-countdown">Next in {Math.floor(refreshCountdown / 60)}m {refreshCountdown % 60}s</span>
                 </>
               )}
             </div>
@@ -2239,25 +2588,7 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
             <DefaultButton
               text={includeDisbursements ? 'Disbursements: Included' : 'Disbursements: Excluded'}
               onClick={() => setIncludeDisbursements((v) => !v)}
-              styles={{
-                root: {
-                  height: 36,
-                  borderRadius: 10,
-                  padding: '0 12px',
-                  fontSize: 12,
-                  fontWeight: 600,
-                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.28)' : 'rgba(13, 47, 96, 0.18)'}`,
-                  background: isDarkMode ? 'rgba(15, 23, 42, 0.35)' : 'rgba(255, 255, 255, 0.6)',
-                  color: isDarkMode ? '#e2e8f0' : '#0f172a',
-                },
-                rootHovered: {
-                  background: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : 'rgba(255, 255, 255, 0.8)',
-                  border: `1px solid ${isDarkMode ? 'rgba(96, 165, 250, 0.4)' : 'rgba(54, 144, 206, 0.35)'}`,
-                },
-                rootPressed: {
-                  background: isDarkMode ? 'rgba(15, 23, 42, 0.55)' : 'rgba(248, 250, 252, 1)',
-                },
-              }}
+              styles={getDisbursementButtonStyles(isDarkMode, includeDisbursements)}
               title={
                 includeDisbursements
                   ? 'Currently including disbursements in Collected totals'
@@ -2276,10 +2607,10 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                   });
                   showToast({ type: 'loading', message: 'Refreshing dashboard data…' });
                   triggerRefresh();
-                  setTimeElapsed(0); // Reset timer on manual refresh
+                  setTimeElapsed(0);
                 }}
                 disabled={isFetching}
-                className="filter-icon-button"
+                className="filter-icon-button toolbar-control"
                 title={isFetching ? 'Refreshing data...' : 'Refresh datasets (auto-refreshes every 15 min)'}
                 aria-label={isFetching ? 'Refreshing data' : 'Refresh datasets'}
               >
@@ -2293,32 +2624,12 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
               </button>
             )}
 
-            <button
-              type="button"
-              onClick={() => setShowRoleFilter(!showRoleFilter)}
-              className="filter-icon-button"
-              style={{
-                color: showRoleFilter 
-                  ? (isDarkMode ? '#60a5fa' : colours.highlight)
-                  : (isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(13, 47, 96, 0.5)'),
-                transform: showRoleFilter ? 'translateY(-1px)' : 'translateY(0)'
-              }}
-              title={showRoleFilter ? 'Hide role filter' : 'Show role filter'}
-              aria-label={showRoleFilter ? 'Hide role filter' : 'Show role filter'}
-            >
-              <Icon iconName="People" style={{ fontSize: 16 }} />
-            </button>
-
             <div className="filter-icon-button-wrapper">
               <button
                 type="button"
                 onMouseEnter={() => setShowDatasetInfo(true)}
                 onMouseLeave={() => setShowDatasetInfo(false)}
-                className="filter-icon-button"
-                style={{
-                  color: isDarkMode ? '#60a5fa' : colours.highlight,
-                  transform: showDatasetInfo ? 'translateY(-1px)' : 'translateY(0)'
-                }}
+                className={`filter-icon-button toolbar-control icon-button--info ${showDatasetInfo ? 'is-active' : ''}`}
                 title="Dataset information"
                 aria-label="Dataset information"
               >
@@ -2327,7 +2638,7 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
 
               {showDatasetInfo && (
                 <div className="filter-dataset-tooltip">
-                  <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 13, color: isDarkMode ? '#60a5fa' : colours.highlight }}>
+                  <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 13, color: isDarkMode ? colours.accent : colours.highlight }}>
                     Dataset Date Ranges
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -2355,7 +2666,7 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                   <div style={{
                     marginTop: 10,
                     paddingTop: 8,
-                    borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.3)'}`,
+                    borderTop: `0.5px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.12)'}`,
                     fontSize: 11,
                     opacity: 0.7,
                     fontStyle: 'italic'
@@ -2368,8 +2679,7 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
           </div>
         </div>
 
-        <div className="filter-toolbar__middle">
-          <div className="filter-toolbar__presets">
+        <div className="filter-toolbar__presets">
             <div className="filter-preset-group">
               {RANGE_OPTIONS.slice(0, 2).map(({ key, label }) => {
                 const presetDisabled = isRangeDisabled(key);
@@ -2446,19 +2756,18 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                 </button>
               )}
             </div>
-          </div>
         </div>
 
-        <div className="filter-toolbar__bottom">
-          <div className="filter-group-container team-filter-container">
-            <div className="team-slicer-buttons">
+        <div className="filter-toolbar__team">
+          <span className="filter-section-label">Active members</span>
+          <div className="team-slicer-buttons">
               {displayableTeamMembers.map((member) => (
                 <DefaultButton
                   key={member.initials}
                   text={member.initials}
                   onClick={() => toggleTeamSelection(member.initials)}
                   title={memberHasWorked(member.initials) ? undefined : `${member.display || member.initials} has no WIP hours in this period`}
-                  styles={getTeamButtonStyles(isDarkMode, selectedTeams.includes(member.initials), memberHasWorked(member.initials), member.role === 'Inactive')}
+                  styles={getTeamButtonStyles(isDarkMode, selectedTeams.includes(member.initials), memberHasWorked(member.initials), member.role === 'Inactive', allTeamsSelected)}
                 />
               ))}
               {!allTeamsSelected && (
@@ -2471,20 +2780,30 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                   Clear
                 </button>
               )}
-            </div>
           </div>
+
+          <button
+            type="button"
+            onClick={() => setShowRoleFilter(!showRoleFilter)}
+            className={`filter-icon-button toolbar-control icon-button--role ${showRoleFilter ? 'is-active' : ''}`}
+            title={showRoleFilter ? 'Hide role filter' : 'Show role filter'}
+            aria-label={showRoleFilter ? 'Hide role filter' : 'Show role filter'}
+            style={{ marginLeft: 4 }}
+          >
+            <Icon iconName="People" style={{ fontSize: 16 }} />
+          </button>
         </div>
 
         {showRoleFilter && (
           <div className="filter-toolbar__roles">
-            <div className="filter-group-container role-filter-container">
-              <div className="role-slicer-buttons">
+            <span className="filter-section-label">Filter by role</span>
+            <div className="role-slicer-buttons">
                 {ROLE_OPTIONS.map(({ key, label }) => (
                   <DefaultButton
                     key={key}
                     text={label}
                     onClick={() => toggleRoleSelection(key)}
-                    styles={getRoleButtonStyles(isDarkMode, selectedRoles.includes(key))}
+                    styles={getRoleButtonStyles(isDarkMode, selectedRoles.includes(key), allRolesSelected)}
                   />
                 ))}
                 {!allRolesSelected && (
@@ -2501,15 +2820,8 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
 
                 {inactiveTeamMembers.length > 0 && (
                   <div style={{ marginTop: 10 }}>
-                    <div style={{
-                      fontSize: 11,
-                      fontWeight: 700,
-                      opacity: 0.75,
-                      marginBottom: 6,
-                    }}>
-                      Inactive people
-                    </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                    <span className="filter-section-label">Inactive members</span>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                       {inactiveTeamMembers.map((member) => (
                         <DefaultButton
                           key={`inactive-${member.initials}`}
@@ -2520,259 +2832,40 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                             isDarkMode,
                             selectedTeams.includes(member.initials),
                             memberHasWorked(member.initials),
-                            true
+                            true,
+                            allTeamsSelected
                           )}
                         />
                       ))}
                     </div>
                   </div>
                 )}
-            </div>
           </div>
         )}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
-        <div style={summaryChipStyle(isDarkMode)}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%' }}>
-            <span style={summaryChipLabelStyle()}>Enquiries</span>
-            {renderTrendIndicator(summaryTotals.enquiries, previousMetrics?.enquiries, 'count', 'enquiries')}
+      {(showInitialSkeleton || showRefreshSkeleton) ? (
+          <div className="metrics-table metrics-table-skeleton">
+            <div className="metrics-table-header">
+              <span>Team</span>
+              <span>Enquiries</span>
+              <span>Matters</span>
+              <span>WIP (h)</span>
+              <span>WIP (£)</span>
+              <span>Collected</span>
+            </div>
+            {Array.from({ length: showRefreshSkeleton ? Math.max(sortedMetricsByMember.length, 4) : 6 }).map((_, index) => (
+              <div key={`row-skeleton-${index}`} className="metrics-table-row">
+                <span className="skeleton-shimmer row-skeleton-pill" />
+                <span className="skeleton-shimmer row-skeleton-cell" />
+                <span className="skeleton-shimmer row-skeleton-cell" />
+                <span className="skeleton-shimmer row-skeleton-cell" />
+                <span className="skeleton-shimmer row-skeleton-cell" />
+                <span className="skeleton-shimmer row-skeleton-cell" />
+              </div>
+            ))}
           </div>
-          <span style={{ fontSize: 20, fontWeight: 700 }}>{summaryTotals.enquiries.toLocaleString('en-GB')}</span>
-        </div>
-        <div style={summaryChipStyle(isDarkMode)}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%' }}>
-            <span style={summaryChipLabelStyle()}>Matters</span>
-            {renderTrendIndicator(summaryTotals.matters, previousMetrics?.matters, 'count', 'matters')}
-          </div>
-          <span style={{ fontSize: 20, fontWeight: 700 }}>{summaryTotals.matters.toLocaleString('en-GB')}</span>
-        </div>
-        <div
-          style={{
-            ...summaryChipStyle(isDarkMode),
-            position: 'relative',
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span style={summaryChipLabelStyle()}>WIP Hours</span>
-              <span
-                onMouseEnter={() => setShowWipInfo(true)}
-                onMouseLeave={() => setShowWipInfo(false)}
-                style={{ display: 'inline-flex', alignItems: 'center' }}
-              >
-                <Icon
-                  iconName="Info"
-                  style={{
-                    fontSize: 10,
-                    opacity: 0.35,
-                    cursor: 'help',
-                  }}
-                />
-              </span>
-            </div>
-            {renderTrendIndicator(summaryTotals.wipHours, previousMetrics?.wipHours, 'hours', 'wipHours')}
-          </div>
-          <span style={{ fontSize: 20, fontWeight: 700 }}>{formatHours(summaryTotals.wipHours)}</span>
-
-          {showWipInfo && (
-            <div
-              style={{
-                position: 'absolute',
-                top: '100%',
-                right: 0,
-                marginTop: 8,
-                padding: '10px 12px',
-                background: isDarkMode ? 'rgba(15, 23, 42, 0.98)' : 'rgba(255, 255, 255, 0.98)',
-                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)'}`,
-                borderRadius: 8,
-                boxShadow: isDarkMode ? '0 8px 16px rgba(0, 0, 0, 0.4)' : '0 4px 12px rgba(0, 0, 0, 0.15)',
-                fontSize: 11,
-                lineHeight: 1.5,
-                width: 260,
-                zIndex: 1000,
-                color: isDarkMode ? '#e2e8f0' : '#334155',
-                textAlign: 'left',
-              }}
-            >
-              <div style={{ fontWeight: 800, marginBottom: 6, fontSize: 12 }}>
-                WIP totals (current view)
-              </div>
-              <div style={{ opacity: 0.85 }}>
-                Includes non-chargeable time from Clio and SQL sources.
-              </div>
-            </div>
-          )}
-        </div>
-        <div
-          style={{
-            ...summaryChipStyle(isDarkMode),
-            position: 'relative',
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span style={summaryChipLabelStyle()}>WIP (£)</span>
-              <span
-                onMouseEnter={() => setShowWipValueInfo(true)}
-                onMouseLeave={() => setShowWipValueInfo(false)}
-                style={{ display: 'inline-flex', alignItems: 'center' }}
-              >
-                <Icon
-                  iconName="Info"
-                  style={{
-                    fontSize: 10,
-                    opacity: 0.35,
-                    cursor: 'help',
-                  }}
-                />
-              </span>
-            </div>
-            {renderTrendIndicator(summaryTotals.wipValue, previousMetrics?.wipValue, 'currency', 'wipValue')}
-          </div>
-          <span style={{ fontSize: 20, fontWeight: 700 }}>{formatCurrency(summaryTotals.wipValue)}</span>
-
-          {showWipValueInfo && (
-            <div
-              style={{
-                position: 'absolute',
-                top: '100%',
-                right: 0,
-                marginTop: 8,
-                padding: '10px 12px',
-                background: isDarkMode ? 'rgba(15, 23, 42, 0.98)' : 'rgba(255, 255, 255, 0.98)',
-                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)'}`,
-                borderRadius: 8,
-                boxShadow: isDarkMode ? '0 8px 16px rgba(0, 0, 0, 0.4)' : '0 4px 12px rgba(0, 0, 0, 0.15)',
-                fontSize: 11,
-                lineHeight: 1.5,
-                width: 260,
-                zIndex: 1000,
-                color: isDarkMode ? '#e2e8f0' : '#334155',
-                textAlign: 'left',
-              }}
-            >
-              <div style={{ fontWeight: 800, marginBottom: 6, fontSize: 12 }}>
-                WIP totals (current view)
-              </div>
-              <div style={{ opacity: 0.85 }}>
-                Includes non-chargeable time from Clio and SQL sources.
-              </div>
-            </div>
-          )}
-        </div>
-        <div 
-          style={{
-            ...summaryChipStyle(isDarkMode),
-            position: 'relative',
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span style={summaryChipLabelStyle()}>Collected</span>
-              <span
-                onMouseEnter={() => setShowCollectedInfo(true)}
-                onMouseLeave={() => setShowCollectedInfo(false)}
-                style={{ display: 'inline-flex', alignItems: 'center' }}
-              >
-                <Icon 
-                  iconName="Info" 
-                  style={{ 
-                    fontSize: 10, 
-                    opacity: 0.35,
-                    cursor: 'help'
-                  }} 
-                />
-              </span>
-            </div>
-            {renderTrendIndicator(summaryTotals.collected, previousMetrics?.collected, 'currency', 'collected')}
-          </div>
-          <span style={{ fontSize: 20, fontWeight: 700 }}>{formatCurrency(summaryTotals.collected)}</span>
-          
-          {showCollectedInfo && (
-            <div
-              style={{
-                position: 'absolute',
-                top: '100%',
-                right: 0,
-                marginTop: 8,
-                padding: '10px 12px',
-                background: isDarkMode ? 'rgba(15, 23, 42, 0.98)' : 'rgba(255, 255, 255, 0.98)',
-                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)'}`,
-                borderRadius: 8,
-                boxShadow: isDarkMode ? '0 8px 16px rgba(0, 0, 0, 0.4)' : '0 4px 12px rgba(0, 0, 0, 0.15)',
-                fontSize: 11,
-                lineHeight: 1.5,
-                width: 280,
-                zIndex: 1000,
-                color: isDarkMode ? '#e2e8f0' : '#334155',
-                textAlign: 'left',
-              }}
-            >
-              <div style={{ fontWeight: 800, marginBottom: 8, fontSize: 12 }}>
-                Collected totals (current view)
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-                <span style={{ opacity: 0.75 }}>Top card (all fee entries)</span>
-                <span style={{ fontWeight: 700 }}>{formatCurrency(summaryTotals.collected)}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginTop: 4 }}>
-                <span style={{ opacity: 0.75 }}>Table Total (visible members)</span>
-                <span style={{ fontWeight: 700 }}>{formatCurrency(totals.collected)}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginTop: 4 }}>
-                <span style={{ opacity: 0.75 }}>Difference (top − table)</span>
-                <span style={{ fontWeight: 800 }}>{formatCurrency(summaryTotals.collected - totals.collected)}</span>
-              </div>
-
-              <div
-                style={{
-                  marginTop: 8,
-                  paddingTop: 8,
-                  borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.25)'}`,
-                }}
-              >
-                <div style={{ fontWeight: 700, fontSize: 11, marginBottom: 4, opacity: 0.9 }}>
-                  Active filters
-                </div>
-                <div style={{ opacity: 0.8 }}>
-                  Teams: <span style={{ fontWeight: 600 }}>{collectedTooltipDetails.selectedTeamsLabel}</span>
-                </div>
-                <div style={{ opacity: 0.8 }}>
-                  Roles: <span style={{ fontWeight: 600 }}>{collectedTooltipDetails.selectedRolesLabel}</span>
-                </div>
-                <div style={{ opacity: 0.8 }}>
-                  Visible members: <span style={{ fontWeight: 600 }}>{collectedTooltipDetails.visibleMembers.toLocaleString('en-GB')}</span>
-                  {' '} / {collectedTooltipDetails.totalTeamMembers.toLocaleString('en-GB')}
-                </div>
-                <div style={{ opacity: 0.75, marginTop: 4, fontSize: 10 }}>
-                  Ops shown: {collectedTooltipDetails.showOps ? 'Yes' : 'No'}
-                  {collectedTooltipDetails.hiddenOpsCount > 0 ? ` (${collectedTooltipDetails.hiddenOpsCount} hidden)` : ''}
-                  {' · '}Inactive shown: {collectedTooltipDetails.showInactive ? 'Yes' : 'No'}
-                  {collectedTooltipDetails.hiddenInactiveCount > 0 ? ` (${collectedTooltipDetails.hiddenInactiveCount} hidden)` : ''}
-                </div>
-              </div>
-
-              <div
-                style={{
-                  marginTop: 8,
-                  paddingTop: 8,
-                  borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.25)'}`,
-                  fontSize: 10,
-                  opacity: 0.75,
-                }}
-              >
-                Disbursements: {includeDisbursements ? 'Included' : 'Excluded'}
-                {disbursementStats.inRangeAllCount > 0
-                  ? ` · In range: ${formatCurrency(disbursementStats.inRangeAllTotal)} (visible members: ${formatCurrency(disbursementStats.inRangeVisibleTotal)})`
-                  : ''}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
+      ) : (
       <div className="metrics-table">
         <div className="metrics-table-header">
           <span 
@@ -2820,12 +2913,12 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
         </div>
         {sortedMetricsByMember.length === 0 && (
           <div className="metrics-table-row animate-table-row">
-            <span>No team members selected</span>
-            <span>0</span>
-            <span>0</span>
-            <span>0h</span>
-            <span>£0</span>
-            <span>£0</span>
+            <span className="metrics-cell metrics-cell--member">No team members selected</span>
+            <span className="metrics-cell metrics-cell--value">0</span>
+            <span className="metrics-cell metrics-cell--value">0</span>
+            <span className="metrics-cell metrics-cell--value">0h</span>
+            <span className="metrics-cell metrics-cell--value">£0</span>
+            <span className="metrics-cell metrics-cell--value">£0</span>
           </div>
         )}
         {sortedMetricsByMember.map((row, index) => {
@@ -2834,14 +2927,14 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
           const isFirstInactive = isInactive && (prevRow?.wipHours || 0) > 0;
           
           return (
-            <React.Fragment key={`${row.initials}-${startDate?.getTime()}-${endDate?.getTime()}-${rangeKey}`}>
+            <React.Fragment key={`${row.initials}-${startDate?.getTime()}-${endDate?.getTime()}-${rangeKey}-${refreshCycle}`}>
               {isFirstInactive && (
                 <div className="metrics-table-row" style={{
                   opacity: 0.6,
                   fontSize: '11px',
                   fontStyle: 'italic',
-                  background: isDarkMode ? 'rgba(71, 85, 105, 0.1)' : 'rgba(148, 163, 184, 0.08)',
-                  borderTop: `1px solid ${isDarkMode ? '#475569' : '#94A3B8'}`,
+                  background: isDarkMode ? `${colours.dark.borderColor}14` : 'rgba(54, 144, 206, 0.04)',
+                  borderTop: `0.5px solid ${isDarkMode ? '#4b5563' : '#A0A0A0'}`,
                   padding: '6px 12px',
                 }}>
                   <span>— Inactive in this period —</span>
@@ -2857,14 +2950,14 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                 style={{ 
                   animationDelay: `${Math.min(index * 0.05, 0.5)}s`,
                   opacity: isInactive ? 0.4 : 1,
-                  background: isInactive ? (isDarkMode ? 'rgba(71, 85, 105, 0.15)' : 'rgba(148, 163, 184, 0.1)') : 'transparent',
-                  borderLeft: isInactive ? `3px solid ${isDarkMode ? '#475569' : '#94A3B8'}` : 'none',
-                  paddingLeft: isInactive ? '9px' : '12px',
+                  background: isInactive ? (isDarkMode ? `${colours.dark.borderColor}14` : 'rgba(54, 144, 206, 0.04)') : 'transparent',
+                  borderLeft: isInactive ? `2px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.4)' : 'rgba(160, 160, 160, 0.4)'}` : 'none',
+                  paddingLeft: isInactive ? '10px' : '12px',
                   filter: isInactive ? 'grayscale(20%)' : 'none',
-                  color: isInactive ? (isDarkMode ? '#64748B' : '#94A3B8') : 'inherit'
+                  color: isInactive ? (isDarkMode ? '#6B6B6B' : '#A0A0A0') : 'inherit'
                 }}
               >
-            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span className="metrics-cell metrics-cell--member" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <span 
                 style={{ 
                   cursor: 'help',
@@ -2888,10 +2981,17 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
               </span>
               {row.trendDirection && row.trendDirection !== 'neutral' && (
                 <span 
+                  className="trend-indicator-enter"
                   style={{ 
-                    color: getTrendColor(row.trendDirection, isDarkMode),
-                    fontSize: '12px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 2,
+                    fontSize: '10px',
                     fontWeight: 600,
+                    color: getTrendColor(row.trendDirection, isDarkMode),
+                    letterSpacing: '0.01em',
+                    fontFamily: 'Raleway, sans-serif',
+                    opacity: 0.8,
                   }}
                   title={
                     row.trendDirection === 'away' ? 'Away on leave' :
@@ -2901,16 +3001,15 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                     `At target: ${row.wipHours.toFixed(1)}h / ${(row.targetHours || 0).toFixed(1)}h`
                   }
                 >
-                  {getTrendArrow(row.trendDirection)}
-                  {row.trendDirection !== 'away' && row.targetHours && row.targetHours > 0 && (
-                    <span style={{ 
-                      fontSize: '9px', 
-                      marginLeft: '2px',
-                      opacity: 0.7,
-                      fontWeight: 500
-                    }}>
-                      {((row.wipHours / row.targetHours) * 100).toFixed(0)}%
-                    </span>
+                  {row.trendDirection === 'away' ? '✈' : (
+                    <>
+                      {row.trendDirection === 'up' ? '↑' : '↓'}
+                      {row.targetHours && row.targetHours > 0 && (
+                        <span style={{ fontSize: '9px', opacity: 0.85, fontWeight: 500 }}>
+                          {((row.wipHours / row.targetHours) * 100).toFixed(0)}%
+                        </span>
+                      )}
+                    </>
                   )}
                 </span>
               )}
@@ -2927,28 +3026,31 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                 </span>
               )}
             </span>
-            <span>{row.enquiries.toLocaleString('en-GB')}</span>
-            <span>{row.matters.toLocaleString('en-GB')}</span>
+            <span className="metrics-cell metrics-cell--value">{row.enquiries.toLocaleString('en-GB')}</span>
+            <span className="metrics-cell metrics-cell--value">{row.matters.toLocaleString('en-GB')}</span>
             <span 
+              className="metrics-cell metrics-cell--value"
               title={`WIP Hours: ${formatHours(row.wipHours)}\nTarget: ${formatHours(row.targetHours || 0)}\nDate Range: ${startDate?.toLocaleDateString('en-GB')} - ${endDate?.toLocaleDateString('en-GB')}\nPerformance: ${row.targetHours ? ((row.wipHours / row.targetHours) * 100).toFixed(1) : 'N/A'}% of target`}
             >
               {formatHours(row.wipHours)}
             </span>
-            <span>{formatCurrency(row.wipValue)}</span>
-            <span>{formatCurrency(row.collected)}</span>
+            <span className="metrics-cell metrics-cell--value">{formatCurrency(row.wipValue)}</span>
+            <span className="metrics-cell metrics-cell--value">{formatCurrency(row.collected)}</span>
           </div>
             </React.Fragment>
           );
         })}
         <div className="metrics-table-row animate-table-row" style={{ animationDelay: `${sortedMetricsByMember.length * 0.05}s` }}>
-          <span>Total</span>
-          <span>{totals.enquiries.toLocaleString('en-GB')}</span>
-          <span>{totals.matters.toLocaleString('en-GB')}</span>
-          <span>{formatHours(totals.wipHours)}</span>
-          <span>{formatCurrency(totals.wipValue)}</span>
-          <span>{formatCurrency(totals.collected)}</span>
+          <span className="metrics-cell metrics-cell--member">Total</span>
+          <span className="metrics-cell metrics-cell--value">{totals.enquiries.toLocaleString('en-GB')}</span>
+          <span className="metrics-cell metrics-cell--value">{totals.matters.toLocaleString('en-GB')}</span>
+          <span className="metrics-cell metrics-cell--value">{formatHours(totals.wipHours)}</span>
+          <span className="metrics-cell metrics-cell--value">{formatCurrency(totals.wipValue)}</span>
+          <span className="metrics-cell metrics-cell--value">{formatCurrency(totals.collected)}</span>
         </div>
       </div>
+      )}
+
 
       {/* Premium Hover Tooltip */}
       {hoveredMetric && previousRange && (
@@ -2966,10 +3068,10 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
         >
           <div style={{
             background: isDarkMode 
-              ? 'linear-gradient(145deg, rgba(15, 23, 42, 0.98) 0%, rgba(30, 41, 59, 0.98) 100%)'
-              : 'linear-gradient(145deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 250, 252, 0.98) 100%)',
-            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)'}`,
-            borderRadius: 12,
+              ? `linear-gradient(145deg, ${colours.websiteBlue} 0%, ${colours.dark.sectionBackground} 100%)`
+              : 'linear-gradient(145deg, rgba(255, 255, 255, 0.98) 0%, rgba(244, 244, 246, 0.98) 100%)',
+            border: `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}40` : 'rgba(54, 144, 206, 0.15)'}`,
+            borderRadius: 0,
             padding: '12px 16px',
             fontSize: 12,
             fontFamily: 'Raleway, sans-serif',
@@ -2977,7 +3079,7 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
               ? '0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.2)'
               : '0 20px 25px -5px rgba(0, 0, 0, 0.15), 0 10px 10px -5px rgba(0, 0, 0, 0.08)',
             backdropFilter: 'blur(20px)',
-            color: isDarkMode ? '#e2e8f0' : '#475569',
+            color: isDarkMode ? colours.dark.text : colours.darkBlue,
           }}>
             <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 13 }}>
               Period Comparison
@@ -3005,7 +3107,7 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
               </div>
               <div style={{ 
                 height: 1, 
-                background: isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.25)', 
+                background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(6, 23, 51, 0.08)', 
                 margin: '6px 0' 
               }} />
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11 }}>
@@ -3033,10 +3135,10 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
         >
           <div style={{
             background: isDarkMode 
-              ? 'linear-gradient(145deg, rgba(15, 23, 42, 0.98) 0%, rgba(30, 41, 59, 0.98) 100%)'
-              : 'linear-gradient(145deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 250, 252, 0.98) 100%)',
-            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)'}`,
-            borderRadius: 12,
+              ? `linear-gradient(145deg, ${colours.websiteBlue} 0%, ${colours.dark.sectionBackground} 100%)`
+              : 'linear-gradient(145deg, rgba(255, 255, 255, 0.98) 0%, rgba(244, 244, 246, 0.98) 100%)',
+            border: `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}40` : 'rgba(54, 144, 206, 0.15)'}`,
+            borderRadius: 0,
             padding: '16px 20px',
             fontSize: 12,
             fontFamily: 'Raleway, sans-serif',
@@ -3044,9 +3146,9 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
               ? '0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.2)'
               : '0 20px 25px -5px rgba(0, 0, 0, 0.15), 0 10px 10px -5px rgba(0, 0, 0, 0.08)',
             backdropFilter: 'blur(20px)',
-            color: isDarkMode ? '#e2e8f0' : '#475569',
+            color: isDarkMode ? colours.dark.text : colours.darkBlue,
           }}>
-            <div style={{ fontWeight: 700, marginBottom: 12, fontSize: 14, color: isDarkMode ? '#f1f5f9' : '#334155' }}>
+            <div style={{ fontWeight: 700, marginBottom: 12, fontSize: 14, color: isDarkMode ? colours.dark.text : colours.darkBlue }}>
               {hoveredMember.member.displayName}
             </div>
             
@@ -3058,7 +3160,7 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
               <div style={{ 
                 gridColumn: '1 / -1', 
                 height: 1, 
-                background: isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.25)', 
+                background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(6, 23, 51, 0.08)', 
                 margin: '4px 0' 
               }} />
               
@@ -3086,7 +3188,7 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
             <div style={{ 
               marginTop: 12, 
               paddingTop: 12, 
-              borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.25)'}`,
+              borderTop: `0.5px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(6, 23, 51, 0.08)'}`,
               display: 'flex', 
               justifyContent: 'space-between', 
               fontSize: 10, 
@@ -3117,8 +3219,8 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
           <div
             style={{
               background: isDarkMode
-                ? 'linear-gradient(145deg, rgba(15, 23, 42, 0.98), rgba(30, 41, 59, 0.98))'
-                : 'linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.98))',
+                ? 'linear-gradient(145deg, rgba(6, 23, 51, 0.98), rgba(13, 47, 96, 0.98))'
+                : 'linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(244, 244, 246, 0.98))',
               borderRadius: 0,
               padding: '32px 40px',
               minWidth: 300,
@@ -3126,7 +3228,7 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
               boxShadow: isDarkMode
                 ? '0 25px 50px -12px rgba(0, 0, 0, 0.5)'
                 : '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
-              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)'}`,
+              border: `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}40` : 'rgba(6, 23, 51, 0.08)'}`,
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
@@ -3141,7 +3243,7 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                 fontWeight: 700,
                 textTransform: 'uppercase',
                 letterSpacing: '0.5px',
-                color: isDarkMode ? '#94a3b8' : '#64748b',
+                color: isDarkMode ? '#A0A0A0' : '#6B6B6B',
               }}
             >
               {processingModal.title}
@@ -3149,7 +3251,7 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
             <div
               style={{
                 fontSize: 13,
-                color: isDarkMode ? '#e2e8f0' : '#475569',
+                color: isDarkMode ? '#f3f4f6' : '#374151',
                 textAlign: 'center',
               }}
             >
@@ -3160,7 +3262,7 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
                 style={{
                   width: '100%',
                   height: 4,
-                  background: isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.25)',
+                  background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(6, 23, 51, 0.06)',
                   borderRadius: 2,
                   overflow: 'hidden',
                   marginTop: 8,

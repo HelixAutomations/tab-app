@@ -13,12 +13,14 @@ import { fmt, fmtDate, fmtCurrency, safeNumber, get, formatLongDate, formatAddre
 import {
   containerStyle, entryStyle, headerStyle, headerLeftStyle, headerTitleLineStyle,
   headerClientStyle, headerSeparatorStyle, headerDescriptionStyle, matterBadgeStyle,
-  statusBadgeStyle, mainLayoutStyle, leftColumnStyle, rightColumnStyle, metricsGridStyle,
-  metricCardStyle, metricLabelStyle, metricValueStyle, sectionCardStyle, sectionTitleStyle,
+  statusBadgeStyle, mainLayoutStyle, leftColumnStyle, rightColumnStyle,
+  sectionCardStyle, sectionTitleStyle,
   fieldRowStyle, fieldLabelStyle, fieldValueStyle, clientFieldValueStyle, detailsGridStyle,
   detailsTeamGridStyle, teamGridStyle, clientActionButtonStyle, contactRowStyle, copyChipStyle,
   clientFieldStackStyle, progressBarStyle, progressFillStyle, metricSkeletonStyle,
   metricSubSkeletonStyle, processingHintStyle, BADGE_RADIUS,
+  tabPanelContainerStyle, tabPanelHeaderStyle, cclStatusStyle,
+  kpiStripStyle, kpiItemStyle, tabEmptyStateStyle,
 } from './styles/matterOverview.styles';
 
 interface MatterOverviewProps {
@@ -264,12 +266,12 @@ const PipelineSection: React.FC<PipelineSectionProps> = ({
 
   return (
     <div style={{
-      background: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-      border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-      borderRadius: 4,
+      background: isDarkMode ? colours.darkBlue : '#ffffff',
+      border: `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}66` : 'rgba(6, 23, 51, 0.06)'}`,
+      borderRadius: 0,
       overflow: 'hidden',
       fontFamily: 'Raleway, sans-serif',
-      boxShadow: isDarkMode ? '0 4px 16px rgba(0, 0, 0, 0.4)' : '0 4px 12px rgba(6, 23, 51, 0.08)',
+      boxShadow: isDarkMode ? 'none' : '0 2px 4px rgba(0, 0, 0, 0.04)',
     }}>
       {/* Pipeline pill bar — identical to EnquiryTimeline TIER 3 */}
       <div style={{
@@ -910,7 +912,15 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
   ].filter((m) => m.name && m.name.trim());
 
   const isAdmin = !!(userInitials && ADMIN_USERS.includes(userInitials.toUpperCase().trim() as any));
-  const showNextSteps = isAdmin && matter.status === 'active' && !matter.cclDate && !showCCLEditor;
+  const showNextSteps = isAdmin && !showCCLEditor;
+
+  // Portal URL computation
+  const portalBaseUrl = 'https://instruct.helix-law.com/pitch';
+  const isDemoMatter = matter.instructionRef === 'HLX-27367-94842';
+  const portalUrl = isDemoMatter
+    ? 'https://instruct.helix-law.com/pitch/luke-portal'
+    : pipelineLink.passcode ? `${portalBaseUrl}/${pipelineLink.passcode}` : null;
+  const hasCcl = Boolean(matter.cclDate);
 
   return (
     <div className={`${containerStyle(isDarkMode)} ${entryStyle}`}>
@@ -971,9 +981,9 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
       {showNextSteps && (
         <section style={{
           padding: '8px 24px 10px',
-          backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-          borderTop: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-          borderBottom: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+          backgroundColor: isDarkMode ? colours.darkBlue : '#ffffff',
+          borderTop: `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}66` : 'rgba(6, 23, 51, 0.06)'}`,
+          borderBottom: `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}66` : 'rgba(6, 23, 51, 0.06)'}`,
         }}>
           <div style={{
             display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6,
@@ -984,14 +994,46 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
             Next Steps
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 6 }}>
-            <NextStepChip
-              title="Prepare Client Care Letter"
-              subtitle="Draft engagement letter from matter data"
-              icon="TextDocument"
-              isDarkMode={isDarkMode}
-              onClick={() => setShowCCLEditor(true)}
-              category="standard"
-            />
+            {matter.status === 'active' && !hasCcl && (
+              <NextStepChip
+                title="Prepare Client Care Letter"
+                subtitle="Draft engagement letter from matter data"
+                icon="TextDocument"
+                isDarkMode={isDarkMode}
+                onClick={() => setShowCCLEditor(true)}
+                category="standard"
+              />
+            )}
+            {hasCcl && (
+              <NextStepChip
+                title="CCL Generated"
+                subtitle={`Sent ${fmtDate(matter.cclDate)}`}
+                icon="CompletedSolid"
+                isDarkMode={isDarkMode}
+                onClick={() => setShowCCLEditor(true)}
+                category="success"
+              />
+            )}
+            {outstandingBalance > 0 && !isOutstandingLoading && (
+              <NextStepChip
+                title="Outstanding Balance"
+                subtitle={fmtCurrency(outstandingBalance)}
+                icon="Money"
+                isDarkMode={isDarkMode}
+                onClick={() => {}}
+                category="warning"
+              />
+            )}
+            {matter.status === 'closed' && (
+              <NextStepChip
+                title="Matter Closed"
+                subtitle={matter.closeDate ? fmtDate(matter.closeDate) : 'No close date'}
+                icon="StatusCircleBlock"
+                isDarkMode={isDarkMode}
+                onClick={() => {}}
+                category="warning"
+              />
+            )}
           </div>
         </section>
       )}
@@ -1012,177 +1054,66 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
       {/* Main Content — hidden when CCL editor is open */}
       {!showCCLEditor && (
       <>
+      {(!activeTab || activeTab === 'overview') && (
+      <>
       <div className={mainLayoutStyle}>
         {/* Left Column - Main Content */}
         <div className={leftColumnStyle(isDarkMode)}>
-          {/* Key Metrics */}
-          <div className={metricsGridStyle}>
-            <div className={metricCardStyle(isDarkMode)}>
-              <span className={metricLabelStyle(isDarkMode)}>Work in Progress</span>
-              {isWipLoading ? (
-                <div className={metricSkeletonStyle(isDarkMode)} />
-              ) : (
-                <span className={metricValueStyle(isDarkMode, true)}>{fmtCurrency(billableAmount)}</span>
-              )}
-              {isWipLoading ? (
-                <div className={metricSubSkeletonStyle(isDarkMode)} />
-              ) : (
-                <span
-                  style={{
-                    fontSize: 12,
-                    color: isDarkMode ? colours.dark.subText : colours.greyText,
-                  }}
-                >
-                  {billableHours.toFixed(1)}h billable
-                </span>
-              )}
-              {wipStatus === 'loading' && (
-                <span className={processingHintStyle(isDarkMode)}>Processing time entries…</span>
-              )}
-              {wipStatus === 'pending' && (
-                <span className={processingHintStyle(isDarkMode)}>Matter not created yet</span>
-              )}
-              {wipStatus === 'error' && (
-                <span className={processingHintStyle(isDarkMode)}>Time entries unavailable</span>
-              )}
-              {isLocalhost && !hasWiredDetailData && (
-                <span style={{ fontSize: 11, color: isDarkMode ? colours.dark.subText : colours.greyText }}>
-                  Local preview (backend wiring pending)
-                </span>
-              )}
+          {/* Key Metrics — compact KPI strip */}
+          <div className={kpiStripStyle(isDarkMode)}>
+            <div className={kpiItemStyle(isDarkMode, true)}>
+              <span className="kpi-label">WIP</span>
+              <span className="kpi-value">{isWipLoading ? '…' : fmtCurrency(billableAmount)}</span>
+              <span className="kpi-sub">{isWipLoading ? '' : `${billableHours.toFixed(1)}h billable`}</span>
             </div>
-            <div className={metricCardStyle(isDarkMode)}>
-              <span className={metricLabelStyle(isDarkMode)}>Outstanding</span>
-              {isOutstandingLoading ? (
-                <div className={metricSkeletonStyle(isDarkMode, '64%')} />
-              ) : (
-                <span
-                  className={metricValueStyle(isDarkMode)}
-                  style={{ color: outstandingBalance > 0 ? colours.cta : undefined }}
-                >
-                  {fmtCurrency(outstandingBalance)}
-                </span>
-              )}
-              {isOutstandingLoading ? (
-                <div className={metricSubSkeletonStyle(isDarkMode, '50%')} />
-              ) : (
-                <span
-                  style={{
-                    fontSize: 12,
-                    color: isDarkMode ? colours.dark.subText : colours.greyText,
-                  }}
-                >
-                  Balance due
-                </span>
-              )}
-              {outstandingStatus === 'loading' && (
-                <span className={processingHintStyle(isDarkMode)}>Checking outstanding…</span>
-              )}
-              {outstandingStatus === 'error' && (
-                <span className={processingHintStyle(isDarkMode)}>Outstanding unavailable</span>
-              )}
-              {isLocalhost && !hasWiredDetailData && (
-                <span style={{ fontSize: 11, color: isDarkMode ? colours.dark.subText : colours.greyText }}>
-                  Local preview (backend wiring pending)
-                </span>
-              )}
+            <div className={kpiItemStyle(isDarkMode)}>
+              <span className="kpi-label">Outstanding</span>
+              <span className="kpi-value" style={outstandingBalance > 0 ? { color: colours.cta } : undefined}>
+                {isOutstandingLoading ? '…' : fmtCurrency(outstandingBalance)}
+              </span>
+              <span className="kpi-sub">Balance due</span>
             </div>
-            <div className={metricCardStyle(isDarkMode)}>
-              <span className={metricLabelStyle(isDarkMode)}>Client Funds</span>
-              {isFundsLoading ? (
-                <div className={metricSkeletonStyle(isDarkMode, '58%')} />
-              ) : (
-                <span
-                  className={metricValueStyle(isDarkMode)}
-                  style={{ color: clientFunds > 0 ? colours.highlight : undefined }}
-                >
-                  {fmtCurrency(clientFunds)}
-                </span>
-              )}
-              {isFundsLoading ? (
-                <div className={metricSubSkeletonStyle(isDarkMode, '48%')} />
-              ) : (
-                <span
-                  style={{
-                    fontSize: 12,
-                    color: isDarkMode ? colours.dark.subText : colours.greyText,
-                  }}
-                >
-                  On account
-                </span>
-              )}
-              {fundsStatus === 'loading' && (
-                <span className={processingHintStyle(isDarkMode)}>Fetching client funds…</span>
-              )}
-              {fundsStatus === 'pending' && (
-                <span className={processingHintStyle(isDarkMode)}>Matter not created yet</span>
-              )}
-              {fundsStatus === 'error' && (
-                <span className={processingHintStyle(isDarkMode)}>Client funds unavailable</span>
-              )}
+            <div className={kpiItemStyle(isDarkMode)}>
+              <span className="kpi-label">Funds</span>
+              <span className="kpi-value" style={clientFunds > 0 ? { color: colours.highlight } : undefined}>
+                {isFundsLoading ? '…' : fmtCurrency(clientFunds)}
+              </span>
+              <span className="kpi-sub">On account</span>
             </div>
-            <div className={metricCardStyle(isDarkMode)}>
-              <span className={metricLabelStyle(isDarkMode)}>Total Hours</span>
-              {isWipLoading ? (
-                <div className={metricSkeletonStyle(isDarkMode, '54%')} />
-              ) : (
-                <span className={metricValueStyle(isDarkMode)}>{totalHours.toFixed(1)}h</span>
-              )}
-              {isWipLoading ? (
-                <div className={metricSubSkeletonStyle(isDarkMode, '78%')} />
-              ) : (
-                <span
-                  style={{
-                    fontSize: 12,
-                    color: isDarkMode ? colours.dark.subText : colours.greyText,
-                  }}
-                >
-                  {billableHours.toFixed(1)}h billable / {nonBillableHours.toFixed(1)}h non-billable
-                </span>
-              )}
-              {wipStatus === 'loading' && (
-                <span className={processingHintStyle(isDarkMode)}>Calculating totals…</span>
-              )}
+            <div className={kpiItemStyle(isDarkMode)}>
+              <span className="kpi-label">Hours</span>
+              <span className="kpi-value">{isWipLoading ? '…' : `${totalHours.toFixed(1)}h`}</span>
+              <span className="kpi-sub">{isWipLoading ? '' : `${billablePct}% billable`}</span>
             </div>
           </div>
 
-          {/* Time Breakdown */}
-          <div className={sectionCardStyle(isDarkMode)}>
-            <div className={sectionTitleStyle(isDarkMode)}>
-              <Icon iconName="Clock" styles={{ root: { color: colours.highlight } }} />
-              Time Breakdown
-            </div>
+          {/* Billable ratio bar — compact, sits flush below KPI strip */}
+          <div style={{ padding: '0 16px 12px' }}>
             {isWipLoading ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <div className={metricSubSkeletonStyle(isDarkMode, '72%')} />
-                <div className={progressBarStyle(isDarkMode)} />
-                <div className={metricSubSkeletonStyle(isDarkMode, '80%')} />
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-                  <span style={{ color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                    Billable: {fmtCurrency(billableAmount)} ({billableHours.toFixed(2)}h)
-                  </span>
-                  <span style={{ color: isDarkMode ? colours.dark.subText : colours.greyText }}>
-                    {billablePct}%
-                  </span>
+              <>
+                <div className={progressBarStyle(isDarkMode)} style={{ height: 4, opacity: 0.4 }} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, marginTop: 3 }}>
+                  <span className={metricSubSkeletonStyle(isDarkMode, '48px')} style={{ height: 8 }} />
+                  <span className={metricSubSkeletonStyle(isDarkMode, '64px')} style={{ height: 8 }} />
                 </div>
-                <div className={progressBarStyle(isDarkMode)}>
+              </>
+            ) : totalHours > 0 ? (
+              <>
+                <div className={progressBarStyle(isDarkMode)} style={{ height: 4 }}>
                   <div className={progressFillStyle(billablePct)} />
                 </div>
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    fontSize: 12,
-                    color: isDarkMode ? colours.dark.subText : colours.greyText,
-                  }}
-                >
-                  <span>Billable</span>
-                  <span>Non-Billable: {fmtCurrency(nonBillableAmount)} ({nonBillableHours.toFixed(2)}h)</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, marginTop: 3, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+                  <span>Billable {billablePct}%</span>
+                  <span>Non-billable {nonBillableHours.toFixed(1)}h</span>
                 </div>
-              </div>
+              </>
+            ) : (
+              <>
+                <div className={progressBarStyle(isDarkMode)} style={{ height: 4, opacity: 0.25 }} />
+                <div style={{ fontSize: 10, marginTop: 3, color: isDarkMode ? colours.subtleGrey : colours.greyText, textAlign: 'center' }}>
+                  No time recorded
+                </div>
+              </>
             )}
           </div>
 
@@ -1332,9 +1263,9 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
                     gap: 6,
                     height: 28,
                     padding: '0 12px',
-                    borderRadius: 14,
-                    border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-                    background: isDarkMode ? colours.dark.cardBackground : colours.light.sectionBackground,
+                    borderRadius: 0,
+                    border: `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}66` : 'rgba(6, 23, 51, 0.06)'}`,
+                    background: isDarkMode ? colours.darkBlue : '#ffffff',
                     color: isDarkMode ? colours.dark.text : colours.light.text,
                     fontSize: 11,
                     fontWeight: 600,
@@ -1615,57 +1546,62 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
             </div>
           </div>
 
-          {/* Quick Info */}
+          {/* Reference — compact key dates, CCL, and identifiers */}
           <div className={sectionCardStyle(isDarkMode)}>
-            <div className={sectionTitleStyle(isDarkMode)}>
-              <Icon iconName="BulletedList" styles={{ root: { color: colours.highlight } }} />
-              Quick Info
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <div className={fieldRowStyle} style={{ gridTemplateColumns: '90px 1fr' }}>
-                <span className={fieldLabelStyle(isDarkMode)}>Matter ID</span>
-                <span className={clientFieldValueStyle(isDarkMode)}>{fmt(workbenchMatterId || matter.matterId)}</span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div className={fieldRowStyle} style={{ gridTemplateColumns: '80px 1fr' }}>
+                <span className={fieldLabelStyle(isDarkMode)}>Opened</span>
+                <span className={clientFieldValueStyle(isDarkMode)}>{fmtDate(matter.openDate)}</span>
               </div>
-              {workbenchMatterId && matter.matterId && String(workbenchMatterId) !== String(matter.matterId) && (
-                <div className={fieldRowStyle} style={{ gridTemplateColumns: '90px 1fr' }}>
-                  <span className={fieldLabelStyle(isDarkMode)}>Request ID</span>
-                  <span className={clientFieldValueStyle(isDarkMode)}>{fmt(matter.matterId)}</span>
-                </div>
-              )}
-              {matter.source && (
-                <div className={fieldRowStyle} style={{ gridTemplateColumns: '90px 1fr' }}>
-                  <span className={fieldLabelStyle(isDarkMode)}>Source</span>
-                  <span className={clientFieldValueStyle(isDarkMode)}>{matter.source}</span>
-                </div>
-              )}
-              {matter.referrer && (
-                <div className={fieldRowStyle} style={{ gridTemplateColumns: '90px 1fr' }}>
-                  <span className={fieldLabelStyle(isDarkMode)}>Referrer</span>
-                  <span className={clientFieldValueStyle(isDarkMode)}>{matter.referrer}</span>
-                </div>
-              )}
-              {matter.value && (
-                <div className={fieldRowStyle} style={{ gridTemplateColumns: '90px 1fr' }}>
-                  <span className={fieldLabelStyle(isDarkMode)}>Value</span>
-                  <span className={clientFieldValueStyle(isDarkMode)}>{matter.value}</span>
-                </div>
-              )}
-              {matter.rating && (
-                <div className={fieldRowStyle} style={{ gridTemplateColumns: '90px 1fr' }}>
-                  <span className={fieldLabelStyle(isDarkMode)}>Rating</span>
-                  <span
-                    className={clientFieldValueStyle(isDarkMode)}
-                    style={{
-                      color:
-                        matter.rating === 'Good'
-                          ? colours.highlight
-                          : matter.rating === 'Poor'
-                          ? colours.cta
-                          : undefined,
-                    }}
-                  >
-                    {matter.rating}
+              {matter.cclDate && (
+                <div className={fieldRowStyle} style={{ gridTemplateColumns: '80px 1fr' }}>
+                  <span className={fieldLabelStyle(isDarkMode)}>CCL</span>
+                  <span className={cclStatusStyle('generated', isDarkMode)}>
+                    <Icon iconName="CompletedSolid" styles={{ root: { fontSize: 10 } }} />
+                    {fmtDate(matter.cclDate)}
                   </span>
+                </div>
+              )}
+              {!matter.cclDate && matter.status === 'active' && (
+                <div className={fieldRowStyle} style={{ gridTemplateColumns: '80px 1fr' }}>
+                  <span className={fieldLabelStyle(isDarkMode)}>CCL</span>
+                  <span className={cclStatusStyle('none', isDarkMode)}>Not yet prepared</span>
+                </div>
+              )}
+              {matter.closeDate && (
+                <div className={fieldRowStyle} style={{ gridTemplateColumns: '80px 1fr' }}>
+                  <span className={fieldLabelStyle(isDarkMode)}>Closed</span>
+                  <span className={clientFieldValueStyle(isDarkMode)}>{fmtDate(matter.closeDate)}</span>
+                </div>
+              )}
+              {matter.instructionRef && (
+                <div className={fieldRowStyle} style={{ gridTemplateColumns: '80px 1fr' }}>
+                  <span className={fieldLabelStyle(isDarkMode)}>Instruction</span>
+                  <span className={clientFieldValueStyle(isDarkMode)}>{fmt(matter.instructionRef)}</span>
+                </div>
+              )}
+              {portalUrl && (
+                <div className={fieldRowStyle} style={{ gridTemplateColumns: '80px 1fr' }}>
+                  <span className={fieldLabelStyle(isDarkMode)}>Portal</span>
+                  <a
+                    href={portalUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      fontSize: 12,
+                      fontWeight: 500,
+                      color: colours.highlight,
+                      textDecoration: 'none',
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.textDecoration = 'underline')}
+                    onMouseLeave={(e) => (e.currentTarget.style.textDecoration = 'none')}
+                  >
+                    View client portal
+                    <Icon iconName="OpenInNewWindow" styles={{ root: { fontSize: 10 } }} />
+                  </a>
                 </div>
               )}
             </div>
@@ -1682,11 +1618,11 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
                   type="button"
                   onClick={onToggleAudit}
                   style={{
-                    border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                    border: `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}66` : 'rgba(6, 23, 51, 0.06)'}`,
                     background: auditEnabled ? (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)') : 'transparent',
                     color: isDarkMode ? colours.dark.text : colours.light.text,
                     padding: '4px 10px',
-                    borderRadius: 12,
+                    borderRadius: 0,
                     fontSize: 11,
                     cursor: 'pointer',
                   }}
@@ -1791,6 +1727,7 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
               >
                 <Icon iconName="Info" styles={{ root: { fontSize: 10, opacity: 0.8 } }} />
                 {isPipelineLinked ? 'v2 · Origin' : 'v1 · Clio'}
+                {portalUrl && ' · Portal'}
               </span>
             </TooltipHost>
             {!isPipelineLinked && <span style={{ marginLeft: 6 }}>· Clio hydration planned</span>}
@@ -1818,9 +1755,9 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
           ) : (
             <div style={{
               padding: 16,
-              backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-              border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-              borderRadius: 3,
+              backgroundColor: isDarkMode ? colours.darkBlue : '#ffffff',
+              border: `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}66` : 'rgba(6, 23, 51, 0.06)'}`,
+              borderRadius: 0,
               display: 'flex', flexDirection: 'column', gap: 8,
             }}>
               <span className={fieldValueStyle(isDarkMode)}>
@@ -1833,6 +1770,155 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
           )}
         </div>
       )}
+      </>
+      )}
+
+      {/* ─── Activities Panel ─── */}
+      {activeTab === 'activities' && (
+        <div className={tabPanelContainerStyle(isDarkMode)}>
+          <div className={tabPanelHeaderStyle(isDarkMode)}>
+            <Icon iconName="Clock" styles={{ root: { color: colours.highlight, fontSize: 18 } }} />
+            Activities
+          </div>
+
+          <div className={kpiStripStyle(isDarkMode)} style={{ borderBottom: 'none', paddingTop: 0 }}>
+            <div className={kpiItemStyle(isDarkMode, true)}>
+              <span className="kpi-label">Billable</span>
+              <span className="kpi-value">{wipStatus === 'loading' ? '…' : fmtCurrency(billableAmount)}</span>
+              <span className="kpi-sub">{wipStatus === 'loading' ? '' : `${billableHours.toFixed(1)}h`}</span>
+            </div>
+            <div className={kpiItemStyle(isDarkMode)}>
+              <span className="kpi-label">Non-Billable</span>
+              <span className="kpi-value">{wipStatus === 'loading' ? '…' : fmtCurrency(nonBillableAmount)}</span>
+              <span className="kpi-sub">{wipStatus === 'loading' ? '' : `${nonBillableHours.toFixed(1)}h`}</span>
+            </div>
+            <div className={kpiItemStyle(isDarkMode)}>
+              <span className="kpi-label">Total</span>
+              <span className="kpi-value">{wipStatus === 'loading' ? '…' : `${totalHours.toFixed(1)}h`}</span>
+              <span className="kpi-sub">{wipStatus === 'loading' ? '' : `${billablePct}% billable`}</span>
+            </div>
+          </div>
+
+          <span className={tabEmptyStateStyle(isDarkMode)}>
+            No activities loaded yet
+          </span>
+        </div>
+      )}
+
+      {/* ─── Documents Panel ─── */}
+      {activeTab === 'documents' && (
+        <div className={tabPanelContainerStyle(isDarkMode)}>
+          <div className={tabPanelHeaderStyle(isDarkMode)}>
+            <Icon iconName="TextDocument" styles={{ root: { color: colours.highlight, fontSize: 18 } }} />
+            Documents
+          </div>
+
+          {/* CCL — inline status, not a hero card */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
+            <Icon
+              iconName={hasCcl ? 'CompletedSolid' : 'Clock'}
+              styles={{ root: { fontSize: 12, color: hasCcl ? colours.highlight : (isDarkMode ? colours.subtleGrey : colours.greyText) } }}
+            />
+            <span style={{ color: isDarkMode ? '#d1d5db' : '#374151' }}>
+              Client Care Letter: {hasCcl ? `Generated ${fmtDate(matter.cclDate)}` : 'Not yet prepared'}
+            </span>
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => setShowCCLEditor(true)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  padding: '3px 8px',
+                  background: 'transparent',
+                  border: `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}66` : 'rgba(6, 23, 51, 0.1)'}`,
+                  borderRadius: 0,
+                  color: colours.highlight,
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                }}
+              >
+                {hasCcl ? 'View' : 'Prepare'}
+              </button>
+            )}
+          </div>
+
+          <span className={tabEmptyStateStyle(isDarkMode)}>
+            No documents loaded yet
+          </span>
+        </div>
+      )}
+
+      {/* ─── Communications Panel ─── */}
+      {activeTab === 'communications' && (
+        <div className={tabPanelContainerStyle(isDarkMode)}>
+          <div className={tabPanelHeaderStyle(isDarkMode)}>
+            <Icon iconName="Chat" styles={{ root: { color: colours.highlight, fontSize: 18 } }} />
+            Communications
+          </div>
+
+          {(displayClientEmail || displayClientPhone) && (
+            <div style={{ display: 'flex', gap: 16, fontSize: 13, flexWrap: 'wrap' }}>
+              {displayClientEmail && (
+                <a href={`mailto:${displayClientEmail}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: colours.highlight, textDecoration: 'none' }}>
+                  <Icon iconName="Mail" styles={{ root: { fontSize: 12 } }} />
+                  {displayClientEmail}
+                </a>
+              )}
+              {displayClientPhone && (
+                <a href={`tel:${displayClientPhone}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: isDarkMode ? colours.dark.text : colours.light.text, textDecoration: 'none' }}>
+                  <Icon iconName="Phone" styles={{ root: { fontSize: 12 } }} />
+                  {displayClientPhone}
+                </a>
+              )}
+            </div>
+          )}
+
+          <span className={tabEmptyStateStyle(isDarkMode)}>
+            No communications loaded yet
+          </span>
+        </div>
+      )}
+
+      {/* ─── Billing Panel ─── */}
+      {activeTab === 'billing' && (
+        <div className={tabPanelContainerStyle(isDarkMode)}>
+          <div className={tabPanelHeaderStyle(isDarkMode)}>
+            <Icon iconName="Money" styles={{ root: { color: colours.highlight, fontSize: 18 } }} />
+            Billing
+          </div>
+
+          <div className={kpiStripStyle(isDarkMode)} style={{ borderBottom: 'none', paddingTop: 0 }}>
+            <div className={kpiItemStyle(isDarkMode, true)}>
+              <span className="kpi-label">WIP</span>
+              <span className="kpi-value">{wipStatus === 'loading' ? '…' : fmtCurrency(billableAmount)}</span>
+              <span className="kpi-sub">Unbilled time</span>
+            </div>
+            <div className={kpiItemStyle(isDarkMode)}>
+              <span className="kpi-label">Outstanding</span>
+              <span className="kpi-value" style={outstandingBalance > 0 ? { color: colours.cta } : undefined}>
+                {outstandingStatus === 'loading' ? '…' : fmtCurrency(outstandingBalance)}
+              </span>
+              <span className="kpi-sub">Balance due</span>
+            </div>
+            <div className={kpiItemStyle(isDarkMode)}>
+              <span className="kpi-label">Funds</span>
+              <span className="kpi-value" style={clientFunds > 0 ? { color: colours.highlight } : undefined}>
+                {fundsStatus === 'loading' ? '…' : fmtCurrency(clientFunds)}
+              </span>
+              <span className="kpi-sub">On account</span>
+            </div>
+          </div>
+
+          <span className={tabEmptyStateStyle(isDarkMode)}>
+            No transaction history loaded yet
+          </span>
+        </div>
+      )}
+
       </>
       )}
     </div>

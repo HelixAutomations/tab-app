@@ -449,6 +449,75 @@ export const processingActions: ProcessingAction[] = [
         }
     },
     {
+        label: 'Portal Space Initialised',
+        icon: helixBlueMark,
+        run: async (formData, userInitials) => {
+            // Use the real Clio matter ID; fall back to the placeholder UUID
+            const id = matterId || matterRequestId || formData.matter_details?.matter_ref;
+            if (!id) return 'Skipped — no matter ID available';
+
+            const results: string[] = [];
+
+            // 1. Seed default checklist items (no-ops if already seeded)
+            try {
+                const seedResp = await instrumentedFetch('Portal Checklist Seed', `/api/matter-control/${encodeURIComponent(id)}/checklist/seed`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ seededBy: userInitials || 'pipeline' })
+                }, { matterId: id });
+                if (seedResp.ok) {
+                    const seedData = await seedResp.json();
+                    results.push(`Checklist: ${seedData.seeded || 0} items seeded`);
+                } else {
+                    results.push('Checklist: seed skipped (may not exist in Core Data DB yet)');
+                }
+            } catch (e: any) {
+                results.push(`Checklist: ${e.message || 'failed'}`);
+            }
+
+            // 2. Set default snapshot text
+            try {
+                const clientName = (() => {
+                    const c = formData.client_information?.[0];
+                    return c ? [c.first_name, c.last_name].filter(Boolean).join(' ') : 'the client';
+                })();
+                const practiceArea = formData.matter_details?.practice_area || formData.matter_details?.area_of_work || '';
+                const defaultSnapshot = `Matter opened for ${clientName}${practiceArea ? ` — ${practiceArea}` : ''}. Initial review in progress.`;
+
+                const snapResp = await instrumentedFetch('Portal Snapshot Set', `/api/matter-control/${encodeURIComponent(id)}/snapshot`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ snapshot: defaultSnapshot, updatedBy: userInitials || 'pipeline' })
+                }, { matterId: id });
+                if (snapResp.ok) {
+                    results.push('Snapshot: default narrative set');
+                } else {
+                    results.push('Snapshot: skipped');
+                }
+            } catch (e: any) {
+                results.push(`Snapshot: ${e.message || 'failed'}`);
+            }
+
+            // 3. Set initial recovery stage to 'a'
+            try {
+                const stageResp = await instrumentedFetch('Portal Stage Set', `/api/matter-control/${encodeURIComponent(id)}/stage`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ stage: 'a', updatedBy: userInitials || 'pipeline' })
+                }, { matterId: id });
+                if (stageResp.ok) {
+                    results.push('Stage: set to A');
+                } else {
+                    results.push('Stage: skipped');
+                }
+            } catch (e: any) {
+                results.push(`Stage: ${e.message || 'failed'}`);
+            }
+
+            return results.join(' · ');
+        }
+    },
+    {
         label: 'CCL AI Fill',
         icon: cclIcon,
         run: async (formData, _initials) => {

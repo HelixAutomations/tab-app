@@ -1,0 +1,387 @@
+/* ═══════════════════════════════════════════════════════════
+   Prospects.css — Table-view classes for the Enquiries list
+   Imported by Enquiries.tsx.  Uses design-tokens.css vars.
+
+   Design language: UserBubble > Compositions
+   - Accent-tinted interactive rows (bg + border)
+   - Lift on hover (translateY, box-shadow)
+   - Small accent dots for timeline markers
+   - Raleway, tight type, uppercase kickers
+   ═══════════════════════════════════════════════════════════ */
+
+/* ─── Day separator row ─── */
+.prospect-day-sep {
+  display: grid;
+  align-items: center;
+  padding: 6px 16px 2px;
+  cursor: pointer;
+  user-select: none;
+  gap: 12px;
+  background: transparent;
+  border-bottom: 0.5px solid rgba(var(--highlight-rgb), 0.22);
+  transition: background var(--transition-fast);
+  /* gridTemplateColumns set inline (dynamic value) */
+}
+
+.prospect-day-sep:hover {
+  background: rgba(var(--accent-rgb), 0.018);
+}
+[data-theme="light"] .prospect-day-sep:hover {
+  background: rgba(var(--accent-rgb), 0.04);
+}
+
+[data-theme="dark"] .prospect-day-sep {
+  background: transparent;
+  border-bottom-color: rgba(var(--highlight-rgb), 0.26);
+}
+
+.prospect-day-sep__timeline {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 28px;
+}
+
+.prospect-day-sep__line {
+  position: absolute;
+  top: 50%;
+  bottom: 0;
+  width: 2px;
+  background: rgba(var(--highlight-rgb), 0.42);
+  opacity: 0.34;
+  transition: opacity var(--transition-fast);
+}
+
+.prospect-day-sep:hover .prospect-day-sep__line {
+  opacity: 0.52;
+}
+
+.prospect-day-sep__dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: rgba(var(--highlight-rgb), 0.78);
+  position: relative;
+  z-index: 2;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 2px var(--surface-page);
+  transition: box-shadow var(--transition-fast);
+}
+
+.prospect-day-sep:hover .prospect-day-sep__dot {
+  box-shadow: 0 0 0 2px var(--surface-page), 0 0 4px rgba(var(--highlight-rgb), 0.22);
+}
+[data-theme="light"] .prospect-day-sep:hover .prospect-day-sep__dot {
+  box-shadow: 0 0 0 2px var(--surface-page), 0 0 4px rgba(var(--highlight-rgb), 0.2);
+}
+
+.prospect-day-sep__label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+  overflow: hidden;
+  min-height: 28px;
+}
+
+.prospect-day-sep__text {
+  font-family: var(--font-primary);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: rgba(var(--highlight-rgb), 0.78);
+  white-space: nowrap;
+  transition: color var(--transition-fast);
+}
+
+.prospect-day-sep:hover .prospect-day-sep__text {
+  color: rgba(var(--highlight-rgb), 0.92);
+}
+
+.prospect-day-sep__count {
+  font-family: var(--font-primary);
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(var(--highlight-rgb), 0.92);
+  background: rgba(var(--highlight-rgb), 0.08);
+  padding: 1px 6px;
+  border-radius: 999px;
+  min-width: 18px;
+  text-align: center;
+  line-height: 1.5;
+  flex-shrink: 0;
+  border: 1px solid rgba(var(--highlight-rgb), 0.22);
+}
+[data-theme="light"] .prospect-day-sep__count {
+  color: rgba(var(--highlight-rgb), 0.92);
+  background: rgba(var(--highlight-rgb), 0.08);
+  border-color: rgba(var(--highlight-rgb), 0.22);
+}
+
+.prospect-day-sep__fade {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 32px;
+  pointer-events: none;
+  background: none;
+}
+
+/* ─── Table row (prospect-row) ─── 
+   Follows UserBubble composition: accent-tinted idle, lift on hover */
+.prospect-row {
+  display: grid;
+  gap: 12px;
+  padding: 8px 16px;
+  align-items: center;
+  cursor: pointer;
+  font-family: var(--font-primary);
+  transition: background 0.18s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  /* gridTemplateColumns and borderBottom set inline */
+}
+
+/* Subtle alternating rows — whisper-quiet, not striped */
+.prospect-row[data-row-parity="even"] {
+  background: transparent;
+}
+.prospect-row[data-row-parity="odd"] {
+  background: transparent;
+}
+[data-theme="dark"] .prospect-row[data-row-parity="odd"] {
+  background: transparent;
+}
+[data-theme="dark"] .prospect-row[data-row-parity="even"] {
+  background: rgba(var(--highlight-rgb), 0.022);
+}
+
+[data-theme="light"] .prospect-row[data-row-parity="even"] {
+  background: rgba(var(--highlight-rgb), 0.035);
+}
+
+/* Hover — accent-tinted bg + lift (composition pattern) */
+.prospect-row:hover {
+  background: rgba(var(--highlight-rgb), 0.16);
+}
+[data-theme="dark"] .prospect-row:hover {
+  background: rgba(var(--highlight-rgb), 0.16);
+}
+
+/* enquiry-row — semantic hook for single (non-grouped) enquiry rows */
+.enquiry-row {
+  /* inherits prospect-row styles; no extra overrides needed */
+}
+
+/* ─── Timeline cell inside a row ─── */
+.prospect-timeline-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  position: relative;
+}
+
+.prospect-timeline-cell__line {
+  width: 1px;
+  height: 100%;
+  min-height: 24px;
+  border-radius: 0;
+  transition: opacity var(--transition-fast);
+  /* background and opacity set inline (area-of-work colour) */
+}
+
+.prospect-row:hover .prospect-timeline-cell__line {
+  opacity: 1 !important;
+}
+
+/* ─── Stacked date display ─── */
+.prospect-date {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1.2;
+}
+
+.prospect-date__top {
+  font-family: var(--font-primary);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.2px;
+}
+
+.prospect-date__bottom {
+  font-family: var(--font-primary);
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+/* ─── Pipeline row hover (composition interactive pattern) ───
+   Accent-tinted background + lift + shadow, matching
+   UserBubble > Compositions interactive row behaviour */
+.pipeline-row-hover {
+  background: rgba(var(--highlight-rgb), 0.06) !important;
+  transition: background 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
+}
+[data-theme="dark"] .pipeline-row-hover {
+  background: rgba(var(--highlight-rgb), 0.04) !important;
+}
+
+.pipeline-row-hover.pipeline-row-hover-ready {
+  transform: translateY(-0.5px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+[data-theme="dark"] .pipeline-row-hover.pipeline-row-hover-ready {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+/* ─── Pipeline carousel (migrated from inline JS style injection) ───────── */
+
+.pipeline-carousel {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+}
+.pipeline-carousel-track {
+  display: flex;
+  transition: transform 0.2s ease-out;
+  height: 100%;
+}
+.pipeline-carousel-nav {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 1;
+  opacity: 0.6;
+  transition: opacity 0.15s ease;
+}
+.pipeline-carousel-nav:hover {
+  opacity: 1;
+}
+
+/* ─── Pipeline chip (migrated from inline `pipelineCarouselStyle`) ──────── */
+
+.pipeline-chip {
+  transition: filter 0.1s ease;
+}
+.pipeline-chip:hover {
+  filter: brightness(1.15);
+}
+.pipeline-chip-reveal {
+  gap: 0;
+  position: relative;
+  min-height: 22px;
+  align-items: center;
+}
+
+/* Connector dash between chips */
+.pipeline-connector {
+  position: absolute;
+  left: -9px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 6px;
+  height: 1px;
+  border-radius: 0.5px;
+  background: rgba(var(--subtle-grey-rgb), 0.34);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none;
+}
+/* Completed connector – solid green */
+.pipeline-connector.connector-done {
+  background: var(--aow-property, #20b26c);
+  opacity: 0.7;
+}
+.pipeline-row-hover-ready .pipeline-connector,
+.pipeline-chip-reveal:hover .pipeline-connector {
+  width: 11px;
+  left: -11px;
+  background: rgba(var(--accent-rgb), 0.38);
+  box-shadow: 0 0 2px rgba(var(--accent-rgb), 0.22);
+}
+/* Preserve green for completed connectors on hover */
+.pipeline-row-hover-ready .pipeline-connector.connector-done,
+.pipeline-chip-reveal:hover .pipeline-connector.connector-done {
+  background: var(--aow-property, #20b26c);
+}
+
+/* Chip box – border + gap expand on row hover */
+.pipeline-chip-box {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  padding: 1px 4px;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  transition: gap 0.25s ease, padding 0.25s ease, border-color 0.25s ease;
+  will-change: gap, padding, border-color;
+  overflow: visible;
+}
+/* Chip-box expand on individual chip hover only */
+.pipeline-chip-reveal:hover .pipeline-chip-box {
+  gap: 4px;
+  padding: 1px 6px 1px 4px;
+  border-color: rgba(var(--accent-rgb), 0.28);
+}
+
+/* Chip label – max-width expand on hover */
+.pipeline-chip-label {
+  display: inline-flex;
+  gap: 4px;
+  max-width: 0;
+  opacity: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  transition: max-width 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease;
+  transition-delay: 0ms;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: 0.2px;
+  will-change: max-width, opacity;
+}
+/* Label reveal on individual chip hover only */
+.pipeline-chip-reveal:hover .pipeline-chip-label,
+.pipeline-chip-reveal:focus-visible .pipeline-chip-label {
+  max-width: 80px !important;
+  opacity: 0.9 !important;
+}
+
+/* Next-action breathe animation */
+@keyframes next-action-breathe {
+  0%, 100% { opacity: 0.5; filter: brightness(1); }
+  50%      { opacity: 1;   filter: brightness(1.15); }
+}
+.next-action-subtle-pulse .pipeline-chip-box,
+.next-action-subtle-pulse > button,
+.next-action-subtle-pulse > div {
+  animation: next-action-breathe 2s ease-in-out infinite;
+}
+
+/* Pitch CTA pulse */
+@keyframes pitch-cta-pulse {
+  0%, 100% { border-color: rgba(255, 213, 79, 0.35); background: rgba(255, 213, 79, 0.08); }
+  50%      { border-color: rgba(255, 213, 79, 0.55); background: rgba(255, 213, 79, 0.14); }
+}
+
+/* Shimmer loading skeleton */
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.shimmer {
+  background: linear-gradient(90deg, rgba(255,255,255,0.05), rgba(255,255,255,0.15), rgba(255,255,255,0.05));
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}

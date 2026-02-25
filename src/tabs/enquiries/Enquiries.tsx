@@ -1,5 +1,5 @@
 // Clean admin tools - removed beaker and legacy toggle
-import React, { useState, useMemo, useCallback, useEffect, useRef, useTransition, useDeferredValue } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef, useTransition, useDeferredValue, startTransition } from 'react';
 import ReactDOM from 'react-dom';
 import { getProxyBaseUrl } from '../../utils/getProxyBaseUrl';
 import {
@@ -55,6 +55,7 @@ import { useTheme } from '../../app/functionality/ThemeContext';
 import { useNavigatorActions } from '../../app/functionality/NavigatorContext';
 import UnclaimedEnquiries from './UnclaimedEnquiries';
 import FilterBanner from '../../components/filter/FilterBanner';
+import NavigatorDetailBar from '../../components/NavigatorDetailBar';
 import CreateContactModal from './CreateContactModal';
 import PeopleSearchPanel from '../../components/PeopleSearchPanel';
 import TeamsLinkWidget from '../../components/TeamsLinkWidget';
@@ -68,12 +69,28 @@ import 'rc-slider/assets/index.css';
 import '../../app/styles/NavigatorPivot.css';
 import '../../app/styles/animations.css';
 import '../../app/styles/CustomTabs.css';
+import '../../app/styles/Prospects.css';
 import Slider from 'rc-slider';
 import { debugLog, debugWarn } from '../../utils/debug';
 import { shouldAlwaysShowProspectHistory, isSharedProspectRecord } from './sharedProspects';
 import { checkIsLocalDev, isActuallyLocalhost } from '../../utils/useIsLocalDev';
 import EmptyState from '../../components/states/EmptyState';
 import LoadingState from '../../components/states/LoadingState';
+import {
+  ProspectTableRow,
+  RatingModal,
+  EditEnquiryModal,
+  ReassignmentDropdown,
+  PipelineTooltipPortal,
+  SuccessMessageBar,
+} from './components';
+import type {
+  RowPipelineHandlers,
+  RowActionHandlers,
+  RowDisplayState,
+  RowHoverHandlers,
+  RowDataDeps,
+} from './components';
 
 const DEMO_MODE_STORAGE_KEY = 'helix-hub-demo-enquiry-mode';
 
@@ -157,7 +174,7 @@ const pipelineCarouselStyle = `
   width: 6px;
   height: 1px;
   border-radius: 0.5px;
-  background: rgba(100, 116, 139, 0.22);
+  background: rgba(107, 107, 107, 0.22);
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   pointer-events: none;
 }
@@ -170,8 +187,8 @@ const pipelineCarouselStyle = `
 .pipeline-chip-reveal:hover .pipeline-connector {
   width: 11px;
   left: -11px;
-  background: rgba(100, 116, 139, 0.4);
-  box-shadow: 0 0 2px rgba(100, 116, 139, 0.18);
+  background: rgba(107, 107, 107, 0.4);
+  box-shadow: 0 0 2px rgba(107, 107, 107, 0.18);
 }
 /* Preserve green for completed connectors on hover */
 .pipeline-row-hover-ready .pipeline-connector.connector-done,
@@ -189,24 +206,11 @@ const pipelineCarouselStyle = `
   will-change: gap, padding, border-color;
   overflow: visible;
 }
-/* Cascade effect: staggered border reveal on row hover */
-.pipeline-row-hover-ready .pipeline-chip-box {
-  gap: 4px;
-  padding: 1px 6px 1px 4px;
-  border-color: rgba(100, 116, 139, 0.25);
-}
-.pipeline-row-hover-ready [data-chip-index="0"] .pipeline-chip-box { transition-delay: 0ms; }
-.pipeline-row-hover-ready [data-chip-index="1"] .pipeline-chip-box { transition-delay: 50ms; }
-.pipeline-row-hover-ready [data-chip-index="2"] .pipeline-chip-box { transition-delay: 100ms; }
-.pipeline-row-hover-ready [data-chip-index="3"] .pipeline-chip-box { transition-delay: 150ms; }
-.pipeline-row-hover-ready [data-chip-index="4"] .pipeline-chip-box { transition-delay: 200ms; }
-.pipeline-row-hover-ready [data-chip-index="5"] .pipeline-chip-box { transition-delay: 250ms; }
-.pipeline-row-hover-ready [data-chip-index="6"] .pipeline-chip-box { transition-delay: 300ms; }
-/* Also trigger on individual chip hover for non-row scenarios */
+/* Chip-box expand on individual chip hover only */
 .pipeline-chip-reveal:hover .pipeline-chip-box {
   gap: 4px;
   padding: 1px 6px 1px 4px;
-  border-color: rgba(100, 116, 139, 0.25);
+  border-color: rgba(107, 107, 107, 0.25);
 }
 .pipeline-chip-label {
   display: inline-flex;
@@ -223,15 +227,7 @@ const pipelineCarouselStyle = `
   letter-spacing: 0.2px;
   will-change: max-width, opacity;
 }
-/* Staggered label reveal on row hover */
-.pipeline-row-hover-ready [data-chip-index="0"] .pipeline-chip-label { max-width: 80px !important; opacity: 0.9 !important; transition-delay: 0ms; }
-.pipeline-row-hover-ready [data-chip-index="1"] .pipeline-chip-label { max-width: 80px !important; opacity: 0.9 !important; transition-delay: 50ms; }
-.pipeline-row-hover-ready [data-chip-index="2"] .pipeline-chip-label { max-width: 80px !important; opacity: 0.9 !important; transition-delay: 100ms; }
-.pipeline-row-hover-ready [data-chip-index="3"] .pipeline-chip-label { max-width: 80px !important; opacity: 0.9 !important; transition-delay: 150ms; }
-.pipeline-row-hover-ready [data-chip-index="4"] .pipeline-chip-label { max-width: 80px !important; opacity: 0.9 !important; transition-delay: 200ms; }
-.pipeline-row-hover-ready [data-chip-index="5"] .pipeline-chip-label { max-width: 80px !important; opacity: 0.9 !important; transition-delay: 250ms; }
-.pipeline-row-hover-ready [data-chip-index="6"] .pipeline-chip-label { max-width: 80px !important; opacity: 0.9 !important; transition-delay: 300ms; }
-/* Also trigger on individual chip hover */
+/* Label reveal on individual chip hover only */
 .pipeline-chip-reveal:hover .pipeline-chip-label,
 .pipeline-chip-reveal:focus-visible .pipeline-chip-label {
   max-width: 80px !important;
@@ -426,7 +422,7 @@ const MiniPipelineChip = ({
   onMouseLeave
 }: MiniChipProps) => {
   const isActiveChip = Boolean(done || inProgress || isNextAction);
-  const inactiveColor = isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)';
+  const inactiveColor = isDarkMode ? 'rgba(160, 160, 160, 0.25)' : 'rgba(107, 107, 107, 0.2)';
   // Use neutral grey for next-action and in-progress/pending (both get pulse effect)
   const activeColor = (inProgress || isNextAction) ? colours.greyText : color;
   const iconColor = (done || inProgress || isNextAction) ? activeColor : inactiveColor;
@@ -708,7 +704,26 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       const hasInstructionRef = Boolean(inst?.InstructionRef || inst?.instructionRef);
       const hasMatter = Boolean(inst?.MatterId || inst?.matterId) || (Array.isArray(matters) && matters.length > 0);
       const hasDeal = Boolean(deal);
-      return (hasMatter ? 2 : 0) + (hasInstructionRef ? 1 : 0) + (hasDeal ? 1 : 0);
+      let score = (hasMatter ? 4 : 0) + (hasInstructionRef ? 1 : 0) + (hasDeal ? 1 : 0);
+
+      // Prefer active/instructed deals over expired ones
+      const dealStatus = String(deal?.Status || deal?.status || '').toLowerCase();
+      if (dealStatus === 'instructed') score += 3;
+      else if (dealStatus === 'pitched' || dealStatus === 'accepted') score += 2;
+      else if (dealStatus === 'expired' || dealStatus === 'declined') score += 0;
+
+      // Prefer advanced pipeline stages (proof-of-id-complete > initialised)
+      const stage = String(inst?.Stage || '').toLowerCase();
+      if (stage.includes('matter') || stage.includes('complete')) score += 3;
+      else if (stage.includes('proof') || stage.includes('risk') || stage.includes('payment')) score += 2;
+      else if (stage === 'initialised' || stage === 'initialized') score += 0;
+      else if (stage) score += 1;
+
+      // Prefer instructions with personal identity data populated
+      if (inst?.DOB || inst?.DateOfBirth || inst?.PassportNumber || inst?.DriversLicenseNumber) score += 2;
+      if (inst?.HouseNumber || inst?.Street || inst?.Postcode) score += 1;
+
+      return score;
     };
 
     (effectiveInstructionData as any[]).forEach((prospect) => {
@@ -860,6 +875,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       ];
 
       demoCases.forEach((demoCase) => {
+        const isIndividualClientDemo = demoCase.id === 'DEMO-ENQ-0002';
         // Generate demo dates relative to now
         const demoInstructionDate = new Date();
         demoInstructionDate.setDate(demoInstructionDate.getDate() - 3); // 3 days ago
@@ -881,13 +897,18 @@ const Enquiries: React.FC<EnquiriesProps> = ({
           Surname: 'Client',
           FirstName: 'Demo',
           LastName: 'Client',
+          Title: 'Mr',
+          Gender: 'Male',
           Email: 'demo.client@helix-law.com',
           Phone: '07700 900123',
-          CompanyName: 'Demo Corp',
-          CompanyNumber: '12345678',
-          ClientType: 'Individual',
+          CompanyName: isIndividualClientDemo ? '' : 'Demo Corp',
+          CompanyNumber: isIndividualClientDemo ? '' : '12345678',
+          ClientType: isIndividualClientDemo ? 'Individual' : 'Company',
           AreaOfWork: demoCase.serviceDescription,
           ServiceDescription: demoCase.serviceDescription,
+          FeeEarner: demoCase.id === 'DEMO-ENQ-0002' ? 'CB' : 'LZ',
+          HelixContact: demoCase.id === 'DEMO-ENQ-0002' ? 'CB' : 'LZ',
+          Passcode: `demo-${demoCase.id.toLowerCase()}`,
           // Personal details — mimic production data for card rendering
           Nationality: 'British',
           DOB: '1985-06-15',
@@ -898,6 +919,13 @@ const Enquiries: React.FC<EnquiriesProps> = ({
           County: 'East Sussex',
           Postcode: 'BN1 1AA',
           Country: 'United Kingdom',
+          // Company address (for company client type rendering)
+          CompanyHouseNumber: isIndividualClientDemo ? '' : '10',
+          CompanyStreet: isIndividualClientDemo ? '' : 'Enterprise Way',
+          CompanyCity: isIndividualClientDemo ? '' : 'London',
+          CompanyCounty: isIndividualClientDemo ? '' : 'Greater London',
+          CompanyPostcode: isIndividualClientDemo ? '' : 'EC1A 1BB',
+          CompanyCountry: isIndividualClientDemo ? '' : 'United Kingdom',
           // PEP / Address verification from case config
           PEPAndSanctionsCheckResult: (demoCase as any).pepResult || (demoCase.eidResult === 'Pass' ? 'Passed' : undefined),
           AddressVerificationResult: (demoCase as any).addressResult || (demoCase.eidResult === 'Pass' ? 'Passed' : undefined),
@@ -908,6 +936,10 @@ const Enquiries: React.FC<EnquiriesProps> = ({
           Amount: demoCase.amount,
           ServiceDescription: demoCase.serviceDescription,
           DealStatus: demoCase.internalStatus,
+          Passcode: `demo-${demoCase.id.toLowerCase()}`,
+          PitchedBy: demoCase.id === 'DEMO-ENQ-0002' ? 'CB' : 'LZ',
+          PitchedDate: new Date(demoInstructionDate.getTime() - 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+          PitchedTime: new Date(demoInstructionDate.getTime() - 2 * 24 * 60 * 60 * 1000).toTimeString().split(' ')[0],
         };
         const payments = demoCase.hasPayment ? [{
           payment_status: 'succeeded',
@@ -1149,17 +1181,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
   // Debug logging
 
-  // View state - Card vs Table toggle
-  // Default to table view; persist preference in sessionStorage
-  const [viewMode, setViewMode] = useState<'card' | 'table'>(() => {
-    const saved = sessionStorage.getItem('enquiries-view-mode');
-    return (saved === 'card' || saved === 'table') ? saved : 'table';
-  });
-  
-  // Persist view mode changes to sessionStorage
-  useEffect(() => {
-    sessionStorage.setItem('enquiries-view-mode', viewMode);
-  }, [viewMode]);
+  // View mode — table only (card view removed)
+  const viewMode = 'table' as const;
 
   // Unified enrichment data state (Teams + pitch data)
   const [enrichmentMap, setEnrichmentMap] = useState<Map<string, EnquiryEnrichmentData>>(new Map());
@@ -1196,7 +1219,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
   type PipelineChipLabelMode = 'full' | 'short' | 'icon';
   const pipelineGridMeasureRef = useRef<HTMLDivElement | null>(null);
-  const [pipelineChipLabelMode, setPipelineChipLabelMode] = useState<PipelineChipLabelMode>('short');
+  const [pipelineChipLabelMode, setPipelineChipLabelMode] = useState<PipelineChipLabelMode>('full');
   // Number of pipeline chips that fit in the available width (7 = all chips fit after merging teams+claim)
   // Start with 3 to ensure carousel shows by default, then ResizeObserver adjusts
   const [visiblePipelineChipCount, setVisiblePipelineChipCount] = useState<number>(3);
@@ -1204,9 +1227,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const pipelineMeasureRetryTimerRef = useRef<number | null>(null);
   // Counter to trigger re-measurement when returning from detail view
   const [pipelineRemeasureKey, setPipelineRemeasureKey] = useState<number>(0);
-  // Minimum chip width at each mode (icon needs ~32px, short ~90px [increased to prevent squish], full ~110px)
-  // We prioritize labels with carousel vs showing all icons
-  const CHIP_MIN_WIDTHS = { icon: 32, short: 90, full: 110 };
+  // Minimum chip width at each mode (tuned for smoother width recognition)
+  const CHIP_MIN_WIDTHS = { icon: 32, short: 84, full: 104 };
   const ACTIONS_COLUMN_WIDTH_PX = 152;
 
   const TABLE_GRID_TEMPLATE_COLUMNS = `32px 90px 56px 90px 1.4fr 2.5fr ${ACTIONS_COLUMN_WIDTH_PX}px`;
@@ -1240,7 +1262,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     }> = [
       { stage: 'poc', fullLabel: 'POC', shortLabel: 'POC', iconName: 'TeamsLogo' },
       { stage: 'pitched', fullLabel: 'Pitch', shortLabel: 'Pitch', iconName: 'Send' },
-      { stage: 'instructed', fullLabel: 'Instructed', shortLabel: 'Inst', iconName: 'CheckMark' },
+      { stage: 'instructed', fullLabel: 'Instructed', shortLabel: 'Instr', iconName: 'CheckMark' },
       { stage: 'idcheck', fullLabel: 'ID Check', shortLabel: 'ID', iconName: 'CheckMark' },
       { stage: 'paid', fullLabel: 'Payment', shortLabel: 'Pay', iconName: 'CurrencyPound' },
       { stage: 'risk', fullLabel: 'Risk', shortLabel: 'Risk', iconName: 'Shield' },
@@ -1349,6 +1371,58 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
     // Track last measured width to avoid unnecessary state updates
     let lastMeasuredWidth = 0;
+
+    const computePipelineLayout = (totalWidth: number) => {
+      const columnGap = 8;
+      const navButtonWidth = 24;
+      const minFull = CHIP_MIN_WIDTHS.full;
+      const minShort = CHIP_MIN_WIDTHS.short;
+      const minIcon = CHIP_MIN_WIDTHS.icon;
+
+      let nextMode: PipelineChipLabelMode = 'short';
+      let nextCount = 7;
+
+      // Grid always includes nav column: repeat(N, minmax(W, 1fr)) 24px
+      // Total = N * W + N * gap + navButtonWidth  (N chips create N gaps before nav)
+      const widthNeeded = (count: number, chipWidth: number) =>
+        count * chipWidth + count * columnGap + navButtonWidth;
+
+      if (totalWidth >= widthNeeded(7, minFull)) {
+        nextMode = 'full';
+        nextCount = 7;
+      } else if (totalWidth >= widthNeeded(7, minShort)) {
+        nextMode = 'short';
+        nextCount = 7;
+      } else if (totalWidth >= widthNeeded(7, minIcon)) {
+        nextMode = 'icon';
+        nextCount = 7;
+      } else {
+        nextMode = 'short';
+        nextCount = 3;
+        let shortFitFound = false;
+        for (let n = 6; n >= 3; n--) {
+          if (totalWidth >= widthNeeded(n, minShort)) {
+            nextCount = n;
+            shortFitFound = true;
+            break;
+          }
+        }
+
+        if (!shortFitFound) {
+          nextMode = 'icon';
+          nextCount = 3;
+          for (let n = 6; n >= 3; n--) {
+            if (totalWidth >= widthNeeded(n, minIcon)) {
+              nextCount = n;
+              break;
+            }
+          }
+        }
+      }
+
+      setPipelineChipLabelMode((prev) => (prev === nextMode ? prev : nextMode));
+      setVisiblePipelineChipCount(nextCount);
+    };
     
     // Calculate and apply measurement immediately on mount (avoid layout flash)
     const measureAndApply = () => {
@@ -1371,45 +1445,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       if (Math.abs(rect.width - lastMeasuredWidth) < 1) return;
       lastMeasuredWidth = rect.width;
 
-      const totalWidth = rect.width;
-      const columnGap = 8;
-      const navButtonWidth = 24;
-      
-      const minFull = CHIP_MIN_WIDTHS.full;
-      const minShort = CHIP_MIN_WIDTHS.short;
-
-      let nextMode: PipelineChipLabelMode = 'short';
-      let nextCount = 7;
-
-      // Width needed for N chips (no nav button - all 7 visible)
-      const widthForChips = (count: number, chipWidth: number) => count * chipWidth + (count - 1) * columnGap;
-      
-      // Width needed for N chips + nav button (carousel mode)
-      const widthForCarousel = (count: number, chipWidth: number) => 
-        count * chipWidth + count * columnGap + navButtonWidth;
-
-      // Check if all 7 chips fit (no carousel needed)
-      if (totalWidth >= widthForChips(7, minFull)) {
-        nextMode = 'full';
-        nextCount = 7;
-      } else if (totalWidth >= widthForChips(7, minShort)) {
-        nextMode = 'short';
-        nextCount = 7;
-      } else {
-        // Need carousel - calculate how many chips fit alongside the nav button
-        // Work backwards from 6 down to find the max that fits
-        nextMode = 'short';
-        nextCount = 3; // minimum
-        for (let n = 6; n >= 3; n--) {
-          if (totalWidth >= widthForCarousel(n, minShort)) {
-            nextCount = n;
-            break;
-          }
-        }
-      }
-
-      setPipelineChipLabelMode((prev) => (prev === nextMode ? prev : nextMode));
-      setVisiblePipelineChipCount(nextCount);
+      computePipelineLayout(rect.width);
     };
 
     // Measure immediately on mount to prevent layout flash
@@ -1440,46 +1476,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     const observer = new ResizeObserver((items) => {
       const rect = items[0]?.contentRect;
       if (!rect) return;
-
-      const totalWidth = rect.width;
-      const columnGap = 8;
-      const navButtonWidth = 24;
-      
-      const minFull = CHIP_MIN_WIDTHS.full;
-      const minShort = CHIP_MIN_WIDTHS.short;
-
-      let nextMode: PipelineChipLabelMode = 'short';
-      let nextCount = 7;
-
-      // Width needed for N chips (no nav button - all 7 visible)
-      const widthForChips = (count: number, chipWidth: number) => count * chipWidth + (count - 1) * columnGap;
-      
-      // Width needed for N chips + nav button (carousel mode)
-      const widthForCarousel = (count: number, chipWidth: number) => 
-        count * chipWidth + count * columnGap + navButtonWidth;
-
-      // Check if all 7 chips fit (no carousel needed)
-      if (totalWidth >= widthForChips(7, minFull)) {
-        nextMode = 'full';
-        nextCount = 7;
-      } else if (totalWidth >= widthForChips(7, minShort)) {
-        nextMode = 'short';
-        nextCount = 7;
-      } else {
-        // Need carousel - calculate how many chips fit alongside the nav button
-        // Work backwards from 6 down to find the max that fits
-        nextMode = 'short';
-        nextCount = 3; // minimum
-        for (let n = 6; n >= 3; n--) {
-          if (totalWidth >= widthForCarousel(n, minShort)) {
-            nextCount = n;
-            break;
-          }
-        }
-      }
-
-      setPipelineChipLabelMode((prev) => (prev === nextMode ? prev : nextMode));
-      setVisiblePipelineChipCount(nextCount);
+      computePipelineLayout(rect.width);
     });
 
     observer.observe(el);
@@ -1658,16 +1655,16 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                 width: '100%',
                 height: 22,
                 padding: 0,
-                border: `1px solid ${isDark ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)'}`,
+                border: `1px solid ${isDark ? 'rgba(160, 160, 160, 0.25)' : 'rgba(107, 107, 107, 0.2)'}`,
                 borderRadius: 0,
                 background: hasMoreChips 
                   ? (isDark ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)')
-                  : (isDark ? 'rgba(148, 163, 184, 0.06)' : 'rgba(148, 163, 184, 0.04)'),
+                  : (isDark ? 'rgba(160, 160, 160, 0.06)' : 'rgba(160, 160, 160, 0.04)'),
                 cursor: 'pointer',
                 transition: 'all 0.15s ease',
                 color: hasMoreChips 
                   ? colours.blue 
-                  : (isDark ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.4)'),
+                  : (isDark ? 'rgba(160, 160, 160, 0.5)' : 'rgba(107, 107, 107, 0.4)'),
               }}
             >
               <Icon 
@@ -1804,7 +1801,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       // IMPORTANT: Do not overwrite per-user dataset when fetching team-wide data for All/Mine+Claimed.
       // Keep `allEnquiries` sourced from props (per-user), and store the unified dataset only in teamWideEnquiries.
       // This prevents Mine view from briefly switching to team-wide dataset and dropping claimed items.
-      setTeamWideEnquiries(normalizedEnquiries);
+      startTransition(() => {
+        setTeamWideEnquiries(normalizedEnquiries);
+      });
       onTeamWideEnquiriesLoaded?.(normalizedEnquiries as Enquiry[]);
       
       console.info('[Enquiries] fetchAllEnquiries:success', {
@@ -2491,7 +2490,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
           return poc === userEmail;
         }).length
       : 0;
-    const allCount = teamWideEnquiries.length > 0 ? teamWideEnquiries.length : allEnquiries.length;
+    const allCount = hasFetchedAllData.current ? teamWideEnquiries.length : null;
     return { mineCount, allCount };
   }, [allEnquiries, teamWideEnquiries.length, userData]);
 
@@ -2895,7 +2894,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   };
 
   const toRgba = (color: string, alpha: number): string => {
-    if (!color) return `rgba(148, 163, 184, ${alpha})`;
+    if (!color) return `rgba(160, 160, 160, ${alpha})`;
     if (color.startsWith('rgba(')) {
       const match = color.match(/rgba\(([^)]+)\)/);
       if (!match) return color;
@@ -3343,22 +3342,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   }, []);
 
   const toggleUnclaimedBoard = useCallback(() => {
-    setShowUnclaimedBoard((prev) => {
-      const next = !prev;
-      // When opening Unclaimed view, force table mode (user request)
-      if (next && viewMode === 'card') {
-        setViewMode('table');
-      }
-      return next;
-    });
-  }, [viewMode]);
-
-  // Ensure if unclaimed view is auto-opened (session flag) it defaults to table layout
-  useEffect(() => {
-    if (showUnclaimedBoard && viewMode === 'card') {
-      setViewMode('table');
-    }
-  }, [showUnclaimedBoard, viewMode]);
+    setShowUnclaimedBoard((prev) => !prev);
+  }, []);
 
   useEffect(() => {
     if (displayEnquiries.length > 0) {
@@ -4096,7 +4081,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
     const hasDemo = (list: Enquiry[]) => list.some((e) => {
       const id = String(e.ID);
-      return id === 'DEMO-ENQ-0001' || id === 'DEMO-ENQ-0002';
+      return id === 'DEMO-ENQ-0001' || id === 'DEMO-ENQ-0002' || id === 'DEMO-ENQ-0003';
     });
 
     const missingInAll = allEnquiries.length > 0 && !hasDemo(allEnquiries);
@@ -5356,7 +5341,18 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
   // Set up scroll listener for infinite scroll (more reliable than IntersectionObserver here)
   useEffect(() => {
-    const scrollRoot = scrollContainerRef.current || document.querySelector('.app-scroll-region');
+    // On mobile (≤640px) the root .app-root becomes the scroll container
+    // because the bars scroll with content. Pick the first element that scrolls.
+    const findScrollRoot = (): HTMLElement | null => {
+      if (scrollContainerRef.current) return scrollContainerRef.current;
+      const region = document.querySelector('.app-scroll-region') as HTMLElement | null;
+      if (region && region.scrollHeight > region.clientHeight) return region;
+      const root = document.querySelector('.app-root') as HTMLElement | null;
+      if (root && root.scrollHeight > root.clientHeight) return root;
+      return region; // fallback to region even if not yet overflowing
+    };
+
+    const scrollRoot = findScrollRoot();
     if (!scrollRoot || !(scrollRoot instanceof HTMLElement)) return;
 
     const handleScroll = () => {
@@ -5394,11 +5390,11 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       setItemsToShow(20);
       setTimeout(() => {
         setItemsToShow((prev) =>
-          Math.min(prev + 40, filteredEnquiries.length)
+          Math.min(prev + 40, filteredLengthRef.current)
         );
       }, 200);
     },
-    [filteredEnquiries.length]
+    []
   );
 
   const ACTION_BAR_HEIGHT = 48;
@@ -5428,7 +5424,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     if (!ratingKey) {
       return {
         iconName: 'FavoriteStar',
-        color: darkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.8)',
+        color: darkMode ? 'rgba(160, 160, 160, 0.8)' : 'rgba(107, 107, 107, 0.8)',
       };
     }
 
@@ -5438,27 +5434,27 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       case 'Neutral':
         return {
           iconName: 'CircleRing',
-          color: darkMode ? 'rgba(203, 213, 225, 0.9)' : 'rgba(100, 116, 139, 0.9)',
+          color: darkMode ? 'rgba(160, 160, 160, 0.9)' : 'rgba(107, 107, 107, 0.9)',
         };
       case 'Poor':
         return { iconName: 'StatusErrorFull', color: colours.cta };
       default:
         return {
           iconName: 'FavoriteStar',
-          color: darkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.8)',
+          color: darkMode ? 'rgba(160, 160, 160, 0.8)' : 'rgba(107, 107, 107, 0.8)',
         };
     }
   };
 
   const getRatingChipMeta = (ratingKey: string | undefined, darkMode: boolean) => {
-    const baseBorder = darkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)';
+    const baseBorder = darkMode ? 'rgba(160, 160, 160, 0.25)' : 'rgba(160, 160, 160, 0.2)';
     const { iconName, color } = getRatingIconAndColor(ratingKey, darkMode);
 
     if (!ratingKey) {
       return {
         iconName,
         color,
-        background: darkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)',
+        background: darkMode ? 'rgba(160, 160, 160, 0.08)' : 'rgba(160, 160, 160, 0.06)',
         borderColor: baseBorder,
         hoverBackground: darkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
         hoverColor: colours.blue,
@@ -5469,13 +5465,13 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     const background = ratingKey === 'Good'
       ? (darkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.14)')
       : ratingKey === 'Neutral'
-        ? (darkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.14)')
+        ? (darkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(160, 160, 160, 0.14)')
         : (darkMode ? 'rgba(214, 85, 65, 0.2)' : 'rgba(214, 85, 65, 0.14)');
 
     const hoverBackground = ratingKey === 'Good'
       ? (darkMode ? 'rgba(54, 144, 206, 0.28)' : 'rgba(54, 144, 206, 0.2)')
       : ratingKey === 'Neutral'
-        ? (darkMode ? 'rgba(148, 163, 184, 0.28)' : 'rgba(148, 163, 184, 0.2)')
+        ? (darkMode ? 'rgba(160, 160, 160, 0.28)' : 'rgba(160, 160, 160, 0.2)')
         : (darkMode ? 'rgba(214, 85, 65, 0.28)' : 'rgba(214, 85, 65, 0.2)');
 
     return {
@@ -5850,12 +5846,18 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   // Check if we're in a pending/transitioning state for filter changes
   const isFilterTransitioning = showMineOnly !== deferredShowMineOnly || activeState !== deferredActiveState;
 
-  // Ensure the processing cue shows when switching to All view
+  // Ensure the processing cue shows when switching views (All tab OR Mine↔All toggle)
+  const previousShowMineOnlyRef = useRef(showMineOnly);
   useEffect(() => {
     const previous = previousActiveStateRef.current;
+    const prevMine = previousShowMineOnlyRef.current;
     previousActiveStateRef.current = activeState;
+    previousShowMineOnlyRef.current = showMineOnly;
 
-    if (activeState === '' && previous !== '') {
+    const tabChanged = activeState === '' && previous !== '';
+    const mineAllToggled = showMineOnly !== prevMine;
+
+    if (tabChanged || mineAllToggled) {
       if (manualFilterTransitionTimeoutRef.current) {
         window.clearTimeout(manualFilterTransitionTimeoutRef.current);
       }
@@ -5864,7 +5866,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         setManualFilterTransitioning(false);
       }, 650);
     }
-  }, [activeState]);
+  }, [activeState, showMineOnly]);
 
   useEffect(() => {
     return () => {
@@ -5884,6 +5886,15 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         @keyframes spin {
           0% { transform: rotate(0deg); }
           100% { transform: rotate(360deg); }
+        }
+        @keyframes badge-breathe {
+          0%, 100% { opacity: 0.4; }
+          50% { opacity: 0.8; }
+        }
+        @keyframes badge-settle {
+          0% { opacity: 0; transform: scale(0.7); }
+          60% { opacity: 1; transform: scale(1.08); }
+          100% { opacity: 1; transform: scale(1); }
         }
       `;
       document.head.appendChild(style);
@@ -5921,264 +5932,139 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         }
       };
 
-      // Custom status filter with embedded Mine/All toggle when Claimed is selected
+      // Custom status filter — Claimed is compound (Mine|All), then Unclaimed, then Triaged (admin)
+      // Helix brand: borderRadius 0, brand navy surfaces, accent/highlight active borders
       const StatusFilterWithScope = () => {
-        const height = 32;
+        const h = 30;
         const currentState = activeState === 'Claimable' ? 'Unclaimed' : activeState;
         const isClaimed = currentState === 'Claimed';
-        
+
+        // Shared chip style for Unclaimed / Triaged
+        const chipStyle = (active: boolean, isAdminChip?: boolean): React.CSSProperties => ({
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 5,
+          height: h - 4,
+          padding: '0 10px',
+          background: active
+            ? (isDarkMode ? colours.dark.cardBackground : '#fff')
+            : (isDarkMode ? 'rgba(6,23,51,0.5)' : 'rgba(13,47,96,0.03)'),
+          border: active
+            ? `1px solid ${isDarkMode ? colours.accent : colours.highlight}`
+            : isAdminChip
+              ? `1px solid ${isDarkMode ? 'rgba(255,140,0,0.25)' : 'rgba(255,140,0,0.15)'}`
+              : `1px solid ${isDarkMode ? 'rgba(55,65,81,0.3)' : 'rgba(13,47,96,0.08)'}`,
+          borderRadius: 0,
+          cursor: 'pointer',
+          fontSize: 11,
+          fontWeight: active ? 600 : 500,
+          fontFamily: 'Raleway, sans-serif',
+          letterSpacing: '0.02em',
+          color: active
+            ? (isDarkMode ? '#f3f4f6' : colours.dark.text)
+            : (isDarkMode ? 'rgba(160,160,160,0.7)' : 'rgba(107,107,107,0.7)'),
+          transition: 'all 180ms ease',
+          outline: 'none',
+          whiteSpace: 'nowrap',
+          boxShadow: active
+            ? (isDarkMode ? '0 1px 4px rgba(0,0,0,0.25)' : '0 1px 3px rgba(0,0,0,0.06)')
+            : 'none',
+        });
+
+        // Mine/All style inside Claimed compound chip
+        const scopeStyle = (active: boolean): React.CSSProperties => ({
+          display: 'flex',
+          alignItems: 'center',
+          gap: 4,
+          height: h - 4,
+          padding: '0 8px',
+          background: active
+            ? (isDarkMode ? colours.dark.cardBackground : '#fff')
+            : (isDarkMode ? 'rgba(6,23,51,0.5)' : 'rgba(13,47,96,0.03)'),
+          border: active
+            ? `1px solid ${isDarkMode ? colours.accent : colours.highlight}`
+            : `1px solid ${isDarkMode ? 'rgba(55,65,81,0.3)' : 'rgba(13,47,96,0.08)'}`,
+          borderRadius: 0,
+          cursor: 'pointer',
+          fontSize: 10,
+          fontWeight: 600,
+          fontFamily: 'Raleway, sans-serif',
+          letterSpacing: '0.03em',
+          color: active
+            ? (isDarkMode ? colours.accent : colours.highlight)
+            : (isDarkMode ? 'rgba(135,243,243,0.3)' : 'rgba(54,144,206,0.35)'),
+          transition: 'all 150ms ease',
+          outline: 'none',
+          boxShadow: active
+            ? (isDarkMode ? '0 1px 4px rgba(0,0,0,0.25)' : '0 1px 3px rgba(0,0,0,0.06)')
+            : 'none',
+        });
+
+        // Count badge
+        const badge = (active: boolean): React.CSSProperties => ({
+          padding: '1px 4px',
+          fontSize: 9,
+          fontWeight: 600,
+          lineHeight: 1.2,
+          borderRadius: 0,
+          background: active
+            ? (isDarkMode ? 'rgba(135,243,243,0.12)' : 'rgba(54,144,206,0.10)')
+            : (isDarkMode ? 'rgba(6,23,51,0.6)' : 'rgba(13,47,96,0.05)'),
+        });
+
         return (
           <div
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: 0,
+              height: h,
+              padding: 2,
+              background: isDarkMode ? colours.dark.sectionBackground : 'rgba(0,0,0,0.03)',
+              borderRadius: 0,
+              gap: 1,
+              fontFamily: 'Raleway, sans-serif',
+              userSelect: 'none',
             }}
           >
-            {/* Claimed tab with integrated Mine/All extension */}
-            <div
-              style={{
-                display: 'flex',
-                position: 'relative',
-                background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-                borderRadius: `${height / 2}px`,
-                padding: 4,
-                height,
-                fontFamily: 'Raleway, sans-serif',
-                userSelect: 'none',
-                overflow: 'hidden',
-              }}
-            >
-              <button
-                type="button"
-                aria-pressed={isClaimed}
-                onClick={() => handleSetActiveState('Claimed')}
-                style={{
-                  position: 'relative',
-                  zIndex: 1,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 5,
-                  background: isClaimed ? (isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.9)') : 'transparent',
-                  border: 'none',
-                  cursor: 'pointer',
-                  padding: '0 12px',
-                  fontSize: 12,
-                  fontWeight: 500,
-                  color: isClaimed 
-                    ? (isDarkMode ? 'rgba(255,255,255,0.95)' : '#1f2937')
-                    : (isDarkMode ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.55)'),
-                  transition: 'color 200ms ease',
-                  minWidth: 0,
-                  whiteSpace: 'nowrap',
-                  outline: 'none',
-                  borderRadius: (height - 8) / 2,
-                  boxShadow: isClaimed ? (isDarkMode ? '0 1px 2px rgba(0,0,0,0.2)' : '0 1px 2px rgba(0,0,0,0.06)') : 'none',
-                }}
-              >
-                <span style={{ display: 'flex', alignItems: 'center', color: 'inherit' }}>
-                  {getFilterIcon('Claimed')}
-                </span>
-                <span>Claimed</span>
-              </button>
-              
-              {/* Mine/All toggle - inside the same container, flows from Claimed */}
-              {isClaimed && (
-                <>
-                  <div
-                    role="group"
-                    aria-label="Filter by ownership"
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      height: height - 8,
-                      padding: '0 3px',
-                      background: isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)',
-                      borderRadius: (height - 8) / 2,
-                      gap: 2,
-                      marginLeft: 4,
-                    }}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => setShowMineOnly(true)}
-                      title={`Show my claimed enquiries (${scopeCounts.mineCount || 0})`}
-                      aria-pressed={showMineOnly}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: 4,
-                        height: height - 12,
-                        padding: '0 7px',
-                        background: showMineOnly 
-                          ? (isDarkMode ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)')
-                          : 'transparent',
-                        border: 'none',
-                        borderRadius: (height - 12) / 2,
-                        cursor: 'pointer',
-                        fontSize: 10,
-                        fontWeight: 600,
-                        color: showMineOnly 
-                          ? (isDarkMode ? 'rgba(255, 255, 255, 0.95)' : 'rgba(0, 0, 0, 0.85)')
-                          : (isDarkMode ? 'rgba(255, 255, 255, 0.45)' : 'rgba(0, 0, 0, 0.4)'),
-                        transition: 'all 150ms ease',
-                        boxShadow: showMineOnly ? (isDarkMode ? '0 1px 2px rgba(0,0,0,0.2)' : '0 1px 2px rgba(0,0,0,0.06)') : 'none',
-                      }}
-                    >
-                      <span>Mine</span>
-                      {scopeCounts.mineCount !== undefined && (
-                        <span 
-                          style={{
-                          background: showMineOnly 
-                            ? (isDarkMode ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)')
-                            : (isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.05)'),
-                          borderRadius: 5,
-                          padding: '1px 4px',
-                          fontSize: 9,
-                          fontWeight: 600,
-                          lineHeight: 1.2,
-                        }}>
-                          {scopeCounts.mineCount}
-                        </span>
-                      )}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowMineOnly(false)}
-                      title={`Show all claimed enquiries (${scopeCounts.allCount || 0})`}
-                      aria-pressed={!showMineOnly}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: 4,
-                        height: height - 12,
-                        padding: '0 7px',
-                        background: !showMineOnly 
-                          ? (isDarkMode ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)')
-                          : 'transparent',
-                        border: 'none',
-                        borderRadius: (height - 12) / 2,
-                        cursor: 'pointer',
-                        fontSize: 10,
-                        fontWeight: 600,
-                        color: !showMineOnly 
-                          ? (isDarkMode ? 'rgba(255, 255, 255, 0.95)' : 'rgba(0, 0, 0, 0.85)')
-                          : (isDarkMode ? 'rgba(255, 255, 255, 0.45)' : 'rgba(0, 0, 0, 0.4)'),
-                        transition: 'all 150ms ease',
-                        boxShadow: !showMineOnly ? (isDarkMode ? '0 1px 2px rgba(0,0,0,0.2)' : '0 1px 2px rgba(0,0,0,0.06)') : 'none',
-                      }}
-                    >
-                      <span>All</span>
-                      {scopeCounts.allCount !== undefined && (
-                        <span 
-                          style={{
-                          background: !showMineOnly 
-                            ? (isDarkMode ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)')
-                            : (isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.05)'),
-                          borderRadius: 5,
-                          padding: '1px 4px',
-                          fontSize: 9,
-                          fontWeight: 600,
-                          lineHeight: 1.2,
-                        }}>
-                          {scopeCounts.allCount}
-                        </span>
-                      )}
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
+            {/* Claimed compound: Mine | All — clicking either sets Claimed + scope */}
+            <button type="button" aria-pressed={isClaimed && showMineOnly} onClick={() => { handleSetActiveState('Claimed'); setShowMineOnly(true); }} title={`My claimed (${scopeCounts.mineCount || 0})`} style={scopeStyle(isClaimed && showMineOnly)}>
+              <span style={{ display: 'flex', alignItems: 'center' }}>{getFilterIcon('Claimed')}</span>
+              <span>MINE</span>
+              <span style={badge(isClaimed && showMineOnly)}>{scopeCounts.mineCount}</span>
+            </button>
+            <button type="button" aria-pressed={isClaimed && !showMineOnly} onClick={() => { handleSetActiveState('Claimed'); setShowMineOnly(false); }} title={`All claimed${scopeCounts.allCount !== null ? ` (${scopeCounts.allCount})` : ''}`} style={scopeStyle(isClaimed && !showMineOnly)}>
+              <span>ALL</span>
+              <span style={badge(isClaimed && !showMineOnly)}>
+                {scopeCounts.allCount !== null ? (
+                  <span style={{ display: 'inline-block' }}>
+                    {scopeCounts.allCount.toLocaleString()}
+                  </span>
+                ) : (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, animation: 'badge-breathe 1.6s ease-in-out infinite' }}>
+                    <span style={{ width: 3, height: 3, borderRadius: '50%', background: 'currentColor' }} />
+                    <span style={{ width: 3, height: 3, borderRadius: '50%', background: 'currentColor' }} />
+                  </span>
+                )}
+              </span>
+            </button>
 
-            {/* Unclaimed and Triaged tabs */}
-            <div
-              style={{
-                display: 'flex',
-                position: 'relative',
-                background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-                borderRadius: `${height / 2}px`,
-                padding: 4,
-                height,
-                fontFamily: 'Raleway, sans-serif',
-                userSelect: 'none',
-                overflow: 'hidden',
-                marginLeft: 4,
-              }}
-            >
-              <button
-                type="button"
-                aria-pressed={currentState === 'Unclaimed'}
-                onClick={() => handleSetActiveState('Claimable')}
-                style={{
-                  position: 'relative',
-                  zIndex: 1,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 5,
-                  background: currentState === 'Unclaimed' ? (isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.9)') : 'transparent',
-                  border: 'none',
-                  cursor: 'pointer',
-                  padding: '0 12px',
-                  fontSize: 12,
-                  fontWeight: 500,
-                  color: currentState === 'Unclaimed'
-                    ? (isDarkMode ? 'rgba(255,255,255,0.95)' : '#1f2937')
-                    : (isDarkMode ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.55)'),
-                  transition: 'color 200ms ease',
-                  minWidth: 0,
-                  whiteSpace: 'nowrap',
-                  outline: 'none',
-                  borderRadius: currentState === 'Unclaimed' ? (height - 8) / 2 : 0,
-                  boxShadow: currentState === 'Unclaimed' ? (isDarkMode ? '0 1px 2px rgba(0,0,0,0.2)' : '0 1px 2px rgba(0,0,0,0.06)') : 'none',
-                }}
-              >
-                <span style={{ display: 'flex', alignItems: 'center', color: 'inherit' }}>
-                  {getFilterIcon('Unclaimed')}
-                </span>
-                <span>Unclaimed</span>
-              </button>
+            {/* Divider */}
+            <div style={{ width: 1, height: h - 12, background: isDarkMode ? colours.dark.border : 'rgba(0,0,0,0.08)', margin: '0 3px' }} />
 
-              <button
-                type="button"
-                aria-pressed={currentState === 'Triaged'}
-                onClick={() => handleSetActiveState('Triaged')}
-                title={isAdmin ? 'Admin only' : undefined}
-                style={{
-                  position: 'relative',
-                  zIndex: 1,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 5,
-                  background: currentState === 'Triaged' ? (isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.9)') : 'transparent',
-                  border: isAdmin ? `1px solid ${isDarkMode ? 'rgba(255,183,77,0.35)' : 'rgba(255,152,0,0.3)'}` : 'none',
-                  cursor: 'pointer',
-                  padding: '0 12px',
-                  fontSize: 12,
-                  fontWeight: 500,
-                  color: currentState === 'Triaged'
-                    ? (isDarkMode ? 'rgba(255,255,255,0.95)' : '#1f2937')
-                    : (isDarkMode ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.55)'),
-                  transition: 'color 200ms ease',
-                  minWidth: 0,
-                  whiteSpace: 'nowrap',
-                  outline: 'none',
-                  borderRadius: (height - 8) / 2,
-                  boxShadow: currentState === 'Triaged'
-                    ? (isDarkMode ? '0 1px 2px rgba(0,0,0,0.2)' : '0 1px 2px rgba(0,0,0,0.06)')
-                    : 'none',
-                }}
-              >
-                <span style={{ display: 'flex', alignItems: 'center', color: 'inherit' }}>
-                  {getFilterIcon('Triaged')}
-                </span>
+            {/* Unclaimed */}
+            <button type="button" aria-pressed={currentState === 'Unclaimed'} onClick={() => handleSetActiveState('Claimable')} style={chipStyle(currentState === 'Unclaimed')}>
+              <span style={{ display: 'flex', alignItems: 'center' }}>{getFilterIcon('Unclaimed')}</span>
+              <span>Unclaimed</span>
+            </button>
+
+            {/* Triaged (admin) */}
+            {isAdmin && (
+              <button type="button" aria-pressed={currentState === 'Triaged'} onClick={() => handleSetActiveState('Triaged')} title="Admin only" style={chipStyle(currentState === 'Triaged', true)}>
+                <span style={{ display: 'flex', alignItems: 'center' }}>{getFilterIcon('Triaged')}</span>
                 <span>Triaged</span>
               </button>
-            </div>
+            )}
           </div>
         );
       };
@@ -6209,25 +6095,26 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: 5,
-                  height: 32,
-                  padding: '0 12px',
-                  borderRadius: 16,
-                  border: isDarkMode ? '1px solid rgba(102,170,232,0.3)' : '1px solid rgba(102,170,232,0.3)',
-                  background: isDarkMode ? 'rgba(102,170,232,0.12)' : 'rgba(102,170,232,0.08)',
+                  height: 26,
+                  padding: '0 10px',
+                  borderRadius: 0,
+                  border: `1px solid ${isDarkMode ? 'rgba(135,243,243,0.25)' : 'rgba(54,144,206,0.25)'}`,
+                  background: isDarkMode ? 'rgba(135,243,243,0.06)' : 'rgba(54,144,206,0.05)',
                   cursor: 'pointer',
                   fontSize: 11,
                   fontFamily: 'Raleway, sans-serif',
-                  color: colours.highlight,
+                  color: isDarkMode ? colours.accent : colours.highlight,
                   fontWeight: 600,
-                  transition: 'all 200ms ease',
+                  letterSpacing: '0.02em',
+                  transition: 'all 180ms ease',
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = isDarkMode ? 'rgba(102,170,232,0.18)' : 'rgba(102,170,232,0.14)';
-                  e.currentTarget.style.borderColor = colours.highlight;
+                  e.currentTarget.style.background = isDarkMode ? 'rgba(135,243,243,0.12)' : 'rgba(54,144,206,0.10)';
+                  e.currentTarget.style.borderColor = isDarkMode ? colours.accent : colours.highlight;
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.background = isDarkMode ? 'rgba(102,170,232,0.12)' : 'rgba(102,170,232,0.08)';
-                  e.currentTarget.style.borderColor = isDarkMode ? 'rgba(102,170,232,0.3)' : 'rgba(102,170,232,0.3)';
+                  e.currentTarget.style.background = isDarkMode ? 'rgba(135,243,243,0.06)' : 'rgba(54,144,206,0.05)';
+                  e.currentTarget.style.borderColor = isDarkMode ? 'rgba(135,243,243,0.25)' : 'rgba(54,144,206,0.25)';
                 }}
               >
                 <Icon iconName="Search" style={{ fontSize: 12 }} />
@@ -6243,25 +6130,26 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: 5,
-                  height: 32,
-                  padding: '0 12px',
-                  borderRadius: 16,
-                  border: isDarkMode ? '1px solid rgba(102,170,232,0.3)' : '1px solid rgba(102,170,232,0.3)',
-                  background: isDarkMode ? 'rgba(102,170,232,0.12)' : 'rgba(102,170,232,0.08)',
+                  height: 26,
+                  padding: '0 10px',
+                  borderRadius: 0,
+                  border: `1px solid ${isDarkMode ? 'rgba(135,243,243,0.25)' : 'rgba(54,144,206,0.25)'}`,
+                  background: isDarkMode ? 'rgba(135,243,243,0.06)' : 'rgba(54,144,206,0.05)',
                   cursor: 'pointer',
                   fontSize: 11,
                   fontFamily: 'Raleway, sans-serif',
-                  color: colours.highlight,
+                  color: isDarkMode ? colours.accent : colours.highlight,
                   fontWeight: 600,
-                  transition: 'all 200ms ease',
+                  letterSpacing: '0.02em',
+                  transition: 'all 180ms ease',
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = isDarkMode ? 'rgba(102,170,232,0.18)' : 'rgba(102,170,232,0.14)';
-                  e.currentTarget.style.borderColor = colours.highlight;
+                  e.currentTarget.style.background = isDarkMode ? 'rgba(135,243,243,0.12)' : 'rgba(54,144,206,0.10)';
+                  e.currentTarget.style.borderColor = isDarkMode ? colours.accent : colours.highlight;
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.background = isDarkMode ? 'rgba(102,170,232,0.12)' : 'rgba(102,170,232,0.08)';
-                  e.currentTarget.style.borderColor = isDarkMode ? 'rgba(102,170,232,0.3)' : 'rgba(102,170,232,0.3)';
+                  e.currentTarget.style.background = isDarkMode ? 'rgba(135,243,243,0.06)' : 'rgba(54,144,206,0.05)';
+                  e.currentTarget.style.borderColor = isDarkMode ? 'rgba(135,243,243,0.25)' : 'rgba(54,144,206,0.25)';
                 }}
               >
                 <Icon iconName="AddFriend" style={{ fontSize: 12 }} />
@@ -6274,127 +6162,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
             onChange: handleSearchChange,
             placeholder: "Search (name, email, company, type, ID)"
           }}
-          middleActions={(
-            <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <div 
-                role="group" 
-                aria-label="View mode"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 0,
-                  height: 32,
-                  padding: '3px',
-                  background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-                  borderRadius: 16,
-                  fontFamily: 'Raleway, sans-serif',
-                }}
-              >
-              {/* Card view button with integrated column toggle */}
-              <div style={{ display: 'flex', alignItems: 'center', position: 'relative' }}>
-                <button
-                  type="button"
-                  title={viewMode === 'card' ? `Card view (${twoColumn ? '2 columns' : '1 column'}) - click to toggle columns` : 'Switch to card view'}
-                  aria-label={viewMode === 'card' ? `Card view, ${twoColumn ? '2 columns' : '1 column'}` : 'Card view'}
-                  aria-pressed={viewMode === 'card'}
-                  onClick={() => {
-                    if (viewMode === 'card') {
-                      // Toggle columns when already in card view
-                      setTwoColumn(!twoColumn);
-                    } else {
-                      setViewMode('card');
-                    }
-                  }}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 5,
-                    height: 26,
-                    padding: '0 10px',
-                    background: viewMode === 'card' ? (isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.9)') : 'transparent',
-                    border: 'none',
-                    borderRadius: 13,
-                    cursor: 'pointer',
-                    transition: 'all 200ms ease',
-                    opacity: viewMode === 'card' ? 1 : 0.6,
-                    boxShadow: viewMode === 'card' 
-                      ? (isDarkMode
-                          ? '0 1px 2px rgba(0,0,0,0.2)'
-                          : '0 1px 2px rgba(0,0,0,0.06)')
-                      : 'none',
-                  }}
-                >
-                  <Icon
-                    iconName="GridViewMedium"
-                    style={{
-                      fontSize: 12,
-                      color: viewMode === 'card'
-                        ? (isDarkMode ? 'rgba(255,255,255,0.95)' : '#1f2937')
-                        : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),
-                    }}
-                  />
-                  <span style={{
-                    fontSize: '12px',
-                    fontWeight: 500,
-                    color: viewMode === 'card' 
-                      ? (isDarkMode ? 'rgba(255,255,255,0.95)' : '#1f2937')
-                      : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),
-                  }}>
-                    {viewMode === 'card' ? (twoColumn ? '2 Col' : '1 Col') : 'Cards'}
-                  </span>
-                </button>
-              </div>
-              
-              {/* Table view button */}
-              <button
-                type="button"
-                title="Table view"
-                aria-label="Table view"
-                aria-pressed={viewMode === 'table'}
-                onClick={() => setViewMode('table')}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 5,
-                  height: 26,
-                  padding: '0 10px',
-                  background: viewMode === 'table' ? (isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.9)') : 'transparent',
-                  border: 'none',
-                  borderRadius: 13,
-                  cursor: 'pointer',
-                  transition: 'all 200ms ease',
-                  opacity: viewMode === 'table' ? 1 : 0.6,
-                  boxShadow: viewMode === 'table' 
-                    ? (isDarkMode
-                        ? '0 1px 2px rgba(0,0,0,0.2)'
-                        : '0 1px 2px rgba(0,0,0,0.06)')
-                    : 'none',
-                }}
-              >
-                <Icon
-                  iconName="BulletedList"
-                  style={{
-                    fontSize: 12,
-                    color: viewMode === 'table'
-                      ? (isDarkMode ? 'rgba(255,255,255,0.95)' : '#1f2937')
-                      : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),
-                  }}
-                />
-                <span style={{
-                  fontSize: '12px',
-                  fontWeight: 500,
-                  color: viewMode === 'table' 
-                    ? (isDarkMode ? 'rgba(255,255,255,0.95)' : '#1f2937')
-                    : (isDarkMode ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.55)'),
-                }}>
-                  Table
-                </span>
-              </button>
-            </div>
-            </div>
-          )}
+          middleActions={undefined}
           refresh={{
             onRefresh: handleManualRefresh,
             isLoading: isRefreshing,
@@ -6408,15 +6176,16 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: 6,
-                height: 28,
+                height: 26,
                 padding: '0 10px',
-                borderRadius: 14,
-                border: `1px solid ${colours.highlight}50`,
-                background: isDarkMode ? 'rgba(102,170,232,0.12)' : 'rgba(102,170,232,0.12)',
-                fontSize: 12,
+                borderRadius: 0,
+                border: `1px solid ${isDarkMode ? 'rgba(135,243,243,0.3)' : colours.highlight + '40'}`,
+                background: isDarkMode ? 'rgba(135,243,243,0.08)' : 'rgba(54,144,206,0.08)',
+                fontSize: 11,
                 fontFamily: 'Raleway, sans-serif',
-                color: colours.highlight,
+                color: isDarkMode ? colours.accent : colours.highlight,
                 fontWeight: 600,
+                letterSpacing: '0.02em',
               }}
             >
               <Icon iconName="Contact" style={{ fontSize: 14 }} />
@@ -6450,65 +6219,16 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     } else {
       // Detail mode: navigation on left side (back + context tabs)
       setContent(
-        <FilterBanner
-          seamless={false}
-          dense
-          sticky={false}
-          leftAction={
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <ActionButton
-                iconProps={{ iconName: 'ChevronLeft' }}
-                onClick={handleBackToList}
-                title="Back to enquiries list"
-                aria-label="Back to enquiries list"
-                styles={{
-                  root: {
-                    height: 32,
-                    padding: '0 10px 0 6px',
-                    color: isDarkMode ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.6)',
-                    gap: 6,
-                  },
-                  rootHovered: {
-                    backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.08)' : '#e7f1ff',
-                  },
-                  icon: {
-                    fontSize: 16,
-                    color: isDarkMode ? 'rgb(125, 211, 252)' : '#3690ce',
-                  },
-                  label: {
-                    fontSize: 13,
-                    userSelect: 'none',
-                  },
-                }}
-              >
-                Back
-              </ActionButton>
-              <div style={{
-                width: '1px',
-                height: '24px',
-                backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.06)',
-              }} />
-              <button
-                onClick={() => setActiveSubTab('Timeline')}
-                title="Overview"
-                aria-label="Overview"
-                className="enquiry-sub-tab"
-                data-active={activeSubTab === 'Timeline'}
-              >
-                Overview
-              </button>
-              <button
-                onClick={() => setActiveSubTab('Pitch')}
-                title="Pitch Builder"
-                aria-label="Pitch Builder"
-                className="enquiry-sub-tab"
-                data-active={activeSubTab === 'Pitch'}
-              >
-                Pitch Builder
-              </button>
-            </div>
-          }
-        />
+        <NavigatorDetailBar
+          onBack={handleBackToList}
+          backLabel="Back"
+          tabs={[
+            { key: 'Timeline', label: 'Overview' },
+            { key: 'Pitch', label: 'Pitch Builder' },
+          ]}
+          activeTab={activeSubTab}
+          onTabChange={(key) => setActiveSubTab(key as 'Timeline' | 'Pitch')}
+        />,
       );
     }
     return () => setContent(null);
@@ -6533,6 +6253,58 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     formatTimeRemaining,
     handleManualRefresh,
   ]);
+
+  // ─── Prop bundles for <ProspectTableRow /> ──────────────────
+  const rowPipelineHandlers: RowPipelineHandlers = {
+    showPipelineHover,
+    movePipelineHover,
+    hidePipelineHover,
+    openEnquiryWorkbench,
+    advancePipelineScroll,
+    getPipelineScrollOffset,
+    handleReassignClick,
+    renderClaimPromptChip,
+    getAreaSpecificChannelUrl,
+    getScenarioColor,
+  };
+  const rowActionHandlers: RowActionHandlers = {
+    handleSelectEnquiryToPitch,
+    handleRate,
+    handleDeleteEnquiry,
+    handleCopyName,
+    setEditingEnquiry,
+    setShowEditModal,
+    setExpandedNotesInTable,
+  };
+  const rowDisplayState: RowDisplayState = {
+    isDarkMode,
+    activeState,
+    viewMode,
+    areActionsEnabled,
+    copiedNameKey,
+    expandedNotesInTable: expandedNotesInTable,
+    hoveredRowKey,
+    hoveredDayKey,
+    hoveredRowKeyReady,
+    hoveredDayKeyReady,
+    pipelineNeedsCarousel,
+    visiblePipelineChipCount,
+    PIPELINE_CHIP_MIN_WIDTH_PX,
+    collapsedDays,
+  };
+  const rowHoverHandlers: RowHoverHandlers = {
+    setHoveredRowKey,
+    setHoveredDayKey,
+    toggleDayCollapse,
+  };
+  const rowDataDeps: RowDataDeps = {
+    claimerMap,
+    enrichmentMap,
+    getEnquiryWorkbenchItem,
+    isUnclaimedPoc,
+    getRatingChipMeta,
+    combineDateAndTime,
+  };
 
   return (
     <div className={containerStyle(isDarkMode)}>
@@ -6663,20 +6435,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
 
 
-      {showUnclaimedBoard && viewMode === 'card' ? (
-        <UnclaimedEnquiries
-          enquiries={unclaimedEnquiries}
-          onSelect={handleSelectEnquiry}
-          userEmail={userData?.[0]?.Email || ''}
-          onAreaChange={() => { /* no-op in unclaimed view for now */ }}
-          onClaimSuccess={() => { try { handleManualRefresh(); } catch (e) { /* ignore */ } }}
-          onOptimisticClaim={onOptimisticClaim}
-          getPromotionStatusSimple={getPromotionStatusSimple}
-          inlineWorkbenchByEnquiryId={inlineWorkbenchByEnquiryId}
-          teamData={teamData}
-          workbenchHandlers={workbenchHandlers}
-        />
-      ) : null}
+
 
       <div
         key={activeState}
@@ -6685,10 +6444,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
           minHeight: 0,
           display: 'flex',
           flexDirection: 'column',
-          gap: '0px', // Remove extra gap between sections
-          paddingBottom: 0, // Remove extra space at the bottom
-          backgroundColor: 'transparent',
-          transition: 'background-color 0.3s',
+          gap: '0px',
+          paddingBottom: 0,
+          backgroundColor: isDarkMode ? colours.dark.background : colours.light.background,
         })}
       >
         {selectedEnquiry ? (
@@ -6806,138 +6564,11 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                     <span>Loading {enrichmentProgress.current} of {enrichmentProgress.total} items</span>
                   </div>
                 )}
-                {viewMode === 'card' ? (
-                  /* Card View */
-                  <div
-                    className={
-                      (() => {
-                        const base = mergeStyles({
-                          display: twoColumn ? 'grid' : 'flex',
-                          flexDirection: twoColumn ? undefined : 'column',
-                          gap: '12px',
-                          padding: 0,
-                          margin: 0,
-                          backgroundColor: 'transparent',
-                          gridTemplateColumns: twoColumn ? 'repeat(2, minmax(0, 1fr))' : undefined,
-                          width: '100%', // allow full width usage
-                          transition: 'grid-template-columns .25s ease',
-                        });
-                        return twoColumn ? `${base} two-col-grid` : base;
-                      })()
-                    }
-                    style={twoColumn ? { position: 'relative' } : undefined}
-                  >
-                    {twoColumn && (() => {
-                      if (typeof document !== 'undefined' && !document.getElementById('enquiriesTwoColStyles')) {
-                        const el = document.createElement('style');
-                        el.id = 'enquiriesTwoColStyles';
-                        el.textContent = '@media (max-width: 860px){.two-col-grid{display:flex!important;flex-direction:column!important;}}';
-                        document.head.appendChild(el);
-                      }
-                      return null;
-                    })()}
-                    {/* Pre-compute per-render constants outside the .map() loop */}
-                    {(() => {
-                      // These are stable for the entire render — no need to recompute per item
-                      const userAOW: string[] = userData && userData.length > 0 && userData[0].AOW
-                        ? userData[0].AOW.split(',').map((a: string) => a.trim().toLowerCase())
-                        : [];
-                      const currentUserEmail = userData && userData[0] && userData[0].Email
-                        ? userData[0].Email.toLowerCase()
-                        : '';
-                      return displayedItems.map((item, idx) => {
-                      const isLast = idx === displayedItems.length - 1;
-
-                      if (isGroupedEnquiry(item)) {
-                        // Render grouped enquiry card
-                        return (
-                          <div key={item.clientKey} data-enquiry-id={item.clientKey}>
-                          <GroupedEnquiryCard
-                            groupedEnquiry={item}
-                            onSelect={handleSelectEnquiry}
-                            onRate={handleRate}
-                            onRatingChange={handleRatingChange}
-                            onPitch={handleSelectEnquiry}
-                            teamData={teamData}
-                            isLast={isLast}
-                            userAOW={userAOW}
-                            getPromotionStatus={getPromotionStatusSimple}
-                            onFilterByPerson={handleFilterByPerson}
-                            documentCounts={documentCounts}
-                            inlineWorkbenchByEnquiryId={inlineWorkbenchByEnquiryId}
-                            workbenchHandlers={workbenchHandlers}
-                          />
-                          </div>
-                        );
-                      } else {
-                        const pocLower = (item.Point_of_Contact || (item as any).poc || '').toLowerCase();
-                        const isUnclaimed = pocLower === 'team@helix-law.com';
-                        const inlineWorkbenchItem = getEnquiryWorkbenchItem(item);
-                        if (isUnclaimed) {
-                          return (
-                            <div key={`${item.ID}-${item.First_Name || ''}-${item.Last_Name || ''}-${item.Touchpoint_Date || ''}-${item.Point_of_Contact || ''}`} data-enquiry-id={item.ID ? String(item.ID) : undefined}>
-                            <NewUnclaimedEnquiryCard
-                              enquiry={item}
-                              onSelect={() => {}} // Prevent click-through to pitch builder
-                              onRate={handleRate}
-                              onAreaChange={handleAreaChange}
-                              isLast={isLast}
-                              userEmail={currentUserEmail}
-                              onClaimSuccess={onRefreshEnquiries}
-                              onOptimisticClaim={onOptimisticClaim}
-                              promotionStatus={getPromotionStatusSimple(item)}
-                              documentCount={item.ID ? (documentCounts[String(item.ID)] || 0) : 0}
-                              inlineWorkbenchItem={inlineWorkbenchItem}
-                              teamData={teamData}
-                              workbenchHandlers={workbenchHandlers}
-                            />
-                            </div>
-                          );
-                        }
-                        const claimer = claimerMap[pocLower];
-                        return (
-                          <div key={`${item.ID}-${item.First_Name || ''}-${item.Last_Name || ''}-${item.Touchpoint_Date || ''}-${item.Point_of_Contact || ''}`} data-enquiry-id={item.ID ? String(item.ID) : undefined}>
-                          <ClaimedEnquiryCard
-                            enquiry={item}
-                            claimer={claimer}
-                            onSelect={handleSelectEnquiry}
-                            onRate={handleRate}
-                            onRatingChange={handleRatingChange}
-                            onEdit={handleEditEnquiry}
-                            onAreaChange={handleAreaChange}
-                            userData={userData}
-                            isLast={isLast}
-                            promotionStatus={getPromotionStatusSimple(item)}
-                            onFilterByPerson={handleFilterByPerson}
-                            enrichmentData={item.ID ? enrichmentMap.get(String(item.ID)) : null}
-                            enrichmentMap={enrichmentMap}
-                            enrichmentRequestsRef={enrichmentRequestsRef}
-                            documentCount={item.ID ? (documentCounts[String(item.ID)] || 0) : 0}
-                            inlineWorkbenchItem={inlineWorkbenchItem}
-                            teamData={teamData}
-                            workbenchHandlers={workbenchHandlers}
-                          />
-                          </div>
-                        );
-                      }
-                    });
-                    })()}
-                    {/* Infinite scroll loader for card view */}
-                    <div 
-                      ref={loader} 
-                      style={{ 
-                        height: '20px', 
-                        width: '100%',
-                        visibility: itemsToShow < filteredEnquiries.length ? 'visible' : 'hidden',
-                      }} 
-                    />
-                  </div>
-                ) : (
-                  /* Table View */
+                {/* Table View */}
                   <div 
                     ref={scrollContainerRef}
                     style={{
-                      backgroundColor: isDarkMode ? 'rgba(10, 15, 30, 0.95)' : 'rgba(241, 245, 249, 1)',
+                        backgroundColor: isDarkMode ? colours.dark.background : colours.light.background,
                       overflowY: 'auto',
                       overflowX: 'hidden',
                       fontFamily: 'Raleway, "Segoe UI", sans-serif',
@@ -6961,15 +6592,15 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                         alignItems: 'center',
                         flexShrink: 0,
                         background: isDarkMode 
-                          ? 'rgba(15, 25, 45, 0.98)'
-                          : 'rgba(248, 250, 252, 0.98)',
+                          ? colours.darkBlue
+                          : colours.light.cardBackground,
                         backdropFilter: 'blur(12px)',
                         borderTop: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
                         borderBottom: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)'}`,
                         fontFamily: 'Raleway, "Segoe UI", sans-serif',
                         fontSize: '11px',
                         fontWeight: 600,
-                        color: isDarkMode ? colours.accent : colours.highlight,
+                        color: isDarkMode ? colours.grey : colours.highlight,
                         textTransform: 'uppercase',
                         letterSpacing: '0.5px',
                         boxShadow: isDarkMode 
@@ -6991,7 +6622,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                           styles={{
                             root: {
                               fontSize: 12,
-                              color: isDarkMode ? colours.accent : colours.highlight,
+                              color: isDarkMode ? colours.grey : colours.highlight,
                               opacity: 0.7,
                             },
                           }}
@@ -7014,7 +6645,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                           gap: '4px',
                           transition: 'color 0.15s ease',
                           color: sortColumn === 'date' 
-                            ? (isDarkMode ? colours.accent : colours.highlight)
+                            ? (isDarkMode ? colours.highlight : colours.highlight)
                             : undefined,
                         }}
                         title="Sort by date"
@@ -7028,8 +6659,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               marginLeft: 4,
                               opacity: sortColumn === 'date' ? 1 : 0.35,
                               color: sortColumn === 'date' 
-                                ? (isDarkMode ? colours.accent : colours.highlight)
-                                : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)'),
+                                ? (isDarkMode ? colours.highlight : colours.highlight)
+                                : (isDarkMode ? `${colours.subtleGrey}80` : `${colours.greyText}80`),
                               transition: 'opacity 0.15s ease',
                             },
                           }}
@@ -7051,7 +6682,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                           cursor: 'pointer',
                           transition: 'color 0.15s ease',
                           color: sortColumn === 'aow' 
-                            ? (isDarkMode ? colours.accent : colours.highlight)
+                            ? (isDarkMode ? colours.highlight : colours.highlight)
                             : undefined,
                         }}
                         title="Sort by area of work"
@@ -7075,7 +6706,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                           cursor: 'pointer',
                           transition: 'color 0.15s ease',
                           color: sortColumn === 'id' 
-                            ? (isDarkMode ? colours.accent : colours.highlight)
+                            ? (isDarkMode ? colours.highlight : colours.highlight)
                             : undefined,
                         }}
                         title="Sort by ID"
@@ -7089,8 +6720,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               marginLeft: 2,
                               opacity: sortColumn === 'id' ? 1 : 0.35,
                               color: sortColumn === 'id' 
-                                ? (isDarkMode ? colours.accent : colours.highlight)
-                                : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)'),
+                                ? (isDarkMode ? colours.highlight : colours.highlight)
+                                : (isDarkMode ? `${colours.subtleGrey}80` : `${colours.greyText}80`),
                               transition: 'opacity 0.15s ease',
                             },
                           }}
@@ -7112,7 +6743,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                           gap: '4px',
                           transition: 'color 0.15s ease',
                           color: sortColumn === 'contact' 
-                            ? (isDarkMode ? colours.accent : colours.highlight)
+                            ? (isDarkMode ? colours.highlight : colours.highlight)
                             : undefined,
                           minWidth: 0,
                           overflow: 'hidden',
@@ -7128,8 +6759,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               marginLeft: 4,
                               opacity: sortColumn === 'contact' ? 1 : 0.35,
                               color: sortColumn === 'contact' 
-                                ? (isDarkMode ? colours.accent : colours.highlight)
-                                : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)'),
+                                ? (isDarkMode ? colours.highlight : colours.highlight)
+                                : (isDarkMode ? `${colours.subtleGrey}80` : `${colours.greyText}80`),
                               transition: 'opacity 0.15s ease',
                             },
                           }}
@@ -7182,19 +6813,25 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                   gap: 3,
                                   height: 22,
                                   width: '100%',
-                                  padding: '0 8px',
+                                  padding: '0 4px',
                                   background: 'transparent',
-                                  border: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.18)' : 'rgba(100,116,139,0.14)'}`,
+                                  border: `1px solid ${isDarkMode ? `${colours.subtleGrey}2e` : `${colours.greyText}24`}`,
                                   borderRadius: 0,
+                                  overflow: 'hidden',
+                                  minWidth: 0,
                                 }}>
                                         <span style={{ 
-                                          fontSize: 11, 
+                                          fontSize: 10, 
                                           fontWeight: 600, 
-                                          color: isDarkMode ? colours.accent : colours.highlight, 
-                                          textTransform: 'uppercase' 
+                                          color: isDarkMode ? colours.grey : colours.highlight, 
+                                          textTransform: 'uppercase',
+                                          whiteSpace: 'nowrap',
+                                          overflow: 'hidden',
+                                          textOverflow: 'ellipsis',
                                         }}>
-                                          CLAIMER
+                                          {pipelineChipLabelMode === 'icon' ? 'POC' : 'CLAIMER'}
                                         </span>
+                                        <Icon iconName="ChevronDown" styles={{ root: { fontSize: 8, color: isDarkMode ? colours.grey : colours.highlight, opacity: 0.5, flexShrink: 0 } }} />
                                 </div>
                               ) : (
                               (() => {
@@ -7209,7 +6846,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                   return teamMember?.Initials || selectedPocFilter.split('@')[0]?.slice(0, 2).toUpperCase() || 'POC';
                                 };
 
-                                const filterColor = isDarkMode ? colours.accent : colours.highlight;
+                                const filterColor = isDarkMode ? colours.grey : colours.highlight;
 
                                 if (!showMineOnly) {
                                   const pocOptions = pocOptionsMemo.options;
@@ -7227,26 +6864,28 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                           display: 'flex',
                                           alignItems: 'center',
                                           justifyContent: 'center',
-                                          gap: 3,
+                                          gap: 2,
                                           height: 22,
                                           width: '100%',
-                                          padding: '0 8px',
+                                          padding: '0 4px',
                                           background: isFiltered
                                             ? (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)')
                                             : 'transparent',
                                           border: isFiltered
                                             ? `1px solid ${colours.highlight}40`
-                                            : `1px solid ${isDarkMode ? 'rgba(148,163,184,0.18)' : 'rgba(100,116,139,0.14)'}`,
+                                            : `1px solid ${isDarkMode ? `${colours.subtleGrey}2e` : `${colours.greyText}24`}`,
                                           borderRadius: 0,
                                           cursor: 'pointer',
                                           transition: 'all 150ms ease',
                                           opacity: isFiltered ? 1 : 0.85,
+                                          overflow: 'hidden',
+                                          minWidth: 0,
                                         }}
                                       >
-                                        <span style={{ fontSize: 11, fontWeight: 600, color: filterColor, textTransform: 'uppercase' }}>
-                                                CLAIMER
+                                        <span style={{ fontSize: 10, fontWeight: 600, color: filterColor, textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
+                                                {pipelineChipLabelMode === 'icon' ? 'POC' : 'CLAIMER'}
                                               </span>
-                                        <Icon iconName="ChevronDown" styles={{ root: { fontSize: 8, color: filterColor, marginLeft: 1 } }} />
+                                        <Icon iconName="ChevronDown" styles={{ root: { fontSize: 8, color: filterColor, flexShrink: 0 } }} />
                                       </button>
 
                                       {isPocDropdownOpen && (
@@ -7258,9 +6897,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                             left: 0,
                                             marginTop: 4,
                                             minWidth: 200,
-                                            background: isDarkMode ? 'rgba(30, 41, 59, 0.98)' : 'rgba(255, 255, 255, 0.98)',
-                                            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.3)'}`,
-                                            borderRadius: 4,
+                                            background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
+                                            border: `1px solid ${isDarkMode ? `${colours.subtleGrey}33` : `${colours.subtleGrey}4d`}`,
+                                            borderRadius: 0,
                                             boxShadow: isDarkMode
                                               ? '0 4px 12px rgba(0, 0, 0, 0.4)'
                                               : '0 4px 12px rgba(0, 0, 0, 0.15)',
@@ -7287,7 +6926,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                                 ? (isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(54, 144, 206, 0.1)')
                                                 : 'transparent',
                                               border: 'none',
-                                              borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.15)'}`,
+                                              borderBottom: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(160, 160, 160, 0.15)'}`,
                                               cursor: 'pointer',
                                               textAlign: 'left',
                                               fontSize: 11,
@@ -7345,7 +6984,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                   const mineIsFiltered = isFilteredToMe;
                                   const mineFilterColor = mineIsFiltered
                                     ? colours.highlight
-                                    : (isDarkMode ? colours.accent : colours.highlight);
+                                    : (isDarkMode ? colours.grey : colours.highlight);
 
                                   return (
                                     <button
@@ -7362,24 +7001,26 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                         display: 'flex',
                                         alignItems: 'center',
                                         justifyContent: 'center',
-                                        gap: 3,
+                                        gap: 2,
                                         height: 22,
                                         width: '100%',
-                                        padding: '0 8px',
+                                        padding: '0 4px',
                                         background: mineIsFiltered
                                           ? (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)')
                                           : 'transparent',
                                         border: mineIsFiltered
                                           ? `1px solid ${colours.highlight}40`
-                                          : `1px solid ${isDarkMode ? 'rgba(148,163,184,0.18)' : 'rgba(100,116,139,0.14)'}`,
+                                          : `1px solid ${isDarkMode ? `${colours.subtleGrey}2e` : `${colours.greyText}24`}`,
                                         borderRadius: 0,
                                         cursor: 'pointer',
                                         transition: 'all 150ms ease',
                                         opacity: mineIsFiltered ? 1 : 0.85,
+                                        overflow: 'hidden',
+                                        minWidth: 0,
                                       }}
                                     >
-                                      <span style={{ fontSize: 11, fontWeight: 600, color: mineFilterColor, textTransform: 'uppercase' }}>
-                                        CLAIMER
+                                      <span style={{ fontSize: 10, fontWeight: 600, color: mineFilterColor, textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
+                                        {pipelineChipLabelMode === 'icon' ? 'POC' : 'CLAIMER'}
                                       </span>
                                     </button>
                                   );
@@ -7394,9 +7035,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               const filterState = getEnquiryStageFilterState('pitched');
                               const hasFilter = filterState !== null;
                               const getFilterColor = () => {
-                                if (!filterState) return isDarkMode ? colours.accent : colours.highlight;
-                                if (filterState === 'yes') return '#22c55e';
-                                if (filterState === 'no') return '#ef4444';
+                                if (!filterState) return isDarkMode ? colours.grey : colours.highlight;
+                                if (filterState === 'yes') return '#20b26c';
+                                if (filterState === 'no') return '#D65541';
                                 return colours.highlight;
                               };
                               const filterColor = getFilterColor();
@@ -7417,23 +7058,25 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center',
-                                    gap: 4,
+                                    gap: 3,
                                     height: 22,
                                     width: '100%',
-                                    padding: '0 6px',
+                                    padding: '0 4px',
                                     background: hasFilter
                                       ? (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)')
                                       : 'transparent',
                                     border: hasFilter
                                       ? `1px solid ${filterColor}40`
-                                      : `1px solid ${isDarkMode ? 'rgba(148,163,184,0.18)' : 'rgba(100,116,139,0.14)'}`,
+                                      : `1px solid ${isDarkMode ? `${colours.subtleGrey}2e` : `${colours.greyText}24`}`,
                                     borderRadius: 0,
                                     cursor: 'pointer',
                                     transition: 'all 150ms ease',
                                     opacity: hasFilter ? 1 : 0.85,
+                                    overflow: 'hidden',
+                                    minWidth: 0,
                                   }}
                                 >
-                                  <span style={{ fontSize: 11, fontWeight: 600, color: filterColor, textTransform: 'uppercase' }}>PITCH</span>
+                                    <span style={{ fontSize: 10, fontWeight: 600, color: filterColor, textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>PITCH</span>
                                   {hasFilter && (
                                     <span style={{
                                       width: 6, height: 6, borderRadius: '50%',
@@ -7449,22 +7092,21 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
                             {/* Inst / ID / Pay / Risk / Matter - chip indices 2-6 - tri-state toggles */}
                             {([
-                              { stage: 'instructed' as const, label: 'INSTRUCTION', icon: 'CheckMark', textIcon: null, chipIndex: 2 },
-                              { stage: 'idcheck' as const, label: 'EID CHECK', icon: 'ContactCard', textIcon: null, chipIndex: 3 },
-                              { stage: 'paid' as const, label: 'PAYMENT', icon: null, textIcon: '£', chipIndex: 4 },
-                              { stage: 'risk' as const, label: 'RISK', icon: 'Shield', textIcon: null, chipIndex: 5 },
-                              { stage: 'matter' as const, label: 'MATTER', icon: 'OpenFolderHorizontal', textIcon: null, chipIndex: 6 },
-                            ] as const).filter(({ chipIndex }) => headerIsVisible(chipIndex)).map(({ stage, label, icon, textIcon }) => {
+                              { stage: 'instructed' as const, label: 'INSTR', fullLabel: 'INSTRUCTION', icon: 'CheckMark', textIcon: null, chipIndex: 2 },
+                              { stage: 'idcheck' as const, label: 'EID', fullLabel: 'EID CHECK', icon: 'ContactCard', textIcon: null, chipIndex: 3 },
+                              { stage: 'paid' as const, label: 'PAY', fullLabel: 'PAYMENT', icon: null, textIcon: '£', chipIndex: 4 },
+                              { stage: 'risk' as const, label: 'RISK', fullLabel: 'RISK', icon: 'Shield', textIcon: null, chipIndex: 5 },
+                              { stage: 'matter' as const, label: 'MATTER', fullLabel: 'MATTER', icon: 'OpenFolderHorizontal', textIcon: null, chipIndex: 6 },
+                            ] as const).filter(({ chipIndex }) => headerIsVisible(chipIndex)).map(({ stage, label, fullLabel, icon, textIcon }) => {
                               const filterState = getEnquiryStageFilterState(stage);
                               const hasFilter = filterState !== null;
                               const filterColor = !filterState
-                                ? (isDarkMode ? colours.accent : colours.highlight)
-                                : (filterState === 'yes' ? '#22c55e' : '#ef4444');
+                                ? (isDarkMode ? colours.grey : colours.highlight)
+                                : (filterState === 'yes' ? '#20b26c' : '#D65541');
                               const stateLabel = filterState === 'yes' ? `Has ${label.toLowerCase()}` : filterState === 'no' ? `No ${label.toLowerCase()}` : null;
                               const nextState = !filterState ? 'has' : filterState === 'yes' ? 'missing' : 'clear filter';
 
-                              const fullLabel = pipelineStageUi.byStage.get(stage)?.fullLabel || label;
-                              const shortLabel = pipelineStageUi.byStage.get(stage)?.shortLabel || label;
+                              const headerDisplayLabel = pipelineChipLabelMode === 'icon' ? label : fullLabel;
 
                               return (
                                 <button
@@ -7481,24 +7123,26 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center',
-                                    gap: 4,
+                                    gap: 3,
                                     height: 22,
                                     width: '100%',
-                                    padding: '0 6px',
+                                    padding: '0 4px',
                                     background: hasFilter
                                       ? (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)')
                                       : 'transparent',
                                     border: hasFilter
                                       ? `1px solid ${filterColor}40`
-                                      : `1px solid ${isDarkMode ? 'rgba(148,163,184,0.18)' : 'rgba(100,116,139,0.14)'}`,
+                                      : `1px solid ${isDarkMode ? `${colours.subtleGrey}2e` : `${colours.greyText}24`}`,
                                     borderRadius: 0,
                                     cursor: 'pointer',
                                     transition: 'all 150ms ease',
                                     opacity: hasFilter ? 1 : 0.85,
+                                    overflow: 'hidden',
+                                    minWidth: 0,
                                   }}
                                 >
-                                  <span style={{ fontSize: 11, fontWeight: 600, color: filterColor, textTransform: 'uppercase' }}>
-                                    {label}
+                                  <span style={{ fontSize: 10, fontWeight: 600, color: filterColor, textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                    {headerDisplayLabel}
                                   </span>
                                   {hasFilter && (
                                     <span style={{
@@ -7528,16 +7172,16 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                   width: '100%',
                                   height: 22,
                                   padding: 0,
-                                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)'}`,
+                                  border: `1px solid ${isDarkMode ? `${colours.subtleGrey}40` : `${colours.greyText}33`}`,
                                   borderRadius: 0,
                                   background: headerHasMore 
-                                    ? (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)')
-                                    : (isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(148, 163, 184, 0.04)'),
+                                    ? (isDarkMode ? `${colours.highlight}1f` : `${colours.highlight}14`)
+                                    : (isDarkMode ? `${colours.subtleGrey}0f` : `${colours.subtleGrey}0a`),
                                   cursor: 'pointer',
                                   transition: 'all 0.15s ease',
                                   color: headerHasMore 
                                     ? colours.blue 
-                                    : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.4)'),
+                                    : (isDarkMode ? `${colours.subtleGrey}80` : `${colours.greyText}66`),
                                 }}
                               >
                                 <Icon 
@@ -7570,17 +7214,17 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                     justifyContent: 'center',
                                     width: 18,
                                     height: 18,
-                                    background: isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)',
-                                    border: `1px solid ${isDarkMode ? 'rgba(239, 68, 68, 0.4)' : 'rgba(239, 68, 68, 0.3)'}`,
+                                    background: isDarkMode ? `${colours.cta}26` : `${colours.cta}1a`,
+                                    border: `1px solid ${isDarkMode ? `${colours.cta}66` : `${colours.cta}4d`}`,
                                     borderRadius: '50%',
                                     cursor: 'pointer',
                                     transition: 'all 150ms ease',
                                   }}
                                   onMouseEnter={(e) => {
-                                    e.currentTarget.style.background = isDarkMode ? 'rgba(239, 68, 68, 0.25)' : 'rgba(239, 68, 68, 0.15)';
+                                    e.currentTarget.style.background = isDarkMode ? `${colours.cta}40` : `${colours.cta}26`;
                                   }}
                                   onMouseLeave={(e) => {
-                                    e.currentTarget.style.background = isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)';
+                                    e.currentTarget.style.background = isDarkMode ? `${colours.cta}26` : `${colours.cta}1a`;
                                   }}
                                 >
                                   <Icon
@@ -7588,7 +7232,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                     styles={{
                                       root: {
                                         fontSize: 8,
-                                        color: '#ef4444',
+                                        color: '#D65541',
                                       },
                                     }}
                                   />
@@ -7621,9 +7265,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                             minWidth: 22,
                             minHeight: 22,
                             borderRadius: '999px',
-                            border: `1px solid ${areActionsEnabled ? (isDarkMode ? 'rgba(96,165,250,0.5)' : 'rgba(59,130,246,0.4)') : (isDarkMode ? 'rgba(148,163,184,0.4)' : 'rgba(100,116,139,0.35)')}`,
+                            border: `1px solid ${areActionsEnabled ? `${colours.highlight}80` : (isDarkMode ? `${colours.subtleGrey}66` : `${colours.greyText}59`)}`,
                             background: areActionsEnabled
-                              ? (isDarkMode ? 'rgba(96,165,250,0.15)' : 'rgba(59,130,246,0.08)')
+                              ? (isDarkMode ? `${colours.highlight}26` : `${colours.highlight}14`)
                               : 'transparent',
                             color: 'inherit',
                             display: 'flex',
@@ -7642,7 +7286,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                 fontSize: '11px',
                                 color: areActionsEnabled
                                   ? (isDarkMode ? colours.accent : colours.highlight)
-                                  : (isDarkMode ? 'rgba(148, 163, 184, 0.9)' : 'rgba(71, 85, 105, 0.85)'),
+                                  : (isDarkMode ? 'rgba(160, 160, 160, 0.9)' : 'rgba(107, 107, 107, 0.85)'),
                               },
                             }}
                           />
@@ -7704,6 +7348,17 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                         const groupShowDaySeparator = viewMode === 'table' && (idx === 0 || groupToDayKey(groupThisDateStr) !== groupToDayKey(groupPrevDateStr));
                         const thisDayKey = groupToDayKey(groupThisDateStr);
                         const isDayCollapsed = collapsedDays.has(thisDayKey);
+                        // Last-in-day: check if next displayedItem belongs to a different day
+                        const groupNextItem: any = idx < displayedItems.length - 1 ? displayedItems[idx + 1] : null;
+                        let groupNextDateStr = '';
+                        if (groupNextItem) {
+                          if (isGroupedEnquiry(groupNextItem)) {
+                            groupNextDateStr = groupExtractDateStr(groupNextItem.enquiries[0] as any);
+                          } else {
+                            groupNextDateStr = groupExtractDateStr(groupNextItem as any);
+                          }
+                        }
+                        const groupIsLastInDay = !groupNextItem || groupToDayKey(groupNextDateStr) !== thisDayKey;
                         return (
                           <React.Fragment key={item.clientKey}>
                           {/* Day separator with timeline dot */}
@@ -7719,82 +7374,25 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               onMouseLeave={() => {
                                 setHoveredDayKey((prev) => (prev === thisDayKey ? null : prev));
                               }}
-                              style={{
-                                display: 'grid',
-                                gridTemplateColumns: `32px 1fr ${ACTIONS_COLUMN_WIDTH_PX}px`,
-                                gap: '12px',
-                                alignItems: 'center',
-                                padding: '12px 16px',
-                                cursor: 'pointer',
-                                background: 'transparent',
-                              }}
+                              className="prospect-day-sep"
+                              style={{ gridTemplateColumns: `32px 1fr ${ACTIONS_COLUMN_WIDTH_PX}px` }}
                             >
                               {/* Timeline cell with line and dot */}
-                              <div style={{
-                                position: 'relative',
-                                height: '100%',
-                                minHeight: 24,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                              }}>
+                              <div className="prospect-day-sep__timeline">
                                 {/* Vertical line - only below the dot */}
-                                <div style={{
-                                  position: 'absolute',
-                                  left: '50%',
-                                  top: '50%',
-                                  bottom: 0,
-                                  width: '1px',
-                                  transform: 'translateX(-50%)',
-                                  background:
-                                    hoveredDayKey === thisDayKey
-                                      ? (isDarkMode ? colours.accent : colours.highlight)
-                                      : (isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)'),
-                                  opacity: hoveredDayKey === thisDayKey ? 0.9 : 1,
-                                }} />
+                                <div className="prospect-day-sep__line" />
                                 {/* Timeline dot */}
-                                <div style={{
-                                  width: 8,
-                                  height: 8,
-                                  borderRadius: '50%',
-                                  background:
-                                    hoveredDayKey === thisDayKey
-                                      ? (isDarkMode ? colours.accent : colours.highlight)
-                                      : (isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(148, 163, 184, 0.5)'),
-                                  border: `2px solid ${isDarkMode ? 'rgb(15, 23, 42)' : 'rgb(255, 255, 255)'}`,
-                                  zIndex: 1,
-                                }} />
+                                <div className="prospect-day-sep__dot" />
                               </div>
                               {/* Day label and chevron */}
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                <span style={{
-                                  fontSize: '10px',
-                                  fontWeight: hoveredDayKey === thisDayKey ? 800 : 700,
-                                  color:
-                                    hoveredDayKey === thisDayKey
-                                      ? (isDarkMode ? colours.accent : colours.highlight)
-                                      : (isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(71, 85, 105, 0.7)'),
-                                  textTransform: hoveredDayKey === thisDayKey ? 'none' : 'uppercase',
-                                  letterSpacing: '0.5px',
-                                  whiteSpace: 'nowrap',
-                                }}>
+                              <div className="prospect-day-sep__label">
+                                <span className="prospect-day-sep__text">
                                   {formatDaySeparatorLabel(thisDayKey, hoveredDayKey === thisDayKey)}
                                 </span>
-                                <span style={{
-                                  fontSize: '9px',
-                                  fontWeight: 500,
-                                  color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.55)',
-                                  whiteSpace: 'nowrap',
-                                }}>
+                                <span className="prospect-day-sep__count">
                                   {dayCounts.get(thisDayKey) || 0}
                                 </span>
-                                <div style={{
-                                  height: 1,
-                                  flex: 1,
-                                  background: isDarkMode
-                                    ? 'linear-gradient(90deg, rgba(148,163,184,0.35), rgba(148,163,184,0.12), rgba(148,163,184,0))'
-                                    : 'linear-gradient(90deg, rgba(148,163,184,0.45), rgba(148,163,184,0.2), rgba(148,163,184,0))',
-                                }} />
+                                <div className="prospect-day-sep__fade" />
                               </div>
 
                               {/* Chevron and collapsed eye indicator - aligned with actions column */}
@@ -7810,7 +7408,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                     styles={{
                                       root: {
                                         fontSize: 12,
-                                        color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)',
+                                        color: isDarkMode ? 'rgba(160, 160, 160, 0.6)' : 'rgba(107, 107, 107, 0.6)',
                                       },
                                     }}
                                     title={`${dayCounts.get(thisDayKey) || 0} items hidden`}
@@ -7831,31 +7429,14 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                           {/* Skip row if day is collapsed */}
                           {!isDayCollapsed && (
                           <div
+                            data-row-parity={idx % 2 === 0 ? 'even' : 'odd'}
                             style={{
-                              display: 'grid',
                               gridTemplateColumns: TABLE_GRID_TEMPLATE_COLUMNS,
-                              gap: `${TABLE_GRID_GAP_PX}px`,
-                              padding: '10px 16px',
-                              alignItems: 'center',
-                              borderBottom: isLast ? 'none' : `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)'}`,
-                              fontSize: '13px',
-                              color: isDarkMode ? 'rgba(255, 255, 255, 0.9)' : 'rgba(0, 0, 0, 0.85)',
-                              background: isDarkMode 
-                                ? (idx % 2 === 0 ? 'rgba(14, 20, 38, 0.9)' : 'rgba(12, 18, 35, 0.85)')
-                                : (idx % 2 === 0 ? 'rgba(255, 255, 255, 0.6)' : 'rgba(250, 252, 255, 0.5)'),
-                              transition: 'background-color 0.15s ease',
-                              cursor: 'pointer',
+                              borderBottom: (groupIsLastInDay && !expandedGroupsInTable.has(item.clientKey))
+                                ? `1px solid ${isDarkMode ? 'rgba(55, 65, 81, 0.28)' : 'rgba(0, 0, 0, 0.06)'}`
+                                : 'none',
                             }}
-                            onMouseEnter={(e) => {
-                              e.currentTarget.style.backgroundColor = isDarkMode 
-                                ? 'rgba(20, 30, 50, 0.95)' 
-                                : 'rgba(255, 255, 255, 0.85)';
-                            }}
-                            onMouseLeave={(e) => {
-                              e.currentTarget.style.backgroundColor = isDarkMode 
-                                ? (idx % 2 === 0 ? 'rgba(14, 20, 38, 0.9)' : 'rgba(12, 18, 35, 0.85)')
-                                : (idx % 2 === 0 ? 'rgba(255, 255, 255, 0.6)' : 'rgba(250, 252, 255, 0.5)');
-                            }}
+                            className="prospect-row"
                             onClick={(e) => {
                               // Toggle group expansion
                               const groupKey = item.clientKey;
@@ -7871,24 +7452,14 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                             }}
                           >
                             {/* Timeline cell */}
-                            <div style={{
-                              position: 'relative',
-                              height: '100%',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                            }}>
-                              <div style={{
-                                position: 'absolute',
-                                left: '50%',
-                                top: 0,
-                                bottom: 0,
-                                width: '1px',
-                                transform: 'translateX(-50%)',
-                                background: getAreaOfWorkLineColor(latestEnquiry.Area_of_Work || '', isDarkMode, hoveredDayKey === thisDayKey),
-                                opacity: hoveredDayKey === thisDayKey ? 1 : 0.9,
-                                transition: 'background 0.15s ease, opacity 0.15s ease',
-                              }} />
+                            <div className="prospect-timeline-cell">
+                              <div
+                                className="prospect-timeline-cell__line"
+                                style={{
+                                  background: getAreaOfWorkLineColor(latestEnquiry.Area_of_Work || '', isDarkMode, hoveredDayKey === thisDayKey),
+                                  opacity: hoveredDayKey === thisDayKey ? 1 : 0.9,
+                                }}
+                              />
                             </div>
 
                             {/* Date column - stacked format */}
@@ -7900,28 +7471,11 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               {(() => {
                                 const { top, bottom } = getStackedDateDisplay(dateReceived);
                                 return (
-                                  <div style={{
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                    gap: '2px',
-                                    lineHeight: 1.1,
-                                    justifyContent: 'center',
-                                    fontVariantNumeric: 'tabular-nums',
-                                  }}>
-                                    <span style={{
-                                      fontSize: '10px',
-                                      color: isDarkMode ? 'rgba(255, 255, 255, 0.72)' : 'rgba(0, 0, 0, 0.62)',
-                                      fontWeight: 600,
-                                      whiteSpace: 'nowrap',
-                                    }}>
+                                  <div className="prospect-date">
+                                    <span className="prospect-date__top">
                                       {top}
                                     </span>
-                                    <span style={{
-                                      fontSize: '9px',
-                                      color: isDarkMode ? 'rgba(255, 255, 255, 0.45)' : 'rgba(0, 0, 0, 0.38)',
-                                      fontWeight: 500,
-                                      whiteSpace: 'nowrap',
-                                    }}>
+                                    <span className="prospect-date__bottom">
                                       {bottom}
                                     </span>
                                   </div>
@@ -7945,13 +7499,13 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                 <div style={{
                                   fontSize: '9px',
                                   fontWeight: 700,
-                                  color: isDarkMode ? 'rgba(148, 163, 184, 0.65)' : 'rgba(100, 116, 139, 0.6)',
+                                  color: isDarkMode ? 'rgba(160, 160, 160, 0.65)' : 'rgba(107, 107, 107, 0.6)',
                                   textTransform: 'uppercase',
                                   letterSpacing: '0.4px',
                                 }}>
                                   Prospect
                                 </div>
-                                <div style={{ fontWeight: 600, fontSize: '13px', color: isDarkMode ? '#E5E7EB' : '#1F2937' }}>
+                                <div style={{ fontWeight: 600, fontSize: '13px', color: isDarkMode ? '#f3f4f6' : '#061733' }}>
                                   {contactName}
                                 </div>
                                 {latestEnquiry.Company && (
@@ -8022,6 +7576,13 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                             const childShowDetails = hoveredRowKey === childRowHoverKey || hoveredDayKey === thisDayKey;
                             const childNameCopyKey = `name-${childRowHoverKey}`;
                             const isChildNameCopied = copiedNameKey === childNameCopyKey;
+                            const childRowBaseBackground = isDarkMode ? colours.dark.background : colours.sectionBackground;
+                            const childRowHoverBackground = isDarkMode ? 'rgba(54, 144, 206, 0.16)' : colours.highlightBlue;
+                            const childMutedBorder = isDarkMode ? `${colours.dark.borderColor}8c` : 'rgba(160, 160, 160, 0.28)';
+                            const childMutedBackground = isDarkMode ? colours.darkBlue : colours.grey;
+                            const childMutedBackgroundHover = isDarkMode ? colours.helixBlue : colours.highlightBlue;
+                            const childMutedColor = isDarkMode ? colours.subtleGrey : colours.greyText;
+                            const childMutedColorStrong = isDarkMode ? colours.dark.text : colours.light.text;
                             
                             // No day separators for child enquiries - parent group already has timeline marker
                             
@@ -8038,11 +7599,13 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                   gap: `${TABLE_GRID_GAP_PX}px`,
                                   padding: '8px 16px',
                                   alignItems: 'center',
-                                  borderBottom: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.03)'}`,
+                                  borderBottom: (groupIsLastInDay && childIdx === item.enquiries.length - 1)
+                                    ? `1px solid ${isDarkMode ? 'rgba(55, 65, 81, 0.28)' : 'rgba(0, 0, 0, 0.06)'}`
+                                    : 'none',
                                   position: 'relative',
                                   fontSize: '13px',
-                                  color: isDarkMode ? 'rgba(255, 255, 255, 0.9)' : 'rgba(0, 0, 0, 0.85)',
-                                  background: isDarkMode ? 'rgba(13, 19, 36, 0.85)' : 'rgba(255, 255, 255, 0.55)',
+                                  color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : 'rgba(6, 23, 51, 0.9)',
+                                  background: childRowBaseBackground,
                                   cursor: 'pointer',
                                 }}
                                 onClick={(e) => {
@@ -8050,18 +7613,14 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                   handleSelectEnquiry(childEnquiry);
                                 }}
                                 onMouseEnter={(e) => {
-                                  e.currentTarget.style.backgroundColor = isDarkMode 
-                                    ? 'rgba(20, 30, 50, 0.95)' 
-                                    : 'rgba(255, 255, 255, 0.85)';
+                                  e.currentTarget.style.backgroundColor = childRowHoverBackground;
                                   // Show child tooltip on hover
                                   const tooltip = e.currentTarget.querySelector('.child-timeline-date-tooltip') as HTMLElement;
                                   if (tooltip) tooltip.style.opacity = '1';
                                   setHoveredRowKey(childRowHoverKey);
                                 }}
                                 onMouseLeave={(e) => {
-                                  e.currentTarget.style.backgroundColor = isDarkMode 
-                                    ? 'rgba(13, 19, 36, 0.85)' 
-                                    : 'rgba(255, 255, 255, 0.55)';
+                                  e.currentTarget.style.backgroundColor = childRowBaseBackground;
                                   // Hide child tooltip
                                   const tooltip = e.currentTarget.querySelector('.child-timeline-date-tooltip') as HTMLElement;
                                   if (tooltip) tooltip.style.opacity = '0';
@@ -8223,7 +7782,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                     <span style={{
                                       fontWeight: 500,
                                       fontSize: '13px',
-                                      color: isDarkMode ? '#E5E7EB' : '#1F2937',
+                                      color: isDarkMode ? '#f3f4f6' : '#061733',
                                     }}>
                                       {childContactName}
                                     </span>
@@ -8241,21 +7800,21 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                         justifyContent: 'center',
                                         width: 18,
                                         height: 18,
-                                        borderRadius: 5,
+                                        borderRadius: 0,
                                         border: isChildNameCopied
-                                          ? `1px solid ${isDarkMode ? 'rgba(16, 185, 129, 0.5)' : 'rgba(16, 185, 129, 0.38)'}`
-                                          : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(100, 116, 139, 0.12)'}`,
+                                          ? `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.5)' : 'rgba(32, 178, 108, 0.38)'}`
+                                          : `1px solid ${childMutedBorder}`,
                                         background: isChildNameCopied
-                                          ? (isDarkMode ? 'rgba(16, 185, 129, 0.16)' : 'rgba(16, 185, 129, 0.12)')
+                                          ? (isDarkMode ? 'rgba(32, 178, 108, 0.16)' : 'rgba(32, 178, 108, 0.12)')
                                           : 'transparent',
                                         color: isChildNameCopied
-                                          ? '#10B981'
-                                          : (isDarkMode ? 'rgba(203, 213, 225, 0.5)' : 'rgba(71, 85, 105, 0.55)'),
+                                          ? '#20b26c'
+                                          : childMutedColor,
                                         cursor: 'pointer',
                                         padding: 0,
                                         opacity: isChildNameCopied ? 1 : 0.5,
                                         boxShadow: isChildNameCopied
-                                          ? (isDarkMode ? '0 0 0 1px rgba(16, 185, 129, 0.15)' : '0 0 0 1px rgba(16, 185, 129, 0.12)')
+                                          ? (isDarkMode ? '0 0 0 1px rgba(32, 178, 108, 0.15)' : '0 0 0 1px rgba(32, 178, 108, 0.12)')
                                           : 'none',
                                         transform: isChildNameCopied ? 'scale(1.06)' : 'scale(1)',
                                         transition: 'opacity 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 160ms ease, box-shadow 160ms ease, background 160ms ease',
@@ -8263,14 +7822,14 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                       onMouseEnter={(e) => {
                                         if (isChildNameCopied) return;
                                         e.currentTarget.style.opacity = '0.9';
-                                        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(100, 116, 139, 0.3)';
-                                        e.currentTarget.style.color = isDarkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.85)';
+                                        e.currentTarget.style.borderColor = childMutedBorder;
+                                        e.currentTarget.style.color = childMutedColorStrong;
                                       }}
                                       onMouseLeave={(e) => {
                                         if (isChildNameCopied) return;
                                         e.currentTarget.style.opacity = '0.5';
-                                        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(100, 116, 139, 0.12)';
-                                        e.currentTarget.style.color = isDarkMode ? 'rgba(203, 213, 225, 0.5)' : 'rgba(71, 85, 105, 0.55)';
+                                        e.currentTarget.style.borderColor = childMutedBorder;
+                                        e.currentTarget.style.color = childMutedColor;
                                       }}
                                     >
                                       <Icon
@@ -8280,7 +7839,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                             fontSize: 10,
                                             transform: isChildNameCopied ? 'scale(1.05)' : 'scale(1)',
                                             transition: 'transform 160ms ease, color 160ms ease',
-                                            color: isChildNameCopied ? '#10B981' : undefined,
+                                            color: isChildNameCopied ? '#20b26c' : undefined,
                                           },
                                         }}
                                       />
@@ -8420,7 +7979,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                                 >
                                                   {renderPipelineIcon(
                                                     stage.icon,
-                                                    isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)',
+                                                    isDarkMode ? 'rgba(160, 160, 160, 0.25)' : 'rgba(107, 107, 107, 0.2)',
                                                     14
                                                   )}
                                                 </div>
@@ -8443,7 +8002,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                                 width: '100%',
                                                 height: 22,
                                                 padding: 0,
-                                                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)'}`,
+                                                border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.25)' : 'rgba(107, 107, 107, 0.2)'}`,
                                                 borderRadius: 0,
                                                 background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
                                                 cursor: 'pointer',
@@ -8520,16 +8079,16 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                       >
                                         {/* POC - merged Teams+Claim - chip index 0 */}
                                           {childIsChipVisible(0) && (
-                                          <div style={{ ...getCascadeStyle(0), display: 'flex', justifyContent: 'center', justifySelf: 'center', width: 'fit-content' }}>
+                                          <div data-chip-index="0" style={{ ...getCascadeStyle(0), display: 'flex', justifyContent: 'center', width: '100%' }}>
                                         <>
                                           {(() => {
                                             // Merged POC chip: Teams icon + claimer initials + chevron
                                             const hasPocActivity = showTeamsStage || showClaimer;
                                             const isUnclaimed = !showClaimer || childIsTeamInboxPoc;
-                                            const pocColor = hasPocActivity ? colours.green : (isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)');
+                                            const pocColor = hasPocActivity ? colours.green : (isDarkMode ? 'rgba(160, 160, 160, 0.25)' : 'rgba(107, 107, 107, 0.2)');
                                             const teamsIconColor = showTeamsStage 
                                               ? (isDarkMode ? 'rgba(54, 144, 206, 0.85)' : 'rgba(54, 144, 206, 0.75)')
-                                              : (isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)');
+                                              : (isDarkMode ? 'rgba(160, 160, 160, 0.25)' : 'rgba(107, 107, 107, 0.2)');
                                             
                                             if (showLegacyPlaceholder && !showClaimer) {
                                               // Legacy enquiry with no claim
@@ -8541,11 +8100,11 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                                     gap: 6,
                                                     padding: '4px 8px',
                                                     borderRadius: 0,
-                                                    background: isDarkMode ? 'rgba(148,163,184,0.06)' : 'rgba(148,163,184,0.04)',
-                                                    border: `1px dashed ${isDarkMode ? 'rgba(148,163,184,0.25)' : 'rgba(100,116,139,0.2)'}`,
+                                                    background: isDarkMode ? 'rgba(160,160,160,0.06)' : 'rgba(160,160,160,0.04)',
+                                                    border: `1px dashed ${isDarkMode ? `${colours.subtleGrey}40` : `${colours.greyText}33`}`,
                                                     fontSize: 9,
                                                     fontWeight: 500,
-                                                    color: isDarkMode ? 'rgba(148,163,184,0.6)' : 'rgba(71,85,105,0.6)',
+                                                    color: isDarkMode ? `${colours.subtleGrey}99` : `${colours.greyText}99`,
                                                     whiteSpace: 'nowrap',
                                                     justifyContent: 'center',
                                                     flexShrink: 0,
@@ -8569,10 +8128,10 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                               });
                                             }
                                             
-                                            // Claimed - show Teams icon + initials + chevron
+                                            // Claimed - show Teams icon + initials (responsive to label mode)
                                             return (
                                               <button
-                                                className="pipeline-chip"
+                                                className="pipeline-chip pipeline-chip-reveal"
                                                 onClick={(e) => handleReassignClick(String(childEnquiry.ID), e)}
                                                 onMouseEnter={(e) => showPipelineHover(e, {
                                                   title: 'POC',
@@ -8587,25 +8146,23 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                                   display: 'inline-flex',
                                                   alignItems: 'center',
                                                   justifyContent: 'center',
-                                                  gap: 4,
+                                                  width: '100%',
                                                   height: 22,
-                                                  padding: '0 4px',
+                                                  padding: 0,
                                                   borderRadius: 0,
                                                   border: 'none',
                                                   background: 'transparent',
-                                                  color: colours.green,
-                                                  fontSize: 10,
-                                                  fontWeight: 700,
-                                                  textTransform: 'uppercase',
-                                                  letterSpacing: '0.3px',
                                                   cursor: 'pointer',
                                                   fontFamily: 'inherit',
-                                                  flexShrink: 0,
+                                                  overflow: 'visible',
                                                 }}
                                               >
-                                                <Icon iconName="TeamsLogo" styles={{ root: { fontSize: 14, color: teamsIconColor, flexShrink: 0 } }} />
-                                                <span style={{ width: 22, textAlign: 'center' }}>{childClaimerLabel}</span>
-                                                <Icon iconName="ChevronDown" styles={{ root: { fontSize: 8, color: 'inherit', opacity: 0.6 } }} />
+                                                <span className="pipeline-chip-box">
+                                                  {renderPipelineIcon('TeamsLogo', teamsIconColor, 14)}
+                                                  <span className="pipeline-chip-label" style={{ color: colours.green, fontWeight: 700 }}>
+                                                    {childClaimerLabel}
+                                                  </span>
+                                                </span>
                                               </button>
                                             );
                                           })()}
@@ -8618,14 +8175,29 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                         <div data-chip-index="1" className={isPitchNextAction ? 'next-action-subtle-pulse' : ''} style={getCascadeStyle(1)}>
                                         <>
                                           {showPitch ? (
-                                            <button
-                                              type="button"
-                                              className="pipeline-chip pipeline-chip-reveal"
-                                              onClick={(e) => {
+                                            <MiniPipelineChip
+                                              shortLabel={pitchChipLabel}
+                                              fullLabel="Pitch Sent"
+                                              done={true}
+                                              color={pitchColor}
+                                              iconName="Send"
+                                              showConnector={true}
+                                              prevDone={showTeamsStage || showClaimer}
+                                              statusText={pitchedStamp}
+                                              subtitle={childContactName}
+                                              title="Pitch Sent"
+                                              isNextAction={false}
+                                              details={[
+                                                ...(pitchedBy ? [{ label: 'By', value: pitchedBy }] : []),
+                                                ...(pitchScenarioId ? [{ label: 'Scenario', value: `#${pitchScenarioId}` }] : []),
+                                                ...(pitchMatterRef ? [{ label: 'Matter', value: pitchMatterRef }] : []),
+                                              ]}
+                                              isDarkMode={isDarkMode}
+                                              onClick={(e: React.MouseEvent) => {
                                                 e.stopPropagation();
                                                 openEnquiryWorkbench(childEnquiry, 'Timeline', { filter: 'pitch' });
                                               }}
-                                              onMouseEnter={(e) => showPipelineHover(e, {
+                                              onMouseEnter={(e: React.MouseEvent) => showPipelineHover(e, {
                                                 title: 'Pitch Sent',
                                                 status: pitchedStamp,
                                                 subtitle: childContactName,
@@ -8639,32 +8211,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                               })}
                                               onMouseMove={movePipelineHover}
                                               onMouseLeave={hidePipelineHover}
-                                              style={{
-                                                display: 'inline-flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                width: '100%',
-                                                minHeight: 24,
-                                                height: 'auto',
-                                                padding: 0,
-                                                borderRadius: 0,
-                                                border: 'none',
-                                                background: 'transparent',
-                                                cursor: 'pointer',
-                                                fontFamily: 'inherit',
-                                                overflow: 'visible',
-                                              }}
-                                            >
-                                              <span className="pipeline-chip-box">
-                                                <Icon iconName="Send" styles={{ root: { fontSize: 14, color: pitchColor } }} />
-                                                <span
-                                                  className="pipeline-chip-label"
-                                                  style={{ color: pitchColor }}
-                                                >
-                                                  {pitchChipLabel}
-                                                </span>
-                                              </span>
-                                            </button>
+                                            />
                                           ) : showPitchCTA ? (
                                             <button
                                               type="button"
@@ -8677,7 +8224,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                                 title: 'Pitch',
                                                 status: 'Ready to pitch',
                                                 subtitle: childContactName,
-                                                color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.6)',
+                                                color: isDarkMode ? 'rgba(160, 160, 160, 0.7)' : 'rgba(107, 107, 107, 0.6)',
                                                 iconName: 'Send',
                                               })}
                                               onMouseMove={movePipelineHover}
@@ -8696,7 +8243,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                                 fontFamily: 'inherit',
                                               }}
                                             >
-                                              <Icon iconName="Send" styles={{ root: { fontSize: 14, color: isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)' } }} />
+                                              <Icon iconName="Send" styles={{ root: { fontSize: 14, color: isDarkMode ? 'rgba(160, 160, 160, 0.25)' : 'rgba(107, 107, 107, 0.2)' } }} />
                                             </button>
                                           ) : (
                                             <div
@@ -8720,7 +8267,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                                 background: 'transparent',
                                               }}
                                             >
-                                              <Icon iconName="Send" styles={{ root: { fontSize: 14, color: isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)' } }} />
+                                              <Icon iconName="Send" styles={{ root: { fontSize: 14, color: isDarkMode ? 'rgba(160, 160, 160, 0.25)' : 'rgba(107, 107, 107, 0.2)' } }} />
                                             </div>
                                           )}
                                         </>
@@ -9017,16 +8564,16 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                               width: '100%',
                                               height: 22,
                                               padding: 0,
-                                              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)'}`,
+                                              border: `1px solid ${childMutedBorder}`,
                                               borderRadius: 0,
                                               background: childHasMoreChips 
-                                                ? (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)')
-                                                : (isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(148, 163, 184, 0.04)'),
+                                                ? (isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(54, 144, 206, 0.08)')
+                                                : childMutedBackground,
                                               cursor: 'pointer',
                                               transition: 'all 0.15s ease',
                                               color: childHasMoreChips 
-                                                ? colours.blue 
-                                                : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.4)'),
+                                                ? (isDarkMode ? colours.accent : colours.highlight) 
+                                                : childMutedColor,
                                             }}
                                           >
                                             <Icon 
@@ -9066,9 +8613,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                         width: 22,
                                         height: 22,
                                         borderRadius: 0,
-                                        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)'}`,
-                                        background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)',
-                                        color: isDarkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.8)',
+                                        border: `1px solid ${childMutedBorder}`,
+                                        background: childMutedBackground,
+                                        color: childMutedColor,
                                         opacity: (childEnquiry.Phone_Number || (childEnquiry as any).phone) ? 1 : 0.3,
                                         display: 'flex',
                                         alignItems: 'center',
@@ -9078,15 +8625,15 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                       }}
                                       onMouseEnter={(e) => {
                                         if (childEnquiry.Phone_Number || (childEnquiry as any).phone) {
-                                          e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)';
-                                          e.currentTarget.style.borderColor = colours.blue;
-                                          e.currentTarget.style.color = colours.blue;
+                                          e.currentTarget.style.background = childMutedBackgroundHover;
+                                          e.currentTarget.style.borderColor = isDarkMode ? colours.highlight : colours.highlight;
+                                          e.currentTarget.style.color = isDarkMode ? colours.highlight : colours.highlight;
                                         }
                                       }}
                                       onMouseLeave={(e) => {
-                                        e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)';
-                                        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)';
-                                        e.currentTarget.style.color = isDarkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.8)';
+                                        e.currentTarget.style.background = childMutedBackground;
+                                        e.currentTarget.style.borderColor = childMutedBorder;
+                                        e.currentTarget.style.color = childMutedColor;
                                       }}
                                       title={(childEnquiry.Phone_Number || (childEnquiry as any).phone) ? `Call ${childEnquiry.Phone_Number || (childEnquiry as any).phone}` : 'No phone number'}
                                     >
@@ -9104,9 +8651,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                           width: 22,
                                           height: 22,
                                           borderRadius: 0,
-                                          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)'}`,
-                                          background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)',
-                                          color: isDarkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.8)',
+                                          border: `1px solid ${childMutedBorder}`,
+                                          background: childMutedBackground,
+                                          color: childMutedColor,
                                           display: 'flex',
                                           alignItems: 'center',
                                           justifyContent: 'center',
@@ -9114,14 +8661,14 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                           transition: 'background 0.15s ease, border-color 0.15s ease, color 0.15s ease',
                                         }}
                                         onMouseEnter={(e) => {
-                                          e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)';
-                                          e.currentTarget.style.borderColor = colours.blue;
-                                          e.currentTarget.style.color = colours.blue;
+                                          e.currentTarget.style.background = childMutedBackgroundHover;
+                                          e.currentTarget.style.borderColor = isDarkMode ? colours.highlight : colours.highlight;
+                                          e.currentTarget.style.color = isDarkMode ? colours.highlight : colours.highlight;
                                         }}
                                         onMouseLeave={(e) => {
-                                          e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)';
-                                          e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)';
-                                          e.currentTarget.style.color = isDarkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.8)';
+                                          e.currentTarget.style.background = childMutedBackground;
+                                          e.currentTarget.style.borderColor = childMutedBorder;
+                                          e.currentTarget.style.color = childMutedColor;
                                         }}
                                         title={`Email ${childEnquiry.Email}`}
                                       >
@@ -9183,8 +8730,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                     width: 22,
                                     height: 22,
                                     borderRadius: 0,
-                                    background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.08)',
-                                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)'}`,
+                                    background: childMutedBackground,
+                                    border: `1px solid ${childMutedBorder}`,
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center',
@@ -9194,11 +8741,11 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                   }}
                                   onMouseEnter={(e) => {
                                     if (!(childHasNotes || childHasInlineWorkbench)) return;
-                                    e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)';
+                                    e.currentTarget.style.background = childMutedBackgroundHover;
                                     e.currentTarget.style.transform = 'scale(1.05)';
                                   }}
                                   onMouseLeave={(e) => {
-                                    e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.08)';
+                                    e.currentTarget.style.background = childMutedBackground;
                                     e.currentTarget.style.transform = 'scale(1)';
                                   }}
                                   title={
@@ -9216,7 +8763,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                     styles={{ 
                                       root: { 
                                         fontSize: '10px', 
-                                        color: isDarkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.8)' 
+                                        color: childMutedColor
                                       } 
                                     }} 
                                   />
@@ -9234,8 +8781,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                         width: 22,
                                         height: 22,
                                         borderRadius: 0,
-                                        background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)',
-                                        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.2)'}`,
+                                        background: childMutedBackground,
+                                        border: `1px solid ${childMutedBorder}`,
                                         display: 'flex',
                                         alignItems: 'center',
                                         justifyContent: 'center',
@@ -9243,11 +8790,11 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                         transition: 'all 0.2s ease',
                                       }}
                                       onMouseEnter={(e) => {
-                                        e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)';
+                                        e.currentTarget.style.background = childMutedBackgroundHover;
                                         e.currentTarget.style.transform = 'scale(1.05)';
                                       }}
                                       onMouseLeave={(e) => {
-                                        e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)';
+                                        e.currentTarget.style.background = childMutedBackground;
                                         e.currentTarget.style.transform = 'scale(1)';
                                       }}
                                       title="Edit enquiry"
@@ -9257,7 +8804,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                         styles={{ 
                                           root: { 
                                             fontSize: '10px', 
-                                            color: isDarkMode ? 'rgba(203, 213, 225, 0.9)' : 'rgba(71, 85, 105, 0.9)' 
+                                            color: childMutedColorStrong
                                           } 
                                         }} 
                                       />
@@ -9282,8 +8829,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                         width: 22,
                                         height: 22,
                                         borderRadius: 0,
-                                        background: isDarkMode ? 'rgba(248, 113, 113, 0.1)' : 'rgba(248, 113, 113, 0.08)',
-                                        border: `1px solid ${isDarkMode ? 'rgba(248, 113, 113, 0.3)' : 'rgba(248, 113, 113, 0.2)'}`,
+                                        background: isDarkMode ? 'rgba(214, 85, 65, 0.1)' : 'rgba(214, 85, 65, 0.08)',
+                                        border: `1px solid ${isDarkMode ? 'rgba(214, 85, 65, 0.3)' : 'rgba(214, 85, 65, 0.2)'}`,
                                         display: 'flex',
                                         alignItems: 'center',
                                         justifyContent: 'center',
@@ -9291,11 +8838,11 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                         transition: 'all 0.2s ease',
                                       }}
                                       onMouseEnter={(e) => {
-                                        e.currentTarget.style.background = isDarkMode ? 'rgba(248, 113, 113, 0.15)' : 'rgba(248, 113, 113, 0.12)';
+                                        e.currentTarget.style.background = isDarkMode ? 'rgba(214, 85, 65, 0.15)' : 'rgba(214, 85, 65, 0.12)';
                                         e.currentTarget.style.transform = 'scale(1.05)';
                                       }}
                                       onMouseLeave={(e) => {
-                                        e.currentTarget.style.background = isDarkMode ? 'rgba(248, 113, 113, 0.1)' : 'rgba(248, 113, 113, 0.08)';
+                                        e.currentTarget.style.background = isDarkMode ? 'rgba(214, 85, 65, 0.1)' : 'rgba(214, 85, 65, 0.08)';
                                         e.currentTarget.style.transform = 'scale(1)';
                                       }}
                                       title="Delete enquiry (requires passcode)"
@@ -9305,7 +8852,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                         styles={{ 
                                           root: { 
                                             fontSize: '10px', 
-                                            color: isDarkMode ? '#F87171' : '#EF4444' 
+                                            color: isDarkMode ? '#D65541' : '#D65541' 
                                           } 
                                         }} 
                                       />
@@ -9319,18 +8866,18 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               {childNotesExpanded && childHasNotes && (
                                 <div style={{
                                   padding: '12px 60px 12px 32px',
-                                  backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.015)' : 'rgba(0, 0, 0, 0.008)',
-                                  borderBottom: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.03)'}`,
+                                  backgroundColor: isDarkMode ? colours.dark.sectionBackground : 'rgba(214, 232, 255, 0.28)',
+                                  borderBottom: 'none',
                                   fontSize: '10px',
                                   lineHeight: '1.5',
-                                  color: isDarkMode ? 'rgba(255, 255, 255, 0.75)' : 'rgba(0, 0, 0, 0.65)',
+                                  color: isDarkMode ? '#d1d5db' : '#374151',
                                   whiteSpace: 'pre-line',
                                   marginLeft: '20px',
                                 }}>
                                   <div style={{
                                     fontSize: '9px',
                                     fontWeight: 600,
-                                    color: isDarkMode ? 'rgba(148, 163, 184, 0.9)' : 'rgba(100, 116, 139, 0.9)',
+                                    color: isDarkMode ? colours.accent : colours.highlight,
                                     marginBottom: '6px',
                                     letterSpacing: '0.3px',
                                   }}>
@@ -9345,1679 +8892,51 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                           </React.Fragment>
                         );
                       } else {
-                        // Handle individual enquiries
-                        const pocLower = (item.Point_of_Contact || '').toLowerCase();
-                        const isUnclaimed = pocLower === 'team@helix-law.com';
-
-                        // Extract values for display using correct property names
-                        const contactName = `${item.First_Name || ''} ${item.Last_Name || ''}`.trim() || 'Unknown';
-                        const areaOfWork = item.Area_of_Work || 'Unspecified';
-                        const dateReceived = item.Touchpoint_Date || item.Date_Created || '';
-                        const rawValue: any = (item as any).Value ?? (item as any).value ?? '';
-                        const value = typeof rawValue === 'string' 
-                          ? rawValue.replace(/^£\s*/, '').trim() 
-                          : rawValue;
-                        const isFromInstructions = (item as any).source === 'instructions';
-                        const hasNotes = item.Initial_first_call_notes && item.Initial_first_call_notes.trim().length > 0;
-                        const noteKey = buildEnquiryIdentityKey(item);
-                        const isNotesExpanded = expandedNotesInTable.has(noteKey);
-                        const nameCopyKey = `name-${noteKey}`;
-                        const isNameCopied = copiedNameKey === nameCopyKey;
-                        const inlineWorkbenchItem = getEnquiryWorkbenchItem(item);
-                        const hasInlineWorkbench = Boolean(inlineWorkbenchItem);
-                        const enrichmentDataKey = item.ID ?? (item as any).id ?? '';
-                        const enrichmentData = enrichmentDataKey
-                          ? enrichmentMap.get(String(enrichmentDataKey))
-                          : undefined;
-                        const mainPocValue = (item.Point_of_Contact || (item as any).poc || '').toLowerCase();
-                        const isMainTeamInboxPoc = isUnclaimedPoc(mainPocValue);
-                        const mainShowClaimer = !!mainPocValue && activeState !== 'Triaged' && !isMainTeamInboxPoc;
-                        const enquiryTeamsLink = (enrichmentData?.teamsData as any)?.teamsLink as string | undefined;
-                        
-                        // Day separator for Unclaimed table view (robust across legacy/v2 fields)
-                        const extractDateStr = (enq: any): string => {
-                          // Handle grouped enquiries
-                          if (isGroupedEnquiry(enq)) {
-                            return enq.latestDate || '';
-                          }
-                          // Handle individual enquiries
-                          return (enq?.Touchpoint_Date || enq?.datetime || enq?.claim || enq?.Date_Created || '') as string;
-                        };
-                        const toDayKey = (s: string): string => {
-                          if (!s) return '';
-                          const d = new Date(s);
-                          if (isNaN(d.getTime())) return '';
-                          return d.toISOString().split('T')[0];
-                        };
-                        const thisDateStr = extractDateStr(item as any);
-                        const prevItem: any = idx > 0 ? displayedItems[idx - 1] : null;
-                        const prevDateStr = prevItem ? extractDateStr(prevItem) : '';
-                        const showDaySeparator = viewMode === 'table' && (idx === 0 || toDayKey(thisDateStr) !== toDayKey(prevDateStr));
-                        const singleDayKey = toDayKey(thisDateStr);
-                        const isSingleDayCollapsed = collapsedDays.has(singleDayKey);
-                        const fullDateTooltip = formatFullDateTime(thisDateStr || dateReceived || null);
-                        const rowHoverKey = buildEnquiryIdentityKey(item);
-                        const showRowDetails = hoveredRowKey === rowHoverKey || hoveredDayKey === singleDayKey;
-
+                        // Handle individual enquiries — rendered via extracted component
                         return (
-                          <React.Fragment key={`${item.ID}-${item.First_Name || ''}-${item.Last_Name || ''}-${item.Touchpoint_Date || ''}-${item.Point_of_Contact || ''}`}>
-                          {/* Day separator with timeline dot */}
-                          {showDaySeparator && (
-                            <div
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                toggleDayCollapse(singleDayKey);
-                              }}
-                              onMouseEnter={() => {
-                                setHoveredDayKey(singleDayKey);
-                              }}
-                              onMouseLeave={() => {
-                                setHoveredDayKey((prev) => (prev === singleDayKey ? null : prev));
-                              }}
-                              style={{
-                                display: 'grid',
-                                gridTemplateColumns: `32px 1fr ${ACTIONS_COLUMN_WIDTH_PX}px`,
-                                gap: '12px',
-                                alignItems: 'center',
-                                padding: '12px 16px',
-                                cursor: 'pointer',
-                                background: 'transparent',
-                              }}
-                            >
-                              {/* Timeline cell with line and dot */}
-                              <div style={{
-                                position: 'relative',
-                                height: '100%',
-                                minHeight: 24,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                              }}>
-                                {/* Vertical line - only below the dot */}
-                                <div style={{
-                                  position: 'absolute',
-                                  left: '50%',
-                                  top: '50%',
-                                  bottom: 0,
-                                  width: '1px',
-                                  transform: 'translateX(-50%)',
-                                  background:
-                                    hoveredDayKey === singleDayKey
-                                      ? (isDarkMode ? colours.accent : colours.highlight)
-                                      : (isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)'),
-                                  opacity: hoveredDayKey === singleDayKey ? 0.9 : 1,
-                                }} />
-                                {/* Timeline dot */}
-                                <div style={{
-                                  width: 8,
-                                  height: 8,
-                                  borderRadius: '50%',
-                                  background:
-                                    hoveredDayKey === singleDayKey
-                                      ? (isDarkMode ? colours.accent : colours.highlight)
-                                      : (isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(148, 163, 184, 0.5)'),
-                                  border: `2px solid ${isDarkMode ? 'rgb(15, 23, 42)' : 'rgb(255, 255, 255)'}`,
-                                  zIndex: 1,
-                                }} />
-                              </div>
-                              {/* Day label */}
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                <span style={{
-                                  fontSize: '10px',
-                                  fontWeight: hoveredDayKey === singleDayKey ? 800 : 700,
-                                  color:
-                                    hoveredDayKey === singleDayKey
-                                      ? (isDarkMode ? colours.accent : colours.highlight)
-                                      : (isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(71, 85, 105, 0.7)'),
-                                  textTransform: hoveredDayKey === singleDayKey ? 'none' : 'uppercase',
-                                  letterSpacing: '0.5px',
-                                  whiteSpace: 'nowrap',
-                                }}>
-                                  {formatDaySeparatorLabel(singleDayKey, hoveredDayKey === singleDayKey)}
-                                </span>
-                                <span style={{
-                                  fontSize: '9px',
-                                  fontWeight: 500,
-                                  color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.55)',
-                                  whiteSpace: 'nowrap',
-                                }}>
-                                  {displayedItems.filter((enq) => {
-                                    const enqDateStr = isGroupedEnquiry(enq) ? enq.latestDate : ((enq as any)?.Touchpoint_Date || (enq as any)?.datetime || (enq as any)?.claim || (enq as any)?.Date_Created || '');
-                                    return toDayKey(enqDateStr) === singleDayKey;
-                                  }).length}
-                                </span>
-                                <div style={{
-                                  height: 1,
-                                  flex: 1,
-                                  background: isDarkMode
-                                    ? 'linear-gradient(90deg, rgba(148,163,184,0.35), rgba(148,163,184,0.12), rgba(148,163,184,0))'
-                                    : 'linear-gradient(90deg, rgba(148,163,184,0.45), rgba(148,163,184,0.2), rgba(148,163,184,0))',
-                                }} />
-                              </div>
-
-                              {/* Chevron and collapsed eye indicator - aligned with actions column */}
-                              <div style={{ 
-                                display: 'flex', 
-                                alignItems: 'center', 
-                                justifyContent: 'flex-end',
-                                gap: 4,
-                              }}>
-                                {isSingleDayCollapsed && (
-                                  <Icon
-                                    iconName="Hide3"
-                                    styles={{
-                                      root: {
-                                        fontSize: 12,
-                                        color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)',
-                                      },
-                                    }}
-                                    title={`${displayedItems.filter((enq) => {
-                                      const enqDateStr = isGroupedEnquiry(enq) ? enq.latestDate : ((enq as any)?.Touchpoint_Date || (enq as any)?.datetime || (enq as any)?.claim || (enq as any)?.Date_Created || '');
-                                      return toDayKey(enqDateStr) === singleDayKey;
-                                    }).length} items hidden`}
-                                  />
-                                )}
-                                <Icon 
-                                  iconName={isSingleDayCollapsed ? 'ChevronRight' : 'ChevronDown'} 
-                                  styles={{ 
-                                    root: { 
-                                      fontSize: 10, 
-                                      color: isDarkMode ? 'rgba(255, 255, 255, 0.45)' : 'rgba(0, 0, 0, 0.4)',
-                                    } 
-                                  }} 
-                                />
-                              </div>
-                            </div>
-                          )}
-                          {/* Skip row if day is collapsed */}
-                          {!isSingleDayCollapsed && (
-                          <div
-                            data-enquiry-id={item.ID ? String(item.ID) : undefined}
-                            style={{
-                              display: 'grid',
-                              gridTemplateColumns: TABLE_GRID_TEMPLATE_COLUMNS,
-                              gap: `${TABLE_GRID_GAP_PX}px`,
-                              padding: '10px 16px',
-                              alignItems: 'center',
-                              borderBottom: (isLast && !isNotesExpanded) ? 'none' : `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)'}`,
-                              fontSize: '13px',
-                              color: isDarkMode ? 'rgba(255, 255, 255, 0.9)' : 'rgba(0, 0, 0, 0.85)',
-                              background: isDarkMode 
-                                ? (idx % 2 === 0 ? 'rgba(14, 20, 38, 0.9)' : 'rgba(12, 18, 35, 0.85)')
-                                : (idx % 2 === 0 ? 'rgba(255, 255, 255, 0.6)' : 'rgba(250, 252, 255, 0.5)'),
-                              transition: 'background-color 0.15s ease',
-                              opacity: isFromInstructions ? 1 : 0.85,
-                              cursor: 'pointer',
-                            }}
-                            className={`enquiry-row${(hoveredRowKey === rowHoverKey || hoveredDayKey === singleDayKey) ? ' pipeline-row-hover' : ''}${(hoveredRowKeyReady === rowHoverKey || hoveredDayKeyReady === singleDayKey) ? ' pipeline-row-hover-ready' : ''}`}
-                            onMouseEnter={(e) => {
-                              e.currentTarget.style.backgroundColor = isDarkMode 
-                                ? 'rgba(20, 30, 50, 0.95)' 
-                                : 'rgba(255, 255, 255, 0.85)';
-                              // Show tooltip on hover
-                              const tooltip = e.currentTarget.querySelector('.timeline-date-tooltip') as HTMLElement;
-                              if (tooltip) tooltip.style.opacity = '1';
-                              setHoveredRowKey(rowHoverKey);
-                            }}
-                            onMouseLeave={(e) => {
-                              e.currentTarget.style.backgroundColor = isDarkMode 
-                                ? (idx % 2 === 0 ? 'rgba(14, 20, 38, 0.9)' : 'rgba(12, 18, 35, 0.85)')
-                                : (idx % 2 === 0 ? 'rgba(255, 255, 255, 0.6)' : 'rgba(250, 252, 255, 0.5)');
-                              // Hide tooltip
-                              const tooltip = e.currentTarget.querySelector('.timeline-date-tooltip') as HTMLElement;
-                              if (tooltip) tooltip.style.opacity = '0';
-                              setHoveredRowKey((prev) => (prev === rowHoverKey ? null : prev));
-                            }}
-                            onClick={() => !isUnclaimed && handleSelectEnquiryToPitch(item)}
-                          >
-                            {/* Timeline cell */}
-                            <div style={{
-                              position: 'relative',
-                              height: '100%',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                            }}>
-                              <div style={{
-                                position: 'absolute',
-                                left: '50%',
-                                top: 0,
-                                bottom: 0,
-                                width: '1px',
-                                transform: 'translateX(-50%)',
-                                background: getAreaOfWorkLineColor(areaOfWork, isDarkMode, hoveredDayKey === singleDayKey),
-                                opacity: hoveredDayKey === singleDayKey ? 1 : 0.9,
-                                transition: 'background 0.15s ease, opacity 0.15s ease',
-                              }} />
-                            </div>
-
-                            {/* Date column - stacked format */}
-                            <TooltipHost
-                              content={fullDateTooltip}
-                              styles={{ root: { display: 'flex', alignItems: 'center', height: '100%' } }}
-                              calloutProps={{ gapSpace: 6 }}
-                            >
-                              {(() => {
-                                const { top, bottom } = getStackedDateDisplay(dateReceived);
-                                return (
-                                  <div style={{
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                    gap: '2px',
-                                    lineHeight: 1.1,
-                                    justifyContent: 'center',
-                                    fontVariantNumeric: 'tabular-nums',
-                                  }}>
-                                    <span style={{
-                                      fontSize: '10px',
-                                      color: isDarkMode ? 'rgba(255, 255, 255, 0.72)' : 'rgba(0, 0, 0, 0.62)',
-                                      fontWeight: 600,
-                                      whiteSpace: 'nowrap',
-                                    }}>
-                                      {top}
-                                    </span>
-                                    <span style={{
-                                      fontSize: '9px',
-                                      color: isDarkMode ? 'rgba(255, 255, 255, 0.45)' : 'rgba(0, 0, 0, 0.38)',
-                                      fontWeight: 500,
-                                      whiteSpace: 'nowrap',
-                                    }}>
-                                      {bottom}
-                                    </span>
-                                  </div>
-                                );
-                              })()}
-                            </TooltipHost>
-
-                            {/* Area of Work - second */}
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-                              <span style={{ fontSize: '18px', lineHeight: 1 }} title={areaOfWork}>
-                                {getAreaOfWorkIcon(areaOfWork)}
-                              </span>
-                            </div>
-
-                            {/* ID / Instruction Ref */}
-                            <div style={{
-                              position: 'relative',
-                              display: 'flex',
-                              flexDirection: 'column',
-                              gap: '2px',
-                              lineHeight: 1.3,
-                              justifyContent: 'center'
-                            }}>
-                              <div style={{
-                                fontFamily: 'Monaco, Consolas, monospace',
-                                fontSize: '10px',
-                                fontWeight: 600,
-                                color: colours.highlight,
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap',
-                                transform: showRowDetails ? 'translateY(-4px)' : 'translateY(0)',
-                                transition: 'transform 160ms ease',
-                              }}>
-                                {item.ID}
-                              </div>
-                              {(() => {
-                                const numValue = typeof value === 'string' ? parseFloat(value.replace(/[^0-9.]/g, '')) : (typeof value === 'number' ? value : 0);
-                                const displayValue = formatValueForDisplay(value);
-                                if (!displayValue) return null;
-
-                                let textColor;
-                                if (numValue >= 50000) {
-                                  textColor = isDarkMode ? 'rgba(54, 144, 206, 1)' : 'rgba(54, 144, 206, 1)';
-                                } else if (numValue >= 10000) {
-                                  textColor = isDarkMode ? 'rgba(54, 144, 206, 0.75)' : 'rgba(54, 144, 206, 0.75)';
-                                } else {
-                                  textColor = isDarkMode ? 'rgba(54, 144, 206, 0.5)' : 'rgba(54, 144, 206, 0.55)';
-                                }
-
-                                return (
-                                  <div
-                                    style={{
-                                      position: 'absolute',
-                                      left: 0,
-                                      top: '50%',
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      opacity: showRowDetails ? 1 : 0,
-                                      transform: showRowDetails ? 'translateY(4px)' : 'translateY(2px)',
-                                      transition: 'opacity 140ms ease, transform 160ms ease',
-                                      pointerEvents: 'none',
-                                    }}
-                                  >
-                                    <span style={{
-                                      fontSize: 10,
-                                      fontWeight: 700,
-                                      color: textColor,
-                                      whiteSpace: 'nowrap',
-                                    }}>
-                                      {displayValue}
-                                    </span>
-                                  </div>
-                                );
-                              })()}
-                              {enrichmentData?.pitchData?.displayNumber && (
-                                <div style={{
-                                  fontFamily: 'Monaco, Consolas, monospace',
-                                  fontSize: '9px',
-                                  color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)',
-                                  overflow: 'hidden',
-                                  textOverflow: 'ellipsis',
-                                  whiteSpace: 'nowrap',
-                                }}>
-                                  {enrichmentData.pitchData.displayNumber}
-                                </div>
-                              )}
-                            </div>
-
-                            {/* Contact - stacked layout: name on top, email · phone below */}
-                            <div style={{ 
-                              position: 'relative',
-                              display: 'flex', 
-                              flexDirection: 'column', 
-                              gap: '2px', 
-                              lineHeight: 1.3,
-                              justifyContent: 'center',
-                            }}>
-                              {/* Name row */}
-                              <div style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 6,
-                                transform: showRowDetails ? 'translateY(-4px)' : 'translateY(0)',
-                                transition: 'transform 160ms ease',
-                              }}>
-                                <span style={{ 
-                                  fontSize: '13px', 
-                                  fontWeight: 500, 
-                                  color: isDarkMode ? '#E5E7EB' : '#1F2937', 
-                                }}>
-                                  {contactName}
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    void handleCopyName(contactName, nameCopyKey);
-                                  }}
-                                  title={isNameCopied ? 'Copied' : 'Copy name'}
-                                  aria-label="Copy name"
-                                  style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    width: 18,
-                                    height: 18,
-                                    borderRadius: 5,
-                                    border: isNameCopied
-                                      ? `1px solid ${isDarkMode ? 'rgba(16, 185, 129, 0.5)' : 'rgba(16, 185, 129, 0.38)'}`
-                                      : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(100, 116, 139, 0.12)'}`,
-                                    background: isNameCopied
-                                      ? (isDarkMode ? 'rgba(16, 185, 129, 0.16)' : 'rgba(16, 185, 129, 0.12)')
-                                      : 'transparent',
-                                    color: isNameCopied
-                                      ? '#10B981'
-                                      : (isDarkMode ? 'rgba(203, 213, 225, 0.5)' : 'rgba(71, 85, 105, 0.55)'),
-                                    cursor: 'pointer',
-                                    padding: 0,
-                                    opacity: isNameCopied ? 1 : 0.5,
-                                    boxShadow: isNameCopied
-                                      ? (isDarkMode ? '0 0 0 1px rgba(16, 185, 129, 0.15)' : '0 0 0 1px rgba(16, 185, 129, 0.12)')
-                                      : 'none',
-                                    transform: isNameCopied ? 'scale(1.06)' : 'scale(1)',
-                                    transition: 'opacity 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 160ms ease, box-shadow 160ms ease, background 160ms ease',
-                                  }}
-                                  onMouseEnter={(e) => {
-                                    if (isNameCopied) return;
-                                    e.currentTarget.style.opacity = '0.9';
-                                    e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(100, 116, 139, 0.3)';
-                                    e.currentTarget.style.color = isDarkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.85)';
-                                  }}
-                                  onMouseLeave={(e) => {
-                                    if (isNameCopied) return;
-                                    e.currentTarget.style.opacity = '0.5';
-                                    e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(100, 116, 139, 0.12)';
-                                    e.currentTarget.style.color = isDarkMode ? 'rgba(203, 213, 225, 0.5)' : 'rgba(71, 85, 105, 0.55)';
-                                  }}
-                                >
-                                  <Icon
-                                    iconName={isNameCopied ? 'CompletedSolid' : 'Copy'}
-                                    styles={{
-                                      root: {
-                                        fontSize: 10,
-                                        transform: isNameCopied ? 'scale(1.05)' : 'scale(1)',
-                                        transition: 'transform 160ms ease, color 160ms ease',
-                                        color: isNameCopied ? '#10B981' : undefined,
-                                      },
-                                    }}
-                                  />
-                                </button>
-                              </div>
-                              
-                              {/* Email row */}
-                              <div style={{ 
-                                fontSize: '10px', 
-                                color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.45)',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '0',
-                              }}>
-                                {item.Email && (
-                                  <span
-                                    style={{
-                                      position: 'absolute',
-                                      left: 0,
-                                      top: '50%',
-                                      maxWidth: '200px',
-                                      overflow: 'hidden',
-                                      textOverflow: 'ellipsis',
-                                      whiteSpace: 'nowrap',
-                                      opacity: showRowDetails ? 1 : 0,
-                                      transform: showRowDetails ? 'translateY(6px)' : 'translateY(3px)',
-                                      transition: 'opacity 140ms ease, transform 160ms ease',
-                                      pointerEvents: 'none',
-                                    }}
-                                  >
-                                    {item.Email}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-
-                            {/* Pipeline - Teams → POC → Pitch */}
-                            {(() => {
-                              const isV2Enquiry = (item as any).__sourceType === 'new' || (item as any).source === 'instructions';
-                              const teamsData = enrichmentData?.teamsData as any;
-                              const teamsTime = isV2Enquiry && teamsData
-                                ? (teamsData.MessageTimestamp
-                                  || teamsData.CreatedAt
-                                  || (teamsData.CreatedAtMs ? new Date(teamsData.CreatedAtMs).toISOString() : null))
-                                : null;
-                              const pocClaimTime = (item as any).claim || null;
-                              const pitchData = enrichmentData?.pitchData as any;
-                              const pitchTime = pitchData ? (pitchData.PitchedDate || pitchData.pitchedDate) : null;
-                                      const pitchedDate = pitchData?.PitchedDate || pitchData?.pitchedDate || pitchData?.pitched_date || '';
-                                      const pitchedTime = pitchData?.PitchedTime || pitchData?.pitchedTime || pitchData?.pitched_time || '';
-                              const pitchedBy = pitchData?.PitchedBy || pitchData?.pitchedBy || pitchData?.pitched_by || '';
-                              const pitchScenarioId = pitchData?.scenarioId || pitchData?.scenario_id || '';
-                              const pitchMatterRef = pitchData?.displayNumber || pitchData?.display_number || '';
-                              const pitchedDateParsed = combineDateAndTime(pitchedDate, pitchedTime);
-                              const pitchChipLabel = pitchedDateParsed
-                                ? `${format(pitchedDateParsed, 'd MMM')} ${format(pitchedDateParsed, 'HH:mm')}`
-                                : '';
-                              const pitchedStamp = pitchedDateParsed
-                                ? `Pitched ${format(pitchedDateParsed, 'dd MMM HH:mm')}`
-                                : 'Pitched';
-                              
-                              // Comprehensive legacy detection - covers all v1 non-Teams widget enquiries
-                              const hasV2Infrastructure = (item as any).__sourceType === 'new' || 
-                                                         (item as any).source === 'instructions' ||
-                                                         (item as any).claim ||
-                                                         (item as any).stage ||
-                                                         enrichmentData?.teamsData;
-                              
-                              const isDefinitelyLegacy = !hasV2Infrastructure;
-                              const pocDisplayName = item.Point_of_Contact || (item as any).poc || '';
-                              const hasClaimerStage = !!pocDisplayName;
-
-                              const isValidTimestamp = (dateStr: string | null) => {
-                                if (!dateStr) return false;
-                                const date = new Date(dateStr);
-                                return date.getHours() !== 0 || date.getMinutes() !== 0 || date.getSeconds() !== 0;
-                              };
-                              
-                              const showTeamsStage = isV2Enquiry && !!teamsData;
-                              const showLegacyPlaceholder = isDefinitelyLegacy;
-                              // Determine loading vs not-resolvable state for V2 enquiries
-                              // - enrichmentData exists but no teamsData = processed, not resolvable
-                              // - enrichmentData doesn't exist = still loading
-                              const enrichmentWasProcessed = enrichmentData && enrichmentData.enquiryId;
-                              const showLoadingState = isV2Enquiry && !enrichmentWasProcessed && !isDefinitelyLegacy && !teamsTime;
-                              
-                              // If loading, show full placeholder pipeline
-                              if (showLoadingState) {
-                                return (
-                                  <div style={{ position: 'relative', height: '100%', width: '100%', minWidth: 0, overflow: 'hidden' }}>
-                                    <div
-                                      style={{
-                                        display: 'grid',
-                                        gridTemplateColumns: pipelineNeedsCarousel 
-                                          ? `repeat(${visiblePipelineChipCount}, minmax(${PIPELINE_CHIP_MIN_WIDTH_PX}px, 1fr)) 24px`
-                                          : `repeat(7, minmax(${PIPELINE_CHIP_MIN_WIDTH_PX}px, 1fr)) 24px`,
-                                        columnGap: 8,
-                                        alignItems: 'center',
-                                        width: '100%',
-                                        minWidth: 0,
-                                        height: '100%',
-                                      }}
-                                    >
-                                      {[
-                                        { icon: 'TeamsLogo', label: 'POC' },
-                                        { icon: 'Send', label: 'Pitch' },
-                                        { icon: 'CheckMark', label: 'Inst' },
-                                        { icon: 'ContactCard', label: 'ID' },
-                                        { icon: 'CurrencyPound', label: 'Pay' },
-                                        { icon: 'Shield', label: 'Risk' },
-                                        { icon: 'OpenFolderHorizontal', label: 'Matter' },
-                                      ].map((stage, idx) => {
-                                        const mainPipelineOffset = getPipelineScrollOffset(item.ID);
-                                        const mainVisibleEnd = mainPipelineOffset + visiblePipelineChipCount;
-                                        const isVisible = !pipelineNeedsCarousel || (idx >= mainPipelineOffset && idx < mainVisibleEnd);
-                                        
-                                        if (!isVisible) return null;
-                                        
-                                        return (
-                                          <div
-                                            key={idx}
-                                            style={{
-                                              display: 'flex',
-                                              alignItems: 'center',
-                                              justifyContent: 'center',
-                                              width: '100%',
-                                              height: 22,
-                                              animation: `pipeline-pulse 1.5s ease-in-out infinite ${idx * 0.1}s`,
-                                            }}
-                                          >
-                                            {renderPipelineIcon(
-                                              stage.icon,
-                                              isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)',
-                                              14
-                                            )}
-                                          </div>
-                                        );
-                                      })}
-                                      {/* Nav button for carousel mode */}
-                                      {pipelineNeedsCarousel ? (
-                                        <button
-                                          type="button"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            advancePipelineScroll(item.ID, 7, visiblePipelineChipCount);
-                                          }}
-                                          title="View more stages"
-                                          style={{
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            width: '100%',
-                                            height: 22,
-                                            padding: 0,
-                                            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)'}`,
-                                            borderRadius: 0,
-                                            background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
-                                            cursor: 'pointer',
-                                            transition: 'all 0.15s ease',
-                                            color: colours.blue,
-                                          }}
-                                        >
-                                          <Icon iconName="ChevronRight" styles={{ root: { fontSize: 12, color: 'inherit' } }} />
-                                        </button>
-                                      ) : (
-                                        <div />
-                                      )}
-                                    </div>
-                                    <style>{`
-                                      @keyframes pipeline-pulse {
-                                        0%, 100% { opacity: 0.3; }
-                                        50% { opacity: 0.7; }
-                                      }
-                                    `}</style>
-                                  </div>
-                                );
-                              }
-                              
-                              // Treat team inbox / empty POC as unclaimed - don't show as "claimed"
-                              const isTeamInboxPoc = isUnclaimedPoc(pocLower);
-                              const showClaimer = hasClaimerStage && activeState !== 'Triaged' && !isTeamInboxPoc;
-                              const claimerInfo = claimerMap[pocLower];
-                              const claimerLabel = claimerInfo?.Initials || getPocInitials(pocDisplayName);
-                              const showPitch = !!enrichmentData?.pitchData;
-                              const pitchColor = getScenarioColor(enrichmentData?.pitchData?.scenarioId);
-                              // Only show pitch CTA when we're certain there's no pitch (enrichment was processed)
-                              // This prevents the yellow flash on initial load
-                              const showPitchCTA = showClaimer && !isTeamInboxPoc && enrichmentWasProcessed && !showPitch;
-                              // Pitch is next action if POC stage is done (claimed) but not yet pitched
-                              const isPitchNextAction = (showTeamsStage || showClaimer) && !showPitch;
-                              
-                              // Pipeline carousel state for this row
-                              const mainPipelineOffset = getPipelineScrollOffset(item.ID);
-                              const mainVisibleEnd = mainPipelineOffset + visiblePipelineChipCount;
-                              const mainHasMoreChips = pipelineNeedsCarousel && mainPipelineOffset < 7 - visiblePipelineChipCount;
-                              const mainIsChipVisible = (chipIndex: number) => 
-                                !pipelineNeedsCarousel || (chipIndex >= mainPipelineOffset && chipIndex < mainVisibleEnd);
-                              
-                              // Dynamic grid columns based on carousel state
-                              const mainGridCols = pipelineNeedsCarousel 
-                                ? `repeat(${visiblePipelineChipCount}, minmax(${PIPELINE_CHIP_MIN_WIDTH_PX}px, 1fr)) 24px`
-                                : `repeat(7, minmax(${PIPELINE_CHIP_MIN_WIDTH_PX}px, 1fr)) 24px`;
-                              
-                              // Cascade animation helper
-                              const getMainCascadeStyle = (chipIndex: number) => ({
-                                animation: enrichmentWasProcessed ? `pipeline-cascade 0.35s cubic-bezier(0.4, 0, 0.2, 1) ${chipIndex * 0.12}s both` : 'none',
-                              });
-                              
-                              return (
-                                <div style={{ position: 'relative', height: '100%', width: '100%', minWidth: 0, overflow: 'hidden' }}>
-                                  <div
-                                    style={{
-                                      display: 'grid',
-                                      gridTemplateColumns: mainGridCols,
-                                      columnGap: 8,
-                                      alignItems: 'center',
-                                      width: '100%',
-                                      minWidth: 0,
-                                      height: '100%',
-                                    }}
-                                  >
-                                    {/* POC - merged Teams + Claim - chip index 0 */}
-                                    {mainIsChipVisible(0) && (
-                                    <div style={{ ...getMainCascadeStyle(0), display: 'flex', justifyContent: 'center', justifySelf: 'center', width: 'fit-content' }}>
-                                      {(() => {
-                                        const hasPocActivity = showTeamsStage || showClaimer;
-                                        const pocIconColor = hasPocActivity
-                                          ? (isDarkMode ? 'rgba(54, 144, 206, 0.85)' : 'rgba(54, 144, 206, 0.75)')
-                                          : (isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)');
-                                        const initialsColor = showClaimer
-                                          ? colours.green
-                                          : (isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(100, 116, 139, 0.35)');
-                                        
-                                        // Show legacy placeholder
-                                        if (showLegacyPlaceholder && !showClaimer && !showTeamsStage) {
-                                          return (
-                                            <div
-                                              style={{
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: 6,
-                                                padding: '4px 8px',
-                                                borderRadius: 0,
-                                                background: isDarkMode ? 'rgba(148,163,184,0.06)' : 'rgba(148,163,184,0.04)',
-                                                border: `1px dashed ${isDarkMode ? 'rgba(148,163,184,0.25)' : 'rgba(100,116,139,0.2)'}`,
-                                                fontSize: 9,
-                                                fontWeight: 500,
-                                                color: isDarkMode ? 'rgba(148,163,184,0.6)' : 'rgba(71,85,105,0.6)',
-                                                whiteSpace: 'nowrap',
-                                                justifyContent: 'center',
-                                                flexShrink: 0,
-                                              }}
-                                            >
-                                              <span style={{ fontSize: 9 }}>legacy</span>
-                                            </div>
-                                          );
-                                        }
-                                        
-                                        // Unclaimed state - show subtle claim prompt
-                                        if (!showClaimer) {
-                                          return renderClaimPromptChip({
-                                            teamsLink: enquiryTeamsLink,
-                                            leadName: contactName,
-                                            areaOfWork: item['Area_of_Work'],
-                                            enquiryId: item.ID,
-                                            dataSource: isFromInstructions ? 'new' : 'legacy',
-                                            iconOnly: true,
-                                          });
-                                        }
-                                        
-                                        // Claimed state - show initials with reassign chevron
-                                        return (
-                                          <button
-                                            className="pipeline-chip"
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              const link = teamsData?.teamsLink || getAreaSpecificChannelUrl(item['Area_of_Work']);
-                                              if (link) window.open(link, '_blank');
-                                            }}
-                                            onMouseEnter={(e) => showPipelineHover(e, {
-                                              title: 'POC',
-                                              status: showTeamsStage ? `${pocDisplayName} - Teams activity` : `Claimed by ${pocDisplayName}`,
-                                              subtitle: contactName,
-                                              color: colours.blue,
-                                              iconName: 'TeamsLogo',
-                                            })}
-                                            onMouseMove={movePipelineHover}
-                                            onMouseLeave={hidePipelineHover}
-                                            style={{
-                                              display: 'inline-flex',
-                                              alignItems: 'center',
-                                              justifyContent: 'center',
-                                              gap: 4,
-                                              height: 22,
-                                              padding: '0 4px',
-                                              borderRadius: 0,
-                                              border: 'none',
-                                              background: 'transparent',
-                                              cursor: 'pointer',
-                                              fontFamily: 'inherit',
-                                              flexShrink: 0,
-                                            }}
-                                          >
-                                            <Icon iconName="TeamsLogo" styles={{ root: { fontSize: 14, color: pocIconColor, flexShrink: 0 } }} />
-                                            <span style={{
-                                              width: 22,
-                                              textAlign: 'center',
-                                              fontSize: 10,
-                                              fontWeight: 700,
-                                              color: initialsColor,
-                                              textTransform: 'uppercase',
-                                              letterSpacing: '0.3px',
-                                            }}>
-                                              {claimerLabel}
-                                            </span>
-                                            <Icon 
-                                              iconName="ChevronDown" 
-                                              onClick={(e: React.MouseEvent) => {
-                                                e.stopPropagation();
-                                                handleReassignClick(String(item.ID), e as any);
-                                              }}
-                                              styles={{ root: { fontSize: 8, color: initialsColor, opacity: 0.6, cursor: 'pointer' } }} 
-                                            />
-                                          </button>
-                                        );
-                                      })()}
-                                    </div>
-                                    )}
-
-                                    {/* Pitch - chip index 1 */}
-                                    {mainIsChipVisible(1) && (
-                                    <div data-chip-index="1" className={isPitchNextAction ? 'next-action-subtle-pulse' : ''} style={getMainCascadeStyle(1)}>
-                                      {showPitch ? (
-                                        <button
-                                          type="button"
-                                          className="pipeline-chip pipeline-chip-reveal"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            openEnquiryWorkbench(item, 'Timeline', { filter: 'pitch' });
-                                          }}
-                                          onMouseEnter={(e) => showPipelineHover(e, {
-                                            title: 'Pitch Sent',
-                                            status: pitchedStamp,
-                                            subtitle: contactName,
-                                            color: pitchColor,
-                                            iconName: 'Send',
-                                            details: [
-                                              ...(pitchedBy ? [{ label: 'By', value: pitchedBy }] : []),
-                                              ...(pitchScenarioId ? [{ label: 'Scenario', value: `#${pitchScenarioId}` }] : []),
-                                              ...(pitchMatterRef ? [{ label: 'Matter', value: pitchMatterRef }] : []),
-                                            ],
-                                          })}
-                                          onMouseMove={movePipelineHover}
-                                          onMouseLeave={hidePipelineHover}
-                                          style={{
-                                            display: 'inline-flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            width: '100%',
-                                            minHeight: 24,
-                                            height: 'auto',
-                                            padding: 0,
-                                            borderRadius: 0,
-                                            border: 'none',
-                                            background: 'transparent',
-                                            cursor: 'pointer',
-                                            fontFamily: 'inherit',
-                                            overflow: 'visible',
-                                          }}
-                                        >
-                                          <span className="pipeline-chip-box">
-                                            <Icon iconName="Send" styles={{ root: { fontSize: 14, color: pitchColor } }} />
-                                            <span
-                                              className="pipeline-chip-label"
-                                              style={{ color: pitchColor }}
-                                            >
-                                              {pitchChipLabel}
-                                            </span>
-                                          </span>
-                                        </button>
-                                      ) : showPitchCTA ? (
-                                        <button
-                                          type="button"
-                                          className="pipeline-chip"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            openEnquiryWorkbench(item, 'Pitch');
-                                          }}
-                                          onMouseEnter={(e) => showPipelineHover(e, {
-                                            title: 'Pitch',
-                                            status: 'Ready to pitch',
-                                            subtitle: contactName,
-                                            color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.6)',
-                                            iconName: 'Send',
-                                          })}
-                                          onMouseMove={movePipelineHover}
-                                          onMouseLeave={hidePipelineHover}
-                                          style={{
-                                            display: 'inline-flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            width: '100%',
-                                            height: 22,
-                                            padding: 0,
-                                            borderRadius: 0,
-                                            border: 'none',
-                                            background: 'transparent',
-                                            cursor: 'pointer',
-                                            fontFamily: 'inherit',
-                                          }}
-                                        >
-                                          <Icon iconName="Send" styles={{ root: { fontSize: 14, color: isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)' } }} />
-                                        </button>
-                                      ) : (
-                                        <div
-                                          onMouseEnter={(e) => showPipelineHover(e, {
-                                            title: 'Pitch',
-                                            status: 'Not pitched',
-                                            subtitle: contactName,
-                                            color: pitchColor,
-                                            iconName: 'Send',
-                                          })}
-                                          onMouseMove={movePipelineHover}
-                                          onMouseLeave={hidePipelineHover}
-                                          style={{
-                                            display: 'inline-flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            width: '100%',
-                                            height: 22,
-                                            border: 'none',
-                                            borderRadius: 0,
-                                            background: 'transparent',
-                                          }}
-                                        >
-                                          <Icon iconName="Send" styles={{ root: { fontSize: 14, color: isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)' } }} />
-                                        </div>
-                                      )}
-                                    </div>
-                                    )}
-
-                                    {/* Post-pitch stages - chip indices 3-7 */}
-                                    {(() => {
-                                      const inst = inlineWorkbenchItem?.instruction;
-                                      const deal = inlineWorkbenchItem?.deal;
-                                      // Only use deal's InstructionRef if deal is not in "pitched" status (pitched deals don't have actual instructions)
-                                      const dealStatus = (deal?.Status ?? deal?.status ?? '').toLowerCase();
-                                      const dealHasInstruction = dealStatus !== 'pitched' && dealStatus !== '';
-                                      const instructionRef = (inst?.InstructionRef ?? inst?.instructionRef ?? (dealHasInstruction ? (deal?.InstructionRef ?? deal?.instructionRef) : undefined)) as string | undefined;
-                                      const instructionDateRaw = 
-                                        inst?.SubmissionDate ?? 
-                                        inst?.submissionDate ?? 
-                                        inst?.SubmissionDateTime ??
-                                        inst?.submissionDateTime ??
-                                        inst?.InstructionDateTime ??
-                                        inst?.instructionDateTime ??
-                                        inst?.SubmittedAt ??
-                                        inst?.submittedAt ??
-                                        inst?.CreatedAt ?? 
-                                        inst?.createdAt ?? 
-                                        inst?.CreatedOn ??
-                                        inst?.createdOn ??
-                                        inst?.DateCreated ?? 
-                                        inst?.created_at ?? 
-                                        inst?.InstructionDate ?? 
-                                        inst?.instructionDate ??
-                                        // Fallback to deal CloseDate when inst is null
-                                        deal?.CloseDate ??
-                                        deal?.closeDate ??
-                                        deal?.close_date;
-                                      const instructionTimeRaw = 
-                                        inst?.SubmissionTime ?? 
-                                        inst?.submissionTime ?? 
-                                        inst?.SubmissionTimeUtc ??
-                                        inst?.submissionTimeUtc ??
-                                        // Fallback to deal CloseTime when inst is null
-                                        deal?.CloseTime ??
-                                        deal?.closeTime ??
-                                        deal?.close_time;
-                                      // Parse instruction date with robust handling
-                                      const instructionDateParsed = combineDateAndTime(instructionDateRaw, instructionTimeRaw);
-                                      const instructionStamp = instructionDateParsed
-                                        ? format(instructionDateParsed, 'dd MMM HH:mm')
-                                        : '';
-                                      // Short chip label for instruction date + time
-                                      const instructionChipLabel = instructionDateParsed
-                                        ? `${format(instructionDateParsed, 'd MMM')} ${format(instructionDateParsed, 'HH:mm')}`
-                                        : '--';
-                                      // Extra instruction data for rich tooltip
-                                      const instructionStage = inst?.Stage ?? inst?.stage ?? deal?.Stage ?? deal?.Status ?? deal?.status ?? '';
-                                      const instructionServiceDesc = deal?.ServiceDescription ?? deal?.serviceDescription ?? inst?.ServiceDescription ?? '';
-                                      const instructionAmount = deal?.Amount ?? deal?.amount ?? inst?.Amount;
-                                      const instructionAmountText = instructionAmount && !isNaN(Number(instructionAmount))
-                                        ? `£${Number(instructionAmount).toLocaleString('en-GB', { maximumFractionDigits: 2 })}`
-                                        : '';
-                                      // Shell entries (checkout opened but not submitted) have InstructionRef but no submission data
-                                      // Only mark as having instruction if there's actual submission date OR stage indicates completion
-                                      const stageLower = instructionStage.toLowerCase();
-                                      const isShellEntry = Boolean(instructionRef) && (stageLower === 'initialised' || stageLower === 'pitched' || stageLower === 'opened' || stageLower === '');
-                                      const hasInstruction = Boolean(instructionRef) && (Boolean(instructionDateParsed) || !isShellEntry);
-                                      const hasEid = Boolean(inlineWorkbenchItem?.eid);
-                                      const eidResult = (inlineWorkbenchItem?.eid as any)?.EIDOverallResult?.toLowerCase() ?? '';
-                                      // EID counts as "done" only if result is positive
-                                      const eidPassed = eidResult === 'passed' || eidResult === 'pass' || eidResult === 'verified' || eidResult === 'approved';
-                                      const eidColor = eidPassed ? colours.green : eidResult === 'refer' ? colours.orange : eidResult === 'review' ? colours.red : colours.highlight;
-                                      const eidLabel = eidPassed ? 'Pass' : eidResult === 'refer' ? 'Refer' : eidResult === 'review' ? 'Review' : eidResult || 'ID';
-                                      
-                                      // Payment detection with method and confirmation status
-                                      const payments = Array.isArray(inlineWorkbenchItem?.payments) ? inlineWorkbenchItem.payments : [];
-                                      const latestPayment = payments[0] as any;
-                                      // Determine payment method
-                                      const methodRaw = (
-                                        latestPayment?.payment_method || 
-                                        latestPayment?.payment_type || 
-                                        latestPayment?.method || 
-                                        latestPayment?.paymentMethod ||
-                                        latestPayment?.PaymentMethod ||
-                                        ''
-                                      ).toString().toLowerCase();
-                                      const meta = typeof latestPayment?.metadata === 'object' ? latestPayment.metadata : {};
-                                      const metaMethod = (meta?.payment_method || meta?.method || meta?.paymentMethod || '').toString().toLowerCase();
-                                      const intentId = (latestPayment?.payment_intent_id || latestPayment?.paymentIntentId || '').toString();
-                                      const intentIsBank = intentId.startsWith('bank_');
-                                      const intentIsCard = intentId.startsWith('pi_');
-                                      const combinedMethod = methodRaw || metaMethod || (intentIsBank ? 'bank' : intentIsCard ? 'card' : '');
-                                      const isCardPayment = combinedMethod.includes('card') || combinedMethod.includes('stripe') || combinedMethod === 'cc' || intentIsCard;
-                                      const isBankPayment = combinedMethod.includes('bank') || combinedMethod.includes('transfer') || combinedMethod.includes('bacs') || intentIsBank;
-                                      // Check payment status - DB column is payment_status, also check variants
-                                      const paymentStatus = (latestPayment?.payment_status || latestPayment?.paymentStatus || latestPayment?.status || latestPayment?.Status || '').toString().toLowerCase();
-                                      const isSucceededStatus = paymentStatus === 'succeeded' || paymentStatus === 'success' || paymentStatus === 'complete' || paymentStatus === 'completed' || paymentStatus === 'paid';
-                                      const isCardConfirmed = isCardPayment && isSucceededStatus;
-                                      const isBankConfirmed = isBankPayment && (latestPayment?.confirmed === true || latestPayment?.Confirmed === true || paymentStatus === 'confirmed');
-                                      // Also treat as confirmed if status is succeeded even if method not detected
-                                      const hasConfirmedPayment = isCardConfirmed || isBankConfirmed || isSucceededStatus;
-                                      const hasPayment = payments.length > 0;
-                                      const paymentLabel = hasConfirmedPayment ? 'Paid' : hasPayment ? (isBankPayment ? 'Pending' : '£') : '£';
-                                      const paymentIcon = hasConfirmedPayment
-                                        ? (isCardPayment ? 'PaymentCard' : 'Bank')
-                                        : 'CurrencyPound';
-                                      const paymentColor = hasConfirmedPayment ? colours.green : hasPayment ? (isBankPayment ? colours.orange : colours.blue) : colours.blue;
-                                      const paymentTitle = hasConfirmedPayment 
-                                        ? `Paid via ${isCardPayment ? 'card' : 'bank transfer'}` 
-                                        : hasPayment 
-                                          ? (isBankPayment ? 'Bank payment awaiting confirmation' : 'Payment recorded')
-                                          : 'No payment yet';
-                                      const paymentAmountRaw = latestPayment?.amount ?? latestPayment?.Amount ?? latestPayment?.value ?? latestPayment?.Value;
-                                      const paymentAmountNumber = typeof paymentAmountRaw === 'string' ? parseFloat(paymentAmountRaw) : paymentAmountRaw;
-                                      const paymentAmount = Number.isFinite(paymentAmountNumber) ? paymentAmountNumber : null;
-                                      const paymentAmountText = paymentAmount !== null
-                                        ? `£${paymentAmount.toLocaleString('en-GB', { maximumFractionDigits: 2 })}`
-                                        : null;
-                                      
-                                      const hasRisk = Boolean(inlineWorkbenchItem?.risk);
-                                      const riskResult = (inlineWorkbenchItem?.risk as any)?.RiskAssessmentResult?.toLowerCase() ?? '';
-                                      const riskIcon = riskResult === 'low' || riskResult === 'approved' ? 'ShieldSolid' : riskResult === 'medium' ? 'HalfCircle' : 'Shield';
-                                      const riskLabel = riskResult ? `${riskResult.charAt(0).toUpperCase()}${riskResult.slice(1)}` : 'Recorded';
-                                      const hasMatter = Boolean(inst?.MatterId ?? inst?.matterId) || (Array.isArray(inlineWorkbenchItem?.matters) && inlineWorkbenchItem.matters.length > 0);
-                                      const mainMatterRecord = Array.isArray(inlineWorkbenchItem?.matters) ? inlineWorkbenchItem.matters[0] : null;
-                                      const mainMatterRef = (mainMatterRecord?.DisplayNumber || mainMatterRecord?.['Display Number'] || mainMatterRecord?.displayNumber || mainMatterRecord?.display_number || inst?.MatterId || inst?.matterId) as string | undefined;
-                                      const shouldShowPostPitch = Boolean(inlineWorkbenchItem) || showPitch;
-
-                                      // Determine next incomplete stage in pipeline order
-                                      // Only consider stages that are "in play" - skip POC if no activity, then look for first incomplete
-                                      const mainPipelineStages = [
-                                        { done: showTeamsStage || showClaimer, index: 0, inPlay: showTeamsStage || showClaimer || showLegacyPlaceholder },
-                                        { done: showPitch, index: 1, inPlay: true },
-                                        { done: hasInstruction, index: 2, inPlay: shouldShowPostPitch },
-                                        { done: eidPassed, index: 3, inPlay: shouldShowPostPitch },
-                                        { done: hasConfirmedPayment, index: 4, inPlay: shouldShowPostPitch },
-                                        { done: hasRisk, index: 5, inPlay: shouldShowPostPitch },
-                                        { done: hasMatter, index: 6, inPlay: shouldShowPostPitch },
-                                      ];
-                                      const mainNextIncompleteIndex = mainPipelineStages.find(s => s.inPlay && !s.done)?.index ?? -1;
-
-                                      const renderMiniChip = (props: any) => (
-                                        <MiniPipelineChip
-                                          {...props}
-                                          isDarkMode={isDarkMode}
-                                          onMouseEnter={(e: React.MouseEvent) => showPipelineHover(e, {
-                                            title: props.fullLabel,
-                                            status: props.statusText || (props.done ? 'Complete' : 'Not started'),
-                                            subtitle: props.subtitle,
-                                            color: props.color,
-                                            iconName: props.iconName,
-                                            details: props.details,
-                                          })}
-                                          onMouseMove={movePipelineHover}
-                                          onMouseLeave={hidePipelineHover}
-                                        />
-                                      );
-
-                                      return (
-                                        <>
-                                          {/* Inst - chip index 2 */}
-                                          {(pipelineNeedsCarousel ? mainIsChipVisible(2) : (shouldShowPostPitch || mainIsChipVisible(2))) && (
-                                          <div data-chip-index="2" style={getMainCascadeStyle(2)}>
-                                          {renderMiniChip({
-                                            shortLabel: hasInstruction ? instructionChipLabel : (isShellEntry && instructionRef ? 'Opened' : '--'),
-                                            fullLabel: "Instruction",
-                                            done: shouldShowPostPitch && hasInstruction,
-                                            inProgress: isShellEntry && Boolean(instructionRef) && showPitch && !hasInstruction,
-                                            color: colours.green,
-                                            iconName: "CheckMark",
-                                            showConnector: true,
-                                            prevDone: showPitch,
-                                            statusText: hasInstruction ? `Instructed ${instructionStamp}` : (isShellEntry && instructionRef ? 'Checkout opened - awaiting submission' : 'Not instructed'),
-                                            subtitle: contactName,
-                                            title: hasInstruction ? `Instructed (${instructionRef})` : (isShellEntry && instructionRef ? `Checkout opened (${instructionRef})` : 'Not instructed yet'),
-                                            isNextAction: !isShellEntry && mainNextIncompleteIndex === 2,
-                                            details: hasInstruction ? [
-                                              { label: 'Ref', value: instructionRef || '' },
-                                              ...(instructionStage ? [{ label: 'Stage', value: instructionStage }] : []),
-                                              ...(instructionServiceDesc ? [{ label: 'Service', value: instructionServiceDesc }] : []),
-                                              ...(instructionAmountText ? [{ label: 'Value', value: instructionAmountText }] : []),
-                                            ] : undefined,
-                                            onClick: (e: React.MouseEvent) => {
-                                              e.stopPropagation();
-                                              openEnquiryWorkbench(item, 'Timeline', { filter: 'pitch' });
-                                            }
-                                          })}
-                                          </div>
-                                          )}
-                                          {/* ID - chip index 3 */}
-                                          {(pipelineNeedsCarousel ? mainIsChipVisible(3) : (shouldShowPostPitch || mainIsChipVisible(3))) && (
-                                          <div data-chip-index="3" style={getMainCascadeStyle(3)}>
-                                          {renderMiniChip({
-                                            shortLabel: hasEid ? eidLabel : 'ID',
-                                            fullLabel: hasEid ? eidLabel : 'ID Check',
-                                            done: shouldShowPostPitch && hasEid,
-                                            isNextAction: mainNextIncompleteIndex === 3,
-                                            color: hasEid ? eidColor : colours.highlight,
-                                            iconName: "ContactCard",
-                                            showConnector: true,
-                                            prevDone: hasInstruction,
-                                            statusText: hasEid ? `EID ${eidLabel}` : 'EID not started',
-                                            subtitle: contactName,
-                                            title: hasEid ? `ID: ${eidLabel}` : 'ID not started',
-                                            onClick: (e: React.MouseEvent) => {
-                                              e.stopPropagation();
-                                              openEnquiryWorkbench(item, 'Timeline', { filter: 'pitch' });
-                                            }
-                                          })}
-                                          </div>
-                                          )}
-                                          {/* Pay - chip index 4 */}
-                                          {(pipelineNeedsCarousel ? mainIsChipVisible(4) : (shouldShowPostPitch || mainIsChipVisible(4))) && (
-                                          <div data-chip-index="4" style={getMainCascadeStyle(4)}>
-                                          {renderMiniChip({
-                                            shortLabel: paymentLabel,
-                                            fullLabel: hasConfirmedPayment ? 'Paid' : hasPayment ? (isBankPayment ? 'Pending' : 'Payment') : 'Payment',
-                                            done: shouldShowPostPitch && hasConfirmedPayment,
-                                            inProgress: shouldShowPostPitch && hasPayment && !hasConfirmedPayment,
-                                            color: paymentColor,
-                                            iconName: paymentIcon,
-                                            showConnector: true,
-                                            prevDone: eidPassed,
-                                            statusText: hasConfirmedPayment ? `Paid${paymentAmountText ? ` ${paymentAmountText}` : ''}` : hasPayment ? `${isBankPayment ? 'Pending' : 'Payment'}${paymentAmountText ? ` ${paymentAmountText}` : ''}` : 'No payment',
-                                            subtitle: contactName,
-                                            title: paymentTitle,
-                                            isNextAction: mainNextIncompleteIndex === 4,
-                                            onClick: (e: React.MouseEvent) => {
-                                              e.stopPropagation();
-                                              openEnquiryWorkbench(item, 'Timeline', { filter: 'pitch' });
-                                            }
-                                          })}
-                                          </div>
-                                          )}
-                                          {/* Risk - chip index 5 */}
-                                          {(pipelineNeedsCarousel ? mainIsChipVisible(5) : (shouldShowPostPitch || mainIsChipVisible(5))) && (
-                                          <div data-chip-index="5" style={getMainCascadeStyle(5)}>
-                                          {renderMiniChip({
-                                            shortLabel: hasRisk ? riskLabel : "Risk",
-                                            fullLabel: "Risk",
-                                            done: shouldShowPostPitch && hasRisk,
-                                            color: colours.green,
-                                            isNextAction: mainNextIncompleteIndex === 5,
-                                            iconName: riskIcon,
-                                            showConnector: true,
-                                            prevDone: hasConfirmedPayment,
-                                            statusText: hasRisk ? `Risk ${riskLabel}` : 'No risk record',
-                                            subtitle: contactName,
-                                            title: hasRisk ? 'Risk record present' : 'Risk not started',
-                                            onClick: (e: React.MouseEvent) => {
-                                              e.stopPropagation();
-                                              openEnquiryWorkbench(item, 'Timeline', { filter: 'pitch' });
-                                            }
-                                          })}
-                                          </div>
-                                          )}
-                                          {/* Matter - chip index 6 */}
-                                          {(pipelineNeedsCarousel ? mainIsChipVisible(6) : (shouldShowPostPitch || mainIsChipVisible(6))) && (
-                                          <div data-chip-index="6" style={getMainCascadeStyle(6)}>
-                                          {renderMiniChip({
-                                            shortLabel: hasMatter && mainMatterRef ? mainMatterRef : "Matter",
-                                            fullLabel: "Matter",
-                                            done: shouldShowPostPitch && hasMatter,
-                                            color: colours.green,
-                                            iconName: "OpenFolderHorizontal",
-                                            showConnector: true,
-                                            prevDone: hasRisk,
-                                            statusText: hasMatter ? `Matter ${mainMatterRef ?? 'linked'}` : 'No matter yet',
-                                            subtitle: contactName,
-                                            title: hasMatter ? 'Matter linked/opened' : 'Matter not opened',
-                                            isNextAction: mainNextIncompleteIndex === 6,
-                                            onClick: (e: React.MouseEvent) => {
-                                              e.stopPropagation();
-                                              openEnquiryWorkbench(item, 'Timeline', { workbenchTab: 'matter' });
-                                            }
-                                          })}
-                                          </div>
-                                          )}
-                                        </>
-                                      );
-                                    })()}
-
-                                    {/* Navigation chevron for carousel OR empty gutter */}
-                                    {pipelineNeedsCarousel ? (
-                                      <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          advancePipelineScroll(item.ID, 7, visiblePipelineChipCount);
-                                        }}
-                                        title={mainHasMoreChips ? `View more stages (${7 - mainVisibleEnd} hidden)` : 'Back to start'}
-                                        style={{
-                                          display: 'flex',
-                                          alignItems: 'center',
-                                          justifyContent: 'center',
-                                          width: '100%',
-                                          height: 22,
-                                          padding: 0,
-                                          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.2)'}`,
-                                          borderRadius: 0,
-                                          background: mainHasMoreChips 
-                                            ? (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)')
-                                            : (isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(148, 163, 184, 0.04)'),
-                                          cursor: 'pointer',
-                                          transition: 'all 0.15s ease',
-                                          color: mainHasMoreChips 
-                                            ? colours.blue 
-                                            : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.4)'),
-                                        }}
-                                      >
-                                        <Icon 
-                                          iconName={mainHasMoreChips ? 'ChevronRight' : 'Refresh'} 
-                                          styles={{ 
-                                            root: { 
-                                              fontSize: mainHasMoreChips ? 12 : 10, 
-                                              color: 'inherit',
-                                              opacity: mainHasMoreChips ? 1 : 0.7,
-                                            } 
-                                          }} 
-                                        />
-                                      </button>
-                                    ) : (
-                                      <div />
-                                    )}
-                                  </div>
-                                </div>
-                              );
-                            })()}
-
-                            {/* Actions Column */}
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px' }}>
-                              {/* Call / Email / Rate actions (no hover) */}
-                              {mainShowClaimer && !isMainTeamInboxPoc && (
-                                <>
-                                  <button
-                                    type="button"
-                                    disabled={!(item.Phone_Number || (item as any).phone)}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      const phone = item.Phone_Number || (item as any).phone;
-                                      if (phone) window.open(`tel:${phone}`, '_self');
-                                    }}
-                                    style={{
-                                      width: 22,
-                                      height: 22,
-                                      borderRadius: 0,
-                                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)'}`,
-                                      background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)',
-                                      color: isDarkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.8)',
-                                      opacity: (item.Phone_Number || (item as any).phone) ? 1 : 0.3,
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      justifyContent: 'center',
-                                      cursor: (item.Phone_Number || (item as any).phone) ? 'pointer' : 'default',
-                                      transition: 'background 0.15s ease, border-color 0.15s ease, color 0.15s ease, opacity 0.15s ease',
-                                    }}
-                                    onMouseEnter={(e) => {
-                                      if (item.Phone_Number || (item as any).phone) {
-                                        e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)';
-                                        e.currentTarget.style.borderColor = colours.blue;
-                                        e.currentTarget.style.color = colours.blue;
-                                      }
-                                    }}
-                                    onMouseLeave={(e) => {
-                                      e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)';
-                                      e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)';
-                                      e.currentTarget.style.color = isDarkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.8)';
-                                    }}
-                                    title={(item.Phone_Number || (item as any).phone) ? `Call ${item.Phone_Number || (item as any).phone}` : 'No phone number'}
-                                  >
-                                    <Icon iconName="Phone" styles={{ root: { fontSize: 11 } }} />
-                                  </button>
-
-                                  {item.Email && (
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        window.open(`mailto:${item.Email}`, '_blank');
-                                      }}
-                                      style={{
-                                        width: 22,
-                                        height: 22,
-                                        borderRadius: 0,
-                                        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)'}`,
-                                        background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)',
-                                        color: isDarkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.8)',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        cursor: 'pointer',
-                                        transition: 'background 0.15s ease, border-color 0.15s ease, color 0.15s ease',
-                                      }}
-                                      onMouseEnter={(e) => {
-                                        e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)';
-                                        e.currentTarget.style.borderColor = colours.blue;
-                                        e.currentTarget.style.color = colours.blue;
-                                      }}
-                                      onMouseLeave={(e) => {
-                                        e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)';
-                                        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)';
-                                        e.currentTarget.style.color = isDarkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.8)';
-                                      }}
-                                      title={`Email ${item.Email}`}
-                                    >
-                                      <Icon iconName="Mail" styles={{ root: { fontSize: 11 } }} />
-                                    </button>
-                                  )}
-
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleRate(item.ID);
-                                    }}
-                                    style={{
-                                      width: 22,
-                                      height: 22,
-                                      borderRadius: 0,
-                                      border: `1px solid ${getRatingChipMeta(item.Rating, isDarkMode).borderColor}`,
-                                      background: getRatingChipMeta(item.Rating, isDarkMode).background,
-                                      color: getRatingChipMeta(item.Rating, isDarkMode).color,
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      justifyContent: 'center',
-                                      cursor: 'pointer',
-                                      transition: 'background 0.15s ease, border-color 0.15s ease, color 0.15s ease',
-                                    }}
-                                    onMouseEnter={(e) => {
-                                      const meta = getRatingChipMeta(item.Rating, isDarkMode);
-                                      e.currentTarget.style.background = meta.hoverBackground;
-                                      e.currentTarget.style.borderColor = meta.hoverBorderColor;
-                                      e.currentTarget.style.color = meta.hoverColor;
-                                    }}
-                                    onMouseLeave={(e) => {
-                                      const meta = getRatingChipMeta(item.Rating, isDarkMode);
-                                      e.currentTarget.style.background = meta.background;
-                                      e.currentTarget.style.borderColor = meta.borderColor;
-                                      e.currentTarget.style.color = meta.color;
-                                    }}
-                                    title={item.Rating ? `Rating: ${item.Rating} - Click to change` : 'Rate this enquiry'}
-                                  >
-                                    <Icon iconName={getRatingChipMeta(item.Rating, isDarkMode).iconName} styles={{ root: { fontSize: 11 } }} />
-                                  </button>
-                                </>
-                              )}
-                              {/* Notes Chevron - always show, disabled when no content */}
-                              <div
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (!(hasNotes || hasInlineWorkbench)) return; // Do nothing if disabled
-                                  const newSet = new Set(expandedNotesInTable);
-                                  if (isNotesExpanded) {
-                                    newSet.delete(noteKey);
-                                  } else {
-                                    newSet.add(noteKey);
-                                  }
-                                  setExpandedNotesInTable(newSet);
-                                }}
-                                style={{
-                                  width: 22,
-                                  height: 22,
-                                  borderRadius: 0,
-                                  background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.08)',
-                                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)'}`,
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  cursor: (hasNotes || hasInlineWorkbench) ? 'pointer' : 'default',
-                                  transition: 'all 0.2s ease',
-                                  opacity: (hasNotes || hasInlineWorkbench) ? 1 : 0.4,
-                                }}
-                                onMouseEnter={(e) => {
-                                  if (!(hasNotes || hasInlineWorkbench)) return;
-                                  e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)';
-                                  e.currentTarget.style.transform = 'scale(1.05)';
-                                }}
-                                onMouseLeave={(e) => {
-                                  e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.08)';
-                                  e.currentTarget.style.transform = 'scale(1)';
-                                }}
-                                title={
-                                  !(hasNotes || hasInlineWorkbench)
-                                    ? 'No notes'
-                                    : isNotesExpanded
-                                      ? 'Collapse'
-                                      : (hasNotes && hasInlineWorkbench
-                                        ? 'Show notes & workbench'
-                                        : (hasNotes ? 'Show notes' : 'Show workbench'))
-                                }
-                              >
-                                <Icon 
-                                  iconName={isNotesExpanded ? 'ChevronUp' : 'ChevronDown'} 
-                                  styles={{ 
-                                    root: { 
-                                      fontSize: '10px', 
-                                      color: isDarkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.8)' 
-                                    } 
-                                  }} 
-                                />
-                              </div>
-                              {areActionsEnabled && (
-                                <>
-                                  {/* Edit Button */}
-                                  <div
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setEditingEnquiry(item);
-                                      setShowEditModal(true);
-                                    }}
-                                    style={{
-                                      width: 22,
-                                      height: 22,
-                                      borderRadius: 0,
-                                      background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)',
-                                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.2)'}`,
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      justifyContent: 'center',
-                                      cursor: 'pointer',
-                                      transition: 'all 0.2s ease',
-                                    }}
-                                    onMouseEnter={(e) => {
-                                      e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)';
-                                      e.currentTarget.style.transform = 'scale(1.05)';
-                                    }}
-                                    onMouseLeave={(e) => {
-                                      e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)';
-                                      e.currentTarget.style.transform = 'scale(1)';
-                                    }}
-                                    title="Edit enquiry"
-                                  >
-                                    <Icon 
-                                      iconName="Edit" 
-                                      styles={{ 
-                                        root: { 
-                                          fontSize: '10px', 
-                                          color: isDarkMode ? 'rgba(203, 213, 225, 0.9)' : 'rgba(71, 85, 105, 0.9)' 
-                                        } 
-                                      }} 
-                                    />
-                                  </div>
-
-                                  {/* Delete Button */}
-                                  <div
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      const passcode = prompt('Enter passcode to delete this enquiry:');
-                                      if (passcode === '2011') {
-                                        const enquiryName = `${item.First_Name || ''} ${item.Last_Name || ''}`.trim() || 'Unnamed enquiry';
-                                        const confirmMessage = `Are you sure you want to permanently delete "${enquiryName}"?\n\nThis action cannot be undone.`;
-                                        if (window.confirm(confirmMessage)) {
-                                          handleDeleteEnquiry(item.ID, enquiryName);
-                                        }
-                                      } else if (passcode !== null) {
-                                        alert('Incorrect passcode');
-                                      }
-                                    }}
-                                    style={{
-                                      width: 22,
-                                      height: 22,
-                                      borderRadius: 0,
-                                      background: isDarkMode ? 'rgba(248, 113, 113, 0.1)' : 'rgba(248, 113, 113, 0.08)',
-                                      border: `1px solid ${isDarkMode ? 'rgba(248, 113, 113, 0.3)' : 'rgba(248, 113, 113, 0.2)'}`,
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      justifyContent: 'center',
-                                      cursor: 'pointer',
-                                      transition: 'all 0.2s ease',
-                                    }}
-                                    onMouseEnter={(e) => {
-                                      e.currentTarget.style.background = isDarkMode ? 'rgba(248, 113, 113, 0.15)' : 'rgba(248, 113, 113, 0.12)';
-                                      e.currentTarget.style.transform = 'scale(1.05)';
-                                    }}
-                                    onMouseLeave={(e) => {
-                                      e.currentTarget.style.background = isDarkMode ? 'rgba(248, 113, 113, 0.1)' : 'rgba(248, 113, 113, 0.08)';
-                                      e.currentTarget.style.transform = 'scale(1)';
-                                    }}
-                                    title="Delete enquiry (requires passcode)"
-                                  >
-                                    <Icon 
-                                      iconName="Delete" 
-                                      styles={{ 
-                                        root: { 
-                                          fontSize: '10px', 
-                                          color: isDarkMode ? '#F87171' : '#EF4444' 
-                                        } 
-                                      }} 
-                                    />
-                                  </div>
-                                </>
-                              )}
-                            </div>
-                          </div>
-                          )}
-                          {/* Expanded Section - notes only */}
-                          {!isSingleDayCollapsed && isNotesExpanded && hasNotes && (
-                            <div style={{
-                              gridColumn: '1 / -1',
-                              padding: '12px 60px 12px 32px',
-                              backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.02)' : 'rgba(0, 0, 0, 0.01)',
-                              borderBottom: isLast ? 'none' : `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)'}`,
-                              fontSize: '12px',
-                              lineHeight: '1.5',
-                              color: isDarkMode ? 'rgba(255, 255, 255, 0.85)' : 'rgba(0, 0, 0, 0.75)',
-                              whiteSpace: 'pre-line',
-                            }}>
-                              <div style={{
-                                fontSize: '9px',
-                                fontWeight: 600,
-                                textTransform: 'uppercase',
-                                letterSpacing: '0.5px',
-                                color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)',
-                                marginBottom: '8px',
-                              }}>
-                                Notes
-                              </div>
-                              {item.Initial_first_call_notes?.replace(/\\n/g, '\n').replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim()}
-                            </div>
-                          )}
-                          </React.Fragment>
+                          <ProspectTableRow
+                            key={`${item.ID}-${item.First_Name || ''}-${item.Last_Name || ''}-${item.Touchpoint_Date || ''}-${item.Point_of_Contact || ''}`}
+                            item={item}
+                            idx={idx}
+                            isLast={isLast}
+                            displayedItems={displayedItems}
+                            isGroupedEnquiry={isGroupedEnquiry}
+                            pipelineHandlers={rowPipelineHandlers}
+                            actionHandlers={rowActionHandlers}
+                            displayState={rowDisplayState}
+                            hoverHandlers={rowHoverHandlers}
+                            dataDeps={rowDataDeps}
+                          />
                         );
                       }
                     })}
                     {/* Infinite scroll loader for table view - inside scroll container */}
-                    <div 
-                      ref={loader} 
-                      style={{ 
-                        height: '20px', 
-                        width: '100%',
-                        visibility: itemsToShow < filteredEnquiries.length ? 'visible' : 'hidden',
-                      }} 
-                    />
+                    {itemsToShow < filteredEnquiries.length && (
+                      <div 
+                        ref={loader} 
+                        style={{ 
+                          height: '20px', 
+                          width: '100%',
+                        }} 
+                      />
+                    )}
                   </div>
-                )}
               </>
             )}
           </>
         )}
       </div>
 
-      {isSuccessVisible && (
-        <MessageBar
-          messageBarType={MessageBarType.success}
-          isMultiline={false}
-          onDismiss={() => setIsSuccessVisible(false)}
-          dismissButtonAriaLabel="Close"
-          styles={{
-            root: {
-              position: 'fixed',
-              bottom: 20,
-              right: 20,
-              maxWidth: '300px',
-              zIndex: 1000,
-              borderRadius: 0,
-              fontFamily: 'Raleway, sans-serif',
-            },
-          }}
-        >
-          Rating submitted successfully!
-        </MessageBar>
-      )}
+      <SuccessMessageBar isVisible={isSuccessVisible} onDismiss={() => setIsSuccessVisible(false)} />
 
-      {/* Rating Modal - Inline style */}
-      {isRateModalOpen && (
-        <div
-          onClick={closeRateModal}
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: 'rgba(0,0,0,0.4)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 10000,
-            animation: 'fadeIn 0.2s ease',
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              background: isDarkMode ? 'rgba(15,23,42,0.98)' : '#fff',
-              borderRadius: 12,
-              padding: '24px 20px',
-              minWidth: 360,
-              maxWidth: 480,
-              boxShadow: isDarkMode
-                ? '0 10px 40px rgba(0,0,0,0.5)'
-                : '0 10px 40px rgba(0,0,0,0.15)',
-              border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
-            }}
-          >
-            {/* Header */}
-            <div style={{
-              padding: '0 0 16px 0',
-              borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-            }}>
-              <Text style={{
-                fontSize: 18,
-                fontWeight: 600,
-                color: isDarkMode ? 'rgba(255,255,255,0.95)' : 'rgba(0,0,0,0.95)',
-              }}>
-                Rate Enquiry
-              </Text>
-              <button
-                onClick={closeRateModal}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  padding: 4,
-                  color: isDarkMode ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <Icon iconName="Cancel" style={{ fontSize: 16 }} />
-              </button>
-            </div>
-
-            {/* Rating options */}
-            <div style={{ padding: '8px 0' }}>
-              {[
-                { value: 'Good', icon: 'FavoriteStarFill', color: colours.blue, label: 'Good quality enquiry' },
-                { value: 'Neutral', icon: 'CircleRing', color: colours.grey, label: 'Average enquiry' },
-                { value: 'Poor', icon: 'StatusErrorFull', color: colours.cta, label: 'Poor quality enquiry' },
-              ].map((option) => (
-                <button
-                  key={option.value}
-                  onClick={() => {
-                    setCurrentRating(option.value);
-                    submitRating(option.value);
-                  }}
-                  style={{
-                    width: '100%',
-                    padding: '14px 20px',
-                    border: 'none',
-                    background: currentRating === option.value 
-                      ? (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)')
-                      : 'transparent',
-                    color: isDarkMode ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.9)',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 12,
-                    fontSize: 14,
-                    fontWeight: currentRating === option.value ? 600 : 500,
-                    transition: 'background 0.2s',
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = isDarkMode 
-                      ? 'rgba(255,255,255,0.08)' 
-                      : 'rgba(0,0,0,0.04)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = currentRating === option.value 
-                      ? (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)')
-                      : 'transparent';
-                  }}
-                >
-                  <Icon 
-                    iconName={option.icon} 
-                    style={{ fontSize: 18, color: option.color }} 
-                  />
-                  <div style={{ flex: 1, textAlign: 'left' }}>
-                    <div style={{ fontWeight: 600 }}>{option.value}</div>
-                    <div style={{ 
-                      fontSize: 12, 
-                      color: isDarkMode ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)',
-                      marginTop: 2
-                    }}>
-                      {option.label}
-                    </div>
-                  </div>
-                  {currentRating === option.value && (
-                    <Icon 
-                      iconName="CheckMark" 
-                      style={{ 
-                        fontSize: 14, 
-                        color: option.color 
-                      }} 
-                    />
-                  )}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
+      <RatingModal
+        isOpen={isRateModalOpen}
+        isDarkMode={isDarkMode}
+        currentRating={currentRating}
+        setCurrentRating={setCurrentRating}
+        submitRating={submitRating}
+        closeRateModal={closeRateModal}
+      />
 
       {/* People Search Panel */}
       <PeopleSearchPanel
@@ -11050,437 +8969,24 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         teamData={teamData}
       />
 
-      {pipelineHover && typeof document !== 'undefined' && ReactDOM.createPortal(
-        <div
-          style={{
-            position: 'fixed',
-            top: pipelineHover.y,
-            left: pipelineHover.x,
-            background: isDarkMode ? 'rgba(15, 23, 42, 0.98)' : '#ffffff',
-            color: isDarkMode ? 'rgba(255,255,255,0.95)' : 'rgba(0,0,0,0.9)',
-            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.3)'}`,
-            borderRadius: 10,
-            padding: '12px 14px',
-            minWidth: 260,
-            maxWidth: 340,
-            boxShadow: isDarkMode ? '0 12px 28px rgba(0,0,0,0.5)' : '0 12px 28px rgba(15,23,42,0.14)',
-            zIndex: 20000,
-            pointerEvents: 'none',
-            opacity: 1,
-          }}
-        >
-          {/* Header with icon + title */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            {pipelineHover.iconName && renderPipelineIcon(pipelineHover.iconName, pipelineHover.color, 16)}
-            <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: '0.2px' }}>
-              {pipelineHover.title}
-            </div>
-          </div>
-          
-          {/* Status badge */}
-          <div style={{ 
-            display: 'inline-block',
-            padding: '3px 8px',
-            borderRadius: 4,
-            background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)',
-            fontSize: 11,
-            fontWeight: 600, 
-            color: pipelineHover.color,
-            marginBottom: pipelineHover.details?.length ? 10 : 0,
-          }}>
-            {pipelineHover.status}
-          </div>
-          
-          {/* Detail rows */}
-          {pipelineHover.details && pipelineHover.details.length > 0 && (
-            <div style={{ 
-              borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)'}`,
-              paddingTop: 8,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 6,
-            }}>
-              {pipelineHover.details.map((detail, idx) => (
-                <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-                  <span style={{ 
-                    fontSize: 10, 
-                    fontWeight: 500, 
-                    color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.3px',
-                    flexShrink: 0,
-                  }}>
-                    {detail.label}
-                  </span>
-                  <span style={{ 
-                    fontSize: 11, 
-                    fontWeight: 500, 
-                    color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(30, 41, 59, 0.9)',
-                    textAlign: 'right',
-                    wordBreak: 'break-word',
-                  }}>
-                    {detail.value}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-          
-          {/* Subtitle (client name) */}
-          {pipelineHover.subtitle && (
-            <div style={{ 
-              marginTop: 8, 
-              paddingTop: 6,
-              borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.15)'}`,
-              fontSize: 10, 
-              color: isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(71, 85, 105, 0.6)',
-              fontStyle: 'italic',
-            }}>
-              {pipelineHover.subtitle}
-            </div>
-          )}
-        </div>,
-        document.body,
-      )}
+      <PipelineTooltipPortal pipelineHover={pipelineHover} isDarkMode={isDarkMode} />
 
-      {/* Edit Enquiry Modal */}
-      {showEditModal && editingEnquiry && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.5)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 1000,
-        }}>
-          <div style={{
-            backgroundColor: isDarkMode ? '#1f2937' : '#ffffff',
-            borderRadius: '12px',
-            padding: '24px',
-            width: '600px',
-            maxWidth: '90vw',
-            maxHeight: '80vh',
-            overflow: 'auto',
-            boxShadow: '0 10px 30px rgba(0, 0, 0, 0.3)',
-          }}>
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              marginBottom: '20px',
-            }}>
-              <h2 style={{
-                margin: 0,
-                fontSize: '20px',
-                fontWeight: 600,
-                color: isDarkMode ? '#e5e7eb' : '#1f2937',
-              }}>
-                Edit Enquiry
-              </h2>
-              <button
-                onClick={() => {
-                  setShowEditModal(false);
-                  setEditingEnquiry(null);
-                }}
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  cursor: 'pointer',
-                  padding: '8px',
-                  borderRadius: '6px',
-                  color: isDarkMode ? '#9ca3af' : '#6b7280',
-                }}
-              >
-                <Icon iconName="Cancel" styles={{ root: { fontSize: '18px' } }} />
-              </button>
-            </div>
+      <EditEnquiryModal
+        isOpen={showEditModal}
+        isDarkMode={isDarkMode}
+        editingEnquiry={editingEnquiry}
+        setEditingEnquiry={setEditingEnquiry}
+        handleEditEnquiry={handleEditEnquiry}
+        onClose={() => { setShowEditModal(false); setEditingEnquiry(null); }}
+      />
 
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
-              gap: '16px',
-              marginBottom: '16px',
-            }}>
-              <div>
-                <label style={{
-                  display: 'block',
-                  fontSize: '14px',
-                  fontWeight: 600,
-                  marginBottom: '6px',
-                  color: isDarkMode ? '#e5e7eb' : '#374151',
-                }}>
-                  First Name
-                </label>
-                <input
-                  type="text"
-                  value={editingEnquiry.First_Name || ''}
-                  onChange={(e) => setEditingEnquiry({ ...editingEnquiry, First_Name: e.target.value })}
-                  style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    borderRadius: '6px',
-                    border: `1px solid ${isDarkMode ? '#374151' : '#d1d5db'}`,
-                    backgroundColor: isDarkMode ? '#374151' : '#ffffff',
-                    color: isDarkMode ? '#e5e7eb' : '#1f2937',
-                    fontSize: '14px',
-                  }}
-                />
-              </div>
-
-              <div>
-                <label style={{
-                  display: 'block',
-                  fontSize: '14px',
-                  fontWeight: 600,
-                  marginBottom: '6px',
-                  color: isDarkMode ? '#e5e7eb' : '#374151',
-                }}>
-                  Last Name
-                </label>
-                <input
-                  type="text"
-                  value={editingEnquiry.Last_Name || ''}
-                  onChange={(e) => setEditingEnquiry({ ...editingEnquiry, Last_Name: e.target.value })}
-                  style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    borderRadius: '6px',
-                    border: `1px solid ${isDarkMode ? '#374151' : '#d1d5db'}`,
-                    backgroundColor: isDarkMode ? '#374151' : '#ffffff',
-                    color: isDarkMode ? '#e5e7eb' : '#1f2937',
-                    fontSize: '14px',
-                  }}
-                />
-              </div>
-            </div>
-
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{
-                display: 'block',
-                fontSize: '14px',
-                fontWeight: 600,
-                marginBottom: '6px',
-                color: isDarkMode ? '#e5e7eb' : '#374151',
-              }}>
-                Email
-              </label>
-              <input
-                type="email"
-                value={editingEnquiry.Email || ''}
-                onChange={(e) => setEditingEnquiry({ ...editingEnquiry, Email: e.target.value })}
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  borderRadius: '6px',
-                  border: `1px solid ${isDarkMode ? '#374151' : '#d1d5db'}`,
-                  backgroundColor: isDarkMode ? '#374151' : '#ffffff',
-                  color: isDarkMode ? '#e5e7eb' : '#1f2937',
-                  fontSize: '14px',
-                }}
-              />
-            </div>
-
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{
-                display: 'block',
-                fontSize: '14px',
-                fontWeight: 600,
-                marginBottom: '6px',
-                color: isDarkMode ? '#e5e7eb' : '#374151',
-              }}>
-                Value
-              </label>
-              <input
-                type="text"
-                value={editingEnquiry.Value || ''}
-                onChange={(e) => setEditingEnquiry({ ...editingEnquiry, Value: e.target.value })}
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  borderRadius: '6px',
-                  border: `1px solid ${isDarkMode ? '#374151' : '#d1d5db'}`,
-                  backgroundColor: isDarkMode ? '#374151' : '#ffffff',
-                  color: isDarkMode ? '#e5e7eb' : '#1f2937',
-                  fontSize: '14px',
-                }}
-              />
-            </div>
-
-            <div style={{ marginBottom: '24px' }}>
-              <label style={{
-                display: 'block',
-                fontSize: '14px',
-                fontWeight: 600,
-                marginBottom: '6px',
-                color: isDarkMode ? '#e5e7eb' : '#374151',
-              }}>
-                Notes
-              </label>
-              <textarea
-                value={editingEnquiry.Initial_first_call_notes || ''}
-                onChange={(e) => setEditingEnquiry({ ...editingEnquiry, Initial_first_call_notes: e.target.value })}
-                rows={4}
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  borderRadius: '6px',
-                  border: `1px solid ${isDarkMode ? '#374151' : '#d1d5db'}`,
-                  backgroundColor: isDarkMode ? '#374151' : '#ffffff',
-                  color: isDarkMode ? '#e5e7eb' : '#1f2937',
-                  fontSize: '14px',
-                  fontFamily: 'inherit',
-                  resize: 'vertical',
-                }}
-              />
-            </div>
-
-            <div style={{
-              display: 'flex',
-              justifyContent: 'flex-end',
-              gap: '12px',
-            }}>
-              <button
-                onClick={() => {
-                  setShowEditModal(false);
-                  setEditingEnquiry(null);
-                }}
-                style={{
-                  padding: '10px 20px',
-                  borderRadius: '6px',
-                  border: `1px solid ${isDarkMode ? '#4b5563' : '#d1d5db'}`,
-                  backgroundColor: 'transparent',
-                  color: isDarkMode ? '#e5e7eb' : '#374151',
-                  cursor: 'pointer',
-                  fontSize: '14px',
-                  fontWeight: 500,
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={async () => {
-                  if (editingEnquiry) {
-                    await handleEditEnquiry(editingEnquiry);
-                    setShowEditModal(false);
-                    setEditingEnquiry(null);
-                  }
-                }}
-                style={{
-                  padding: '10px 20px',
-                  borderRadius: '6px',
-                  border: 'none',
-                  backgroundColor: '#3b82f6',
-                  color: '#ffffff',
-                  cursor: 'pointer',
-                  fontSize: '14px',
-                  fontWeight: 500,
-                }}
-              >
-                Save Changes
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Reassignment Dropdown */}
-      {reassignmentDropdown && (
-        <div
-          className="reassignment-dropdown"
-          style={{
-            position: 'fixed',
-            left: Math.min(reassignmentDropdown.x, window.innerWidth - 220),
-            top: Math.min(reassignmentDropdown.y, window.innerHeight - 300),
-            zIndex: 10000,
-            background: isDarkMode ? 'rgba(15, 23, 42, 0.98)' : 'rgba(255, 255, 255, 0.98)',
-            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)'}`,
-            borderRadius: 6,
-            boxShadow: isDarkMode 
-              ? '0 8px 32px rgba(0, 0, 0, 0.5)' 
-              : '0 8px 32px rgba(0, 0, 0, 0.15)',
-            maxHeight: 280,
-            width: 200,
-            overflow: 'hidden',
-          }}
-        >
-          <div style={{
-            padding: '8px 12px',
-            borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)'}`,
-            fontSize: 11,
-            fontWeight: 600,
-            color: isDarkMode ? 'rgba(203, 213, 225, 0.7)' : 'rgba(71, 85, 105, 0.7)',
-            textTransform: 'uppercase',
-            letterSpacing: '0.5px',
-          }}>
-            Reassign to
-          </div>
-          <div style={{ 
-            maxHeight: 230, 
-            overflowY: 'auto',
-            overflowX: 'hidden',
-          }}>
-            {isReassigning ? (
-              <div style={{
-                padding: '20px',
-                textAlign: 'center',
-                color: isDarkMode ? 'rgba(203, 213, 225, 0.7)' : 'rgba(71, 85, 105, 0.7)',
-                fontSize: 12,
-              }}>
-                Reassigning...
-              </div>
-            ) : (
-              teamMemberOptions.map((option) => (
-                <button
-                  key={option.value}
-                  onClick={() => handleReassignmentSelect(option.value)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    width: '100%',
-                    padding: '8px 12px',
-                    border: 'none',
-                    background: 'transparent',
-                    cursor: 'pointer',
-                    fontSize: 12,
-                    color: isDarkMode ? 'rgba(203, 213, 225, 0.9)' : 'rgba(71, 85, 105, 0.9)',
-                    textAlign: 'left',
-                    transition: 'background 0.15s ease',
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = 'transparent';
-                  }}
-                >
-                  <span style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    width: 24,
-                    height: 24,
-                    borderRadius: '50%',
-                    background: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)',
-                    color: colours.blue,
-                    fontSize: 10,
-                    fontWeight: 700,
-                  }}>
-                    {option.initials}
-                  </span>
-                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {option.text.split(' (')[0]}
-                  </span>
-                </button>
-              ))
-            )}
-          </div>
-        </div>
-      )}
+      <ReassignmentDropdown
+        dropdown={reassignmentDropdown}
+        isDarkMode={isDarkMode}
+        isReassigning={isReassigning}
+        teamMemberOptions={teamMemberOptions}
+        handleReassignmentSelect={handleReassignmentSelect}
+      />
       
       </Stack>
     </div>

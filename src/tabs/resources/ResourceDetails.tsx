@@ -42,11 +42,11 @@ const _iconButtonStyles = (iconColor: string) => ({
     selectors: {
       ':hover': {
         backgroundColor: colours.cta,
-        color: '#ffffff',
+        color: colours.light.text,
       },
       ':focus': {
         backgroundColor: colours.cta,
-        color: '#ffffff',
+        color: colours.light.text,
       },
     },
     height: '24px',
@@ -97,7 +97,7 @@ const actionButtonStyle = (isDarkMode: boolean, isSelected: boolean) =>
       ? colours.dark.cardBackground
       : colours.light.cardBackground,
     border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-    borderRadius: '8px',
+    borderRadius: 0,
     color: isSelected
       ? isDarkMode
         ? colours.dark.buttonText
@@ -128,7 +128,7 @@ const formContainerStyle = mergeStyles({
   marginTop: '10px', // Reduced margin to align closely under the button
   padding: '20px',
   backgroundColor: colours.grey, // Subtle grey background
-  borderRadius: '12px',
+  borderRadius: 0,
   // No shadow as per requirement
 });
 
@@ -290,7 +290,7 @@ const ResourceDetails: React.FC<ResourceDetailsProps> = ({ resource, onClose }) 
                           ? colours.dark.sectionBackground
                           : colours.light.sectionBackground,
                         color: isDarkMode ? colours.dark.text : colours.light.text,
-                        borderRadius: '12px',
+                        borderRadius: 999,
                         padding: '6px 12px',
                         display: 'flex',
                         alignItems: 'center',
@@ -359,7 +359,7 @@ const ResourceDetails: React.FC<ResourceDetailsProps> = ({ resource, onClose }) 
               right: 20,
               maxWidth: '300px',
               zIndex: 1000,
-              borderRadius: '8px',
+              borderRadius: 0,
               backgroundColor: colours.green,
               color: 'white',
             },

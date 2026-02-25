@@ -47,6 +47,14 @@ const resolveUserOverride = (emailRaw, initialsRaw) => {
  *   prevEnquiriesToday: number,
  *   prevEnquiriesWeekToDate: number,
  *   prevEnquiriesMonthToDate: number,
+ *   prevEnquiriesWeekFull: number,
+ *   prevEnquiriesMonthFull: number,
+ *   pitchedToday: number,
+ *   pitchedWeekToDate: number,
+ *   pitchedMonthToDate: number,
+ *   prevPitchedToday: number,
+ *   prevPitchedWeekToDate: number,
+ *   prevPitchedMonthToDate: number,
   *   breakdown?: {
   *     today?: { aowTop?: Array<{ key: string, count: number }> },
   *     weekToDate?: { aowTop?: Array<{ key: string, count: number }> },
@@ -103,6 +111,14 @@ router.get('/', async (req, res) => {
       prevEnquiriesToday: 0,
       prevEnquiriesWeekToDate: 0,
       prevEnquiriesMonthToDate: 0,
+      prevEnquiriesWeekFull: 0,
+      prevEnquiriesMonthFull: 0,
+      pitchedToday: 0,
+      pitchedWeekToDate: 0,
+      pitchedMonthToDate: 0,
+      prevPitchedToday: 0,
+      prevPitchedWeekToDate: 0,
+      prevPitchedMonthToDate: 0,
       error: err.message,
       cached: false,
       stale: false,
@@ -188,6 +204,12 @@ async function fetchEnquiryMetrics(email, initials) {
   prevWeekStart.setDate(prevWeekStart.getDate() - 7);
   const prevWeekEnd = new Date(prevToday);
   prevWeekEnd.setHours(23, 59, 59, 999);
+
+  const prevFullWeekStart = new Date(startOfWeek);
+  prevFullWeekStart.setDate(prevFullWeekStart.getDate() - 7);
+  prevFullWeekStart.setHours(0, 0, 0, 0);
+  const prevFullWeekEnd = new Date(startOfWeek);
+  prevFullWeekEnd.setMilliseconds(prevFullWeekEnd.getMilliseconds() - 1);
   
   const prevMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
   const prevMonthEnd = new Date(prevMonthStart);
@@ -195,21 +217,30 @@ async function fetchEnquiryMetrics(email, initials) {
   prevMonthEnd.setDate(Math.min(today.getDate(), prevMonthDays));
   prevMonthEnd.setHours(23, 59, 59, 999);
 
+  const prevFullMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+  const prevFullMonthEnd = new Date(today.getFullYear(), today.getMonth(), 0, 23, 59, 59, 999);
+
   // End of today for inclusive queries
   const endOfToday = new Date(today);
   endOfToday.setHours(23, 59, 59, 999);
 
   // Query both databases in parallel
-  const [mainCounts, instCounts, mattersCounts] = await Promise.all([
+  const [mainCounts, instCounts, mattersCounts, pitchedCounts] = await Promise.all([
     queryMainDbCounts(mainConnectionString, email, initials, {
       today, endOfToday, startOfWeek, startOfMonth,
-      prevToday, prevWeekStart, prevWeekEnd, prevMonthStart, prevMonthEnd
+      prevToday, prevWeekStart, prevWeekEnd, prevMonthStart, prevMonthEnd,
+      prevFullWeekStart, prevFullWeekEnd, prevFullMonthStart, prevFullMonthEnd
     }),
     queryInstructionsDbCounts(instructionsConnectionString, email, initials, {
       today, endOfToday, startOfWeek, startOfMonth,
-      prevToday, prevWeekStart, prevWeekEnd, prevMonthStart, prevMonthEnd
+      prevToday, prevWeekStart, prevWeekEnd, prevMonthStart, prevMonthEnd,
+      prevFullWeekStart, prevFullWeekEnd, prevFullMonthStart, prevFullMonthEnd
     }),
-    queryMattersOpened(instructionsConnectionString, initials, today)
+    queryMattersOpened(instructionsConnectionString, initials, today),
+    queryPitchedCounts(instructionsConnectionString, email, initials, {
+      today, endOfToday, startOfWeek, startOfMonth,
+      prevToday, prevWeekStart, prevWeekEnd, prevMonthStart, prevMonthEnd
+    })
   ]);
 
   // For enquiries we need to be careful about double-counting across DBs.
@@ -234,10 +265,85 @@ async function fetchEnquiryMetrics(email, initials) {
     prevEnquiriesToday: Math.max(mainCounts.prevToday, instCounts.prevToday),
     prevEnquiriesWeekToDate: Math.max(mainCounts.prevWeekToDate, instCounts.prevWeekToDate),
     prevEnquiriesMonthToDate: Math.max(mainCounts.prevMonthToDate, instCounts.prevMonthToDate),
+    prevEnquiriesWeekFull: Math.max(mainCounts.prevWeekFull || 0, instCounts.prevWeekFull || 0),
+    prevEnquiriesMonthFull: Math.max(mainCounts.prevMonthFull || 0, instCounts.prevMonthFull || 0),
+    pitchedToday: pitchedCounts.today,
+    pitchedWeekToDate: pitchedCounts.weekToDate,
+    pitchedMonthToDate: pitchedCounts.monthToDate,
+    prevPitchedToday: pitchedCounts.prevToday,
+    prevPitchedWeekToDate: pitchedCounts.prevWeekToDate,
+    prevPitchedMonthToDate: pitchedCounts.prevMonthToDate,
     mattersOpenedMonth: mattersCounts.userMatters,
     firmMattersOpenedMonth: mattersCounts.firmMatters,
     breakdown,
   };
+}
+
+async function queryPitchedCounts(connectionString, email, initials, dates) {
+  if (!connectionString) {
+    return { today: 0, weekToDate: 0, monthToDate: 0, prevToday: 0, prevWeekToDate: 0, prevMonthToDate: 0, prevWeekFull: 0, prevMonthFull: 0 };
+  }
+
+  try {
+    const result = await withRequest(connectionString, async (request) => {
+      const pitchedByConditions = [];
+      if (email) {
+        request.input('userEmail', sql.VarChar(255), email);
+        pitchedByConditions.push("LOWER(LTRIM(RTRIM(PitchedBy))) = @userEmail");
+      }
+      if (initials) {
+        request.input('userInitials', sql.VarChar(50), initials);
+        pitchedByConditions.push("LOWER(REPLACE(REPLACE(LTRIM(RTRIM(PitchedBy)), ' ', ''), '.', '')) = @userInitials");
+      }
+      if (pitchedByConditions.length === 0) {
+        return { today_count: 0, week_count: 0, month_count: 0, prev_today_count: 0, prev_week_count: 0, prev_month_count: 0 };
+      }
+
+      const pitchedByFilter = `(${pitchedByConditions.join(' OR ')})`;
+
+      request.input('today', sql.DateTime2, dates.today);
+      request.input('endOfToday', sql.DateTime2, dates.endOfToday);
+      request.input('startOfWeek', sql.DateTime2, dates.startOfWeek);
+      request.input('startOfMonth', sql.DateTime2, dates.startOfMonth);
+      request.input('prevToday', sql.DateTime2, dates.prevToday);
+      request.input('prevTodayEnd', sql.DateTime2, new Date(dates.prevToday.getTime() + 24*60*60*1000 - 1));
+      request.input('prevWeekStart', sql.DateTime2, dates.prevWeekStart);
+      request.input('prevWeekEnd', sql.DateTime2, dates.prevWeekEnd);
+      request.input('prevMonthStart', sql.DateTime2, dates.prevMonthStart);
+      request.input('prevMonthEnd', sql.DateTime2, dates.prevMonthEnd);
+      request.input('prevFullWeekStart', sql.DateTime2, dates.prevFullWeekStart);
+      request.input('prevFullWeekEnd', sql.DateTime2, dates.prevFullWeekEnd);
+      request.input('prevFullMonthStart', sql.DateTime2, dates.prevFullMonthStart);
+      request.input('prevFullMonthEnd', sql.DateTime2, dates.prevFullMonthEnd);
+
+      const countsResult = await request.query(`
+        SELECT
+          COUNT(CASE WHEN PitchedDate >= @today AND PitchedDate <= @endOfToday THEN 1 END) as today_count,
+          COUNT(CASE WHEN PitchedDate >= @startOfWeek AND PitchedDate <= @endOfToday THEN 1 END) as week_count,
+          COUNT(CASE WHEN PitchedDate >= @startOfMonth AND PitchedDate <= @endOfToday THEN 1 END) as month_count,
+          COUNT(CASE WHEN PitchedDate >= @prevToday AND PitchedDate <= @prevTodayEnd THEN 1 END) as prev_today_count,
+          COUNT(CASE WHEN PitchedDate >= @prevWeekStart AND PitchedDate <= @prevWeekEnd THEN 1 END) as prev_week_count,
+          COUNT(CASE WHEN PitchedDate >= @prevMonthStart AND PitchedDate <= @prevMonthEnd THEN 1 END) as prev_month_count
+        FROM Deals
+        WHERE ${pitchedByFilter}
+          AND PitchedDate IS NOT NULL
+      `);
+
+      return countsResult.recordset?.[0] || {};
+    });
+
+    return {
+      today: Number(result.today_count || 0),
+      weekToDate: Number(result.week_count || 0),
+      monthToDate: Number(result.month_count || 0),
+      prevToday: Number(result.prev_today_count || 0),
+      prevWeekToDate: Number(result.prev_week_count || 0),
+      prevMonthToDate: Number(result.prev_month_count || 0),
+    };
+  } catch (err) {
+    log.warn('[home-enquiries] Pitched counts query failed:', err.message);
+    return { today: 0, weekToDate: 0, monthToDate: 0, prevToday: 0, prevWeekToDate: 0, prevMonthToDate: 0 };
+  }
 }
 
 function buildPeriodRanges(period) {
@@ -438,7 +544,9 @@ async function queryMainDbCounts(connectionString, email, initials, dates) {
           COUNT(CASE WHEN Date_Created >= @startOfMonth AND Date_Created <= @endOfToday THEN 1 END) as month_count,
           COUNT(CASE WHEN Date_Created >= @prevToday AND Date_Created <= @prevTodayEnd THEN 1 END) as prev_today_count,
           COUNT(CASE WHEN Date_Created >= @prevWeekStart AND Date_Created <= @prevWeekEnd THEN 1 END) as prev_week_count,
-          COUNT(CASE WHEN Date_Created >= @prevMonthStart AND Date_Created <= @prevMonthEnd THEN 1 END) as prev_month_count
+          COUNT(CASE WHEN Date_Created >= @prevMonthStart AND Date_Created <= @prevMonthEnd THEN 1 END) as prev_month_count,
+          COUNT(CASE WHEN Date_Created >= @prevFullWeekStart AND Date_Created <= @prevFullWeekEnd THEN 1 END) as prev_week_full_count,
+          COUNT(CASE WHEN Date_Created >= @prevFullMonthStart AND Date_Created <= @prevFullMonthEnd THEN 1 END) as prev_month_full_count
         FROM enquiries
         WHERE ${pocFilter}
       `);
@@ -485,11 +593,13 @@ async function queryMainDbCounts(connectionString, email, initials, dates) {
       prevToday: row.prev_today_count || 0,
       prevWeekToDate: row.prev_week_count || 0,
       prevMonthToDate: row.prev_month_count || 0,
+      prevWeekFull: row.prev_week_full_count || 0,
+      prevMonthFull: row.prev_month_full_count || 0,
       breakdown: result?.breakdown || undefined,
     };
   } catch (err) {
     log.error('[home-enquiries] Main DB query failed:', err.message);
-    return { today: 0, weekToDate: 0, monthToDate: 0, prevToday: 0, prevWeekToDate: 0, prevMonthToDate: 0, breakdown: undefined };
+    return { today: 0, weekToDate: 0, monthToDate: 0, prevToday: 0, prevWeekToDate: 0, prevMonthToDate: 0, prevWeekFull: 0, prevMonthFull: 0, breakdown: undefined };
   }
 }
 
@@ -499,7 +609,7 @@ async function queryMainDbCounts(connectionString, email, initials, dates) {
 async function queryInstructionsDbCounts(connectionString, email, initials, dates) {
   if (!connectionString) {
     log.warn('[home-enquiries] Instructions connection string not configured');
-    return { today: 0, weekToDate: 0, monthToDate: 0, prevToday: 0, prevWeekToDate: 0, prevMonthToDate: 0 };
+    return { today: 0, weekToDate: 0, monthToDate: 0, prevToday: 0, prevWeekToDate: 0, prevMonthToDate: 0, prevWeekFull: 0, prevMonthFull: 0 };
   }
 
   try {
@@ -529,6 +639,10 @@ async function queryInstructionsDbCounts(connectionString, email, initials, date
       request.input('prevWeekEnd', sql.DateTime2, dates.prevWeekEnd);
       request.input('prevMonthStart', sql.DateTime2, dates.prevMonthStart);
       request.input('prevMonthEnd', sql.DateTime2, dates.prevMonthEnd);
+      request.input('prevFullWeekStart', sql.DateTime2, dates.prevFullWeekStart);
+      request.input('prevFullWeekEnd', sql.DateTime2, dates.prevFullWeekEnd);
+      request.input('prevFullMonthStart', sql.DateTime2, dates.prevFullMonthStart);
+      request.input('prevFullMonthEnd', sql.DateTime2, dates.prevFullMonthEnd);
 
       const countsResult = await request.query(`
         SELECT
@@ -537,7 +651,9 @@ async function queryInstructionsDbCounts(connectionString, email, initials, date
           COUNT(CASE WHEN datetime >= @startOfMonth AND datetime <= @endOfToday THEN 1 END) as month_count,
           COUNT(CASE WHEN datetime >= @prevToday AND datetime <= @prevTodayEnd THEN 1 END) as prev_today_count,
           COUNT(CASE WHEN datetime >= @prevWeekStart AND datetime <= @prevWeekEnd THEN 1 END) as prev_week_count,
-          COUNT(CASE WHEN datetime >= @prevMonthStart AND datetime <= @prevMonthEnd THEN 1 END) as prev_month_count
+          COUNT(CASE WHEN datetime >= @prevMonthStart AND datetime <= @prevMonthEnd THEN 1 END) as prev_month_count,
+          COUNT(CASE WHEN datetime >= @prevFullWeekStart AND datetime <= @prevFullWeekEnd THEN 1 END) as prev_week_full_count,
+          COUNT(CASE WHEN datetime >= @prevFullMonthStart AND datetime <= @prevFullMonthEnd THEN 1 END) as prev_month_full_count
         FROM dbo.enquiries
         WHERE ${pocFilter}
       `);
@@ -584,11 +700,13 @@ async function queryInstructionsDbCounts(connectionString, email, initials, date
       prevToday: row.prev_today_count || 0,
       prevWeekToDate: row.prev_week_count || 0,
       prevMonthToDate: row.prev_month_count || 0,
+      prevWeekFull: row.prev_week_full_count || 0,
+      prevMonthFull: row.prev_month_full_count || 0,
       breakdown: result?.breakdown || undefined,
     };
   } catch (err) {
     log.error('[home-enquiries] Instructions DB query failed:', err.message);
-    return { today: 0, weekToDate: 0, monthToDate: 0, prevToday: 0, prevWeekToDate: 0, prevMonthToDate: 0, breakdown: undefined };
+    return { today: 0, weekToDate: 0, monthToDate: 0, prevToday: 0, prevWeekToDate: 0, prevMonthToDate: 0, prevWeekFull: 0, prevMonthFull: 0, breakdown: undefined };
   }
 }
 

@@ -41,18 +41,18 @@ const FormCard: React.FC<{
     const hasExternalLink = !!form.url;
     
     // Colors for card
-    const bg = isDarkMode ? 'rgba(30, 41, 59, 0.7)' : '#ffffff';
-    const bgHover = isDarkMode ? 'rgba(30, 41, 59, 0.85)' : '#f8fafc';
-    const border = isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(0, 0, 0, 0.06)';
-    const borderHover = isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(0, 0, 0, 0.12)';
-    const text = isDarkMode ? '#f1f5f9' : '#1e293b';
-    const textMuted = isDarkMode ? '#94a3b8' : '#64748b';
+    const bg = isDarkMode ? colours.darkBlue : colours.light.cardBackground;
+    const bgHover = isDarkMode ? colours.helixBlue : colours.light.cardHover;
+    const border = isDarkMode ? colours.dark.border : colours.light.border;
+    const borderHover = isDarkMode ? colours.dark.borderColor : colours.light.border;
+    const text = isDarkMode ? colours.dark.text : colours.light.text;
+    const textMuted = isDarkMode ? '#d1d5db' : '#374151';
 
     // Locked styling - greyed out
-    const lockedBg = isDarkMode ? 'rgba(30, 41, 59, 0.3)' : 'rgba(0, 0, 0, 0.02)';
-    const lockedBorder = isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)';
-    const lockedText = isDarkMode ? '#64748b' : '#94a3b8';
-    const lockedAccent = isDarkMode ? '#475569' : '#cbd5e1';
+    const lockedBg = isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground;
+    const lockedBorder = isDarkMode ? colours.dark.border : colours.light.border;
+    const lockedText = isDarkMode ? colours.subtleGrey : colours.greyText;
+    const lockedAccent = isDarkMode ? colours.dark.borderColor : colours.light.border;
 
     return (
         <div
@@ -66,11 +66,7 @@ const FormCard: React.FC<{
                 borderRight: `1px solid ${isLocked ? lockedBorder : (isHovered ? borderHover : border)}`,
                 borderBottom: `1px solid ${isLocked ? lockedBorder : (isHovered ? borderHover : border)}`,
                 borderLeft: `3px solid ${isLocked ? lockedAccent : groupColor}`,
-                boxShadow: isLocked 
-                    ? (isHovered ? (isDarkMode ? '0 2px 8px rgba(0,0,0,0.2)' : '0 2px 8px rgba(0,0,0,0.06)') : 'none')
-                    : (isHovered 
-                        ? (isDarkMode ? '0 4px 12px rgba(0,0,0,0.3)' : '0 4px 12px rgba(0,0,0,0.08)')
-                        : (isDarkMode ? '0 1px 3px rgba(0,0,0,0.2)' : '0 1px 3px rgba(0,0,0,0.04)')),
+                boxShadow: 'none',
                 transition: 'all 0.15s ease',
                 cursor: 'pointer',
                 opacity: isLocked ? 0.6 : 1,
@@ -116,18 +112,11 @@ const FormCard: React.FC<{
                     <div style={{
                         fontSize: 11,
                         color: isLocked ? lockedText : textMuted,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 4,
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
                     }}>
-                        <span style={{ opacity: 0.7 }}>→</span>
-                        <span style={{ 
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                        }}>
-                            {form.requires}
-                        </span>
+                        {form.requires}
                     </div>
                 )}
             </div>
@@ -157,7 +146,7 @@ const FormCard: React.FC<{
                                 color: textMuted,
                             },
                             rootHovered: {
-                                background: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
+                                background: isDarkMode ? colours.dark.cardHover : colours.light.cardHover,
                             },
                         }}
                     />
@@ -175,7 +164,7 @@ const FormCard: React.FC<{
                                 color: textMuted,
                             },
                             rootHovered: {
-                                background: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
+                                background: isDarkMode ? colours.dark.cardHover : colours.light.cardHover,
                             },
                         }}
                     />
@@ -202,7 +191,7 @@ const FormsModal: React.FC<FormsModalProps> = ({
             .map(([key, forms]) => ({
                 key,
                 label: sectionConfig[key]?.label || key,
-                color: sectionConfig[key]?.color || '#3690CE',
+                color: sectionConfig[key]?.color || colours.highlight,
                 locked: sectionConfig[key]?.locked || false,
                 forms: forms.filter(f => !excludedForms.includes(f.title)),
             }))
@@ -244,9 +233,69 @@ const FormsModal: React.FC<FormsModalProps> = ({
         return userData[0];
     }, [userData]);
 
-    // Selected form view (full screen)
+    // Selected form view
     if (selectedForm) {
-        // Custom component forms
+        const sharedHeader = (
+            <div style={{
+                padding: '10px 24px',
+                borderBottom: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                borderLeft: `4px solid ${getFormGroupColor(selectedForm)}`,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '20px',
+                background: isDarkMode ? colours.darkBlue : colours.light.sectionBackground,
+                flexShrink: 0,
+            }}>
+                <button
+                    onClick={handleBack}
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        padding: '10px 18px',
+                        borderRadius: 0,
+                        border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.light.border}`,
+                        background: isDarkMode ? colours.helixBlue : colours.light.cardBackground,
+                        color: isDarkMode ? colours.dark.text : colours.light.text,
+                        cursor: 'pointer',
+                        fontSize: '14px',
+                        fontWeight: 500,
+                        transition: 'all 0.15s ease',
+                    }}
+                >
+                    <Icon iconName="ChevronLeft" style={{ fontSize: 14 }} />
+                    Back
+                </button>
+                <Text style={{
+                    fontSize: '20px',
+                    fontWeight: 600,
+                    color: isDarkMode ? colours.dark.text : colours.light.text,
+                }}>
+                    {selectedForm.title}
+                </Text>
+                <div style={{ flex: 1 }} />
+                <IconButton
+                    iconProps={{ iconName: 'Cancel' }}
+                    onClick={onDismiss}
+                    styles={{
+                        root: {
+                            width: 40,
+                            height: 40,
+                            borderRadius: 0,
+                            border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.light.border}`,
+                            background: isDarkMode ? colours.helixBlue : colours.light.cardBackground,
+                        },
+                        rootHovered: {
+                            background: isDarkMode ? colours.dark.cardHover : colours.light.cardHover,
+                        },
+                        icon: {
+                            color: isDarkMode ? colours.dark.text : colours.light.text,
+                        }
+                    }}
+                />
+            </div>
+        );
+
         if (selectedForm.component) {
             const FormComponent = selectedForm.component;
             return (
@@ -256,80 +305,25 @@ const FormsModal: React.FC<FormsModalProps> = ({
                     isBlocking={false}
                     styles={{
                         main: {
-                            width: '100vw',
-                            height: '100vh',
-                            maxWidth: 'none',
-                            maxHeight: 'none',
-                            margin: 0,
+                            width: 'min(1400px, calc(100vw - 48px))',
+                            height: 'calc(100vh - 48px)',
+                            maxWidth: '1400px',
+                            maxHeight: 'calc(100vh - 48px)',
+                            margin: '24px auto',
                             borderRadius: 0,
-                            background: isDarkMode ? '#0f172a' : '#fafafa',
+                            background: isDarkMode ? colours.dark.background : colours.light.background,
+                            border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                         },
                         scrollableContent: {
-                            height: '100vh',
+                            height: '100%',
                             overflow: 'hidden',
                             display: 'flex',
                             flexDirection: 'column',
                         }
                     }}
                 >
-                    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
-                        {/* Consistent header with back button and group color cue */}
-                        <div style={{
-                            padding: '16px 32px',
-                            borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'}`,
-                            borderLeft: `4px solid ${getFormGroupColor(selectedForm)}`,
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '20px',
-                            background: isDarkMode ? '#1e293b' : '#fff',
-                            flexShrink: 0,
-                        }}>
-                            <button
-                                onClick={handleBack}
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '8px',
-                                    padding: '10px 18px',
-                                    borderRadius: 0,
-                                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0,0,0,0.1)'}`,
-                                    background: isDarkMode ? 'rgba(255,255,255,0.05)' : '#ffffff',
-                                    color: isDarkMode ? '#f1f5f9' : '#1e293b',
-                                    cursor: 'pointer',
-                                    fontSize: '14px',
-                                    fontWeight: 500,
-                                    transition: 'all 0.15s ease',
-                                }}
-                            >
-                                <Icon iconName="ChevronLeft" style={{ fontSize: 14 }} />
-                                Back
-                            </button>
-                            <Text style={{ 
-                                fontSize: '20px', 
-                                fontWeight: 600, 
-                                color: isDarkMode ? '#f1f5f9' : '#1e293b' 
-                            }}>
-                                {selectedForm.title}
-                            </Text>
-                            <div style={{ flex: 1 }} />
-                            <IconButton
-                                iconProps={{ iconName: 'Cancel' }}
-                                onClick={onDismiss}
-                                styles={{
-                                    root: {
-                                        width: 40,
-                                        height: 40,
-                                        borderRadius: 0,
-                                        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0,0,0,0.1)'}`,
-                                        background: isDarkMode ? 'rgba(255,255,255,0.05)' : '#ffffff',
-                                    },
-                                    icon: {
-                                        color: isDarkMode ? '#94a3b8' : '#64748b',
-                                    },
-                                }}
-                            />
-                        </div>
-                        {/* Form content */}
+                    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                        {sharedHeader}
                         <div style={{ flex: 1, overflow: 'auto' }}>
                             <FormComponent
                                 userData={userData || undefined}
@@ -343,7 +337,6 @@ const FormsModal: React.FC<FormsModalProps> = ({
             );
         }
 
-        // Embedded/external forms
         return (
             <Modal
                 isOpen={isOpen}
@@ -351,83 +344,28 @@ const FormsModal: React.FC<FormsModalProps> = ({
                 isBlocking={false}
                 styles={{
                     main: {
-                        width: '100vw',
-                        height: '100vh',
-                        maxWidth: 'none',
-                        maxHeight: 'none',
-                        margin: 0,
+                        width: 'min(1400px, calc(100vw - 48px))',
+                        height: 'calc(100vh - 48px)',
+                        maxWidth: '1400px',
+                        maxHeight: 'calc(100vh - 48px)',
+                        margin: '24px auto',
                         borderRadius: 0,
-                        background: isDarkMode ? '#0f172a' : '#fafafa',
+                        background: isDarkMode ? colours.dark.background : colours.light.background,
+                        border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                     },
                     scrollableContent: {
-                        height: '100vh',
+                        height: '100%',
                         overflow: 'hidden',
                         display: 'flex',
                         flexDirection: 'column',
                     }
                 }}
             >
-                <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
-                    {/* Consistent header with back button and group color cue */}
-                    <div style={{
-                        padding: '16px 32px',
-                        borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'}`,
-                        borderLeft: `4px solid ${getFormGroupColor(selectedForm)}`,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '20px',
-                        background: isDarkMode ? '#1e293b' : '#fff',
-                        flexShrink: 0,
-                    }}>
-                        <button
-                            onClick={handleBack}
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '8px',
-                                padding: '10px 18px',
-                                borderRadius: 0,
-                                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0,0,0,0.1)'}`,
-                                background: isDarkMode ? 'rgba(255,255,255,0.05)' : '#ffffff',
-                                color: isDarkMode ? '#f1f5f9' : '#1e293b',
-                                cursor: 'pointer',
-                                fontSize: '14px',
-                                fontWeight: 500,
-                                transition: 'all 0.15s ease',
-                            }}
-                        >
-                            <Icon iconName="ChevronLeft" style={{ fontSize: 14 }} />
-                            Back
-                        </button>
-                        <Text style={{ 
-                            fontSize: '20px', 
-                            fontWeight: 600, 
-                            color: isDarkMode ? '#f1f5f9' : '#1e293b' 
-                        }}>
-                            {selectedForm.title}
-                        </Text>
-                        <div style={{ flex: 1 }} />
-                        <IconButton
-                            iconProps={{ iconName: 'Cancel' }}
-                            onClick={onDismiss}
-                            styles={{
-                                root: {
-                                    width: 40,
-                                    height: 40,
-                                    borderRadius: 0,
-                                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0,0,0,0.1)'}`,
-                                    background: isDarkMode ? 'rgba(255,255,255,0.05)' : '#ffffff',
-                                },
-                                icon: {
-                                    color: isDarkMode ? '#94a3b8' : '#64748b',
-                                },
-                            }}
-                        />
-                    </div>
-                    {/* Form content */}
+                <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                    {sharedHeader}
                     <div style={{ flex: 1, overflow: 'auto', padding: '32px 48px' }}>
                         <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
-                            <FormEmbed 
+                            <FormEmbed
                                 link={selectedForm}
                                 userData={userData}
                                 teamData={teamData}
@@ -448,38 +386,39 @@ const FormsModal: React.FC<FormsModalProps> = ({
             isBlocking={false}
             styles={{
                 main: {
-                    width: '100vw',
-                    height: '100vh',
-                    maxWidth: 'none',
-                    maxHeight: 'none',
-                    margin: 0,
+                    width: 'min(1400px, calc(100vw - 48px))',
+                    height: 'calc(100vh - 48px)',
+                    maxWidth: '1400px',
+                    maxHeight: 'calc(100vh - 48px)',
+                    margin: '24px auto',
                     borderRadius: 0,
-                    background: isDarkMode ? '#0f172a' : '#fafafa',
+                    background: isDarkMode ? colours.dark.background : colours.light.background,
+                    border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
                 },
                 scrollableContent: {
-                    height: '100vh',
+                    height: '100%',
                 }
             }}
         >
             <div style={{ 
-                height: '100vh', 
+                height: '100%', 
                 display: 'flex', 
                 flexDirection: 'column',
                 fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
             }}>
                 {/* Clean header */}
                 <div style={{
-                    padding: '32px 48px 24px',
-                    borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'}`,
-                    background: isDarkMode ? '#1e293b' : '#fff',
+                    padding: '10px 24px',
+                    borderBottom: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+                    background: isDarkMode ? colours.darkBlue : colours.light.sectionBackground,
                     flexShrink: 0,
                 }}>
                     <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                             <Text style={{
-                                fontSize: '28px',
+                                fontSize: '20px',
                                 fontWeight: 600,
-                                color: isDarkMode ? '#fff' : '#1a1a1a',
+                                color: isDarkMode ? colours.dark.text : colours.light.text,
                                 display: 'block',
                             }}>
                                 Forms &amp; Processes
@@ -492,8 +431,15 @@ const FormsModal: React.FC<FormsModalProps> = ({
                                         width: 40,
                                         height: 40,
                                         borderRadius: 0,
-                                        background: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)',
+                                        border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.light.border}`,
+                                        background: isDarkMode ? colours.helixBlue : colours.light.cardBackground,
                                     },
+                                    rootHovered: {
+                                        background: isDarkMode ? colours.dark.cardHover : colours.light.cardHover,
+                                    },
+                                    icon: {
+                                        color: isDarkMode ? colours.dark.text : colours.light.text,
+                                    }
                                 }}
                             />
                         </div>
@@ -508,7 +454,7 @@ const FormsModal: React.FC<FormsModalProps> = ({
                                 <div style={{
                                     fontSize: 11,
                                     fontWeight: 700,
-                                    color: isDarkMode ? '#94a3b8' : '#64748b',
+                                    color: isDarkMode ? '#d1d5db' : '#374151',
                                     textTransform: 'uppercase',
                                     letterSpacing: '0.05em',
                                     marginBottom: '10px',
@@ -520,7 +466,7 @@ const FormsModal: React.FC<FormsModalProps> = ({
                                     <span style={{
                                         width: 3,
                                         height: 12,
-                                        background: section.locked ? (isDarkMode ? '#475569' : '#cbd5e1') : section.color,
+                                        background: section.locked ? (isDarkMode ? colours.dark.borderColor : colours.light.border) : section.color,
                                         borderRadius: 1,
                                     }} />
                                     {section.label}
@@ -557,17 +503,17 @@ const FormsModal: React.FC<FormsModalProps> = ({
                             bottom: 24,
                             left: '50%',
                             transform: 'translateX(-50%)',
-                            background: isDarkMode ? '#1e293b' : '#1e293b',
-                            color: '#fff',
+                            background: isDarkMode ? colours.dark.sectionBackground : colours.darkBlue,
+                            color: colours.dark.text,
                             padding: '10px 20px',
                             fontSize: 13,
                             fontWeight: 500,
-                            boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+                            boxShadow: 'none',
                             display: 'flex',
                             alignItems: 'center',
                             gap: 8,
                         }}>
-                            <Icon iconName="CheckMark" style={{ color: '#4ade80' }} />
+                            <Icon iconName="CheckMark" style={{ color: colours.green }} />
                             Link copied
                         </div>
                     )}

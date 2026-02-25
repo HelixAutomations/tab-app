@@ -122,23 +122,14 @@ const RANGE_OPTIONS: Array<{ key: RangeKey; label: string }> = [
   { key: 'year', label: 'Current Year' },
 ];
 
-// Helper function for consistent surface styling - Updated to match glass container approach
+// Helper function for consistent surface styling — matches Management Dashboard card pattern
 function surface(isDark: boolean, overrides: React.CSSProperties = {}): React.CSSProperties {
   return {
-    backgroundColor: isDark 
-      ? 'rgba(15, 23, 42, 0.85)' 
-      : 'rgba(255, 255, 255, 0.85)',
-    backdropFilter: 'blur(12px) saturate(180%)',
-    WebkitBackdropFilter: 'blur(12px) saturate(180%)',
-    borderRadius: 12,
-    border: `1px solid ${isDark 
-      ? 'rgba(148, 163, 184, 0.16)' 
-      : 'rgba(13, 47, 96, 0.12)'}`,
-    boxShadow: isDark 
-      ? '0 4px 16px rgba(0, 0, 0, 0.25), 0 1px 4px rgba(0, 0, 0, 0.15)'
-      : '0 4px 16px rgba(15, 23, 42, 0.06), 0 1px 4px rgba(15, 23, 42, 0.03)',
-    padding: 20,
-    transition: 'all 0.3s ease',
+    background: isDark ? colours.darkBlue : '#ffffff',
+    borderRadius: 0,
+    border: `0.5px solid ${isDark ? `${colours.dark.borderColor}66` : 'rgba(6, 23, 51, 0.06)'}`,
+    boxShadow: isDark ? 'none' : '0 2px 4px rgba(0, 0, 0, 0.04)',
+    padding: '12px 16px',
     ...overrides,
   };
 }
@@ -1052,6 +1043,9 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
     minHeight: '100vh',
     color: isDarkMode ? colours.dark.text : colours.light.text,
     fontFamily: 'Raleway, sans-serif',
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: 8,
   };
 
   const headerStyle = {

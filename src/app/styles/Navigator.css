@@ -9,6 +9,14 @@
     gap: 0;
 }
 
+@media (max-width: 640px) {
+  .app-navigator {
+    position: relative !important;
+    top: auto !important;
+    z-index: auto !important;
+  }
+}
+
 /* Ensure inner controls align compactly inside the premium card */
 .navigator-card {
     display: flex;

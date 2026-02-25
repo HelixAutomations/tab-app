@@ -115,7 +115,7 @@ const ACTION_BAR_HEIGHT = 48;
 
 const barBase = (isDarkMode: boolean) => ({
   backgroundColor: isDarkMode
-    ? colours.dark.sectionBackground
+    ? colours.darkBlue
     : colours.light.sectionBackground,
   boxShadow: isDarkMode
     ? '0 2px 4px rgba(0,0,0,0.4)'

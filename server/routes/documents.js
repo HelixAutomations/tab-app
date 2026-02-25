@@ -1,4 +1,5 @@
 const express = require('express');
+const multer = require('multer');
 const { DefaultAzureCredential } = require('@azure/identity');
 const {
     BlobServiceClient,
@@ -7,8 +8,24 @@ const {
     generateBlobSASQueryParameters,
 } = require('@azure/storage-blob');
 const { withRequest, sql } = require('../utils/db');
+const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
 
 const router = express.Router();
+
+// Multer: 20 MB limit, memory storage (streams to blob)
+const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 20 * 1024 * 1024 },
+    fileFilter: (_req, file, cb) => {
+        const blocked = /\.(exe|bat|cmd|sh|ps1|msi|dll|com|scr|vbs|js)$/i;
+        if (blocked.test(file.originalname)) {
+            return cb(new Error('File type not allowed'));
+        }
+        cb(null, true);
+    },
+});
+
+const CONTAINER_NAME = 'instruction-files';
 
 function getInstructionsConnectionString() {
     const connectionString = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
@@ -269,6 +286,130 @@ router.get('/preview/:instructionRef/:documentId', async (req, res) => {
         }
         
         res.status(500).json({ error: 'Failed to retrieve document' });
+    }
+});
+
+/**
+ * Upload a document to blob storage + record in DB
+ * POST /api/documents/:instructionRef
+ * multipart/form-data with field "file"
+ */
+router.post('/:instructionRef', upload.single('file'), async (req, res) => {
+    const start = Date.now();
+    const { instructionRef } = req.params;
+    const uploadedBy = req.user?.fullName || req.user?.email || 'Hub';
+    try {
+        if (!instructionRef || instructionRef.trim() === '') {
+            return res.status(400).json({ error: 'Invalid instruction reference' });
+        }
+        if (!req.file) {
+            return res.status(400).json({ error: 'No file provided' });
+        }
+
+        trackEvent('Documents.Upload.Started', { instructionRef, fileName: req.file.originalname, uploadedBy, sizeBytes: String(req.file.size) });
+
+        const svc = getBlobServiceClient();
+        const containerClient = svc.getContainerClient(CONTAINER_NAME);
+        // Blob path mirrors portal convention: {InstructionRef}/{seq}-{filename}
+        const seq = Date.now();
+        const safeName = req.file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const blobName = `${instructionRef}/${seq}-${safeName}`;
+        const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+
+        await blockBlobClient.uploadData(req.file.buffer, {
+            blobHTTPHeaders: { blobContentType: req.file.mimetype || 'application/octet-stream' },
+        });
+
+        const blobUrl = blockBlobClient.url;
+
+        // Insert DB record
+        const connectionString = getInstructionsConnectionString();
+        const newDoc = await withRequest(connectionString, async (request) => {
+            const { recordset } = await request
+                .input('instructionRef', sql.NVarChar, instructionRef)
+                .input('fileName', sql.NVarChar, req.file.originalname)
+                .input('blobUrl', sql.NVarChar, blobUrl)
+                .input('fileSizeBytes', sql.BigInt, req.file.size)
+                .input('uploadedBy', sql.NVarChar, uploadedBy)
+                .query(`
+                    INSERT INTO Documents (InstructionRef, FileName, BlobUrl, FileSizeBytes, UploadedBy, UploadedAt)
+                    OUTPUT INSERTED.*
+                    VALUES (@instructionRef, @fileName, @blobUrl, @fileSizeBytes, @uploadedBy, GETUTCDATE())
+                `);
+            return recordset[0];
+        });
+
+        const durationMs = Date.now() - start;
+        trackEvent('Documents.Upload.Completed', { instructionRef, fileName: req.file.originalname, uploadedBy, durationMs: String(durationMs) });
+        trackMetric('Documents.Upload.Duration', durationMs, { instructionRef });
+
+        res.status(201).json(newDoc);
+    } catch (error) {
+        trackException(error, { operation: 'Documents.Upload', instructionRef, phase: 'upload' });
+        trackEvent('Documents.Upload.Failed', { instructionRef, error: error.message, uploadedBy });
+        console.error(`[Documents] Upload failed for ${instructionRef}:`, error);
+        res.status(500).json({ error: 'Failed to upload document' });
+    }
+});
+
+/**
+ * Delete a document (blob + DB row)
+ * DELETE /api/documents/:instructionRef/:documentId
+ */
+router.delete('/:instructionRef/:documentId', async (req, res) => {
+    const { instructionRef, documentId } = req.params;
+    const deletedBy = req.user?.fullName || req.user?.email || 'Hub';
+    try {
+        const docId = Number(documentId);
+        if (!Number.isFinite(docId)) {
+            return res.status(400).json({ error: 'Invalid document id' });
+        }
+
+        trackEvent('Documents.Delete.Started', { instructionRef, documentId: String(docId), deletedBy });
+
+        const connectionString = getInstructionsConnectionString();
+
+        // Fetch blob URL before deleting DB row
+        const doc = await withRequest(connectionString, async (request) => {
+            const { recordset } = await request
+                .input('instructionRef', sql.NVarChar, instructionRef)
+                .input('documentId', sql.Int, docId)
+                .query(`SELECT BlobUrl FROM Documents WHERE InstructionRef = @instructionRef AND DocumentId = @documentId`);
+            return recordset[0] || null;
+        });
+
+        if (!doc) {
+            return res.status(404).json({ error: 'Document not found' });
+        }
+
+        // Delete blob (best-effort — if it fails we still remove the DB row)
+        try {
+            const blobUrl = new URL(doc.BlobUrl);
+            const parts = blobUrl.pathname.split('/');
+            const container = parts[1];
+            const blob = decodeURIComponent(parts.slice(2).join('/'));
+            const svc = getBlobServiceClient();
+            const blobClient = svc.getContainerClient(container).getBlobClient(blob);
+            await blobClient.deleteIfExists();
+        } catch (blobErr) {
+            console.warn(`[Documents] Blob delete failed for doc ${docId}, proceeding with DB delete:`, blobErr.message);
+        }
+
+        // Delete DB row
+        await withRequest(connectionString, async (request) => {
+            await request
+                .input('instructionRef', sql.NVarChar, instructionRef)
+                .input('documentId', sql.Int, docId)
+                .query(`DELETE FROM Documents WHERE InstructionRef = @instructionRef AND DocumentId = @documentId`);
+        });
+
+        trackEvent('Documents.Delete.Completed', { instructionRef, documentId: String(docId), deletedBy });
+        res.json({ success: true });
+    } catch (error) {
+        trackException(error, { operation: 'Documents.Delete', instructionRef, documentId, phase: 'delete' });
+        trackEvent('Documents.Delete.Failed', { instructionRef, documentId, error: error.message, deletedBy });
+        console.error(`[Documents] Delete failed for ${instructionRef}/${documentId}:`, error);
+        res.status(500).json({ error: 'Failed to delete document' });
     }
 });
 

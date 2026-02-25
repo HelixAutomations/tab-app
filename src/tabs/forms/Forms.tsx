@@ -21,6 +21,8 @@ import { useTheme } from '../../app/functionality/ThemeContext';
 import '../../app/styles/FormCard.css';
 import { isAdminUser } from '../../app/admin';
 import FormHealthCheck from '../../CustomForms/shared/FormHealthCheck';
+import NavigatorDetailBar from '../../components/NavigatorDetailBar';
+import { useNavigatorActions } from '../../app/functionality/NavigatorContext';
 
 // Import Financial Forms
 import { formSections } from './formsData';
@@ -46,9 +48,7 @@ const containerStyle = (isDarkMode: boolean) =>
     minHeight: '100vh',
     width: '100%',
     padding: '26px 30px 40px',
-    background: isDarkMode 
-      ? 'linear-gradient(135deg, #0f172a 0%, #1e293b 30%, #334155 65%, #475569 100%)'
-      : 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 25%, #e2e8f0 65%, #cbd5e1 100%)',
+    background: isDarkMode ? colours.dark.background : colours.light.background,
     color: isDarkMode ? colours.dark.text : colours.light.text,
     display: 'flex',
     flexDirection: 'column',
@@ -82,10 +82,10 @@ const mainContentStyle = (isDarkMode: boolean) =>
 
 const sectionStyle = (isDarkMode: boolean) =>
   mergeStyles({
-    background: isDarkMode ? 'rgba(15, 23, 42, 0.88)' : '#FFFFFF',
-    borderRadius: 12,
-    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(15, 23, 42, 0.06)'}`,
-    boxShadow: isDarkMode ? '0 2px 10px rgba(0, 0, 0, 0.22)' : '0 2px 8px rgba(15, 23, 42, 0.06)',
+    background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
+    borderRadius: 0,
+    border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+    boxShadow: 'none',
     padding: '20px 22px',
     display: 'flex',
     flexDirection: 'column',
@@ -113,10 +113,10 @@ const resourceGridStyle = mergeStyles({
 
 const footerStyle = (isDarkMode: boolean) =>
   mergeStyles({
-    background: isDarkMode ? 'rgba(15, 23, 42, 0.88)' : '#FFFFFF',
-    borderRadius: 12,
-    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(15, 23, 42, 0.06)'}`,
-    boxShadow: isDarkMode ? '0 2px 10px rgba(0, 0, 0, 0.22)' : '0 2px 8px rgba(15, 23, 42, 0.06)',
+    background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
+    borderRadius: 0,
+    border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+    boxShadow: 'none',
     padding: '20px 22px',
     display: 'flex',
     flexDirection: 'column',
@@ -127,6 +127,7 @@ const footerStyle = (isDarkMode: boolean) =>
 
 const Forms: React.FC<FormsProps> = ({ userData, matters }) => {
   const { isDarkMode } = useTheme();
+  const { setContent } = useNavigatorActions();
   const [favorites, setFavorites] = useState<FormItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [copySuccess, setCopySuccess] = useState<string | null>(null);
@@ -214,6 +215,26 @@ const Forms: React.FC<FormsProps> = ({ userData, matters }) => {
   const goToLink = useCallback((url: string) => {
     window.open(url, '_blank', 'noopener,noreferrer');
   }, []);
+
+  const handleBackFromDetail = useCallback(() => {
+    setSelectedLink(null);
+  }, []);
+
+  useEffect(() => {
+    if (selectedLink) {
+      setContent(
+        <NavigatorDetailBar
+          onBack={handleBackFromDetail}
+          backLabel="Back"
+          staticLabel={`Forms · ${selectedLink.title}`}
+        />,
+      );
+    } else {
+      setContent(null);
+    }
+
+    return () => setContent(null);
+  }, [selectedLink, handleBackFromDetail, setContent]);
 
   // Filtered Sections based on search query and excluding favorites from other sections
   const filteredSections: { [key in SectionName]: FormItem[] } = useMemo(() => {

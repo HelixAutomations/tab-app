@@ -19,6 +19,75 @@ Brand rules: `.github/copilot-instructions.md` → Brand Colour Palette.
 | CTA colour | `colours.cta` (#D65541) | One pop per view — never compete with multiple warm colours |
 | Accent | `colours.accent` (#87F3F3) | Sparingly at structural anchor points only |
 | Dark text | `colours.dark.text` primary, `subtleGrey` secondary, `greyText` tertiary | |
+| Minimum body text | **13px** | Readability for all users. Labels: 12px+. Section titles: 11px uppercase. |
+
+## 1b. Text Hierarchy & "Blue on Blue" Rule (CRITICAL)
+
+Body text inside panels and modals MUST use **neutral colours**, not brand blue. `colours.dark.subText` (`#3690CE`) is the highlight blue — it is for links, active indicators, and accents only. Using it for body copy on navy/dark backgrounds creates the "blue on blue" anti-pattern: low contrast, hard to read, visually muddy.
+
+### The correct text hierarchy inside dark-mode panels
+
+| Role | Colour | Value | Use |
+|------|--------|-------|-----|
+| **labelText** | `colours.dark.text` | `#f3f4f6` | Headings, active option labels, input values |
+| **bodyText** | `#d1d5db` (warm grey) | n/a | Paragraphs, descriptions, sublabels — high contrast on navy |
+| **helpText** | `colours.subtleGrey` | `#A0A0A0` | Tertiary guidance, inactive sublabels, timestamps |
+| **sectionAccent** | `colours.accent` | `#87F3F3` | Section titles (uppercase), radio dots, active borders — anchor points only |
+| **errorColour** | `colours.cta` | `#D65541` | Validation messages, required asterisks |
+| **successColour** | `colours.green` | `#20b26c` | Confirmation toggles, copied states |
+
+### Light-mode equivalents
+
+| Role | Colour | Value |
+|------|--------|-------|
+| **labelText** | `colours.light.text` | `#061733` |
+| **bodyText** | `#374151` | warm dark grey |
+| **helpText** | `colours.greyText` | `#6B6B6B` |
+| **sectionAccent** | `colours.highlight` | `#3690CE` |
+
+### Anti-patterns (never do these)
+
+- `colour: colours.dark.subText` on dark backgrounds — blue on blue
+- `colour: colours.highlight` for paragraph text in light mode on blue-tinted surfaces
+- `colour: accent` for body copy — accent is for anchor points only
+- Using any brand blue as the primary text colour in panels/modals
+
+> **Rule of thumb**: if you're writing more than 3 words, it should be `bodyText` (neutral grey) or `labelText` (white), never a brand colour. Brand colours are for _structure_ — section titles, dots, borders, icons.
+
+## 1c. Readability & Accessibility
+
+The platform is used by people of all ages including senior staff. Design for clarity:
+
+- **Minimum 13px** for body text, descriptions, option labels, input values
+- **Minimum 12px** for field labels, sublabels, helper text
+- **11px** ONLY for uppercase section titles and micro labels
+- **Line height** ≥ 1.4 for multi-line text, ≥ 1.35 for single-line labels
+- **Letter spacing** 0.2-0.5px on uppercase labels for legibility
+- **Icon cues** alongside text options — 16×16 minimum, strokeWidth 1.8 for clarity
+- **Gap** between interactive rows: 8px minimum, 12px inside stacked groups
+- **Padding** on interactive rows: 12px 14px minimum (not 10px 12px)
+- **Toggle switches**: 40×20 (not 36×18) with 16×16 knobs
+
+### Icon cue pattern
+
+Every option in a radio group or toggle list should have a leading icon to aid visual scanning. Icons use the same stroke colour as the text they accompany (helpText when inactive, sectionAccent when active):
+
+```tsx
+// Active: icon matches section accent
+<svg stroke={isActive ? sectionAccent : helpText} strokeWidth="1.8" .../>
+// Toggle on: icon matches toggle colour
+<svg stroke={isOn ? sectionAccent : helpText} strokeWidth="1.8" .../>
+```
+
+Recommended icon set (Feather-style inline SVGs, 24×24 viewBox):
+- Send/pitch: `<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>`
+- Lightning/instant: `<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>`
+- ID card: `<rect x="2" y="5" width="20" height="14" rx="2"/>` + detail lines
+- Shield/confirm: `<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/>`
+- Warning: triangle with exclamation
+- Link: chain-link paths
+- Document: file with fold corner
+- Clock: circle with hands
 
 ## 2. Dark-Mode Surface Depth Ladder
 

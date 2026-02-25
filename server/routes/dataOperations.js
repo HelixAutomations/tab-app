@@ -482,154 +482,188 @@ async function syncCollectedTime(options = {}) {
     }
     // **************************************
 
-    // Delete existing records in date range
+    // ── Transactional DELETE + INSERT ──
+    // Wrapping in a SQL transaction so if the process crashes mid-insertion,
+    // the DELETE rolls back and existing data is preserved.
     let deletedRows = 0;
-    if (shouldDelete) {
-      logProgress(operationKey, `Clearing collectedTime data for ${deleteColumn} between ${startDateSql} and ${endDateSql}`);
-      const deleteResult = await pool
-        .request()
-        .input('startDate', startDateSql)
-        .input('endDate', endDateSql)
-        .query(`DELETE FROM collectedTime WHERE ${deleteColumn} >= @startDate AND ${deleteColumn} <= @endDate`);
-
-      deletedRows = deleteResult.rowsAffected[0] || 0;
-      logProgress(operationKey, `Successfully deleted ${deletedRows} rows.`);
-    } else {
-      logProgress(operationKey, 'Skipping delete step (insert-only).');
-    }
-
-    // Insert new records — batched for performance
     let insertedRows = 0;
     let skippedRows = 0;
-    
-    if (shouldInsert && downloadData && downloadData.report_data) {
-        // Flatten all line items into a single array first
-        const matterEntries = Object.entries(downloadData.report_data);
-        const allRows = [];
-        for (const [, matterData] of matterEntries) {
-          if (!matterData.bill_data || !matterData.matter_payment_data || !matterData.line_items_data) {
-            skippedRows++;
-            continue;
-          }
-          const billId = matterData.bill_data.bill_id;
-          const contactId = matterData.matter_payment_data.contact_id;
-          const matterId = matterData.matter_payment_data.matter_id;
-          const paymentDate = matterData.matter_payment_data.date;
-          for (const item of matterData.line_items_data.line_items || []) {
-            allRows.push({ matterId, billId, contactId, paymentDate, item });
-          }
-        }
+    let dedupedRows = 0;
 
-        const totalRows = allRows.length;
-        logProgress(operationKey, `Inserting ${totalRows} rows...`);
+    const transaction = pool.transaction();
+    await transaction.begin();
+    logProgress(operationKey, 'Transaction started (DELETE + INSERT are atomic)');
 
-        // Batch insert in chunks (limited by SQL Server's 2100 parameter cap: 17 cols × 100 = 1700)
-        const BATCH_SIZE = 100;
-        for (let batchStart = 0; batchStart < totalRows; batchStart += BATCH_SIZE) {
-          const batch = allRows.slice(batchStart, batchStart + BATCH_SIZE);
-          try {
-            const values = [];
-            const req = pool.request();
-            for (let i = 0; i < batch.length; i++) {
-              const { matterId, billId, contactId, paymentDate, item } = batch[i];
-              const p = `p${i}_`;
-              req.input(`${p}matter_id`, matterId);
-              req.input(`${p}bill_id`, billId);
-              req.input(`${p}contact_id`, contactId);
-              req.input(`${p}id`, item.id);
-              req.input(`${p}date`, item.date);
-              req.input(`${p}created_at`, item.created_at ? new Date(item.created_at) : null);
-              req.input(`${p}kind`, item.kind);
-              req.input(`${p}type`, item.type);
-              req.input(`${p}activity_type`, item.activity_type);
-              req.input(`${p}description`, item.description || '');
-              req.input(`${p}sub_total`, item.sub_total);
-              req.input(`${p}tax`, item.tax);
-              req.input(`${p}secondary_tax`, item.secondary_tax);
-              req.input(`${p}user_id`, item.user_id);
-              req.input(`${p}user_name`, item.user_name);
-              req.input(`${p}payment_allocated`, item.payment_allocated);
-              req.input(`${p}payment_date`, paymentDate);
-              values.push(`(@${p}matter_id, @${p}bill_id, @${p}contact_id, @${p}id, @${p}date, @${p}created_at, @${p}kind, @${p}type, @${p}activity_type, @${p}description, @${p}sub_total, @${p}tax, @${p}secondary_tax, @${p}user_id, @${p}user_name, @${p}payment_allocated, @${p}payment_date)`);
+    try {
+      // Delete existing records in date range
+      if (shouldDelete) {
+        logProgress(operationKey, `Clearing collectedTime data for ${deleteColumn} between ${startDateSql} and ${endDateSql}`);
+        const deleteResult = await transaction.request()
+          .input('startDate', startDateSql)
+          .input('endDate', endDateSql)
+          .query(`DELETE FROM collectedTime WHERE ${deleteColumn} >= @startDate AND ${deleteColumn} <= @endDate`);
+
+        deletedRows = deleteResult.rowsAffected[0] || 0;
+        logProgress(operationKey, `Successfully deleted ${deletedRows} rows.`);
+      } else {
+        logProgress(operationKey, 'Skipping delete step (insert-only).');
+      }
+
+      // Insert new records — batched for performance
+      if (shouldInsert && downloadData && downloadData.report_data) {
+          // Flatten all line items into a single array first
+          const matterEntries = Object.entries(downloadData.report_data);
+          const allRows = [];
+          for (const [, matterData] of matterEntries) {
+            if (!matterData.bill_data || !matterData.matter_payment_data || !matterData.line_items_data) {
+              skippedRows++;
+              continue;
             }
-            await req.query(`
-              INSERT INTO collectedTime (
-                matter_id, bill_id, contact_id, id, date, created_at, kind, type, activity_type,
-                description, sub_total, tax, secondary_tax, user_id, user_name, payment_allocated, payment_date
-              ) VALUES ${values.join(',\n')}
-            `);
-            insertedRows += batch.length;
-          } catch (batchErr) {
-            // Fallback: insert individually so one bad row doesn't lose the batch
-            console.warn(`[DataOps] Batch insert failed, falling back to individual inserts: ${batchErr.message}`);
-            for (const { matterId, billId, contactId, paymentDate, item } of batch) {
-              try {
-                await pool
-                  .request()
-                  .input('matter_id', matterId)
-                  .input('bill_id', billId)
-                  .input('contact_id', contactId)
-                  .input('id', item.id)
-                  .input('date', item.date)
-                  .input('created_at', item.created_at ? new Date(item.created_at) : null)
-                  .input('kind', item.kind)
-                  .input('type', item.type)
-                  .input('activity_type', item.activity_type)
-                  .input('description', item.description || '')
-                  .input('sub_total', item.sub_total)
-                  .input('tax', item.tax)
-                  .input('secondary_tax', item.secondary_tax)
-                  .input('user_id', item.user_id)
-                  .input('user_name', item.user_name)
-                  .input('payment_allocated', item.payment_allocated)
-                  .input('payment_date', paymentDate)
-                  .query(`
-                    INSERT INTO collectedTime (
-                      matter_id, bill_id, contact_id, id, date, created_at, kind, type, activity_type,
-                      description, sub_total, tax, secondary_tax, user_id, user_name, payment_allocated, payment_date
-                    ) VALUES (
-                      @matter_id, @bill_id, @contact_id, @id, @date, @created_at, @kind, @type, @activity_type,
-                      @description, @sub_total, @tax, @secondary_tax, @user_id, @user_name, @payment_allocated, @payment_date
-                    )
-                  `);
-                insertedRows++;
-              } catch (insertErr) {
-                console.warn('[DataOps] Insert error:', insertErr.message);
+            const billId = matterData.bill_data.bill_id;
+            const contactId = matterData.matter_payment_data.contact_id;
+            const matterId = matterData.matter_payment_data.matter_id;
+            const paymentDate = matterData.matter_payment_data.date;
+            for (const item of matterData.line_items_data.line_items || []) {
+              allRows.push({ matterId, billId, contactId, paymentDate, item });
+            }
+          }
+
+          const totalRows = allRows.length;
+          logProgress(operationKey, `Inserting ${totalRows} rows...`);
+
+          // Batch insert in chunks (limited by SQL Server's 2100 parameter cap: 17 cols × 100 = 1700)
+          const BATCH_SIZE = 100;
+          for (let batchStart = 0; batchStart < totalRows; batchStart += BATCH_SIZE) {
+            // Check cancellation between batches
+            if (activeJobs.get(operationKey)?.cancelled) throw new Error('Operation cancelled by user');
+
+            const batch = allRows.slice(batchStart, batchStart + BATCH_SIZE);
+            try {
+              const values = [];
+              const req = transaction.request();
+              for (let i = 0; i < batch.length; i++) {
+                const { matterId, billId, contactId, paymentDate, item } = batch[i];
+                const p = `p${i}_`;
+                req.input(`${p}matter_id`, matterId);
+                req.input(`${p}bill_id`, billId);
+                req.input(`${p}contact_id`, contactId);
+                req.input(`${p}id`, item.id);
+                req.input(`${p}date`, item.date);
+                req.input(`${p}created_at`, item.created_at ? new Date(item.created_at) : null);
+                req.input(`${p}kind`, item.kind);
+                req.input(`${p}type`, item.type);
+                req.input(`${p}activity_type`, item.activity_type);
+                req.input(`${p}description`, item.description || '');
+                req.input(`${p}sub_total`, item.sub_total);
+                req.input(`${p}tax`, item.tax);
+                req.input(`${p}secondary_tax`, item.secondary_tax);
+                req.input(`${p}user_id`, item.user_id);
+                req.input(`${p}user_name`, item.user_name);
+                req.input(`${p}payment_allocated`, item.payment_allocated);
+                req.input(`${p}payment_date`, paymentDate);
+                values.push(`(@${p}matter_id, @${p}bill_id, @${p}contact_id, @${p}id, @${p}date, @${p}created_at, @${p}kind, @${p}type, @${p}activity_type, @${p}description, @${p}sub_total, @${p}tax, @${p}secondary_tax, @${p}user_id, @${p}user_name, @${p}payment_allocated, @${p}payment_date)`);
+              }
+              await req.query(`
+                INSERT INTO collectedTime (
+                  matter_id, bill_id, contact_id, id, date, created_at, kind, type, activity_type,
+                  description, sub_total, tax, secondary_tax, user_id, user_name, payment_allocated, payment_date
+                ) VALUES ${values.join(',\n')}
+              `);
+              insertedRows += batch.length;
+            } catch (batchErr) {
+              // Fallback: insert individually so one bad row doesn't lose the batch
+              console.warn(`[DataOps] Batch insert failed, falling back to individual inserts: ${batchErr.message}`);
+              for (const { matterId, billId, contactId, paymentDate, item } of batch) {
+                try {
+                  await transaction.request()
+                    .input('matter_id', matterId)
+                    .input('bill_id', billId)
+                    .input('contact_id', contactId)
+                    .input('id', item.id)
+                    .input('date', item.date)
+                    .input('created_at', item.created_at ? new Date(item.created_at) : null)
+                    .input('kind', item.kind)
+                    .input('type', item.type)
+                    .input('activity_type', item.activity_type)
+                    .input('description', item.description || '')
+                    .input('sub_total', item.sub_total)
+                    .input('tax', item.tax)
+                    .input('secondary_tax', item.secondary_tax)
+                    .input('user_id', item.user_id)
+                    .input('user_name', item.user_name)
+                    .input('payment_allocated', item.payment_allocated)
+                    .input('payment_date', paymentDate)
+                    .query(`
+                      INSERT INTO collectedTime (
+                        matter_id, bill_id, contact_id, id, date, created_at, kind, type, activity_type,
+                        description, sub_total, tax, secondary_tax, user_id, user_name, payment_allocated, payment_date
+                      ) VALUES (
+                        @matter_id, @bill_id, @contact_id, @id, @date, @created_at, @kind, @type, @activity_type,
+                        @description, @sub_total, @tax, @secondary_tax, @user_id, @user_name, @payment_allocated, @payment_date
+                      )
+                    `);
+                  insertedRows++;
+                } catch (insertErr) {
+                  console.warn('[DataOps] Insert error:', insertErr.message);
+                }
               }
             }
-          }
 
-          // Progress every 1000 rows
-          if (insertedRows > 0 && (insertedRows % 1000 < BATCH_SIZE || batchStart + BATCH_SIZE >= totalRows)) {
-            logProgress(operationKey, `Inserted ${insertedRows}/${totalRows} rows...`);
+            // Progress every 1000 rows
+            if (insertedRows > 0 && (insertedRows % 1000 < BATCH_SIZE || batchStart + BATCH_SIZE >= totalRows)) {
+              logProgress(operationKey, `Inserted ${insertedRows}/${totalRows} rows...`);
+            }
           }
-        }
-    }
-
-    // ── Post-insert dedup (protects against overlapping syncs) ──
-    let dedupedRows = 0;
-    try {
-      const dedupResult = await pool.request()
-        .input('dedupStart', startDateSql)
-        .input('dedupEnd', endDateSql)
-        .query(`
-          ;WITH cte AS (
-            SELECT *, ROW_NUMBER() OVER (
-              PARTITION BY id, user_id, kind, payment_allocated, date, payment_date
-              ORDER BY (SELECT NULL)
-            ) AS rn
-            FROM collectedTime
-            WHERE payment_date >= @dedupStart AND payment_date <= @dedupEnd
-          )
-          DELETE FROM cte WHERE rn > 1
-        `);
-      dedupedRows = dedupResult.rowsAffected[0] || 0;
-      if (dedupedRows > 0) {
-        console.log(`[DataOps] Deduped ${dedupedRows} duplicate rows from collectedTime`);
-        insertedRows -= dedupedRows;
       }
-    } catch (dedupErr) {
-      console.warn('[DataOps] Post-insert dedup failed (non-fatal):', dedupErr.message);
+
+      // ── Post-insert dedup (within same transaction) ──
+      try {
+        const dedupResult = await transaction.request()
+          .input('dedupStart', startDateSql)
+          .input('dedupEnd', endDateSql)
+          .query(`
+            ;WITH cte AS (
+              SELECT *, ROW_NUMBER() OVER (
+                PARTITION BY id, user_id, kind, payment_allocated, date, payment_date
+                ORDER BY (SELECT NULL)
+              ) AS rn
+              FROM collectedTime
+              WHERE payment_date >= @dedupStart AND payment_date <= @dedupEnd
+            )
+            DELETE FROM cte WHERE rn > 1
+          `);
+        dedupedRows = dedupResult.rowsAffected[0] || 0;
+        if (dedupedRows > 0) {
+          console.log(`[DataOps] Deduped ${dedupedRows} duplicate rows from collectedTime`);
+          insertedRows -= dedupedRows;
+        }
+      } catch (dedupErr) {
+        console.warn('[DataOps] Post-insert dedup failed (non-fatal):', dedupErr.message);
+      }
+
+      // ── Commit sanity guard ──
+      // If Clio returned drastically fewer rows than were deleted, something is
+      // wrong (partial API response, timeout, auth issue). Rolling back preserves
+      // the old data instead of committing a net loss.
+      if (shouldDelete && deletedRows > 50 && insertedRows < deletedRows * 0.3) {
+        await transaction.rollback();
+        const msg = `Sanity guard: DELETE ${deletedRows} but only INSERT ${insertedRows} (${Math.round(insertedRows / deletedRows * 100)}%). Rolled back to preserve existing data.`;
+        logProgress(operationKey, msg);
+        trackEvent('DataOps.CollectedTime.SanityRollback', {
+          operation: operationKey, triggeredBy, deletedRows, insertedRows,
+          startDate: startDateSql, endDate: endDateSql,
+        });
+        throw new Error(msg);
+      }
+
+      // All good — commit
+      await transaction.commit();
+      logProgress(operationKey, `Transaction committed (−${deletedRows} +${insertedRows} rows)`);
+    } catch (txErr) {
+      // Rollback — old data preserved
+      try { await transaction.rollback(); } catch (_) { /* already rolled back */ }
+      logProgress(operationKey, `Transaction rolled back — existing data preserved. Error: ${txErr.message}`);
+      throw txErr; // Re-throw so the outer catch logs the error
     }
 
     const durationMs = Date.now() - startedAt;
@@ -940,140 +974,173 @@ async function syncWip(options = {}) {
     if (!connStr) throw new Error('SQL_CONNECTION_STRING not configured');
     const pool = await getPool(connStr);
 
-    // Delete existing records in date range
-    logProgress(operationKey, `Clearing date between ${startDateSql} and ${endDateSql}`);
-    const deleteResult = await pool
-      .request()
-      .input('startDate', startDateSql)
-      .input('endDate', endDateSql)
-      .query(`DELETE FROM wip WHERE date >= @startDate AND date <= @endDate`);
-
-    const deletedRows = deleteResult.rowsAffected[0] || 0;
-
-    // Insert new records — batched for performance
+    // ── Transactional DELETE + INSERT ──
+    // Wrapping in a SQL transaction so if the process crashes mid-insertion,
+    // the DELETE rolls back and existing data is preserved.
+    let deletedRows = 0;
     let insertedRows = 0;
-    const totalActivities = activities.length;
-    if (totalActivities > 0) {
-      logProgress(operationKey, `Inserting ${totalActivities} rows...`);
-    }
-    const BATCH_SIZE = 100; // 20 cols × 100 = 2000 params (under SQL Server's 2100 limit)
-    for (let batchStart = 0; batchStart < totalActivities; batchStart += BATCH_SIZE) {
-      const batch = activities.slice(batchStart, batchStart + BATCH_SIZE);
-      try {
-        const values = [];
-        const req = pool.request();
-        for (let i = 0; i < batch.length; i++) {
-          const record = batch[i];
-          const p = `p${i}_`;
-          const createdAt = record.created_at ? new Date(record.created_at) : null;
-          const updatedAt = record.updated_at ? new Date(record.updated_at) : null;
-          req.input(`${p}id`, record.id);
-          req.input(`${p}date`, record.date);
-          req.input(`${p}created_at_date`, createdAt ? createdAt.toISOString().slice(0, 10) : null);
-          req.input(`${p}created_at_time`, createdAt ? createdAt.toISOString().slice(11, 19) : null);
-          req.input(`${p}updated_at_date`, updatedAt ? updatedAt.toISOString().slice(0, 10) : null);
-          req.input(`${p}updated_at_time`, updatedAt ? updatedAt.toISOString().slice(11, 19) : null);
-          req.input(`${p}type`, record.type);
-          req.input(`${p}matter_id`, record.matter?.id || null);
-          req.input(`${p}matter_display_number`, record.matter?.display_number || null);
-          req.input(`${p}quantity_in_hours`, record.quantity_in_hours || 0);
-          req.input(`${p}note`, record.note || '');
-          req.input(`${p}total`, record.total || null);
-          req.input(`${p}price`, record.price || 0);
-          req.input(`${p}expense_category`, record.expense_category ? `id: ${record.expense_category.id}, name: ${record.expense_category.name}` : null);
-          req.input(`${p}activity_description_id`, record.activity_description?.id || null);
-          req.input(`${p}activity_description_name`, record.activity_description?.name || null);
-          req.input(`${p}user_id`, record.user?.id || null);
-          req.input(`${p}bill_id`, record.bill?.id || null);
-          req.input(`${p}billed`, record.billed ? 1 : 0);
-          req.input(`${p}non_billable`, record.non_billable ? 1 : 0);
-          values.push(`(@${p}id, @${p}date, @${p}created_at_date, @${p}created_at_time, @${p}updated_at_date, @${p}updated_at_time, @${p}type, @${p}matter_id, @${p}matter_display_number, @${p}quantity_in_hours, @${p}note, @${p}total, @${p}price, @${p}expense_category, @${p}activity_description_id, @${p}activity_description_name, @${p}user_id, @${p}bill_id, @${p}billed, @${p}non_billable)`);
-        }
-        await req.query(`
-          INSERT INTO wip (
-            id, date, created_at_date, created_at_time, updated_at_date, updated_at_time,
-            type, matter_id, matter_display_number, quantity_in_hours, note, total, price,
-            expense_category, activity_description_id, activity_description_name, user_id, bill_id, billed, non_billable
-          ) VALUES ${values.join(',\n')}
-        `);
-        insertedRows += batch.length;
-      } catch (batchErr) {
-        // Fallback: insert individually so one bad row doesn't lose the batch
-        console.warn(`[DataOps] WIP batch insert failed, falling back: ${batchErr.message}`);
-        for (const record of batch) {
-          try {
+    let dedupedRows = 0;
+
+    const transaction = pool.transaction();
+    await transaction.begin();
+    logProgress(operationKey, 'Transaction started (DELETE + INSERT are atomic)');
+
+    try {
+      // Delete existing records in date range
+      logProgress(operationKey, `Clearing date between ${startDateSql} and ${endDateSql}`);
+      const deleteResult = await transaction.request()
+        .input('startDate', startDateSql)
+        .input('endDate', endDateSql)
+        .query(`DELETE FROM wip WHERE date >= @startDate AND date <= @endDate`);
+
+      deletedRows = deleteResult.rowsAffected[0] || 0;
+
+      // Insert new records — batched for performance
+      const totalActivities = activities.length;
+      if (totalActivities > 0) {
+        logProgress(operationKey, `Inserting ${totalActivities} rows...`);
+      }
+      const BATCH_SIZE = 100; // 20 cols × 100 = 2000 params (under SQL Server's 2100 limit)
+      for (let batchStart = 0; batchStart < totalActivities; batchStart += BATCH_SIZE) {
+        const batch = activities.slice(batchStart, batchStart + BATCH_SIZE);
+        try {
+          const values = [];
+          const req = transaction.request();
+          for (let i = 0; i < batch.length; i++) {
+            const record = batch[i];
+            const p = `p${i}_`;
             const createdAt = record.created_at ? new Date(record.created_at) : null;
             const updatedAt = record.updated_at ? new Date(record.updated_at) : null;
-            await pool
-              .request()
-              .input('id', record.id)
-              .input('date', record.date)
-              .input('created_at_date', createdAt ? createdAt.toISOString().slice(0, 10) : null)
-              .input('created_at_time', createdAt ? createdAt.toISOString().slice(11, 19) : null)
-              .input('updated_at_date', updatedAt ? updatedAt.toISOString().slice(0, 10) : null)
-              .input('updated_at_time', updatedAt ? updatedAt.toISOString().slice(11, 19) : null)
-              .input('type', record.type)
-              .input('matter_id', record.matter?.id || null)
-              .input('matter_display_number', record.matter?.display_number || null)
-              .input('quantity_in_hours', record.quantity_in_hours || 0)
-              .input('note', record.note || '')
-              .input('total', record.total || null)
-              .input('price', record.price || 0)
-              .input('expense_category', record.expense_category ? `id: ${record.expense_category.id}, name: ${record.expense_category.name}` : null)
-              .input('activity_description_id', record.activity_description?.id || null)
-              .input('activity_description_name', record.activity_description?.name || null)
-              .input('user_id', record.user?.id || null)
-              .input('bill_id', record.bill?.id || null)
-              .input('billed', record.billed ? 1 : 0)
-              .input('non_billable', record.non_billable ? 1 : 0)
-              .query(`
-                INSERT INTO wip (
-                  id, date, created_at_date, created_at_time, updated_at_date, updated_at_time,
-                  type, matter_id, matter_display_number, quantity_in_hours, note, total, price,
-                  expense_category, activity_description_id, activity_description_name, user_id, bill_id, billed, non_billable
-                ) VALUES (
-                  @id, @date, @created_at_date, @created_at_time, @updated_at_date, @updated_at_time,
-                  @type, @matter_id, @matter_display_number, @quantity_in_hours, @note, @total, @price,
-                  @expense_category, @activity_description_id, @activity_description_name, @user_id, @bill_id, @billed, @non_billable
-                )
-              `);
-            insertedRows++;
-          } catch (insertErr) {
-            console.warn('[DataOps] WIP insert error:', insertErr.message);
+            req.input(`${p}id`, record.id);
+            req.input(`${p}date`, record.date);
+            req.input(`${p}created_at_date`, createdAt ? createdAt.toISOString().slice(0, 10) : null);
+            req.input(`${p}created_at_time`, createdAt ? createdAt.toISOString().slice(11, 19) : null);
+            req.input(`${p}updated_at_date`, updatedAt ? updatedAt.toISOString().slice(0, 10) : null);
+            req.input(`${p}updated_at_time`, updatedAt ? updatedAt.toISOString().slice(11, 19) : null);
+            req.input(`${p}type`, record.type);
+            req.input(`${p}matter_id`, record.matter?.id || null);
+            req.input(`${p}matter_display_number`, record.matter?.display_number || null);
+            req.input(`${p}quantity_in_hours`, record.quantity_in_hours || 0);
+            req.input(`${p}note`, record.note || '');
+            req.input(`${p}total`, record.total || null);
+            req.input(`${p}price`, record.price || 0);
+            req.input(`${p}expense_category`, record.expense_category ? `id: ${record.expense_category.id}, name: ${record.expense_category.name}` : null);
+            req.input(`${p}activity_description_id`, record.activity_description?.id || null);
+            req.input(`${p}activity_description_name`, record.activity_description?.name || null);
+            req.input(`${p}user_id`, record.user?.id || null);
+            req.input(`${p}bill_id`, record.bill?.id || null);
+            req.input(`${p}billed`, record.billed ? 1 : 0);
+            req.input(`${p}non_billable`, record.non_billable ? 1 : 0);
+            values.push(`(@${p}id, @${p}date, @${p}created_at_date, @${p}created_at_time, @${p}updated_at_date, @${p}updated_at_time, @${p}type, @${p}matter_id, @${p}matter_display_number, @${p}quantity_in_hours, @${p}note, @${p}total, @${p}price, @${p}expense_category, @${p}activity_description_id, @${p}activity_description_name, @${p}user_id, @${p}bill_id, @${p}billed, @${p}non_billable)`);
           }
+          await req.query(`
+            INSERT INTO wip (
+              id, date, created_at_date, created_at_time, updated_at_date, updated_at_time,
+              type, matter_id, matter_display_number, quantity_in_hours, note, total, price,
+              expense_category, activity_description_id, activity_description_name, user_id, bill_id, billed, non_billable
+            ) VALUES ${values.join(',\n')}
+          `);
+          insertedRows += batch.length;
+        } catch (batchErr) {
+          // Fallback: insert individually so one bad row doesn't lose the batch
+          console.warn(`[DataOps] WIP batch insert failed, falling back: ${batchErr.message}`);
+          for (const record of batch) {
+            try {
+              const createdAt = record.created_at ? new Date(record.created_at) : null;
+              const updatedAt = record.updated_at ? new Date(record.updated_at) : null;
+              await transaction.request()
+                .input('id', record.id)
+                .input('date', record.date)
+                .input('created_at_date', createdAt ? createdAt.toISOString().slice(0, 10) : null)
+                .input('created_at_time', createdAt ? createdAt.toISOString().slice(11, 19) : null)
+                .input('updated_at_date', updatedAt ? updatedAt.toISOString().slice(0, 10) : null)
+                .input('updated_at_time', updatedAt ? updatedAt.toISOString().slice(11, 19) : null)
+                .input('type', record.type)
+                .input('matter_id', record.matter?.id || null)
+                .input('matter_display_number', record.matter?.display_number || null)
+                .input('quantity_in_hours', record.quantity_in_hours || 0)
+                .input('note', record.note || '')
+                .input('total', record.total || null)
+                .input('price', record.price || 0)
+                .input('expense_category', record.expense_category ? `id: ${record.expense_category.id}, name: ${record.expense_category.name}` : null)
+                .input('activity_description_id', record.activity_description?.id || null)
+                .input('activity_description_name', record.activity_description?.name || null)
+                .input('user_id', record.user?.id || null)
+                .input('bill_id', record.bill?.id || null)
+                .input('billed', record.billed ? 1 : 0)
+                .input('non_billable', record.non_billable ? 1 : 0)
+                .query(`
+                  INSERT INTO wip (
+                    id, date, created_at_date, created_at_time, updated_at_date, updated_at_time,
+                    type, matter_id, matter_display_number, quantity_in_hours, note, total, price,
+                    expense_category, activity_description_id, activity_description_name, user_id, bill_id, billed, non_billable
+                  ) VALUES (
+                    @id, @date, @created_at_date, @created_at_time, @updated_at_date, @updated_at_time,
+                    @type, @matter_id, @matter_display_number, @quantity_in_hours, @note, @total, @price,
+                    @expense_category, @activity_description_id, @activity_description_name, @user_id, @bill_id, @billed, @non_billable
+                  )
+                `);
+              insertedRows++;
+            } catch (insertErr) {
+              console.warn('[DataOps] WIP insert error:', insertErr.message);
+            }
+          }
+        }
+
+        // Progress every ~1000 rows
+        if (insertedRows > 0 && (insertedRows % 1000 < BATCH_SIZE || batchStart + BATCH_SIZE >= totalActivities)) {
+          logProgress(operationKey, `Inserted ${insertedRows}/${totalActivities} rows...`);
         }
       }
 
-      // Progress every ~1000 rows
-      if (insertedRows > 0 && (insertedRows % 1000 < BATCH_SIZE || batchStart + BATCH_SIZE >= totalActivities)) {
-        logProgress(operationKey, `Inserted ${insertedRows}/${totalActivities} rows...`);
+      // ── Post-insert dedup (within same transaction) ──
+      try {
+        const dedupResult = await transaction.request()
+          .input('dedupStart', startDateSql)
+          .input('dedupEnd', endDateSql)
+          .query(`
+            ;WITH cte AS (
+              SELECT *, ROW_NUMBER() OVER (
+                PARTITION BY id
+                ORDER BY (SELECT NULL)
+              ) AS rn
+              FROM wip
+              WHERE date >= @dedupStart AND date <= @dedupEnd
+            )
+            DELETE FROM cte WHERE rn > 1
+          `);
+        dedupedRows = dedupResult.rowsAffected[0] || 0;
+        if (dedupedRows > 0) {
+          console.log(`[DataOps] Deduped ${dedupedRows} duplicate rows from wip`);
+          insertedRows -= dedupedRows;
+        }
+      } catch (dedupErr) {
+        console.warn('[DataOps] WIP post-insert dedup failed (non-fatal):', dedupErr.message);
       }
-    }
 
-    // ── Post-insert dedup (protects against overlapping syncs) ──
-    let dedupedRows = 0;
-    try {
-      const dedupResult = await pool.request()
-        .input('dedupStart', startDateSql)
-        .input('dedupEnd', endDateSql)
-        .query(`
-          ;WITH cte AS (
-            SELECT *, ROW_NUMBER() OVER (
-              PARTITION BY id
-              ORDER BY (SELECT NULL)
-            ) AS rn
-            FROM wip
-            WHERE date >= @dedupStart AND date <= @dedupEnd
-          )
-          DELETE FROM cte WHERE rn > 1
-        `);
-      dedupedRows = dedupResult.rowsAffected[0] || 0;
-      if (dedupedRows > 0) {
-        console.log(`[DataOps] Deduped ${dedupedRows} duplicate rows from wip`);
-        insertedRows -= dedupedRows;
+      // ── Commit sanity guard ──
+      // If Clio returned drastically fewer rows than were deleted, something is
+      // wrong (partial API response, timeout, auth issue). Rolling back preserves
+      // the old data instead of committing a net loss.
+      if (deletedRows > 50 && insertedRows < deletedRows * 0.3) {
+        await transaction.rollback();
+        const msg = `Sanity guard: DELETE ${deletedRows} but only INSERT ${insertedRows} (${Math.round(insertedRows / deletedRows * 100)}%). Rolled back to preserve existing WIP data.`;
+        logProgress(operationKey, msg);
+        trackEvent('DataOps.Wip.SanityRollback', {
+          operation: operationKey, triggeredBy: wipTriggeredBy, deletedRows, insertedRows,
+          startDate: startDateSql, endDate: endDateSql,
+        });
+        throw new Error(msg);
       }
-    } catch (dedupErr) {
-      console.warn('[DataOps] WIP post-insert dedup failed (non-fatal):', dedupErr.message);
+
+      // All good — commit
+      await transaction.commit();
+      logProgress(operationKey, `Transaction committed (−${deletedRows} +${insertedRows} rows)`);
+    } catch (txErr) {
+      // Rollback — old data preserved
+      try { await transaction.rollback(); } catch (_) { /* already rolled back */ }
+      logProgress(operationKey, `Transaction rolled back — existing WIP data preserved. Error: ${txErr.message}`);
+      throw txErr; // Re-throw so the outer catch logs the error
     }
 
     const durationMs = Date.now() - startedAt;

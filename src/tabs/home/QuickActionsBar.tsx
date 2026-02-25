@@ -50,7 +50,7 @@ const SkeletonChip: React.FC<{ isDark: boolean; width?: number }> = ({ isDark, w
       height: 30,
       width,
       borderRadius: 2,
-      background: isDark ? 'rgba(54, 144, 206, 0.08)' : 'rgba(148, 163, 184, 0.15)',
+      background: isDark ? `${colours.blue}14` : `${colours.subtleGrey}26`,
     }}
   />
 );
@@ -104,6 +104,25 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
   const [showGreeting, setShowGreeting] = React.useState(false);
   const [greetingDone, setGreetingDone] = React.useState(false);
   const [iconsMounted, setIconsMounted] = React.useState(false);
+
+  // ── Compact mode: ResizeObserver on the bar itself ──
+  // Catches browser zoom AND viewport resize — CSS media queries alone miss zoom.
+  const barRef = React.useRef<HTMLDivElement>(null);
+  const [isCompact, setIsCompact] = React.useState(false);
+
+  React.useEffect(() => {
+    const el = barRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setIsCompact(entry.contentBoxSize?.[0]?.inlineSize
+          ? entry.contentBoxSize[0].inlineSize <= 640
+          : entry.contentRect.width <= 640);
+      }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   // Release notes unread dot — once per session
   const [releaseNotesUnread, setReleaseNotesUnread] = React.useState(() => {
@@ -171,11 +190,13 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
     }, 120);
   };
 
-  const greetingVisible = showGreeting && Boolean(greetingLabel) && !expanded;
+  const greetingVisible = showGreeting && Boolean(greetingLabel) && !expanded && !isCompact;
 
-  // Theme colours
-  const textPrimary = isDarkMode ? '#F1F5F9' : '#0F172A';
-  const textSecondary = isDarkMode ? '#94A3B8' : '#64748B';
+  // Theme colours — brand tokens only
+  const textPrimary = isDarkMode ? colours.dark.text : colours.light.text;
+  const textSecondary = isDarkMode ? colours.subtleGrey : colours.greyText;
+  const interactiveAccent = isDarkMode ? colours.accent : colours.blue;
+  const interactiveHoverBg = `${interactiveAccent}${isDarkMode ? '1A' : '14'}`;
 
   // Loading skeleton state - show chips similar to home page skeletons
   if (loading) {
@@ -188,12 +209,12 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
           padding: '8px 16px',
           minHeight: 44,
           background: isDarkMode
-            ? 'rgba(15, 23, 42, 0.6)'
-            : 'rgba(255, 255, 255, 0.7)',
-          backdropFilter: 'blur(16px)',
-          WebkitBackdropFilter: 'blur(16px)',
-          borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.15)'}`,
-          borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.15)'}`,
+              ? colours.darkBlue
+            : 'rgba(255, 255, 255, 0.88)',
+          backdropFilter: 'blur(20px) saturate(1.5)',
+          WebkitBackdropFilter: 'blur(20px) saturate(1.5)',
+          borderTop: 'none',
+          borderBottom: `0.5px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.06)'}`,
           width: '100%',
         }}
         role="region"
@@ -220,18 +241,21 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
       style={{
         display: 'flex',
         alignItems: 'center',
-        gap: 8,
-        padding: '8px 16px',
-        minHeight: 44,
+        gap: isCompact ? 6 : 10,
+        padding: isCompact ? '6px 10px' : '6px 20px',
+        minHeight: isCompact ? 36 : 40,
         background: isDarkMode
-          ? colours.darkBlue
-          : colours.grey,
-        borderBottom: `1px solid ${isDarkMode ? `${colours.dark.border}66` : 'rgba(0, 0, 0, 0.06)'}`,
+            ? colours.darkBlue
+          : 'rgba(255, 255, 255, 0.88)',
+        backdropFilter: 'blur(20px) saturate(1.5)',
+        WebkitBackdropFilter: 'blur(20px) saturate(1.5)',
+        borderBottom: `0.5px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.06)'}`,
         position: 'relative',
         width: '100%',
         boxSizing: 'border-box',
       }}
-      className="qa-bar"
+      className={`qa-bar${isCompact ? ' qa-compact' : ''}`}
+      ref={barRef}
       role="region"
       aria-label="Quick actions"
     >
@@ -241,50 +265,55 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
         aria-label={expanded ? 'Collapse actions' : 'Expand actions'}
         aria-expanded={expanded}
         style={{
-          display: 'flex',
+          display: isCompact ? 'none' : 'flex',
           alignItems: 'center',
           gap: 6,
-          height: 28,
+          height: 26,
           padding: '0 8px 0 6px',
           background: expanded
-            ? (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)')
+            ? interactiveHoverBg
             : 'transparent',
-          border: `1px solid ${expanded ? (isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.25)') : 'transparent'}`,
+          border: 'none',
           borderRadius: 2,
           cursor: 'pointer',
           flexShrink: 0,
-          transition: 'all 0.15s ease',
-          color: expanded ? colours.blue : textSecondary,
-          fontSize: 12,
+          transition: 'all 0.2s ease',
+          color: expanded ? interactiveAccent : textSecondary,
+          fontSize: 11,
           fontWeight: 600,
           whiteSpace: 'nowrap',
-          letterSpacing: '0.02em',
+          letterSpacing: '0.04em',
+          textTransform: 'none' as const,
         }}
         className="qa-toggle-btn"
       >
         <FaChevronRight
           style={{
-            fontSize: 10,
-            color: expanded ? colours.blue : textSecondary,
-            transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
-            transition: 'transform 0.2s ease, color 0.15s ease',
+            fontSize: 8,
+            color: expanded ? interactiveAccent : textSecondary,
+            transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)',
+            transition: 'transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), color 0.2s ease',
           }}
         />
-        Quick Actions
+        Actions
       </button>
 
-      {/* Action chips — revealed on expand, labels shown when expanded */}
+      {/* Action chips — revealed on expand (desktop) or always visible icon-only (compact) */}
       <div
         className="qa-chips"
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 6,
-          maxWidth: expanded ? 800 : 0,
-          opacity: expanded ? 1 : 0,
-          overflow: 'hidden',
-          transition: 'max-width 0.3s ease, opacity 0.2s ease',
-          pointerEvents: expanded ? 'auto' : 'none',
+          gap: isCompact ? 4 : 6,
+          ...(isCompact
+            ? { maxWidth: 'none', opacity: 1, overflow: 'visible', pointerEvents: 'auto' as const }
+            : {
+                maxWidth: expanded ? 800 : 0,
+                opacity: expanded ? 1 : 0,
+                overflow: 'hidden' as const,
+                transition: 'max-width 0.3s ease, opacity 0.2s ease',
+                pointerEvents: (expanded ? 'auto' : 'none') as React.CSSProperties['pointerEvents'],
+              }),
         }}
       >
         {quickActions.map((action, index) => {
@@ -305,44 +334,50 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: 6,
-                padding: '7px 10px',
+                gap: isCompact ? 0 : 6,
+                padding: isCompact ? '4px 6px' : '5px 10px',
                 background: isActive 
-                  ? (isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)')
+                  ? (isDarkMode
+                    ? 'linear-gradient(0deg, rgba(54, 144, 206, 0.12), rgba(54, 144, 206, 0.12)), #061733'
+                    : `${interactiveAccent}${isDarkMode ? '1A' : '10'}`)
                   : isHovered 
-                    ? (isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.15)')
-                    : 'transparent',
-                border: `1px solid ${isActive ? (isDarkMode ? 'rgba(54, 144, 206, 0.4)' : colours.blue) : 'transparent'}`,
+                    ? (isDarkMode
+                      ? 'linear-gradient(0deg, rgba(54, 144, 206, 0.08), rgba(54, 144, 206, 0.08)), #061733'
+                      : interactiveHoverBg)
+                    : isDarkMode ? colours.darkBlue : 'transparent',
+                border: isDarkMode ? `1px solid rgba(54, 144, 206, ${isHovered || isActive ? '0.45' : '0.25'})` : 'none',
                 borderRadius: 2,
-                color: isActive ? colours.blue : textPrimary,
-                fontSize: 13,
+                color: isActive ? interactiveAccent : textPrimary,
+                fontSize: 12,
                 fontWeight: 500,
                 cursor: isLoading && !isSelected ? 'not-allowed' : 'pointer',
                 opacity: isLoading && !isSelected ? 0.5 : 1,
-                transition: 'all 0.15s ease',
+                transition: 'all 0.2s ease',
                 whiteSpace: 'nowrap',
                 flexShrink: 0,
-                animation: expanded ? `fadeInChip 0.2s ease ${index * 0.03}s both` : 'none',
+                animation: isCompact ? 'none' : (expanded ? `fadeInChip 0.2s ease ${index * 0.03}s both` : 'none'),
               }}
               title={getShortTitle(action.title)}
             >
               <IconComponent
                 style={{
-                  fontSize: 15,
-                  color: isActive ? colours.blue : isHovered ? textPrimary : textSecondary,
-                  transition: 'color 0.15s ease',
+                  fontSize: 14,
+                  color: isActive ? interactiveAccent : isHovered ? textPrimary : textSecondary,
+                  transition: 'color 0.2s ease',
                 }}
               />
-              <span
-                className="qa-chip-label"
-                style={{
-                  overflow: 'hidden',
-                  display: 'inline-block',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {getShortTitle(action.title)}
-              </span>
+              {!isCompact && (
+                <span
+                  className="qa-chip-label"
+                  style={{
+                    overflow: 'hidden',
+                    display: 'inline-block',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {getShortTitle(action.title)}
+                </span>
+              )}
             </button>
           );
         })}
@@ -373,7 +408,7 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
               fontSize: 12,
               fontWeight: 500,
               letterSpacing: '0.01em',
-              color: isDarkMode ? colours.accent : colours.highlight,
+              color: isDarkMode ? colours.accent : colours.blue,
               whiteSpace: 'nowrap',
               pointerEvents: 'none',
               paddingRight: 4,
@@ -390,8 +425,8 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
             <div
               style={{
                 width: 1,
-                height: 18,
-                background: isDarkMode ? `${colours.dark.border}66` : 'rgba(0, 0, 0, 0.08)',
+                height: 16,
+                background: isDarkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)',
                 marginRight: 8,
                 animation: iconsMounted ? 'qaIconDropIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both' : 'none',
                 opacity: iconsMounted ? 1 : 0,
@@ -416,7 +451,7 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
                   border: 'none',
                   borderRadius: 2,
                   background: 'transparent',
-                  color: isDarkMode ? 'rgba(148, 163, 184, 0.55)' : 'rgba(100, 116, 139, 0.55)',
+                  color: textSecondary,
                   cursor: 'pointer',
                   transition: 'background 150ms ease, color 150ms ease',
                   animation: iconsMounted ? 'qaIconDropIn 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) 0.05s both' : 'none',
@@ -424,12 +459,12 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
                 aria-label="Release notes"
                 title="Release notes"
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(54, 144, 206, 0.08)';
-                  e.currentTarget.style.color = isDarkMode ? 'rgba(148, 163, 184, 0.85)' : 'rgba(100, 116, 139, 0.85)';
+                  e.currentTarget.style.background = interactiveHoverBg;
+                  e.currentTarget.style.color = interactiveAccent;
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.background = 'transparent';
-                  e.currentTarget.style.color = isDarkMode ? 'rgba(148, 163, 184, 0.55)' : 'rgba(100, 116, 139, 0.55)';
+                  e.currentTarget.style.color = textSecondary;
                 }}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -446,8 +481,8 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
                     width: 5,
                     height: 5,
                     borderRadius: 999,
-                    background: colours.highlight,
-                    boxShadow: `0 0 0 1.5px ${isDarkMode ? colours.darkBlue : colours.grey}`,
+                    background: interactiveAccent,
+                    boxShadow: `0 0 0 1.5px ${isDarkMode ? colours.darkBlue : colours.light.background}`,
                   }} />
                 )}
               </button>
@@ -467,7 +502,7 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
                   border: 'none',
                   borderRadius: 2,
                   background: 'transparent',
-                  color: isDarkMode ? 'rgba(148, 163, 184, 0.55)' : 'rgba(100, 116, 139, 0.55)',
+                  color: textSecondary,
                   cursor: 'pointer',
                   transition: 'background 150ms ease, color 150ms ease',
                   animation: iconsMounted ? 'qaIconDropIn 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) 0.12s both' : 'none',
@@ -475,12 +510,12 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
                 aria-label={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
                 title={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(54, 144, 206, 0.08)';
-                  e.currentTarget.style.color = isDarkMode ? 'rgba(148, 163, 184, 0.85)' : 'rgba(100, 116, 139, 0.85)';
+                  e.currentTarget.style.background = interactiveHoverBg;
+                  e.currentTarget.style.color = interactiveAccent;
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.background = 'transparent';
-                  e.currentTarget.style.color = isDarkMode ? 'rgba(148, 163, 184, 0.55)' : 'rgba(100, 116, 139, 0.55)';
+                  e.currentTarget.style.color = textSecondary;
                 }}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transition: 'transform 300ms ease' }}>
@@ -506,7 +541,7 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
         )}
       </div>
 
-      {/* Animation keyframes */}
+      {/* Animation keyframes + CSS fallback for compact */}
       <style>{`
         @keyframes fadeInChip {
           from { opacity: 0; transform: translateX(-6px); }
@@ -516,9 +551,36 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
           from { opacity: 0; transform: translateY(-8px) scale(0.85); }
           to { opacity: 1; transform: translateY(0) scale(1); }
         }
-        @media (max-width: 600px) {
+        /* JS ResizeObserver handles compact via .qa-compact class.
+           CSS media queries stay as a pre-paint fallback. */
+        .qa-compact .qa-greeting,
+        .qa-compact .qa-chip-label,
+        .qa-compact .qa-toggle-btn { display: none !important; }
+        .qa-compact .qa-chips {
+          max-width: none !important;
+          opacity: 1 !important;
+          pointer-events: auto !important;
+          overflow: visible !important;
+        }
+        @media (max-width: 640px) {
           .qa-greeting { display: none !important; }
           .qa-chip-label { display: none !important; }
+          .qa-toggle-btn { display: none !important; }
+          .qa-chips {
+            max-width: none !important;
+            opacity: 1 !important;
+            pointer-events: auto !important;
+            overflow: visible !important;
+            gap: 4px !important;
+          }
+          .qa-bar { padding: 4px 12px !important; gap: 6px !important; min-height: 34px !important; }
+          .qa-chips button { padding: 4px 6px !important; font-size: 11px !important; gap: 0 !important; }
+          .qa-icon-btn { width: 24px !important; height: 24px !important; }
+        }
+        @media (max-width: 420px) {
+          .qa-bar { padding: 3px 8px !important; gap: 3px !important; min-height: 30px !important; }
+          .qa-chips button { padding: 3px 5px !important; }
+          .qa-icon-btn { width: 22px !important; height: 22px !important; }
         }
       `}</style>
     </div>

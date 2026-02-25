@@ -2,7 +2,7 @@
 // Calendar-based annual leave booking with full team visibility
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Stack, Text, DefaultButton, TextField, Icon, TooltipHost, IconButton, Spinner, SpinnerSize, MessageBar, MessageBarType, Dropdown, IDropdownOption, Dialog, DialogType, DialogFooter, PrimaryButton, Checkbox } from '@fluentui/react';
+import { Stack, Text, DefaultButton, TextField, Icon, TooltipHost, IconButton, Spinner, SpinnerSize, MessageBar, MessageBarType, Dialog, DialogType, DialogFooter, PrimaryButton, Checkbox, ThemeProvider, createTheme } from '@fluentui/react';
 import { useTheme } from '../app/functionality/ThemeContext';
 import { colours } from '../app/styles/colours';
 import { format, addDays, eachDayOfInterval, isWeekend, startOfMonth, endOfMonth, startOfWeek, endOfWeek, isSameMonth, isSameDay, isAfter, isBefore, addMonths, subMonths, startOfDay } from 'date-fns';
@@ -61,8 +61,8 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
   onSubmitSuccess
 }) => {
   const { isDarkMode } = useTheme();
-  const skeletonBase = isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(15,23,42,0.08)';
-  const skeletonStrong = isDarkMode ? 'rgba(255,255,255,0.18)' : 'rgba(15,23,42,0.12)';
+  const skeletonBase = isDarkMode ? `${colours.accent}1F` : `${colours.greyText}18`;
+  const skeletonStrong = isDarkMode ? `${colours.accent}33` : `${colours.greyText}2C`;
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDates, setSelectedDates] = useState<Map<string, 'standard' | 'purchase' | 'sale'>>(new Map());
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; dateStr: string } | null>(null);
@@ -113,6 +113,12 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
   const [viewedEmployeeEntitlementValue, setViewedEmployeeEntitlementValue] = useState<number | null>(null);
   const [isLoadingEmployeeData, setIsLoadingEmployeeData] = useState(false);
   const [loadingStage, setLoadingStage] = useState<string | null>(null); // Track current loading stage
+  const [manualHalfDayDate, setManualHalfDayDate] = useState<string>(() => format(new Date(), 'yyyy-MM-dd'));
+  const [manualHalfDayType, setManualHalfDayType] = useState<'standard' | 'purchase' | 'sale'>('standard');
+  const [manualDuration, setManualDuration] = useState<'full' | 'half'>('full');
+  const [manualHalfDaySlot, setManualHalfDaySlot] = useState<'am' | 'pm'>('am');
+  const [manualHalfDayReason, setManualHalfDayReason] = useState<string>('Manual admin leave entry');
+  const [isManualHalfDaySubmitting, setIsManualHalfDaySubmitting] = useState(false);
 
   const ownInitials = String(userData?.[0]?.Initials || userData?.[0]?.initials || 'XX').trim().toUpperCase();
   // If admin has selected an employee, show their data; otherwise show own
@@ -399,6 +405,78 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
       setIsLoadingEmployeeData(false);
     }
   }, [isAdmin, selectedEmployee]);
+
+  const handleAdminManualHalfDayCreate = useCallback(async () => {
+    if (!isAdmin) return;
+
+    const targetEmployee = selectedEmployee || ownInitials;
+
+    if (!manualHalfDayDate) {
+      setToast({ type: 'error', text: 'Select a date first.' });
+      return;
+    }
+
+    setIsManualHalfDaySubmitting(true);
+    setMessage(null);
+
+    try {
+      const isHalfDay = manualDuration === 'half';
+      const daysTaken = isHalfDay ? 0.5 : 1;
+
+      const payload = {
+        fe: targetEmployee,
+        dateRanges: [
+          {
+            start_date: manualHalfDayDate,
+            end_date: manualHalfDayDate,
+            half_day_start: isHalfDay ? manualHalfDaySlot === 'am' : false,
+            half_day_end: isHalfDay ? manualHalfDaySlot === 'pm' : false,
+            leave_type: manualHalfDayType
+          }
+        ],
+        reason: manualHalfDayReason?.trim() || 'Manual admin leave entry',
+        days_taken: daysTaken,
+        leave_type: manualHalfDayType,
+        hearing_confirmation: 'yes',
+        hearing_details: ''
+      };
+
+      const response = await fetch('/api/attendance/annual-leave', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.success) {
+        throw new Error(result?.error || `Request failed with status ${response.status}`);
+      }
+
+      const daysLabel = isHalfDay ? '0.5-day' : '1-day';
+      setMessage({ type: 'success', text: `✅ Created ${daysLabel} ${manualHalfDayType} record for ${targetEmployee}.` });
+      setToast({ type: 'success', text: `${daysLabel} ${manualHalfDayType} record created for ${targetEmployee}.` });
+
+      await refreshEmployeeData();
+      onSubmitSuccess();
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      setMessage({ type: 'error', text: `Failed to create manual half-day record: ${errorMsg}` });
+      setToast({ type: 'error', text: `Manual create failed: ${errorMsg}` });
+    } finally {
+      setIsManualHalfDaySubmitting(false);
+    }
+  }, [
+    isAdmin,
+    selectedEmployee,
+    ownInitials,
+    manualHalfDayDate,
+    manualDuration,
+    manualHalfDaySlot,
+    manualHalfDayType,
+    manualHalfDayReason,
+    refreshEmployeeData,
+    onSubmitSuccess
+  ]);
   
   // Admin handlers
   const handleDeleteLeave = useCallback(async (record: AnnualLeaveRecord) => {
@@ -858,18 +936,104 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
     }
   };
 
-  const bgCard = isDarkMode ? 'rgba(30, 41, 59, 0.6)' : 'rgba(248, 250, 252, 0.9)';
-  const bgHover = isDarkMode ? 'rgba(51, 65, 85, 0.6)' : 'rgba(241, 245, 249, 0.9)';
-  const borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(0, 0, 0, 0.08)';
-  const textPrimary = isDarkMode ? colours.dark.text : colours.light.text;
-  const textMuted = isDarkMode ? 'rgba(203, 213, 225, 0.6)' : 'rgba(71, 85, 105, 0.6)';
+  // Surface depth ladder (matches UserBubble composition)
+  const bgCanvas   = isDarkMode ? colours.darkBlue             : colours.light.background;
+  const bgSection  = isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground;
+  const bgCard     = isDarkMode ? colours.dark.cardBackground   : colours.light.cardBackground;
+  const bgInput    = isDarkMode ? colours.dark.cardBackground   : colours.light.inputBackground;
+  const bgHover    = isDarkMode ? colours.dark.cardHover        : colours.light.cardHover;
+  const bgSelected     = isDarkMode ? `${colours.accent}24` : `${colours.highlight}14`;
+  const bgSelectedStrong = isDarkMode ? `${colours.accent}33` : `${colours.highlight}1F`;
+  const borderColor  = isDarkMode ? colours.dark.borderColor  : colours.highlightNeutral;
+  const textPrimary  = isDarkMode ? colours.dark.text         : colours.light.text;
+  const textMuted    = isDarkMode ? colours.subtleGrey        : colours.greyText;
+
+  // Native select — bypasses Fluent UI portal/theme issues entirely
+  const nativeSelect = (sm?: boolean): React.CSSProperties => ({
+    height: sm ? '30px' : '32px',
+    width: '100%',
+    background: bgInput,
+    color: textPrimary,
+    border: `1px solid ${borderColor}`,
+    borderRadius: 0,
+    padding: '0 8px',
+    fontSize: sm ? '11px' : '13px',
+    outline: 'none',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    appearance: 'auto' as const,
+  });
+
+  // Local Fluent theme — overrides the global light theme when dark mode active.
+  // React context propagates through portals, so Dialogs also get dark colours.
+  const fluentThemeOverride = useMemo(() => createTheme(isDarkMode ? {
+    palette: {
+      themePrimary: colours.accent,
+      themeDark: colours.accent,
+      themeDarkAlt: colours.highlight,
+      neutralPrimary: colours.dark.text,
+      neutralDark: colours.dark.text,
+      neutralSecondary: colours.subtleGrey,
+      neutralTertiary: colours.dark.borderColor,
+      neutralLight: colours.dark.cardBackground,
+      neutralLighter: colours.dark.sectionBackground,
+      neutralLighterAlt: colours.dark.background,
+      neutralQuaternary: colours.dark.cardHover,
+      neutralQuaternaryAlt: colours.dark.cardBackground,
+      white: colours.darkBlue,
+      black: colours.dark.text,
+    },
+    semanticColors: {
+      inputBackground: colours.dark.cardBackground,
+      inputForegroundChecked: colours.accent,
+      inputBorder: colours.dark.borderColor,
+      inputBorderHovered: colours.accent,
+      inputText: colours.dark.text,
+      inputPlaceholderText: colours.subtleGrey,
+      inputFocusBorderAlt: colours.accent,
+      bodyBackground: 'transparent',
+      bodyText: colours.dark.text,
+      bodySubtext: colours.subtleGrey,
+      menuBackground: colours.dark.cardBackground,
+      menuItemBackgroundHovered: colours.dark.cardHover,
+      menuItemText: colours.dark.text,
+      menuItemTextHovered: colours.dark.text,
+      buttonBackground: 'transparent',
+      buttonText: colours.dark.text,
+      buttonBorder: colours.dark.borderColor,
+      buttonBackgroundHovered: colours.dark.cardHover,
+      buttonTextHovered: colours.dark.text,
+      disabledBackground: colours.dark.sectionBackground,
+      disabledText: colours.subtleGrey,
+      primaryButtonBackground: colours.highlight,
+      primaryButtonBackgroundHovered: colours.highlight,
+      primaryButtonText: '#ffffff',
+      primaryButtonTextHovered: '#ffffff',
+      errorText: colours.cta,
+      link: colours.accent,
+      linkHovered: colours.accent,
+      bodyFrameBackground: 'transparent',
+      bodyFrameDivider: colours.dark.borderColor,
+      bodyDivider: colours.dark.borderColor,
+    },
+  } : {
+    // Light mode — inherit global palette, just ensure transparent body
+    semanticColors: { bodyBackground: 'transparent' },
+  }), [isDarkMode]);
 
   return (
-    <div style={{
-      margin: '0 auto',
-      maxWidth: '1100px',
-      position: 'relative'
-    }}>
+    <ThemeProvider theme={fluentThemeOverride} style={{ background: 'transparent' }}>
+    <div
+      data-al-modal
+      style={{
+        margin: '0 auto',
+        maxWidth: '1100px',
+        position: 'relative',
+        background: bgCanvas,
+        border: `1px solid ${borderColor}`,
+        padding: '12px'
+      }}
+    >
       {/* Toast Notification */}
       {toast && (
         <div style={{
@@ -881,15 +1045,15 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
           alignItems: 'center',
           gap: '10px',
           padding: '12px 18px',
-          borderRadius: '8px',
+          borderRadius: 0,
           boxShadow: '0 4px 20px rgba(0, 0, 0, 0.25)',
           animation: 'slideInRight 0.3s ease-out',
           backgroundColor: toast.type === 'success' 
-            ? (isDarkMode ? 'rgba(16, 185, 129, 0.95)' : '#10b981')
+            ? colours.green
             : toast.type === 'error'
-            ? (isDarkMode ? 'rgba(239, 68, 68, 0.95)' : '#ef4444')
-            : (isDarkMode ? 'rgba(54, 144, 206, 0.95)' : colours.highlight), // info = brand blue
-          color: '#ffffff',
+            ? colours.cta
+            : colours.highlight,
+          color: colours.dark.text,
           fontWeight: 500,
           fontSize: '13px',
           maxWidth: '350px',
@@ -900,14 +1064,37 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
             iconProps={{ iconName: 'Cancel' }}
             onClick={() => setToast(null)}
             styles={{
-              root: { color: 'rgba(255,255,255,0.8)', height: '20px', width: '20px' },
-              rootHovered: { color: '#ffffff', background: 'rgba(255,255,255,0.1)' },
+              root: { color: `${colours.dark.text}CC`, height: '20px', width: '20px' },
+              rootHovered: { color: colours.dark.text, background: `${colours.dark.text}1A` },
               icon: { fontSize: '10px' }
             }}
           />
         </div>
       )}
       <style>{`
+        /* ── Scoped Fluent TextField overrides for dark mode ── */
+        ${isDarkMode ? `
+        [data-al-modal] .ms-TextField-fieldGroup {
+          background: ${colours.dark.cardBackground} !important;
+          border-color: ${colours.dark.borderColor} !important;
+        }
+        [data-al-modal] .ms-TextField-fieldGroup:hover,
+        [data-al-modal] .ms-TextField-fieldGroup:focus-within {
+          border-color: ${colours.accent} !important;
+        }
+        [data-al-modal] .ms-TextField-field,
+        [data-al-modal] .ms-TextField-field::placeholder {
+          color: ${colours.dark.text} !important;
+          background: transparent !important;
+        }
+        [data-al-modal] .ms-TextField-field::placeholder {
+          color: ${colours.subtleGrey} !important;
+          opacity: 1;
+        }
+        [data-al-modal] .ms-MessageBar {
+          background: ${colours.dark.cardBackground} !important;
+          color: ${colours.dark.text} !important;
+        }` : ''}
         @keyframes slideInRight {
           from { transform: translateX(100%); opacity: 0; }
           to { transform: translateX(0); opacity: 1; }
@@ -953,9 +1140,10 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
           styles={{
             root: {
               backgroundColor: message.type === 'success' 
-                ? (isDarkMode ? 'rgba(115, 171, 96, 0.1)' : 'rgba(16, 185, 129, 0.1)')
-                : (isDarkMode ? 'rgba(214, 85, 65, 0.1)' : 'rgba(220, 38, 38, 0.1)'),
+                ? (isDarkMode ? colours.dark.cardBackground : bgCard)
+                : (isDarkMode ? colours.dark.cardBackground : bgCard),
               borderRadius: 0,
+              borderLeft: `3px solid ${message.type === 'success' ? colours.green : colours.cta}`,
               marginBottom: '1rem'
             }
           }}
@@ -969,9 +1157,9 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
         <div style={{
           padding: '12px 14px',
           marginBottom: '16px',
-          background: isDarkMode ? 'rgba(255, 183, 77, 0.06)' : 'rgba(255, 152, 0, 0.06)',
-          border: `1px solid ${isDarkMode ? 'rgba(255, 183, 77, 0.2)' : 'rgba(255, 152, 0, 0.2)'}`,
-          borderRadius: 4
+          background: bgSection,
+          border: `1px solid ${borderColor}`,
+          borderRadius: 0
         }}>
           {/* Header row */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
@@ -980,13 +1168,13 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
               alignItems: 'center',
               gap: '5px',
               padding: '3px 8px',
-              background: isDarkMode ? 'rgba(255, 183, 77, 0.2)' : 'rgba(255, 152, 0, 0.15)',
-              borderRadius: 3,
+              background: isDarkMode ? `${colours.accent}24` : bgSelected,
+              borderRadius: 0,
               fontSize: '9px',
               fontWeight: 700,
               textTransform: 'uppercase',
               letterSpacing: '0.5px',
-              color: isDarkMode ? '#FFB74D' : '#E65100'
+              color: isDarkMode ? colours.accent : colours.highlight
             }}>
               <Icon iconName="Shield" style={{ fontSize: '10px' }} />
               Admin
@@ -1001,12 +1189,12 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                 gap: '6px',
                 padding: '3px 10px',
                 background: loadingStage.includes('Failed') || loadingStage.includes('error')
-                  ? (isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)')
-                  : (isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)'),
-                borderRadius: 3,
+                  ? (isDarkMode ? `${colours.cta}2E` : `${colours.cta}14`)
+                  : (isDarkMode ? `${colours.accent}24` : bgSelected),
+                borderRadius: 0,
                 fontSize: '10px',
                 color: loadingStage.includes('Failed') || loadingStage.includes('error')
-                  ? (isDarkMode ? '#f87171' : '#dc2626')
+                  ? colours.cta
                   : colours.highlight
               }}>
                 {isLoadingEmployeeData && <Spinner size={SpinnerSize.xSmall} />}
@@ -1033,12 +1221,12 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                 gap: '4px',
                 padding: '4px 10px',
                 background: !selectedEmployee 
-                  ? (isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)')
-                  : (isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)'),
+                  ? (isDarkMode ? `${colours.accent}24` : bgSelected)
+                  : (isDarkMode ? colours.dark.cardBackground : bgCard),
                 border: `1px solid ${!selectedEmployee 
                   ? colours.highlight
-                  : (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)')}`,
-                borderRadius: 3,
+                  : borderColor}`,
+                borderRadius: 0,
                 fontSize: '11px',
                 fontWeight: !selectedEmployee ? 600 : 500,
                 color: !selectedEmployee ? colours.highlight : textPrimary,
@@ -1067,12 +1255,12 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                     gap: '4px',
                     padding: '4px 10px',
                     background: isSelected 
-                      ? (isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)')
-                      : (isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)'),
+                      ? (isDarkMode ? `${colours.accent}24` : bgSelected)
+                      : (isDarkMode ? colours.dark.cardBackground : bgCard),
                     border: `1px solid ${isSelected 
                       ? colours.highlight
-                      : (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)')}`,
-                    borderRadius: 3,
+                      : borderColor}`,
+                    borderRadius: 0,
                     fontSize: '11px',
                     fontWeight: isSelected ? 600 : 500,
                     color: isSelected ? colours.highlight : textPrimary,
@@ -1100,8 +1288,9 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
               gap: '12px',
               marginTop: '10px',
               padding: '8px 10px',
-              background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)',
-              borderRadius: 3,
+              background: isDarkMode ? colours.dark.cardBackground : bgCard,
+              border: `1px solid ${borderColor}`,
+              borderRadius: 0,
               fontSize: '11px'
             }}>
               <span style={{ color: textMuted }}>
@@ -1115,7 +1304,7 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
               </span>
               <span style={{ color: textMuted }}>
                 Remaining: <strong style={{ color: viewedEmployeeEntitlement != null 
-                  ? (viewedEmployeeEntitlement - viewedEmployeeTotals.standard < 0 ? '#ef4444' : '#10b981')
+                  ? (viewedEmployeeEntitlement - viewedEmployeeTotals.standard < 0 ? colours.cta : colours.green)
                   : textPrimary 
                 }}>
                   {viewedEmployeeEntitlement != null 
@@ -1134,19 +1323,157 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
               />
             </div>
           )}
+
+          <div style={{
+            marginTop: '10px',
+            padding: '10px',
+            background: isDarkMode ? colours.dark.cardBackground : bgCard,
+            border: `1px solid ${borderColor}`,
+            borderRadius: 0
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+              <Icon iconName="Add" style={{ fontSize: '10px', color: colours.green }} />
+              <Text style={{ fontSize: '11px', fontWeight: 600, color: textPrimary }}>
+                Admin quick create
+              </Text>
+              <Text style={{ fontSize: '10px', color: textMuted }}>
+                {selectedEmployee ? `Target: ${selectedEmployee}` : `Target: ${ownInitials} (you)`}
+              </Text>
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <div style={{ minWidth: '140px' }}>
+                <Text style={{ fontSize: '10px', color: textMuted, marginBottom: '4px', display: 'block' }}>Date</Text>
+                <TextField
+                  type="date"
+                  value={manualHalfDayDate}
+                  onChange={(_, value) => setManualHalfDayDate(value || '')}
+                  disabled={isManualHalfDaySubmitting || isLoadingEmployeeData}
+                  styles={{
+                    fieldGroup: {
+                      height: '30px',
+                      borderRadius: 0,
+                      borderColor,
+                      backgroundColor: bgInput
+                    },
+                    field: { color: textPrimary, fontSize: '11px', background: 'transparent' }
+                  }}
+                />
+              </div>
+
+              <div style={{ minWidth: '130px' }}>
+                <Text style={{ fontSize: '10px', color: textMuted, marginBottom: '4px', display: 'block' }}>Type</Text>
+                <select
+                  value={manualHalfDayType}
+                  onChange={(e) => setManualHalfDayType(e.target.value as 'standard' | 'purchase' | 'sale')}
+                  disabled={isManualHalfDaySubmitting || isLoadingEmployeeData}
+                  style={{ ...nativeSelect(true), opacity: (isManualHalfDaySubmitting || isLoadingEmployeeData) ? 0.5 : 1 }}
+                >
+                  <option value="standard">Standard</option>
+                  <option value="purchase">Purchase</option>
+                  <option value="sale">Sale</option>
+                </select>
+              </div>
+
+              <div style={{ minWidth: '150px' }}>
+                <Text style={{ fontSize: '10px', color: textMuted, marginBottom: '4px', display: 'block' }}>Duration</Text>
+                <select
+                  value={manualDuration}
+                  onChange={(e) => setManualDuration(e.target.value as 'full' | 'half')}
+                  disabled={isManualHalfDaySubmitting || isLoadingEmployeeData}
+                  style={{ ...nativeSelect(true), opacity: (isManualHalfDaySubmitting || isLoadingEmployeeData) ? 0.5 : 1 }}
+                >
+                  <option value="full">Full day</option>
+                  <option value="half">Half day (0.5)</option>
+                </select>
+              </div>
+
+              <div style={{ minWidth: '130px' }}>
+                <Text style={{ fontSize: '10px', color: textMuted, marginBottom: '4px', display: 'block' }}>Half-day slot</Text>
+                <select
+                  value={manualHalfDaySlot}
+                  onChange={(e) => setManualHalfDaySlot(e.target.value as 'am' | 'pm')}
+                  disabled={isManualHalfDaySubmitting || isLoadingEmployeeData || manualDuration !== 'half'}
+                  style={{ ...nativeSelect(true), opacity: (isManualHalfDaySubmitting || isLoadingEmployeeData || manualDuration !== 'half') ? 0.5 : 1 }}
+                >
+                  <option value="am">AM (start)</option>
+                  <option value="pm">PM (end)</option>
+                </select>
+              </div>
+
+              <div style={{ minWidth: '260px', flex: '1 1 260px' }}>
+                <Text style={{ fontSize: '10px', color: textMuted, marginBottom: '4px', display: 'block' }}>Reason</Text>
+                <TextField
+                  value={manualHalfDayReason}
+                  onChange={(_, value) => setManualHalfDayReason(value || '')}
+                  disabled={isManualHalfDaySubmitting || isLoadingEmployeeData}
+                  styles={{
+                    fieldGroup: {
+                      height: '30px',
+                      borderRadius: 0,
+                      borderColor,
+                      backgroundColor: bgInput
+                    },
+                    field: { color: textPrimary, fontSize: '11px', background: 'transparent' }
+                  }}
+                />
+              </div>
+
+              <DefaultButton
+                text={isManualHalfDaySubmitting ? 'Creating...' : 'Create record'}
+                onClick={handleAdminManualHalfDayCreate}
+                disabled={isManualHalfDaySubmitting || isLoadingEmployeeData || !manualHalfDayDate}
+                styles={{
+                  root: {
+                    height: '30px',
+                    minWidth: '120px',
+                    borderRadius: 0,
+                    border: `1px solid ${isDarkMode ? colours.accent : colours.highlight}`,
+                    color: isDarkMode ? colours.accent : colours.highlight,
+                    background: isDarkMode ? `${colours.accent}24` : bgSelected,
+                    fontSize: '11px',
+                    fontWeight: 600
+                  },
+                  rootHovered: {
+                    background: isDarkMode ? `${colours.accent}33` : bgSelectedStrong
+                  }
+                }}
+                iconProps={isManualHalfDaySubmitting ? undefined : { iconName: 'Add' }}
+              />
+            </div>
+          </div>
         </div>
       )}
 
       {/* 2x2 Grid Layout */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '6px', alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '10px', alignItems: 'start' }}>
         {/* TOP LEFT: Calendar Section */}
-        <div className="cascade-item">
+        <div
+          className="cascade-item"
+          style={{
+            padding: '12px',
+            background: bgSection,
+            border: `1px solid ${borderColor}`,
+            boxShadow: isDarkMode ? '0 2px 10px rgba(0, 0, 0, 0.28)' : '0 2px 8px rgba(0, 0, 0, 0.06)',
+            borderRadius: 0
+          }}
+        >
           {/* Month Navigation */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
             <IconButton
               iconProps={{ iconName: 'ChevronLeft' }}
               onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}
-              styles={{ root: { color: textPrimary } }}
+              styles={{
+                root: {
+                  color: textPrimary,
+                  border: `1px solid ${borderColor}`,
+                  background: isDarkMode ? colours.dark.cardBackground : colours.grey
+                },
+                rootHovered: {
+                  background: bgHover,
+                  color: isDarkMode ? colours.accent : colours.highlight
+                }
+              }}
             />
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Text style={{ fontSize: '16px', fontWeight: 600, color: textPrimary }}>
@@ -1193,14 +1520,14 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                   alignItems: 'center',
                   gap: '4px',
                   padding: '4px 8px',
-                  background: isDarkMode ? 'rgba(128, 128, 128, 0.08)' : 'rgba(128, 128, 128, 0.05)',
-                  border: `1px solid ${isDarkMode ? 'rgba(128, 128, 128, 0.2)' : 'rgba(128, 128, 128, 0.12)'}`,
+                  background: isDarkMode ? colours.dark.cardBackground : bgCard,
+                  border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlight}`,
                   borderRadius: 0,
                   cursor: 'pointer',
                   transition: '0.2s'
                 }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = isDarkMode ? 'rgba(128, 128, 128, 0.15)' : 'rgba(128, 128, 128, 0.1)'}
-                  onMouseLeave={(e) => e.currentTarget.style.background = isDarkMode ? 'rgba(128, 128, 128, 0.08)' : 'rgba(128, 128, 128, 0.05)'}
+                  onMouseEnter={(e) => e.currentTarget.style.background = bgHover}
+                  onMouseLeave={(e) => e.currentTarget.style.background = isDarkMode ? colours.dark.cardBackground : colours.grey}
                 >
                   <Icon 
                     iconName="Calendar" 
@@ -1218,7 +1545,17 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
             <IconButton
               iconProps={{ iconName: 'ChevronRight' }}
               onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}
-              styles={{ root: { color: textPrimary } }}
+              styles={{
+                root: {
+                  color: textPrimary,
+                  border: `1px solid ${borderColor}`,
+                  background: isDarkMode ? colours.dark.cardBackground : colours.grey
+                },
+                rootHovered: {
+                  background: bgHover,
+                  color: isDarkMode ? colours.accent : colours.highlight
+                }
+              }}
             />
           </div>
 
@@ -1260,22 +1597,22 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                 // Color by leave type
                 if (dayInfo.leaveType === 'purchase') {
                   bgColor = isDarkMode ? colours.accent : colours.highlight;
-                  textColor = isDarkMode ? colours.dark.background : '#ffffff';
+                  textColor = isDarkMode ? colours.dark.background : colours.dark.text;
                 } else if (dayInfo.leaveType === 'sale') {
                   bgColor = colours.green;
-                  textColor = '#ffffff';
+                  textColor = colours.dark.text;
                 } else {
                   bgColor = isDarkMode ? colours.highlight : colours.missedBlue;
-                  textColor = '#ffffff';
+                  textColor = colours.dark.text;
                 }
               } else if (dayInfo.isOwnLeave) {
-                bgColor = isDarkMode ? 'rgba(115, 171, 96, 0.25)' : 'rgba(115, 171, 96, 0.15)';
+                bgColor = isDarkMode ? `${colours.green}33` : `${colours.green}24`;
                 textColor = colours.green;
               } else if (dayInfo.isBankHoliday) {
-                bgColor = `repeating-linear-gradient(45deg, ${isDarkMode ? 'rgba(128, 128, 128, 0.4)' : 'rgba(128, 128, 128, 0.25)'} 0px, ${isDarkMode ? 'rgba(128, 128, 128, 0.4)' : 'rgba(128, 128, 128, 0.25)'} 2px, ${isDarkMode ? 'rgba(128, 128, 128, 0.15)' : 'rgba(128, 128, 128, 0.1)'} 2px, ${isDarkMode ? 'rgba(128, 128, 128, 0.15)' : 'rgba(128, 128, 128, 0.1)'} 4px)`;
+                bgColor = `repeating-linear-gradient(45deg, ${isDarkMode ? `${colours.subtleGrey}66` : `${colours.subtleGrey}40`} 0px, ${isDarkMode ? `${colours.subtleGrey}66` : `${colours.subtleGrey}40`} 2px, ${isDarkMode ? `${colours.subtleGrey}26` : `${colours.subtleGrey}1A`} 2px, ${isDarkMode ? `${colours.subtleGrey}26` : `${colours.subtleGrey}1A`} 4px)`;
                 textColor = colours.greyText;
               } else if (dayInfo.isWeekend || !isCurrentMonth) {
-                bgColor = isDarkMode ? 'rgba(0, 0, 0, 0.2)' : 'rgba(0, 0, 0, 0.03)';
+                bgColor = isDarkMode ? colours.dark.background : colours.grey;
               }
 
               return (
@@ -1308,7 +1645,7 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                       borderRadius: 0,
                       textAlign: 'center',
                       cursor: isSelectable ? 'pointer' : 'default',
-                      opacity: !isCurrentMonth ? 0.3 : isPast ? 0.4 : 1,
+                      opacity: !isCurrentMonth ? 0.45 : isPast ? 0.58 : 1,
                       position: 'relative',
                       minHeight: '48px',
                       display: 'flex',
@@ -1318,7 +1655,7 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                     }}
                     onMouseEnter={(e) => {
                       if (isSelectable && !dayInfo.isSelected) {
-                        e.currentTarget.style.background = isDarkMode ? 'rgba(135, 243, 243, 0.15)' : 'rgba(54, 144, 206, 0.1)';
+                        e.currentTarget.style.background = bgHover;
                         e.currentTarget.style.borderColor = isDarkMode ? colours.accent : colours.highlight;
                       }
                     }}
@@ -1340,8 +1677,8 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                       <div style={{
                         fontSize: '9px',
                         color: dayInfo.isSelected 
-                          ? (isDarkMode ? 'rgba(255, 255, 255, 0.7)' : 'rgba(255, 255, 255, 0.85)')
-                          : colours.highlight,
+                          ? (isDarkMode ? `${colours.dark.text}B3` : `${colours.dark.text}D9`)
+                          : (isDarkMode ? colours.accent : colours.highlight),
                         marginTop: '2px',
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
@@ -1359,13 +1696,22 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
         </div>
 
         {/* TOP RIGHT: Stats & User Leave Ledger */}
-        <div className="cascade-item">
+        <div
+          className="cascade-item"
+          style={{
+            padding: '12px',
+            background: bgSection,
+            border: `1px solid ${borderColor}`,
+            boxShadow: isDarkMode ? '0 2px 10px rgba(0, 0, 0, 0.28)' : '0 2px 8px rgba(0, 0, 0, 0.06)',
+            borderRadius: 0
+          }}
+        >
           {/* Legend & Instructions */}
           <div style={{
             marginBottom: '12px',
             padding: '10px 12px',
-            background: isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.06)',
-            border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.2)' : 'rgba(54, 144, 206, 0.2)'}`,
+            background: isDarkMode ? colours.dark.cardBackground : bgCard,
+            border: `1px solid ${borderColor}`,
             borderRadius: 0
           }}>
             {/* Legend */}
@@ -1389,11 +1735,11 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                 <span style={{ color: textMuted }}>Sale</span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <div style={{ width: 10, height: 10, background: `repeating-linear-gradient(45deg, ${isDarkMode ? 'rgba(128, 128, 128, 0.4)' : 'rgba(128, 128, 128, 0.25)'} 0px, ${isDarkMode ? 'rgba(128, 128, 128, 0.4)' : 'rgba(128, 128, 128, 0.25)'} 2px, ${isDarkMode ? 'rgba(128, 128, 128, 0.15)' : 'rgba(128, 128, 128, 0.1)'} 2px, ${isDarkMode ? 'rgba(128, 128, 128, 0.15)' : 'rgba(128, 128, 128, 0.1)'} 4px)`, borderRadius: 0 }} />
+                <div style={{ width: 10, height: 10, background: `repeating-linear-gradient(45deg, ${isDarkMode ? `${colours.subtleGrey}66` : `${colours.subtleGrey}40`} 0px, ${isDarkMode ? `${colours.subtleGrey}66` : `${colours.subtleGrey}40`} 2px, ${isDarkMode ? `${colours.subtleGrey}26` : `${colours.subtleGrey}1A`} 2px, ${isDarkMode ? `${colours.subtleGrey}26` : `${colours.subtleGrey}1A`} 4px)`, borderRadius: 0 }} />
                 <span style={{ color: textMuted }}>Bank hol.</span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <div style={{ width: 10, height: 10, background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)', borderRadius: 0, border: `1px solid ${colours.highlight}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ width: 10, height: 10, background: isDarkMode ? `${colours.accent}26` : bgSelected, borderRadius: 0, border: `1px solid ${colours.highlight}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <Icon iconName="Contact" style={{ fontSize: '6px', color: colours.highlight }} />
                 </div>
                 <span style={{ color: textMuted }}>Team off</span>
@@ -1410,14 +1756,14 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
             padding: '1rem',
             paddingLeft: 'calc(1rem + 2px)',
             background: isNextYearOnly
-              ? (isDarkMode ? 'rgba(88, 65, 18, 0.45)' : 'rgba(255, 248, 235, 0.95)')
-              : (isDarkMode ? 'rgba(6, 23, 51, 0.4)' : 'rgba(255, 255, 255, 0.95)'),
+              ? (isDarkMode ? colours.dark.cardBackground : bgSelected)
+              : (isDarkMode ? colours.dark.cardBackground : bgCard),
             border: `1px solid ${isNextYearOnly
-              ? (isDarkMode ? 'rgba(251, 191, 36, 0.35)' : 'rgba(245, 158, 11, 0.35)')
+              ? (isDarkMode ? colours.accent : colours.highlight)
               : borderColor}`,
             borderLeft: 'none',
             boxShadow: isNextYearOnly
-              ? `inset 3px 0 0 ${isDarkMode ? '#fbbf24' : '#f59e0b'}, ${isDarkMode ? '0 2px 8px rgba(0, 0, 0, 0.25)' : '0 2px 8px rgba(0, 0, 0, 0.08)'}`
+              ? `inset 3px 0 0 ${isDarkMode ? colours.accent : colours.highlight}, ${isDarkMode ? '0 2px 8px rgba(0, 0, 0, 0.25)' : '0 2px 8px rgba(0, 0, 0, 0.08)'}`
               : `inset 3px 0 0 ${isDarkMode ? colours.accent : colours.highlight}, ${isDarkMode ? '0 2px 8px rgba(0, 0, 0, 0.2)' : '0 2px 8px rgba(0, 0, 0, 0.06)'}`,
             marginBottom: '16px',
             position: 'relative',
@@ -1433,7 +1779,7 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                   left: 0,
                   right: 0,
                   bottom: 0,
-                  background: isDarkMode ? 'rgba(6, 23, 51, 0.85)' : 'rgba(255, 255, 255, 0.9)',
+                  background: isDarkMode ? `${colours.darkBlue}D9` : `${colours.light.background}E6`,
                   display: 'flex',
                   flexDirection: 'column',
                   alignItems: 'center',
@@ -1449,22 +1795,22 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
             {isNextYearOnly ? (
               <Stack tokens={{ childrenGap: 12 }}>
                 <div>
-                  <Text style={{ fontSize: '11px', color: isDarkMode ? '#fbbf24' : '#f59e0b', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.6px' }}>
+                  <Text style={{ fontSize: '11px', color: isDarkMode ? colours.accent : colours.highlight, textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.6px' }}>
                     Next fiscal year
                   </Text>
-                  <Text style={{ fontSize: '18px', fontWeight: 700, color: isDarkMode ? '#fbbf24' : '#f59e0b', display: 'block', lineHeight: 1.3 }}>
+                  <Text style={{ fontSize: '18px', fontWeight: 700, color: isDarkMode ? colours.accent : colours.highlight, display: 'block', lineHeight: 1.3 }}>
                     {nextFiscalYearLabel}
                   </Text>
                   <Text style={{ fontSize: '10px', color: textMuted, marginTop: '2px' }}>
                     After {fiscalYearInfo.currentFiscalEnd}. This request uses next year's allowance.
                   </Text>
                 </div>
-                <div style={{ height: '1px', background: `linear-gradient(90deg, ${isDarkMode ? '#fbbf24' : '#f59e0b'} 0%, transparent 100%)` }} />
+                <div style={{ height: '1px', background: `linear-gradient(90deg, ${isDarkMode ? colours.accent : colours.highlight} 0%, transparent 100%)` }} />
                 <div>
-                  <Text style={{ fontSize: '11px', color: isDarkMode ? '#fbbf24' : '#f59e0b', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.5px' }}>
+                  <Text style={{ fontSize: '11px', color: isDarkMode ? colours.accent : colours.highlight, textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.5px' }}>
                     Days Requested
                   </Text>
-                  <Text style={{ fontSize: '28px', fontWeight: 700, color: isDarkMode ? '#fbbf24' : '#f59e0b', display: 'block', lineHeight: 1.2 }}>
+                  <Text style={{ fontSize: '28px', fontWeight: 700, color: isDarkMode ? colours.accent : colours.highlight, display: 'block', lineHeight: 1.2 }}>
                     {totalDays}
                   </Text>
                   {dateRanges.length > 0 && (
@@ -1487,14 +1833,14 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                   <Text style={{ 
                     fontSize: '11px', 
                     color: textMuted,
-                    borderBottom: `1px solid ${isDarkMode ? '#fbbf24' : '#f59e0b'}`,
+                    borderBottom: `1px solid ${isDarkMode ? colours.accent : colours.highlight}`,
                     paddingBottom: '2px'
                   }}>Standard Entitlement (next year)</Text>
-                  <Text style={{ fontSize: '13px', fontWeight: 600, color: isDarkMode ? '#fbbf24' : '#f59e0b' }}>{entitlement}</Text>
+                  <Text style={{ fontSize: '13px', fontWeight: 600, color: isDarkMode ? colours.accent : colours.highlight }}>{entitlement}</Text>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <Text style={{ fontSize: '11px', color: textMuted }}>Planned usage</Text>
-                  <Text style={{ fontSize: '13px', fontWeight: 600, color: isDarkMode ? '#fbbf24' : '#f59e0b' }}>{daysByType.standard}</Text>
+                  <Text style={{ fontSize: '13px', fontWeight: 600, color: isDarkMode ? colours.accent : colours.highlight }}>{daysByType.standard}</Text>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <Text style={{ fontSize: '11px', color: textMuted }}>Remaining (next year)</Text>
@@ -1677,9 +2023,9 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                   <div style={{ 
                     marginTop: '8px', 
                     padding: '8px', 
-                    background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.05)', 
-                    border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)'}`,
-                    borderRadius: '2px'
+                    background: isDarkMode ? colours.dark.sectionBackground : bgCard, 
+                    border: `1px solid ${borderColor}`,
+                    borderRadius: 0
                   }}>
                     <Text style={{ fontSize: '10px', color: textMuted, lineHeight: 1.4 }}>
                       Purchase & Sale options unlocked when no leave remaining
@@ -1692,16 +2038,16 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                   <div style={{
                     marginTop: '8px',
                     padding: '8px',
-                    background: isDarkMode ? 'rgba(251, 191, 36, 0.08)' : 'rgba(251, 191, 36, 0.06)',
-                    border: `1px solid ${isDarkMode ? 'rgba(251, 191, 36, 0.3)' : 'rgba(251, 191, 36, 0.25)'}`,
-                    borderLeft: `3px solid ${isDarkMode ? '#fbbf24' : '#f59e0b'}`,
+                    background: isDarkMode ? colours.dark.sectionBackground : bgCard,
+                    border: `1px solid ${isDarkMode ? colours.accent : colours.highlight}`,
+                    borderLeft: `3px solid ${isDarkMode ? colours.accent : colours.highlight}`,
                     borderRadius: 0
                   }}>
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
                       <Icon 
                         iconName="Warning" 
                         style={{ 
-                          color: isDarkMode ? '#fbbf24' : '#f59e0b',
+                          color: isDarkMode ? colours.accent : colours.highlight,
                           fontSize: '12px',
                           marginTop: '1px',
                           flexShrink: 0
@@ -1711,7 +2057,7 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                         <Text style={{ 
                           fontSize: '10px', 
                           fontWeight: 600,
-                          color: isDarkMode ? '#fbbf24' : '#f59e0b',
+                          color: isDarkMode ? colours.accent : colours.highlight,
                           display: 'block',
                           marginBottom: '2px'
                         }}>
@@ -1742,11 +2088,11 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
             <div style={{
               marginTop: '16px',
               padding: '12px',
-              background: isDarkMode ? 'rgba(13, 47, 96, 0.2)' : 'rgba(54, 144, 206, 0.04)',
-              border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)'}`,
+              background: isDarkMode ? colours.dark.sectionBackground : bgCard,
+              border: `1px solid ${borderColor}`,
               borderRadius: 0
             }}>
-              <Text style={{ fontSize: '11px', color: colours.accent, textTransform: 'uppercase', fontWeight: 700, marginBottom: '8px', display: 'block', letterSpacing: '0.5px' }}>
+              <Text style={{ fontSize: '11px', color: isDarkMode ? colours.accent : colours.highlight, textTransform: 'uppercase', fontWeight: 700, marginBottom: '8px', display: 'block', letterSpacing: '0.5px' }}>
                 Your Upcoming Leave
               </Text>
               <Stack tokens={{ childrenGap: 6 }}>
@@ -1782,7 +2128,7 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
       <div className="cascade-item" style={{
         marginTop: '16px',
         padding: '12px',
-        background: isDarkMode ? 'rgba(30, 41, 59, 0.4)' : 'rgba(248, 250, 252, 0.8)',
+        background: bgSection,
         border: `1px solid ${borderColor}`,
         borderRadius: 0
       }}>
@@ -1802,7 +2148,7 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                   cursor: 'pointer',
                   padding: '0 10px',
                   height: '32px',
-                  background: hearingConfirmation === 'yes' ? (isDarkMode ? 'rgba(32, 178, 108, 0.15)' : 'rgba(32, 178, 108, 0.1)') : 'transparent',
+                  background: hearingConfirmation === 'yes' ? (isDarkMode ? `${colours.green}30` : `${colours.green}1F`) : 'transparent',
                   border: `1px solid ${hearingConfirmation === 'yes' ? colours.green : borderColor}`,
                   transition: '0.1s'
                 }}
@@ -1817,7 +2163,7 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                   alignItems: 'center',
                   justifyContent: 'center'
                 }}>
-                  {hearingConfirmation === 'yes' && <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#ffffff' }} />}
+                  {hearingConfirmation === 'yes' && <div style={{ width: 5, height: 5, borderRadius: '50%', background: colours.dark.text }} />}
                 </div>
                 <Text style={{ fontSize: '12px', color: textPrimary, fontWeight: hearingConfirmation === 'yes' ? 600 : 400 }}>
                   No hearings
@@ -1833,7 +2179,7 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                   cursor: 'pointer',
                   padding: '0 10px',
                   height: '32px',
-                  background: hearingConfirmation === 'no' ? (isDarkMode ? 'rgba(214, 85, 65, 0.15)' : 'rgba(214, 85, 65, 0.1)') : 'transparent',
+                  background: hearingConfirmation === 'no' ? (isDarkMode ? `${colours.cta}30` : `${colours.cta}1F`) : 'transparent',
                   border: `1px solid ${hearingConfirmation === 'no' ? colours.cta : borderColor}`,
                   transition: '0.1s'
                 }}
@@ -1848,7 +2194,7 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                   alignItems: 'center',
                   justifyContent: 'center'
                 }}>
-                  {hearingConfirmation === 'no' && <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#ffffff' }} />}
+                  {hearingConfirmation === 'no' && <div style={{ width: 5, height: 5, borderRadius: '50%', background: colours.dark.text }} />}
                 </div>
                 <Text style={{ fontSize: '12px', color: textPrimary, fontWeight: hearingConfirmation === 'no' ? 600 : 400 }}>
                   Hearings need cover
@@ -1868,11 +2214,12 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
               onChange={(_, value) => setNotes(value || '')}
               styles={{
                 fieldGroup: {
-                  backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.05)' : '#ffffff',
+                  backgroundColor: bgInput,
                   borderColor: borderColor,
                   borderRadius: 0,
                   height: '32px'
-                }
+                },
+                field: { color: textPrimary, background: 'transparent' }
               }}
             />
           </div>
@@ -1891,24 +2238,24 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                   fontWeight: 600,
                   padding: '0 14px',
                   backgroundColor: isDarkMode 
-                    ? 'rgba(135, 243, 243, 0.1)' 
+                    ? `${colours.accent}26` 
                     : colours.highlight,
-                  color: isDarkMode ? colours.accent : '#ffffff',
+                  color: isDarkMode ? colours.accent : colours.dark.text,
                   border: isDarkMode ? `1px solid ${colours.accent}` : 'none',
                   borderRadius: 0,
                   transition: 'all 0.2s ease',
                 },
                 rootHovered: {
                   backgroundColor: isDarkMode 
-                    ? 'rgba(135, 243, 243, 0.15)' 
+                    ? `${colours.accent}33` 
                     : colours.highlight,
-                  color: isDarkMode ? colours.accent : '#ffffff',
+                  color: isDarkMode ? colours.accent : colours.dark.text,
                   opacity: isDarkMode ? 1 : 0.85,
                 },
                 rootDisabled: {
-                  backgroundColor: isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(0, 0, 0, 0.1)',
-                  color: isDarkMode ? 'rgba(148, 163, 184, 0.4)' : textMuted,
-                  border: isDarkMode ? '1px solid rgba(148, 163, 184, 0.2)' : 'none',
+                  backgroundColor: isDarkMode ? colours.dark.cardBackground : colours.grey,
+                  color: textMuted,
+                  border: `1px solid ${borderColor}`,
                 },
               }}
               iconProps={isSubmitting ? undefined : { iconName: 'Send' }}
@@ -1926,14 +2273,14 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                   fontSize: '11px',
                   fontWeight: 600,
                   padding: '0 12px',
-                  backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
+                  backgroundColor: isDarkMode ? colours.dark.cardBackground : colours.grey,
                   color: textMuted,
                   border: `1px solid ${borderColor}`,
                   borderRadius: 0,
                   transition: 'all 0.2s ease',
                 },
                 rootHovered: {
-                  backgroundColor: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : bgHover,
+                  backgroundColor: bgHover,
                 },
                 rootDisabled: {
                   opacity: 0.3,
@@ -1955,11 +2302,12 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
               onChange={(_, value) => setHearingDetails(value || '')}
               styles={{
                 fieldGroup: {
-                  backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.05)' : '#ffffff',
+                  backgroundColor: bgInput,
                   borderColor: colours.cta,
                   borderRadius: 0,
                   height: '32px'
-                }
+                },
+                field: { color: textPrimary, background: 'transparent' }
               }}
             />
           </div>
@@ -2000,9 +2348,9 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                   fontWeight: 600,
                   color: textMuted,
                   padding: '2px 6px',
-                  borderRadius: 3,
-                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(15, 23, 42, 0.08)'}`,
-                  background: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(15,23,42,0.04)'
+                  borderRadius: 0,
+                  border: `1px solid ${borderColor}`,
+                  background: isDarkMode ? colours.dark.cardBackground : colours.grey
                 }}>
                   {isHistoryLoading ? (
                     <span style={{ display: 'inline-block', width: '26px', height: '8px', borderRadius: 2, background: skeletonStrong }} />
@@ -2013,11 +2361,11 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                 <span style={{
                   fontSize: '10px',
                   fontWeight: 600,
-                  color: textMuted,
+                  color: isDarkMode ? colours.accent : colours.highlight,
                   padding: '2px 6px',
-                  borderRadius: 3,
-                  border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.25)'}`,
-                  background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)'
+                  borderRadius: 0,
+                  border: `1px solid ${isDarkMode ? `${colours.accent}59` : `${colours.highlight}40`}`,
+                  background: isDarkMode ? `${colours.accent}1F` : `${colours.highlight}14`
                 }}>
                   {isHistoryLoading ? (
                     <span style={{ display: 'inline-block', width: '32px', height: '8px', borderRadius: 2, background: skeletonBase }} />
@@ -2039,8 +2387,8 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                           width: 14,
                           height: 14,
                           borderRadius: 0,
-                          borderColor: isDarkMode ? 'rgba(148, 163, 184, 0.45)' : 'rgba(15, 23, 42, 0.25)',
-                          background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(15, 23, 42, 0.04)'
+                          borderColor: borderColor,
+                          background: isDarkMode ? colours.dark.cardBackground : colours.grey
                         },
                         checkmark: { fontSize: '10px', color: textPrimary }
                       }}
@@ -2061,9 +2409,9 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                     height: '26px',
                     minWidth: '80px',
                     fontSize: '10px',
-                    background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(15,23,42,0.04)',
-                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(15, 23, 42, 0.08)'}`,
-                    borderRadius: 3
+                    background: isDarkMode ? colours.dark.cardBackground : colours.grey,
+                    border: `1px solid ${borderColor}`,
+                    borderRadius: 0
                   },
                   label: { fontSize: '10px' },
                   icon: { fontSize: '12px', color: textMuted }
@@ -2084,8 +2432,8 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                   justifyContent: 'space-between',
                   gap: '10px',
                   padding: '8px 10px',
-                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(15, 23, 42, 0.12)'}`,
-                  background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(15, 23, 42, 0.04)'
+                  border: `1px solid ${borderColor}`,
+                  background: isDarkMode ? colours.dark.cardBackground : colours.grey
                 }}>
                   <Text style={{ fontSize: '11px', color: textMuted }}>
                     {selectedRecordIds.size} selected
@@ -2100,7 +2448,7 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                           minWidth: '70px',
                           fontSize: '10px',
                           background: 'transparent',
-                          border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)'}`,
+                          border: `1px solid ${borderColor}`,
                           borderRadius: 0
                         },
                         label: { fontSize: '10px' }
@@ -2114,11 +2462,11 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                           height: '26px',
                           minWidth: '120px',
                           fontSize: '10px',
-                          background: isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.12)',
-                          border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.25)'}`,
+                          background: isDarkMode ? `${colours.accent}1F` : `${colours.highlight}14`,
+                          border: `1px solid ${isDarkMode ? `${colours.accent}59` : `${colours.highlight}40`}`,
                           borderRadius: 0
                         },
-                        label: { fontSize: '10px', color: isDarkMode ? '#f8fafc' : colours.highlight }
+                        label: { fontSize: '10px', color: isDarkMode ? colours.accent : colours.highlight }
                       }}
                     />
                   </div>
@@ -2135,7 +2483,7 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                     right: 0,
                     bottom: 0,
                     minHeight: '80px',
-                  background: isDarkMode ? 'rgba(6, 23, 51, 0.9)' : 'rgba(255, 255, 255, 0.92)',
+                  background: isDarkMode ? `${colours.darkBlue}E6` : `${colours.light.background}EB`,
                   display: 'flex',
                   flexDirection: 'column',
                   alignItems: 'center',
@@ -2143,7 +2491,7 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                   gap: '8px',
                   zIndex: 5,
                   backdropFilter: 'blur(2px)',
-                  borderRadius: '2px'
+                  borderRadius: 0
                 }}>
                   <Spinner size={SpinnerSize.small} />
                   <span style={{ fontSize: '11px', color: textMuted }}>{loadingStage || 'Loading history...'}</span>
@@ -2160,17 +2508,17 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                         alignItems: 'center',
                         gap: '8px',
                         padding: '8px 10px',
-                        background: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)',
-                        border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`
+                        background: isDarkMode ? colours.dark.cardBackground : colours.grey,
+                        border: `1px solid ${borderColor}`
                       }}
                     >
                       <div style={{ width: '3px', height: '28px', background: skeletonStrong }} />
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ width: '120px', height: '10px', borderRadius: 2, background: skeletonStrong, marginBottom: '6px' }} />
-                        <div style={{ width: '80%', height: '8px', borderRadius: 2, background: skeletonBase }} />
+                        <div style={{ width: '120px', height: '10px', borderRadius: 0, background: skeletonStrong, marginBottom: '6px' }} />
+                        <div style={{ width: '80%', height: '8px', borderRadius: 0, background: skeletonBase }} />
                       </div>
-                      <div style={{ width: '26px', height: '14px', borderRadius: 3, background: skeletonBase }} />
-                      <div style={{ width: '50px', height: '14px', borderRadius: 3, background: skeletonStrong }} />
+                      <div style={{ width: '26px', height: '14px', borderRadius: 0, background: skeletonBase }} />
+                      <div style={{ width: '50px', height: '14px', borderRadius: 0, background: skeletonStrong }} />
                     </div>
                   ))}
                 </div>
@@ -2186,8 +2534,8 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                   color: textMuted,
                   fontSize: '12px',
                   gap: '8px',
-                  background: isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)',
-                  border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`
+                  background: isDarkMode ? colours.dark.cardBackground : colours.grey,
+                  border: `1px solid ${borderColor}`
                 }}>
                   <span>{isAdmin && selectedEmployee ? `No leave records found for ${selectedEmployee}` : 'No leave records found'}</span>
                   {isAdmin && selectedEmployee && (
@@ -2214,18 +2562,18 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                   
                   const statusColor = 
                     record.status === 'approved' ? colours.green :
-                    record.status === 'rejected' ? colours.red :
+                    record.status === 'rejected' ? colours.cta :
                     (isDarkMode ? colours.accent : colours.highlight);
                   const statusBackground = record.status === 'rejected'
-                    ? (isDarkMode ? 'rgba(248, 113, 113, 0.12)' : 'rgba(248, 113, 113, 0.08)')
+                    ? (isDarkMode ? `${colours.cta}1F` : `${colours.cta}14`)
                     : record.status === 'approved'
-                      ? (isDarkMode ? 'rgba(74, 222, 128, 0.12)' : 'rgba(74, 222, 128, 0.08)')
-                      : (isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(15, 23, 42, 0.04)');
+                      ? (isDarkMode ? `${colours.green}1F` : `${colours.green}14`)
+                      : (isDarkMode ? colours.dark.sectionBackground : bgSelected);
                   const statusBorder = record.status === 'rejected'
-                    ? (isDarkMode ? 'rgba(248, 113, 113, 0.35)' : 'rgba(248, 113, 113, 0.25)')
+                    ? (isDarkMode ? `${colours.cta}59` : `${colours.cta}40`)
                     : record.status === 'approved'
-                      ? (isDarkMode ? 'rgba(74, 222, 128, 0.35)' : 'rgba(74, 222, 128, 0.25)')
-                      : (isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(15, 23, 42, 0.12)');
+                      ? (isDarkMode ? `${colours.green}59` : `${colours.green}40`)
+                      : borderColor;
 
                   const startDate = new Date(record.start_date);
                   const endDate = new Date(record.end_date);
@@ -2254,16 +2602,16 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                         alignItems: 'center',
                         gap: '8px',
                         padding: '8px 10px',
-                        background: isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)',
-                        border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`,
+                        background: isDarkMode ? colours.dark.cardBackground : colours.grey,
+                        border: `1px solid ${borderColor}`,
                         fontSize: '11px',
                         transition: 'background 0.15s ease'
                       }}
                       onMouseEnter={(e) => {
-                        e.currentTarget.style.background = isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)';
+                        e.currentTarget.style.background = isDarkMode ? colours.dark.cardHover : bgHover;
                       }}
                       onMouseLeave={(e) => {
-                        e.currentTarget.style.background = isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)';
+                        e.currentTarget.style.background = isDarkMode ? colours.dark.cardBackground : colours.grey;
                       }}
                     >
                       {isAdmin && (
@@ -2276,8 +2624,8 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                               width: 14,
                               height: 14,
                               borderRadius: 0,
-                              borderColor: isDarkMode ? 'rgba(148, 163, 184, 0.45)' : 'rgba(15, 23, 42, 0.25)',
-                              background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(15, 23, 42, 0.04)'
+                              borderColor: borderColor,
+                              background: isDarkMode ? colours.dark.cardBackground : colours.grey
                             },
                             checkmark: { fontSize: '10px', color: textPrimary }
                           }}
@@ -2337,8 +2685,9 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                         fontWeight: 600,
                         color: textMuted,
                         padding: '2px 6px',
-                        background: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)',
-                        borderRadius: 3,
+                        background: isDarkMode ? colours.dark.sectionBackground : bgSelected,
+                        borderRadius: 0,
+                        border: `1px solid ${borderColor}`,
                         flexShrink: 0
                       }}>
                         {record.days_taken || daysDiff}d
@@ -2375,14 +2724,14 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                                 root: {
                                   width: 22,
                                   height: 22,
-                                  background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(15, 23, 42, 0.04)',
-                                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(15, 23, 42, 0.12)'}`,
+                                  background: isDarkMode ? colours.dark.sectionBackground : colours.grey,
+                                  border: `1px solid ${borderColor}`,
                                   borderRadius: 0,
                                   transition: 'background 0.15s, border-color 0.15s, color 0.15s'
                                 },
                                 rootHovered: {
-                                  background: isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(15, 23, 42, 0.08)',
-                                  borderColor: isDarkMode ? 'rgba(148, 163, 184, 0.45)' : 'rgba(15, 23, 42, 0.2)'
+                                  background: bgHover,
+                                  borderColor: isDarkMode ? colours.accent : colours.highlight
                                 },
                                 icon: { color: textMuted }
                               }}
@@ -2399,16 +2748,16 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                                 root: {
                                   width: 22,
                                   height: 22,
-                                  background: isDarkMode ? 'rgba(248, 113, 113, 0.12)' : 'rgba(248, 113, 113, 0.08)',
-                                  border: `1px solid ${isDarkMode ? 'rgba(248, 113, 113, 0.35)' : 'rgba(248, 113, 113, 0.25)'}`,
+                                  background: isDarkMode ? `${colours.cta}1F` : `${colours.cta}14`,
+                                  border: `1px solid ${isDarkMode ? `${colours.cta}59` : `${colours.cta}40`}`,
                                   borderRadius: 0,
                                   transition: 'background 0.15s, border-color 0.15s, color 0.15s'
                                 },
                                 rootHovered: {
-                                  background: isDarkMode ? 'rgba(248, 113, 113, 0.2)' : 'rgba(248, 113, 113, 0.14)',
-                                  borderColor: isDarkMode ? 'rgba(248, 113, 113, 0.5)' : 'rgba(248, 113, 113, 0.4)'
+                                  background: isDarkMode ? `${colours.cta}33` : `${colours.cta}24`,
+                                  borderColor: colours.cta
                                 },
-                                icon: { color: colours.red }
+                                icon: { color: colours.cta }
                               }}
                             />
                           </TooltipHost>
@@ -2448,7 +2797,7 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
               position: 'fixed',
               left: contextMenu.x,
               top: contextMenu.y,
-              background: isDarkMode ? 'rgba(30, 41, 59, 0.98)' : '#ffffff',
+              background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
               border: `1px solid ${borderColor}`,
               boxShadow: isDarkMode ? '0 4px 16px rgba(0, 0, 0, 0.5)' : '0 4px 16px rgba(0, 0, 0, 0.15)',
               zIndex: 9999,
@@ -2474,12 +2823,12 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                   style={{
                     padding: '10px 12px',
                     cursor: 'pointer',
-                    background: isSelected ? (isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(54, 144, 206, 0.08)') : 'transparent',
+                    background: isSelected ? (isDarkMode ? `${colours.accent}1A` : `${colours.highlight}14`) : 'transparent',
                     borderLeft: isSelected ? `3px solid ${option.color}` : '3px solid transparent',
                     transition: '0.1s'
                   }}
                   onMouseEnter={(e) => {
-                    if (!isSelected) e.currentTarget.style.background = isDarkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)';
+                    if (!isSelected) e.currentTarget.style.background = isDarkMode ? colours.dark.cardHover : bgHover;
                   }}
                   onMouseLeave={(e) => {
                     if (!isSelected) e.currentTarget.style.background = 'transparent';
@@ -2521,11 +2870,11 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
             styles: {
               main: {
                 background: isDarkMode
-                  ? 'linear-gradient(135deg, rgba(10, 16, 30, 0.98) 0%, rgba(18, 26, 42, 0.95) 100%)'
-                  : 'rgba(255, 255, 255, 0.98)',
+                  ? colours.dark.sectionBackground
+                  : colours.light.cardBackground,
                 backdropFilter: 'blur(20px)',
-                border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(148, 163, 184, 0.15)'}`,
-                borderRadius: '2px',
+                border: `1px solid ${borderColor}`,
+                borderRadius: 0,
                 boxShadow: isDarkMode 
                   ? '0 4px 20px rgba(0,0,0,0.35), 0 1px 6px rgba(0,0,0,0.2)'
                   : '0 4px 20px rgba(0,0,0,0.06), 0 1px 6px rgba(0,0,0,0.03)',
@@ -2599,19 +2948,19 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                     <div style={{
                       fontSize: '10px',
                       fontWeight: 600,
-                      color: row.value === 'Cleared' ? colours.green : row.value === 'Failed' ? colours.red : textMuted,
+                      color: row.value === 'Cleared' ? colours.green : row.value === 'Failed' ? colours.cta : textMuted,
                       padding: '2px 6px',
                       borderRadius: 0,
                       border: `1px solid ${row.value === 'Cleared'
-                        ? (isDarkMode ? 'rgba(74, 222, 128, 0.35)' : 'rgba(74, 222, 128, 0.25)')
+                        ? (isDarkMode ? `${colours.green}59` : `${colours.green}40`)
                         : row.value === 'Failed'
-                          ? (isDarkMode ? 'rgba(248, 113, 113, 0.35)' : 'rgba(248, 113, 113, 0.25)')
-                          : (isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(15, 23, 42, 0.12)')}`,
+                          ? (isDarkMode ? `${colours.cta}59` : `${colours.cta}40`)
+                          : borderColor}`,
                       background: row.value === 'Cleared'
-                        ? (isDarkMode ? 'rgba(74, 222, 128, 0.12)' : 'rgba(74, 222, 128, 0.08)')
+                        ? (isDarkMode ? `${colours.green}1F` : `${colours.green}14`)
                         : row.value === 'Failed'
-                          ? (isDarkMode ? 'rgba(248, 113, 113, 0.12)' : 'rgba(248, 113, 113, 0.08)')
-                          : (isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(15, 23, 42, 0.04)')
+                          ? (isDarkMode ? `${colours.cta}1F` : `${colours.cta}14`)
+                          : (isDarkMode ? colours.dark.cardBackground : bgCard)
                     }}>
                       {row.value}
                     </div>
@@ -2624,7 +2973,7 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                 gap: '10px', 
                 marginTop: '24px',
                 paddingTop: '16px',
-                borderTop: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(148, 163, 184, 0.15)'}`
+                borderTop: `1px solid ${borderColor}`
               }}>
                 <DefaultButton
                   text={deleteOutcome ? 'Close' : 'Cancel'}
@@ -2636,13 +2985,13 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                   styles={{
                     root: {
                       background: 'transparent',
-                      border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)'}`,
-                      borderRadius: '2px',
+                      border: `1px solid ${borderColor}`,
+                      borderRadius: 0,
                       minWidth: '80px'
                     },
                     rootHovered: {
-                      background: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
-                      border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)'}`
+                      background: bgHover,
+                      border: `1px solid ${isDarkMode ? colours.accent : colours.highlight}`
                     },
                     label: {
                       color: textPrimary,
@@ -2657,13 +3006,14 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                   disabled={isDeleting || Boolean(deleteOutcome?.success)}
                   styles={{
                     root: {
-                      background: colours.red,
+                      background: colours.cta,
                       border: 'none',
-                      borderRadius: '2px',
+                      borderRadius: 0,
                       minWidth: '80px'
                     },
                     rootHovered: {
-                      background: '#b91c1c'
+                      background: colours.cta,
+                      opacity: 0.85
                     },
                     label: {
                       fontWeight: 600,
@@ -2692,11 +3042,11 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
             styles: {
               main: {
                 background: isDarkMode
-                  ? 'linear-gradient(135deg, rgba(10, 16, 30, 0.98) 0%, rgba(18, 26, 42, 0.95) 100%)'
-                  : 'rgba(255, 255, 255, 0.98)',
+                  ? colours.dark.sectionBackground
+                  : colours.light.cardBackground,
                 backdropFilter: 'blur(20px)',
-                border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(148, 163, 184, 0.15)'}`,
-                borderRadius: '2px',
+                border: `1px solid ${borderColor}`,
+                borderRadius: 0,
                 boxShadow: isDarkMode 
                   ? '0 4px 20px rgba(0,0,0,0.35), 0 1px 6px rgba(0,0,0,0.2)'
                   : '0 4px 20px rgba(0,0,0,0.06), 0 1px 6px rgba(0,0,0,0.03)',
@@ -2743,40 +3093,18 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                 }}>
                   Status
                 </Text>
-                <Dropdown
-                  selectedKey={editStatus}
-                  onChange={(_, option) => setEditStatus(option?.key as string)}
-                  options={[
-                    { key: 'requested', text: 'Requested' },
-                    { key: 'approved', text: 'Approved' },
-                    { key: 'booked', text: 'Booked' },
-                    { key: 'rejected', text: 'Rejected' },
-                    { key: 'acknowledged', text: 'Acknowledged' },
-                    { key: 'discarded', text: 'Discarded' }
-                  ]}
-                  styles={{
-                    dropdown: {
-                      background: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
-                      border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(148, 163, 184, 0.2)'}`,
-                      borderRadius: '2px',
-                      selectors: {
-                        ':hover': {
-                          borderColor: isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.4)'
-                        }
-                      }
-                    },
-                    title: {
-                      background: 'transparent',
-                      color: textPrimary,
-                      border: 'none',
-                      borderRadius: '2px',
-                      fontSize: '13px'
-                    },
-                    caretDown: {
-                      color: textMuted
-                    }
-                  }}
-                />
+                <select
+                  value={editStatus}
+                  onChange={(e) => setEditStatus(e.target.value)}
+                  style={nativeSelect()}
+                >
+                  <option value="requested">Requested</option>
+                  <option value="approved">Approved</option>
+                  <option value="booked">Booked</option>
+                  <option value="rejected">Rejected</option>
+                  <option value="acknowledged">Acknowledged</option>
+                  <option value="discarded">Discarded</option>
+                </select>
               </div>
 
               {/* Days Taken Field */}
@@ -2800,12 +3128,12 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                   step={0.5}
                   styles={{
                     fieldGroup: {
-                      background: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
-                      border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(148, 163, 184, 0.2)'}`,
-                      borderRadius: '2px',
+                      background: isDarkMode ? colours.dark.cardBackground : colours.grey,
+                      border: `1px solid ${borderColor}`,
+                      borderRadius: 0,
                       selectors: {
                         ':hover': {
-                          borderColor: isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.4)'
+                          borderColor: isDarkMode ? colours.accent : colours.highlight
                         }
                       }
                     },
@@ -2826,7 +3154,7 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
               gap: '10px', 
               marginTop: '24px',
               paddingTop: '16px',
-              borderTop: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(148, 163, 184, 0.15)'}`
+              borderTop: `1px solid ${borderColor}`
             }}>
               <DefaultButton
                 text="Cancel"
@@ -2835,13 +3163,13 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                 styles={{
                   root: {
                     background: 'transparent',
-                    border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)'}`,
-                    borderRadius: '2px',
+                    border: `1px solid ${borderColor}`,
+                    borderRadius: 0,
                     minWidth: '80px'
                   },
                   rootHovered: {
-                    background: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
-                    border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)'}`
+                    background: bgHover,
+                    border: `1px solid ${isDarkMode ? colours.accent : colours.highlight}`
                   },
                   label: {
                     color: textPrimary,
@@ -2858,11 +3186,12 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                   root: {
                     background: colours.highlight,
                     border: 'none',
-                    borderRadius: '2px',
+                    borderRadius: 0,
                     minWidth: '80px'
                   },
                   rootHovered: {
-                    background: '#2980b9'
+                    background: colours.highlight,
+                    opacity: 0.85
                   },
                   label: {
                     fontWeight: 600,
@@ -2890,11 +3219,11 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
             styles: {
               main: {
                 background: isDarkMode
-                  ? 'linear-gradient(135deg, rgba(10, 16, 30, 0.98) 0%, rgba(18, 26, 42, 0.95) 100%)'
-                  : 'rgba(255, 255, 255, 0.98)',
+                  ? colours.dark.sectionBackground
+                  : colours.light.cardBackground,
                 backdropFilter: 'blur(20px)',
-                border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(148, 163, 184, 0.15)'}`,
-                borderRadius: '2px',
+                border: `1px solid ${borderColor}`,
+                borderRadius: 0,
                 boxShadow: isDarkMode 
                   ? '0 4px 20px rgba(0,0,0,0.35), 0 1px 6px rgba(0,0,0,0.2)'
                   : '0 4px 20px rgba(0,0,0,0.06), 0 1px 6px rgba(0,0,0,0.03)',
@@ -2937,41 +3266,19 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                 }}>
                   Status
                 </Text>
-                <Dropdown
-                  selectedKey={bulkStatus}
-                  onChange={(_, option) => setBulkStatus(String(option?.key ?? ''))}
-                  options={[
-                    { key: '', text: 'Leave unchanged' },
-                    { key: 'requested', text: 'Requested' },
-                    { key: 'approved', text: 'Approved' },
-                    { key: 'booked', text: 'Booked' },
-                    { key: 'rejected', text: 'Rejected' },
-                    { key: 'acknowledged', text: 'Acknowledged' },
-                    { key: 'discarded', text: 'Discarded' }
-                  ]}
-                  styles={{
-                    dropdown: {
-                      background: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
-                      border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(148, 163, 184, 0.2)'}`,
-                      borderRadius: '2px',
-                      selectors: {
-                        ':hover': {
-                          borderColor: isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.4)'
-                        }
-                      }
-                    },
-                    title: {
-                      background: 'transparent',
-                      color: textPrimary,
-                      border: 'none',
-                      borderRadius: '2px',
-                      fontSize: '13px'
-                    },
-                    caretDown: {
-                      color: textMuted
-                    }
-                  }}
-                />
+                <select
+                  value={bulkStatus}
+                  onChange={(e) => setBulkStatus(e.target.value)}
+                  style={nativeSelect()}
+                >
+                  <option value="">Leave unchanged</option>
+                  <option value="requested">Requested</option>
+                  <option value="approved">Approved</option>
+                  <option value="booked">Booked</option>
+                  <option value="rejected">Rejected</option>
+                  <option value="acknowledged">Acknowledged</option>
+                  <option value="discarded">Discarded</option>
+                </select>
               </div>
 
               <div>
@@ -2995,12 +3302,12 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                   placeholder="Leave unchanged"
                   styles={{
                     fieldGroup: {
-                      background: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
-                      border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(148, 163, 184, 0.2)'}`,
-                      borderRadius: '2px',
+                      background: isDarkMode ? colours.dark.cardBackground : colours.grey,
+                      border: `1px solid ${borderColor}`,
+                      borderRadius: 0,
                       selectors: {
                         ':hover': {
-                          borderColor: isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.4)'
+                          borderColor: isDarkMode ? colours.accent : colours.highlight
                         }
                       }
                     },
@@ -3020,7 +3327,7 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
               gap: '10px', 
               marginTop: '24px',
               paddingTop: '16px',
-              borderTop: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(148, 163, 184, 0.15)'}`
+              borderTop: `1px solid ${borderColor}`
             }}>
               <DefaultButton
                 text="Cancel"
@@ -3029,13 +3336,13 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                 styles={{
                   root: {
                     background: 'transparent',
-                    border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)'}`,
-                    borderRadius: '2px',
+                    border: `1px solid ${borderColor}`,
+                    borderRadius: 0,
                     minWidth: '80px'
                   },
                   rootHovered: {
-                    background: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
-                    border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)'}`
+                    background: bgHover,
+                    border: `1px solid ${isDarkMode ? colours.accent : colours.highlight}`
                   },
                   label: {
                     color: textPrimary,
@@ -3052,11 +3359,12 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                   root: {
                     background: colours.highlight,
                     border: 'none',
-                    borderRadius: '2px',
+                    borderRadius: 0,
                     minWidth: '80px'
                   },
                   rootHovered: {
-                    background: '#2980b9'
+                    background: colours.highlight,
+                    opacity: 0.85
                   },
                   label: {
                     fontWeight: 600,
@@ -3069,5 +3377,6 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
         </Dialog>
       )}
     </div>
+    </ThemeProvider>
   );
 };

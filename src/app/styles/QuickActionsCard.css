@@ -43,7 +43,7 @@
   --qa-border-base: rgba(148, 163, 184, 0.18);
   --qa-border-hover: rgba(54, 144, 206, 0.3);
   --qa-fill-base: rgba(255, 255, 255, 0.85);
-  --qa-fill-hover: linear-gradient(135deg, rgba(54, 144, 206, 0.1) 0%, rgba(135, 243, 243, 0.05) 100%);
+  --qa-fill-hover: rgba(54, 144, 206, 0.08);
   --qa-fill-active: rgba(54, 144, 206, 0.12);
 }
 
@@ -51,11 +51,13 @@
   --qa-text-base: rgba(241, 245, 249, 0.9);
   --qa-text-strong: rgba(248, 250, 252, 0.98);
   --qa-icon-passive: rgba(148, 163, 184, 0.75);
-  --qa-border-base: rgba(54, 144, 206, 0.2);
-  --qa-border-hover: rgba(54, 144, 206, 0.35);
-  --qa-fill-base: linear-gradient(90deg, rgba(18, 28, 48, 0.95) 0%, rgba(28, 40, 60, 0.92) 100%);
-  --qa-fill-hover: linear-gradient(90deg, rgba(24, 36, 58, 0.98) 0%, rgba(34, 48, 70, 0.95) 100%);
-  --qa-fill-active: rgba(54, 144, 206, 0.18);
+  --qa-border-base: rgba(54, 144, 206, 0.25);
+  --qa-border-hover: rgba(54, 144, 206, 0.45);
+  --qa-fill-base: #061733;
+  --qa-fill-hover: linear-gradient(0deg, rgba(54, 144, 206, 0.08), rgba(54, 144, 206, 0.08)), #061733;
+  --qa-fill-hover-overlay: transparent;
+  --qa-fill-active: linear-gradient(0deg, rgba(54, 144, 206, 0.12), rgba(54, 144, 206, 0.12)), #061733;
+  --qa-fill-active-overlay: rgba(54, 144, 206, 0.12);
 }
 
 .quickActionCard.light-mode .quick-action-label {
@@ -90,7 +92,7 @@
 .quickActionCard.panel-active,
 .quickActionCard.selected {
   justify-content: flex-start;
-  background-color: var(--qa-fill-active, transparent);
+  background: var(--qa-fill-active, transparent);
   border-color: var(--qa-border-hover, var(--qa-border-base, transparent));
   color: var(--qa-text-strong, inherit);
   transition-duration: 160ms;
@@ -101,7 +103,7 @@
 /* Only apply width/gap transitions on hover if not in persistent show-label mode */
 .quickActionCard:hover:not(.show-label),
 .quickActionCard.hovered:not(.show-label) {
-  background-color: var(--qa-fill-hover, transparent);
+  background: var(--qa-fill-hover, transparent);
   border-color: var(--qa-border-hover, var(--qa-border-base, transparent));
   justify-content: flex-start;
 }
@@ -109,7 +111,7 @@
 /* For cards in show-label mode, only apply visual hover effects without changing layout */
 .quickActionCard.show-label:hover,
 .quickActionCard.show-label.hovered {
-  background-color: var(--qa-fill-hover, transparent);
+  background: var(--qa-fill-hover, transparent);
   border-color: var(--qa-border-hover, var(--qa-border-base, transparent));
 }
 
@@ -143,7 +145,7 @@
 /* When labels are locked, DO NOT expand on hover - keep icon-only for stability */
 .quickActionCard.labels-locked:hover,
 .quickActionCard.labels-locked.hovered {
-  background-color: var(--qa-fill-hover, transparent);
+  background: var(--qa-fill-hover, transparent);
   border-color: var(--qa-border-hover, var(--qa-border-base, transparent));
   /* Keep icon-only - no expansion */
   width: 40px !important;

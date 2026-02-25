@@ -1,28 +1,18 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';
-import { ImmediateActionChip, ImmediateActionCategory } from './ImmediateActionChip';
+import { ImmediateActionChip } from './ImmediateActionChip';
+import type { HomeImmediateAction } from './ImmediateActionModel';
 import { Icon } from '@fluentui/react/lib/Icon';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Types (matches Home.tsx Action type)
+// Types (matches Home.tsx action model)
 // ─────────────────────────────────────────────────────────────────────────────
-
-interface Action {
-  title: string;
-  onClick: () => void;
-  icon: string;
-  disabled?: boolean;
-  category?: ImmediateActionCategory;
-  count?: number;
-  totalCount?: number;
-  subtitle?: string;
-}
 
 interface ImmediateActionsBarProps {
   isDarkMode?: boolean;
   immediateActionsReady: boolean;
-  immediateActionsList: Action[];
+  immediateActionsList: HomeImmediateAction[];
   highlighted?: boolean;
   seamless?: boolean;
 }
@@ -129,11 +119,11 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
       </Header>
 
       {!isCollapsed && (
-      <div style={{ 
+      <div className="iab-chip-grid" style={{ 
         display: 'flex', 
         flexWrap: 'wrap',
-        gap: 6,
-        paddingTop: 4,
+        gap: 4,
+        paddingTop: 2,
         position: 'relative',
       }}>
         {loading && (
@@ -174,10 +164,10 @@ const SkeletonChip: React.FC<{ isDark: boolean }> = ({ isDark }) => (
   <div
     className="skeleton-shimmer"
     style={{
-      height: 30,
-      minWidth: 140,
+      height: 26,
+      minWidth: 120,
       borderRadius: 2,
-      background: isDark ? 'rgba(54, 144, 206, 0.08)' : 'rgba(148, 163, 184, 0.15)',
+      background: isDark ? 'rgba(54, 144, 206, 0.08)' : colours.grey,
     }}
   />
 );
@@ -193,10 +183,10 @@ const Section: React.FC<{ isDark: boolean; seamless?: boolean; highlighted?: boo
   children 
 }) => (
   <section style={{
-    padding: seamless ? '8px 0' : '10px 0',
+    padding: seamless ? '4px 0' : '6px 0',
     background: 'transparent',
     marginBottom: 0,
-    transition: 'all 0.12s ease',
+    transition: 'all 0.15s ease',
   }}>
     {children}
   </section>
@@ -206,12 +196,12 @@ const Header: React.FC<{ text: string; children: React.ReactNode }> = ({ text, c
   <div style={{
     display: 'flex',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 8,
-    fontSize: 11,
+    gap: 6,
+    marginBottom: 4,
+    fontSize: 10,
     fontWeight: 700,
     textTransform: 'uppercase',
-    letterSpacing: '0.05em',
+    letterSpacing: '0.06em',
     color: text,
   }}>
     {children}
@@ -236,27 +226,27 @@ const CollapseChevron: React.FC<{
         display: 'inline-flex',
         alignItems: 'center',
         justifyContent: 'center',
-        width: 18,
-        height: 18,
+        width: 16,
+        height: 16,
         padding: 0,
         border: 'none',
-        borderRadius: 3,
+        borderRadius: 2,
         background: hovered 
-          ? (isDark ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)')
+          ? (isDark ? 'rgba(135, 243, 243, 0.1)' : 'rgba(0, 0, 0, 0.05)')
           : 'transparent',
         cursor: 'pointer',
-        transition: 'all 0.15s ease',
+        transition: 'all 0.2s ease',
         marginRight: 2,
       }}
     >
       <Icon 
         iconName={isCollapsed ? 'ChevronRight' : 'ChevronDown'}
         style={{
-          fontSize: 10,
+          fontSize: 9,
           color: hovered 
             ? (isDark ? colours.accent : colours.highlight)
             : (isDark ? colours.subtleGrey : colours.greyText),
-          transition: 'color 0.15s ease, transform 0.15s ease',
+          transition: 'color 0.2s ease, transform 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
           transform: hovered ? 'scale(1.1)' : 'scale(1)',
         }}
       />
@@ -266,12 +256,12 @@ const CollapseChevron: React.FC<{
 
 const CountBadge: React.FC<{ isDark: boolean; children: React.ReactNode }> = ({ isDark, children }) => (
   <span style={{
-    minWidth: 18,
-    height: 18,
+    minWidth: 16,
+    height: 16,
     padding: '0 5px',
-    background: isDark ? 'rgba(214, 85, 65, 0.15)' : 'rgba(214, 85, 65, 0.1)',
+    background: isDark ? 'rgba(214, 85, 65, 0.12)' : 'rgba(214, 85, 65, 0.08)',
     color: isDark ? '#f0a090' : '#d65541',
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: 700,
     display: 'inline-flex',
     alignItems: 'center',
@@ -339,6 +329,23 @@ const Spinner: React.FC<{ isDark: boolean }> = ({ isDark }) => (
     marginLeft: 'auto',
   }} />
 );
+
+// Responsive styles injected once
+const iabResponsiveId = 'iab-responsive-styles';
+if (typeof document !== 'undefined' && !document.head.querySelector(`style[data-${iabResponsiveId}]`)) {
+  const s = document.createElement('style');
+  s.setAttribute(`data-${iabResponsiveId}`, '');
+  s.textContent = `
+    @media (max-width: 640px) {
+      .iab-chip-grid { gap: 3px !important; padding-top: 1px !important; }
+      .iab-chip-grid > div { flex: 1 1 calc(50% - 3px) !important; min-width: 0 !important; }
+    }
+    @media (max-width: 420px) {
+      .iab-chip-grid > div { flex: 1 1 100% !important; }
+    }
+  `;
+  document.head.appendChild(s);
+}
 
 const SuccessCheck: React.FC = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={colours.green} strokeWidth="3" style={{ marginLeft: 'auto' }}>

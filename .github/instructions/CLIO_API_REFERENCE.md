@@ -201,6 +201,35 @@ const { data } = await response.json();
 **Display Number Pattern**: `{CLIENT_PREFIX}{CLIO_USER_ID}-{MATTER_SEQUENCE}`
 - Example: `SCOTT10803-00001` = Scott client, User 10803, 1st matter
 
+### One-off Replay Pattern (`tools/run-matter-oneoff.mjs`)
+
+Use this when an instruction has completed contact sync but failed at **Clio matter creation**.
+
+```bash
+# 1) Validate payload (no writes)
+node tools/run-matter-oneoff.mjs HLX-12345-67890 CS --fee-earner "Christopher Smith" --originating "Christopher Smith" --supervising "Jonathan" --dry-run
+
+# 2) Execute live replay
+node tools/run-matter-oneoff.mjs HLX-12345-67890 CS --fee-earner "Christopher Smith" --originating "Christopher Smith" --supervising "Jonathan" --practice-area "Construction Contract Advice"
+```
+
+**Important constraints discovered in production**:
+
+1. **Practice area must map to Clio picklist value**
+  - The one-off tool defaults from `Deals.AreaOfWork`.
+  - Values like `construction` (lowercase area bucket) are **not valid** Clio practice area labels.
+  - If not already a canonical Clio label, pass `--practice-area` explicitly with a key from `server/utils/clioConstants.js`.
+  - Example valid value: `Construction Contract Advice`.
+
+2. **No `--help` flag in this script**
+  - `run-matter-oneoff.mjs` expects positional args: `<instructionRef> <initials>`.
+  - Use source review for option list if needed.
+
+3. **Failed attempts may leave stale MatterRequest placeholders**
+  - A failed run can leave an unlinked row in `Matters` (`Status='MatterRequest'`, null `ClientID`, null `DisplayNumber`).
+  - After successful replay, remove stale placeholders for the same instruction so downstream views show one canonical record.
+  - Use targeted delete conditions only (specific `MatterID` + instruction + null-link checks), never broad deletes by instruction alone.
+
 ---
 
 ## Error Handling

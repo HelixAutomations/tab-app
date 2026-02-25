@@ -124,6 +124,37 @@ const conn = `Server=tcp:helix-database-server.database.windows.net,1433;Initial
 
 ## Core Tables
 
+### Deals Table (Instructions DB)
+
+**Primary Key**: `DealId` (INT IDENTITY — auto-generated, do NOT insert manually)
+
+**Critical Fields** (verified from dealCapture.js):
+```
+DealId                  INT IDENTITY    Auto-generated — use OUTPUT INSERTED.DealId
+InstructionRef          NVARCHAR(100)   Links to Instructions
+ProspectId              INT             Links to enquiries
+Passcode                INT
+ServiceDescription      NVARCHAR(MAX)
+Amount                  DECIMAL(18,2)
+AreaOfWork              NVARCHAR(100)
+PitchedBy               NVARCHAR(50)    Fee earner initials — NOT "FeeEarner"
+PitchedDate             NVARCHAR(20)    YYYY-MM-DD
+PitchedTime             NVARCHAR(20)    HH:MM:SS
+PitchValidUntil         NVARCHAR(50)
+Status                  NVARCHAR(50)    e.g. 'stripe', 'CFA'
+IsMultiClient           BIT
+LeadClientId            NVARCHAR(50)
+LeadClientEmail         NVARCHAR(200)
+CloseDate               NVARCHAR(20)
+CloseTime               NVARCHAR(20)
+DealKind                NVARCHAR(50)    Conditional (e.g. 'CFA')
+```
+
+**Column name traps**:
+- ❌ `FeeEarner` → use `PitchedBy`
+- ❌ `CreatedAt` → does not exist
+- ❌ Manual `DealId` insert → it's IDENTITY; use OUTPUT INSERTED
+
 ### Instructions Table
 
 **Primary Key**: `InstructionRef` (string, e.g., "HLX-27887-30406")
@@ -230,6 +261,36 @@ OpponentSolicitorID     UNIQUEIDENTIFIER
 **Duplicate Handling**:
 - When updating from Clio backfill: Update first placeholder, delete additional duplicates
 - Use `WHERE InstructionRef = ? AND Status = 'MatterRequest'` to find placeholders
+
+### IdVerifications Table (Instructions DB)
+
+**Linked via**: `InstructionRef`
+
+**Critical Fields** (verified from temp-migrate-bizcap.mjs):
+```
+InstructionRef              NVARCHAR(100)   Links to Instructions
+MatterId                    NVARCHAR(50)    Clio Matter ID
+ClientId                    NVARCHAR(50)    Clio Contact ID
+ProspectId                  INT             Links to Deals.ProspectId
+ClientEmail                 NVARCHAR(200)   NOT "Email"
+IsLeadClient                BIT
+EIDCheckId                  NVARCHAR(100)   Tiller check ID — NOT "CheckId"
+EIDProvider                 NVARCHAR(50)    e.g. 'Tiller'
+EIDStatus                   NVARCHAR(50)    e.g. 'completed', 'pending'
+EIDOverallResult            NVARCHAR(50)    e.g. 'Passed', 'Pending' — NOT "CheckResult"
+PEPAndSanctionsCheckResult  NVARCHAR(50)
+AddressVerificationResult   NVARCHAR(50)
+EIDCheckedDate              NVARCHAR(20)    YYYY-MM-DD
+EIDCheckedTime              NVARCHAR(20)    HH:MM:SS
+CheckExpiry                 NVARCHAR(20)
+```
+
+**Column name traps** (do NOT use):
+- ❌ `Email` → use `ClientEmail`
+- ❌ `CheckResult` → use `EIDOverallResult`
+- ❌ `CheckId` → use `EIDCheckId`
+- ❌ `PoidId`, `FirstName`, `LastName`, `Nationality`, `PassportNumber`, `DriversLicenseNumber` → none exist
+- ❌ `DateOfBirth`, `CreatedAt` → do not exist
 
 ---
 
@@ -625,3 +686,26 @@ Three tables powering the CCL audit trail, content versioning, and AI trace hist
 - Backend queries: `server/routes/instructions.js`, `server/routes/matter-operations.js`
 - Frontend display: `src/tabs/instructions/Instructions.tsx`, `MatterOperations.tsx`
 - Normalization: `src/utils/matterNormalization.ts`
+
+---
+
+## Legacy Pipeline Migration
+
+**Purpose**: Matters opened via the old route (directly in Clio, bypassing the enquiry pipeline) lack Instructions DB records. The migration tool creates the missing chain: enquiry → deal → instruction → matter → idVerification.
+
+**Route**: `POST /api/migration/discover` + `POST /api/migration/execute`  
+**File**: `server/routes/legacyMigration.js`  
+**Frontend**: `src/components/LegacyMigrationTool.tsx` (hosted inside UserBubble, local dev only)
+
+**Flow**:
+1. User searches by display number, email, or name
+2. Discover endpoint queries 7 tables across both databases
+3. Frontend shows what exists and what's missing (green/amber grid)
+4. User reviews auto-populated intake fields, adjusts if needed
+5. Execute endpoint creates only the missing records
+6. InstructionRef generated as `HLX-{prospectId}-{passcode}`
+
+**Column name reference for INSERTs** — see table definitions above. Key traps:
+- Deals: `PitchedBy` (not FeeEarner), DealId is IDENTITY
+- Instructions: `Title` (not Prefix), `DOB` (not DateOfBirth), `HouseNumber` (not HouseBuildingNumber)
+- IdVerifications: `ClientEmail` (not Email), `EIDOverallResult` (not CheckResult), `EIDCheckId` (not CheckId)

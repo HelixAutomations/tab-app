@@ -2,9 +2,6 @@
 	path = submodules/instruct-pitch
 	url = https://github.com/HelixAutomations/instruct-pitch.git
 	ignore = dirty
-[submodule "submodules/tab-app-clone"]
-	path = submodules/tab-app-clone
-	url = git@github.com:cb-helix25/tab-app-clone.git
 [submodule "submodules/enquiry-processing-v2"]
 	path = submodules/enquiry-processing-v2
 	url = git@github.com:HelixAutomations/enquiry-processing-v2.git

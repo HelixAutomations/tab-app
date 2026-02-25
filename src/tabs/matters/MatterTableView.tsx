@@ -125,8 +125,8 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
             marginLeft: 4,
             opacity: isActive ? 1 : 0.35,
             color: isActive
-              ? (isDarkMode ? colours.accent : colours.highlight)
-              : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)'),
+              ? (isDarkMode ? colours.highlight : colours.highlight)
+              : (isDarkMode ? `${colours.subtleGrey}80` : `${colours.greyText}80`),
             transition: 'opacity 0.15s ease',
           },
         }}
@@ -181,8 +181,17 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
     if (normalised.includes('property')) return colours.green;
     if (normalised.includes('employment')) return colours.yellow;
     if (normalised.includes('other') || normalised.includes('unsure')) return colours.greyText;
-    return isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)';
+    return isDarkMode ? `${colours.subtleGrey}99` : `${colours.greyText}99`;
   };
+
+  const tableSurface = isDarkMode ? colours.dark.background : colours.grey;
+  const headerSurface = isDarkMode ? colours.darkBlue : 'rgba(255, 255, 255, 0.98)';
+  const strongBorder = isDarkMode ? colours.dark.borderColor : 'rgba(160, 160, 160, 0.35)';
+  const rowBorder = isDarkMode ? 'rgba(54, 144, 206, 0.22)' : 'rgba(54, 144, 206, 0.12)';
+  const rowHover = isDarkMode ? 'rgba(54, 144, 206, 0.16)' : 'rgba(214, 232, 255, 0.6)';
+  const rowGroupHover = isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(214, 232, 255, 0.35)';
+  const rowEven = isDarkMode ? 'rgba(54, 144, 206, 0.022)' : 'rgba(54, 144, 206, 0.035)';
+  const rowOdd = 'transparent';
 
   if (loading) {
     return (
@@ -218,7 +227,7 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
   return (
     <div
       style={{
-        backgroundColor: isDarkMode ? 'rgba(10, 15, 30, 0.95)' : 'rgba(241, 245, 249, 1)',
+        backgroundColor: tableSurface,
         overflow: 'hidden',
         fontFamily: 'Raleway, "Segoe UI", sans-serif',
         display: 'flex',
@@ -249,7 +258,7 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
           padding: '0 16px',
           height: 44,
           boxSizing: 'border-box',
-          background: isDarkMode ? 'rgba(15, 25, 45, 0.98)' : 'rgba(248, 250, 252, 0.98)',
+          background: headerSurface,
           backdropFilter: 'blur(12px)',
           borderTop: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
           borderBottom: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)'}`,
@@ -260,7 +269,7 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
           fontFamily: 'Raleway, "Segoe UI", sans-serif',
           fontSize: 11,
           fontWeight: 600,
-          color: isDarkMode ? colours.accent : colours.highlight,
+          color: isDarkMode ? colours.grey : colours.highlight,
           textTransform: 'uppercase',
           letterSpacing: '0.5px',
           boxShadow: isDarkMode
@@ -280,7 +289,7 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
               styles={{
                 root: {
                   fontSize: 12,
-                  color: isDarkMode ? colours.accent : colours.highlight,
+                  color: isDarkMode ? colours.grey : colours.highlight,
                   opacity: 0.7,
                 },
               }}
@@ -461,8 +470,8 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
                       transform: 'translateX(-50%)',
                       background:
                         hoveredDayKey === dayKey
-                          ? (isDarkMode ? colours.accent : colours.highlight)
-                          : (isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)'),
+                          ? (isDarkMode ? colours.highlight : colours.highlight)
+                          : (isDarkMode ? `${colours.highlight}4d` : `${colours.highlight}40`),
                       opacity: hoveredDayKey === dayKey ? 0.9 : 1,
                     }} />
                     {/* Timeline dot - absolutely positioned to align with line */}
@@ -476,9 +485,9 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
                       borderRadius: '50%',
                       background:
                         hoveredDayKey === dayKey
-                          ? (isDarkMode ? colours.accent : colours.highlight)
-                          : (isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(148, 163, 184, 0.5)'),
-                      border: `2px solid ${isDarkMode ? 'rgb(15, 23, 42)' : 'rgb(255, 255, 255)'}`,
+                          ? (isDarkMode ? colours.highlight : colours.highlight)
+                          : (isDarkMode ? `${colours.highlight}99` : `${colours.highlight}80`),
+                      border: `2px solid ${isDarkMode ? colours.dark.background : 'rgb(255, 255, 255)'}`,
                       zIndex: 1,
                     }} />
                   </div>
@@ -488,8 +497,8 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
                       fontWeight: hoveredDayKey === dayKey ? 800 : 700,
                       color:
                         hoveredDayKey === dayKey
-                          ? (isDarkMode ? colours.accent : colours.highlight)
-                          : (isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(71, 85, 105, 0.7)'),
+                          ? (isDarkMode ? colours.grey : colours.highlight)
+                          : (isDarkMode ? `${colours.subtleGrey}b3` : `${colours.greyText}b3`),
                       textTransform: hoveredDayKey === dayKey ? 'none' : 'uppercase',
                       letterSpacing: '0.5px',
                       whiteSpace: 'nowrap',
@@ -499,18 +508,11 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
                     <span style={{
                       fontSize: '9px',
                       fontWeight: 500,
-                      color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.55)',
+                      color: isDarkMode ? `${colours.subtleGrey}80` : `${colours.greyText}8c`,
                       whiteSpace: 'nowrap',
                     }}>
                       {dayMatters.length}
                     </span>
-                    <div style={{
-                      height: 1,
-                      flex: 1,
-                      background: isDarkMode
-                        ? 'linear-gradient(90deg, rgba(148,163,184,0.35), rgba(148,163,184,0.12), rgba(148,163,184,0))'
-                        : 'linear-gradient(90deg, rgba(148,163,184,0.45), rgba(148,163,184,0.2), rgba(148,163,184,0))',
-                    }} />
                   </div>
                   {/* Chevron and collapsed indicator - aligned right */}
                   <div style={{ 
@@ -525,7 +527,7 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
                         styles={{
                           root: {
                             fontSize: 12,
-                            color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)',
+                            color: isDarkMode ? `${colours.subtleGrey}99` : `${colours.greyText}99`,
                           },
                         }}
                         title={`${dayMatters.length} items hidden`}
@@ -536,7 +538,7 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
                       styles={{
                         root: {
                           fontSize: 10,
-                          color: isDarkMode ? 'rgba(255, 255, 255, 0.45)' : 'rgba(0, 0, 0, 0.4)',
+                          color: isDarkMode ? `${colours.subtleGrey}73` : `${colours.greyText}66`,
                         }
                       }}
                     />
@@ -564,13 +566,13 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
                     alignItems: 'center',
                     padding: '10px 16px',
                     background: hoveredRowId === matter.matterId
-                      ? (isDarkMode ? 'rgba(20, 30, 50, 0.95)' : 'rgba(255, 255, 255, 0.85)')
+                      ? rowHover
                       : (isGroupHovered
-                        ? (isDarkMode ? 'rgba(16, 22, 40, 0.9)' : 'rgba(255, 255, 255, 0.65)')
+                        ? rowGroupHover
                         : (isDarkMode 
-                          ? (idx % 2 === 0 ? 'rgba(14, 20, 38, 0.9)' : 'rgba(12, 18, 35, 0.85)')
-                          : (idx % 2 === 0 ? 'rgba(255, 255, 255, 0.6)' : 'rgba(250, 252, 255, 0.5)'))),
-                    borderBottom: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)'}`,
+                          ? (idx % 2 === 0 ? rowEven : rowOdd)
+                          : (idx % 2 === 0 ? rowEven : rowOdd))),
+                    borderBottom: `1px solid ${rowBorder}`,
                     cursor: 'pointer',
                     transition: 'background 0.15s ease, border-color 0.15s ease',
                     fontSize: 13,
@@ -680,16 +682,16 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
                             width: 18,
                             height: 18,
                             flexShrink: 0,
-                            borderRadius: 5,
+                            borderRadius: 0,
                             border: isMatterCopied
-                              ? `1px solid ${isDarkMode ? 'rgba(16, 185, 129, 0.5)' : 'rgba(16, 185, 129, 0.38)'}`
-                              : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(100, 116, 139, 0.12)'}`,
+                              ? `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.5)' : 'rgba(32, 178, 108, 0.38)'}`
+                              : `1px solid ${isDarkMode ? `${colours.dark.border}26` : 'rgba(100, 116, 139, 0.12)'}`,
                             background: isMatterCopied
-                              ? (isDarkMode ? 'rgba(16, 185, 129, 0.16)' : 'rgba(16, 185, 129, 0.12)')
+                              ? (isDarkMode ? 'rgba(32, 178, 108, 0.16)' : 'rgba(32, 178, 108, 0.12)')
                               : 'transparent',
                             color: isMatterCopied
-                              ? '#10B981'
-                              : (isDarkMode ? 'rgba(203, 213, 225, 0.5)' : 'rgba(71, 85, 105, 0.55)'),
+                              ? colours.green
+                              : (isDarkMode ? `${colours.subtleGrey}80` : 'rgba(71, 85, 105, 0.55)'),
                             cursor: 'pointer',
                             padding: 0,
                             opacity: isMatterCopied ? 1 : 0.5,
@@ -698,12 +700,12 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
                           onMouseEnter={(e) => {
                             if (isMatterCopied) return;
                             e.currentTarget.style.opacity = '0.9';
-                            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(100, 116, 139, 0.3)';
+                            e.currentTarget.style.borderColor = isDarkMode ? `${colours.dark.border}59` : 'rgba(100, 116, 139, 0.3)';
                           }}
                           onMouseLeave={(e) => {
                             if (isMatterCopied) return;
                             e.currentTarget.style.opacity = '0.5';
-                            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(100, 116, 139, 0.12)';
+                            e.currentTarget.style.borderColor = isDarkMode ? `${colours.dark.border}26` : 'rgba(100, 116, 139, 0.12)';
                           }}
                         >
                           <Icon
@@ -711,7 +713,7 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
                             styles={{
                               root: {
                                 fontSize: 10,
-                                color: isMatterCopied ? '#10B981' : undefined,
+                                color: isMatterCopied ? colours.green : undefined,
                               },
                             }}
                           />
@@ -766,16 +768,16 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
                             width: 18,
                             height: 18,
                             flexShrink: 0,
-                            borderRadius: 5,
+                            borderRadius: 0,
                             border: isClientCopied
-                              ? `1px solid ${isDarkMode ? 'rgba(16, 185, 129, 0.5)' : 'rgba(16, 185, 129, 0.38)'}`
-                              : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(100, 116, 139, 0.12)'}`,
+                              ? `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.5)' : 'rgba(32, 178, 108, 0.38)'}`
+                              : `1px solid ${isDarkMode ? `${colours.dark.border}26` : 'rgba(100, 116, 139, 0.12)'}`,
                             background: isClientCopied
-                              ? (isDarkMode ? 'rgba(16, 185, 129, 0.16)' : 'rgba(16, 185, 129, 0.12)')
+                              ? (isDarkMode ? 'rgba(32, 178, 108, 0.16)' : 'rgba(32, 178, 108, 0.12)')
                               : 'transparent',
                             color: isClientCopied
-                              ? '#10B981'
-                              : (isDarkMode ? 'rgba(203, 213, 225, 0.5)' : 'rgba(71, 85, 105, 0.55)'),
+                              ? colours.green
+                              : (isDarkMode ? `${colours.subtleGrey}80` : 'rgba(71, 85, 105, 0.55)'),
                             cursor: 'pointer',
                             padding: 0,
                             opacity: isClientCopied ? 1 : 0.5,
@@ -784,12 +786,12 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
                           onMouseEnter={(e) => {
                             if (isClientCopied) return;
                             e.currentTarget.style.opacity = '0.9';
-                            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(100, 116, 139, 0.3)';
+                            e.currentTarget.style.borderColor = isDarkMode ? `${colours.dark.border}59` : 'rgba(100, 116, 139, 0.3)';
                           }}
                           onMouseLeave={(e) => {
                             if (isClientCopied) return;
                             e.currentTarget.style.opacity = '0.5';
-                            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(100, 116, 139, 0.12)';
+                            e.currentTarget.style.borderColor = isDarkMode ? `${colours.dark.border}26` : 'rgba(100, 116, 139, 0.12)';
                           }}
                         >
                           <Icon
@@ -797,7 +799,7 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
                             styles={{
                               root: {
                                 fontSize: 10,
-                                color: isClientCopied ? '#10B981' : undefined,
+                                color: isClientCopied ? colours.green : undefined,
                               },
                             }}
                           />
@@ -808,7 +810,7 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
 
                   {/* Description */}
                   <div style={{
-                    color: isDarkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.8)',
+                    color: isDarkMode ? '#d1d5db' : 'rgba(71, 85, 105, 0.8)',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
@@ -819,7 +821,7 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
                   {/* Practice Area */}
                   <div style={{
                     fontSize: 12,
-                    color: isDarkMode ? 'rgba(148, 163, 184, 0.9)' : 'rgba(100, 116, 139, 0.9)',
+                    color: isDarkMode ? colours.subtleGrey : colours.greyText,
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
@@ -842,7 +844,7 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
                   {/* Open Date */}
                   <div style={{
                     fontSize: 12,
-                    color: isDarkMode ? 'rgba(148, 163, 184, 0.8)' : 'rgba(100, 116, 139, 0.8)',
+                    color: isDarkMode ? `${colours.subtleGrey}cc` : `${colours.greyText}cc`,
                     textAlign: 'right',
                   }}>
                     {matter.openDate ? format(parseISO(matter.openDate), 'd MMM yyyy') : 'No date'}
@@ -870,9 +872,9 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
                             width: 22,
                             height: 22,
                             borderRadius: 0,
-                            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)'}`,
-                            background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)',
-                            color: isDarkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.8)',
+                            border: `1px solid ${isDarkMode ? `${colours.dark.border}40` : 'rgba(160, 160, 160, 0.2)'}`,
+                            background: isDarkMode ? colours.darkBlue : 'rgba(244, 244, 246, 0.5)',
+                            color: isDarkMode ? '#d1d5db' : 'rgba(71, 85, 105, 0.8)',
                             opacity: hasPhone ? 1 : 0.3,
                             display: 'flex',
                             alignItems: 'center',
@@ -883,14 +885,14 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
                           }}
                           onMouseEnter={(e) => {
                             if (!hasPhone) return;
-                            e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)';
-                            e.currentTarget.style.borderColor = colours.blue;
-                            e.currentTarget.style.color = colours.blue;
+                            e.currentTarget.style.background = isDarkMode ? colours.helixBlue : 'rgba(214, 232, 255, 0.6)';
+                            e.currentTarget.style.borderColor = colours.highlight;
+                            e.currentTarget.style.color = colours.highlight;
                           }}
                           onMouseLeave={(e) => {
-                            e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)';
-                            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)';
-                            e.currentTarget.style.color = isDarkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.8)';
+                            e.currentTarget.style.background = isDarkMode ? colours.darkBlue : 'rgba(244, 244, 246, 0.5)';
+                            e.currentTarget.style.borderColor = isDarkMode ? `${colours.dark.border}40` : 'rgba(160, 160, 160, 0.2)';
+                            e.currentTarget.style.color = isDarkMode ? '#d1d5db' : 'rgba(71, 85, 105, 0.8)';
                           }}
                           title={hasPhone ? `Call ${phoneRaw}` : 'No phone number'}
                         >
@@ -909,9 +911,9 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
                             width: 22,
                             height: 22,
                             borderRadius: 0,
-                            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)'}`,
-                            background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)',
-                            color: isDarkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.8)',
+                            border: `1px solid ${isDarkMode ? `${colours.dark.border}40` : 'rgba(160, 160, 160, 0.2)'}`,
+                            background: isDarkMode ? colours.darkBlue : 'rgba(244, 244, 246, 0.5)',
+                            color: isDarkMode ? '#d1d5db' : 'rgba(71, 85, 105, 0.8)',
                             opacity: hasEmail ? 1 : 0.3,
                             display: 'flex',
                             alignItems: 'center',
@@ -922,14 +924,14 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
                           }}
                           onMouseEnter={(e) => {
                             if (!hasEmail) return;
-                            e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)';
-                            e.currentTarget.style.borderColor = colours.blue;
-                            e.currentTarget.style.color = colours.blue;
+                            e.currentTarget.style.background = isDarkMode ? colours.helixBlue : 'rgba(214, 232, 255, 0.6)';
+                            e.currentTarget.style.borderColor = colours.highlight;
+                            e.currentTarget.style.color = colours.highlight;
                           }}
                           onMouseLeave={(e) => {
-                            e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)';
-                            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.2)';
-                            e.currentTarget.style.color = isDarkMode ? 'rgba(203, 213, 225, 0.8)' : 'rgba(71, 85, 105, 0.8)';
+                            e.currentTarget.style.background = isDarkMode ? colours.darkBlue : 'rgba(244, 244, 246, 0.5)';
+                            e.currentTarget.style.borderColor = isDarkMode ? `${colours.dark.border}40` : 'rgba(160, 160, 160, 0.2)';
+                            e.currentTarget.style.color = isDarkMode ? '#d1d5db' : 'rgba(71, 85, 105, 0.8)';
                           }}
                           title={hasEmail ? `Email ${emailRaw}` : 'No email address'}
                         >

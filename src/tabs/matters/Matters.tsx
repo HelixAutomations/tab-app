@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useEffect, useDeferredValue, useRef } from 'react';
-import { SpinnerSize, MessageBar, MessageBarType, ActionButton, mergeStyles, Icon, Pivot, PivotItem } from '@fluentui/react';
+import { SpinnerSize, MessageBar, MessageBarType, ActionButton, mergeStyles, Icon } from '@fluentui/react';
+import NavigatorDetailBar from '../../components/NavigatorDetailBar';
 import ThemedSpinner from '../../components/ThemedSpinner';
 import SegmentedControl from '../../components/filter/SegmentedControl';
 import FilterBanner from '../../components/filter/FilterBanner';
@@ -168,7 +169,7 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
   const isLocalhost = (typeof window !== 'undefined') && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
   const isProduction = typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'production';
   const isLocalDev = checkIsLocalDev();
-  const disableFutureTabs = isProduction && !isLocalDev;
+  const disableFutureTabs = false; // Tabs enabled — content wired in MatterOverview
   const disabledTabMessage = 'Coming soon — this area is being prepared.';
 
 
@@ -734,124 +735,30 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
       );
     } else {
       setContent(
-        <div style={{
-          backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-          boxShadow: isDarkMode ? '0 2px 4px rgba(0,0,0,0.4)' : '0 2px 4px rgba(0,0,0,0.1)',
-          borderTop: isDarkMode ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.05)',
-          padding: '0 24px',
-          display: 'flex',
-          flexDirection: 'row',
-          gap: '8px',
-          alignItems: 'center',
-          height: '48px',
-          position: 'sticky',
-          top: '48px',
-          zIndex: 999,
-        }}>
-          <ActionButton
-            iconProps={{ iconName: 'ChevronLeft' }}
-            onClick={() => {
-              if (detailEnterTimerRef.current) {
-                window.clearTimeout(detailEnterTimerRef.current);
-                detailEnterTimerRef.current = null;
-              }
-              setSelected(null);
-              setActiveDetailTab('overview');
-              setIsEnteringDetail(false);
-            }}
-            title="Back to matters list"
-            aria-label="Back to matters list"
-            styles={{
-              root: {
-                height: 32,
-                padding: '0 10px 0 6px',
-                color: isDarkMode ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.6)',
-                gap: 6,
-              },
-              rootHovered: {
-                backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.08)' : '#e7f1ff',
-              },
-              icon: {
-                fontSize: 16,
-                color: isDarkMode ? 'rgb(125, 211, 252)' : '#3690ce',
-              },
-              label: {
-                fontSize: 13,
-                userSelect: 'none',
-              },
-            }}
-          >
-            Back
-          </ActionButton>
-          <div style={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: 0 }}>
-            <Pivot
-              selectedKey={activeDetailTab}
-              onLinkClick={(item) => {
-                const key = (item?.props?.itemKey || 'overview') as MatterDetailTabKey;
-                if (disableFutureTabs && key !== 'overview') return;
-                setActiveDetailTab(key);
-              }}
-              styles={{
-                root: { borderBottom: 'none', minWidth: 0 },
-                link: {
-                  color: isDarkMode ? colours.dark.text : colours.light.text,
-                  fontWeight: 500,
-                  fontSize: 13,
-                  padding: '0 10px',
-                  height: 32,
-                  lineHeight: '32px',
-                  selectors: {
-                    ':hover': {
-                      backgroundColor: isDarkMode
-                        ? colours.dark.cardHover
-                        : colours.light.cardHover,
-                    },
-                    '&[data-tab-disabled="true"]': {
-                      color: isDarkMode ? 'rgba(226, 232, 240, 0.45)' : 'rgba(15, 23, 42, 0.45)',
-                      cursor: 'not-allowed',
-                      backgroundColor: 'transparent',
-                    },
-                    '&[data-tab-disabled="true"]:hover': {
-                      backgroundColor: 'transparent',
-                    },
-                  },
-                },
-                linkIsSelected: {
-                  color: colours.highlight,
-                  fontWeight: 600,
-                  selectors: {
-                    '::before': {
-                      backgroundColor: colours.highlight,
-                      height: 3,
-                    },
-                  },
-                },
-              }}
-            >
-              <PivotItem itemKey="overview" headerText="Overview" />
-              <PivotItem
-                itemKey="activities"
-                headerText="Activities"
-                headerButtonProps={{ disabled: true, title: disabledTabMessage, 'data-tab-disabled': 'true', 'aria-disabled': true }}
-              />
-              <PivotItem
-                itemKey="documents"
-                headerText="Documents"
-                headerButtonProps={{ disabled: true, title: disabledTabMessage, 'data-tab-disabled': 'true', 'aria-disabled': true }}
-              />
-              <PivotItem
-                itemKey="communications"
-                headerText="Comms"
-                headerButtonProps={{ disabled: true, title: disabledTabMessage, 'data-tab-disabled': 'true', 'aria-disabled': true }}
-              />
-              <PivotItem
-                itemKey="billing"
-                headerText="Billing"
-                headerButtonProps={{ disabled: true, title: disabledTabMessage, 'data-tab-disabled': 'true', 'aria-disabled': true }}
-              />
-            </Pivot>
-          </div>
-        </div>
+        <NavigatorDetailBar
+          onBack={() => {
+            if (detailEnterTimerRef.current) {
+              window.clearTimeout(detailEnterTimerRef.current);
+              detailEnterTimerRef.current = null;
+            }
+            setSelected(null);
+            setActiveDetailTab('overview');
+            setIsEnteringDetail(false);
+          }}
+          backLabel="Back"
+          tabs={[
+            { key: 'overview', label: 'Overview' },
+            { key: 'activities', label: 'Activities', disabled: disableFutureTabs, disabledMessage: disabledTabMessage },
+            { key: 'documents', label: 'Documents', disabled: disableFutureTabs, disabledMessage: disabledTabMessage },
+            { key: 'communications', label: 'Comms', disabled: disableFutureTabs, disabledMessage: disabledTabMessage },
+            { key: 'billing', label: 'Billing', disabled: disableFutureTabs, disabledMessage: disabledTabMessage },
+          ]}
+          activeTab={activeDetailTab}
+          onTabChange={(key) => {
+            if (disableFutureTabs && key !== 'overview') return;
+            setActiveDetailTab(key as MatterDetailTabKey);
+          }}
+        />,
       );
     }
     return () => setContent(null);
@@ -972,9 +879,9 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
                   className="skeleton-cascade"
                   style={{
                     ...casc(110 + i * 40),
-                    backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-                    border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-                    borderRadius: 10,
+                    backgroundColor: isDarkMode ? colours.darkBlue : '#ffffff',
+                    border: `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}66` : 'rgba(6, 23, 51, 0.06)'}`,
+                    borderRadius: 0,
                     padding: 16,
                     display: 'flex',
                     flexDirection: 'column',
@@ -992,9 +899,9 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
               className="skeleton-cascade"
               style={{
                 ...casc(300),
-                backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-                border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-                borderRadius: 10,
+                backgroundColor: isDarkMode ? colours.darkBlue : '#ffffff',
+                border: `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}66` : 'rgba(6, 23, 51, 0.06)'}`,
+                borderRadius: 0,
                 padding: 20,
                 display: 'flex',
                 flexDirection: 'column',
@@ -1012,8 +919,8 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
           <div
             style={{
               padding: 24,
-              borderLeft: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-              backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
+              borderLeft: `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}66` : 'rgba(6, 23, 51, 0.06)'}`,
+              backgroundColor: isDarkMode ? colours.darkBlue : '#ffffff',
               display: 'flex',
               flexDirection: 'column',
               gap: 20,
@@ -1023,9 +930,9 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
               className="skeleton-cascade"
               style={{
                 ...casc(160),
-                backgroundColor: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-                border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-                borderRadius: 10,
+                backgroundColor: isDarkMode ? colours.darkBlue : '#ffffff',
+                border: `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}66` : 'rgba(6, 23, 51, 0.06)'}`,
+                borderRadius: 0,
                 padding: 20,
                 display: 'flex',
                 flexDirection: 'column',

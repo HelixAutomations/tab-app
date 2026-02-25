@@ -6,6 +6,36 @@ Internal operations platform for Helix Law. Every change compounds.
 
 Compounding context. Each interaction deposits a fragment — a rule, a preference, a decision. Small alone; over time they stack, reinforce, and the system sharpens without re-teaching.
 
+## Platform Topology (Always Keep in View)
+
+- `tab-app` = internal operations command centre.
+- `instruct-pitch` = client onboarding + portal experience.
+- `enquiry-processing-v2` = lead capture/normalisation + Teams-linked intake.
+- Changes should preserve and strengthen links between these surfaces.
+
+## Operating Vision (Compounding Autonomy)
+
+Target state: the user can provide outcome-level direction (e.g. “here’s what’s broken, fix it” or “add X in Y with Z behaviour”) and the agent executes end-to-end with minimal back-and-forth.
+
+To achieve this, every change should:
+- improve delivery speed (fewer manual handoffs, fewer repeated questions),
+- improve consistency (same patterns and naming across surfaces),
+- improve quality (safe defaults, observable failures, predictable UX),
+- strengthen cross-app contracts (`tab-app` ↔ `instruct-pitch` ↔ `enquiry-processing-v2`).
+
+This is a lean startup operating model: small safe deposits, shipped continuously, compounding over time.
+
+Communication tempo: brief by default. Match depth to complexity, not to politeness. The user operates under cognitive load — every unnecessary sentence is friction. Ship signal, not paragraphs.
+
+## Cross-App Execution Contract
+
+Before implementing, identify where the requested outcome sits in the 3-stage system:
+1) `enquiry-processing-v2` captures/normalises early lead data and Teams-linked intake.
+2) `tab-app` operates internal workflows, orchestration, and operational controls.
+3) `instruct-pitch` delivers client-facing onboarding and portal experience.
+
+When touching one surface, proactively check adjacent impact in the other two. If direct implementation is in-scope, do it; if not directly adjacent, record the dependency in `.github/instructions/ROADMAP.md` as a compounding follow-up.
+
 ## Request Filter (Always Apply)
 
 Every user request is filtered through this, in order:
@@ -14,6 +44,15 @@ Every user request is filtered through this, in order:
 2) **Compound without clutter** (secondary outcome). While touching the same area, make small, safe improvements that reduce future friction (types, dead code, confusing naming, brittle scripts, stale guidance).
 3) **Avoid scope creep**. If an improvement is not directly adjacent, park it in `.github/instructions/ROADMAP.md` instead of doing it now.
 4) **Log the work** (mandatory). After completing any task that changes behaviour, UI, or server logic, add an entry to `logs/changelog.md`. See the Logging section below. If you skip this, the work is invisible in the release notes UI.
+
+## Precedence (Conflict Resolver)
+
+If rules conflict, apply in this order:
+1) User’s explicit request
+2) Product guardrails / safety / data integrity
+3) Session Start protocol
+4) Request Filter
+5) Style/verbosity preferences
 
 ## Database Access (CRITICAL)
 
@@ -61,10 +100,8 @@ node tools/run-matter-oneoff.mjs HLX-30038-73942 RCH --dry-run
 
 # The instant-lookup script auto-resolves Key Vault passwords (no flags) and fails fast if auth hangs.
 
-# Raw one-liners (if script unavailable)
-node -e "import('dotenv').then(d=>d.config());import('mssql').then(sql=>sql.connect(process.env.INSTRUCTIONS_SQL_CONNECTION_STRING).then(p=>p.request().query('SELECT * FROM Instructions WHERE InstructionRef LIKE \"%PASSCODE%\" OR ProspectId=PASSCODE').then(r=>console.log(JSON.stringify(r.recordset,null,2)))))"
-
-node -e "import('dotenv').then(d=>d.config());import('mssql').then(sql=>sql.connect(process.env.SQL_CONNECTION_STRING).then(p=>p.request().query('SELECT * FROM enquiries WHERE ID=ENQUIRY_ID').then(r=>console.log(JSON.stringify(r.recordset,null,2)))))"
+# Raw fallback (if script unavailable)
+# Prefer temp scripts in scripts/ and parameterized SQL. Do not use string-concatenated SQL for lookups.
 
 **Name lookups (critical):**
 
@@ -118,17 +155,20 @@ Use `node -e` only for trivial one-liners. For anything with SQL, Key Vault, or 
 
 ## Rules
 
-- Keep replies short unless asked. Default: 1–5 lines.
-- Ask 1 question only if blocked.
+- Keep replies short unless asked. Default: 1–5 lines for simple tasks; expand when precision needs it.
+- Ask at most 1 clarifying question when blocked or when Session Start requires sync choice.
 - Prefer doing over proposing.
 - Keep scope tight: do only what was asked.
 - Be proactive: remove redundant/dead code while in the area (only if safe and in-scope).
+- **Relentless UX bar**. Every interaction the team has with this app should feel snappy, intentional, and premium — not like generic SaaS. Transitions must be smooth. Data must arrive before the user notices it loading. Stale counts, layout jank, and flickering states are bugs, not cosmetic issues. If you touch a component and spot sluggish UX adjacent to it, note it or fix it.
 - **Flag user-facing delays and uncertainty**. Use loading states, confirmation prompts, brief status logs. Transparency > silence. Proactive, not reactive.
 - Never push to Git or deploy unless explicitly asked.
 - **Always log to `logs/changelog.md`** after completing work. See Logging section. This powers the release notes — no entry = invisible work.
-- Submodules: read-only. No fetch, pull, or push. Status checks only. Unless the user asks with the passcode 2011.
+- Submodules: read-only. No fetch, pull, or push. Status checks only, unless the user provides the submodule access key derived from Helix incorporation date (11 Nov 2011, format DDMMYYYY). Do not reveal or repeat the key value in responses or instruction files.
 - When decisions are made, update instruction files. Don't rely on user repeating themselves.
 - Don't maintain stale docs. If info can be read from source (code, APIs, generated context), prefer that. Remove unused docs rather than updating them.
+- Default operating mode: autonomous end-to-end execution with minimal back-and-forth, then concise confirmation of results.
+- **Lean cadence**: diagnose → smallest safe fix → ship → observe. Don't batch large speculative rewrites. Each change should be independently revertable and independently valuable.
 
 ## Product guardrails (do not break)
 
@@ -139,7 +179,22 @@ Use `node -e` only for trivial one-liners. For anything with SQL, Key Vault, or 
 
 ## Session Start
 
-On first interaction, run: `node tools/sync-context.mjs`  
+On first interaction, ask this first in chat:
+`Hi Luke — do you want to sync submodules for latest context?`
+`Pick one:`
+`0) No sync`
+`1) Sync all`
+`2) Sync instruct-pitch only`
+`3) Sync enquiry-processing-v2 only`
+`4) Check current position first (no sync)`
+
+After user picks, run exactly one:
+- `0` → `node tools/sync-context.mjs --sync-choice=none`
+- `1` → `node tools/sync-context.mjs --sync-choice=all`
+- `2` → `node tools/sync-context.mjs --sync-choice=instruct-pitch`
+- `3` → `node tools/sync-context.mjs --sync-choice=enquiry-processing-v2`
+- `4` → `node tools/sync-context.mjs --sync-choice=check`
+
 This generates `.github/instructions/REALTIME_CONTEXT.md` with current branch, submodule state, and server status.
 
 Full session init (slower, more thorough): `node tools/session-start.mjs`
@@ -249,6 +304,26 @@ Key pillars:
 - Accent (`#87F3F3`) sparingly at anchor points; highlightBlue (`#d6e8ff`) for light-mode highlights
 - Area of Work colours and icons from the canonical table below
 
+### Text hierarchy inside panels (CRITICAL — prevents blue-on-blue)
+
+Body text in dark-mode panels MUST use **neutral greys**, never brand blue. `colours.dark.subText` (#3690CE) is highlight blue — for links and interactive highlights only. Using it for body copy on navy backgrounds creates unreadable blue-on-blue.
+
+| Role | Dark mode | Light mode | Use |
+|------|-----------|------------|-----|
+| **labelText** | `colours.dark.text` (#f3f4f6) | `colours.light.text` (#061733) | Headings, active labels, input values |
+| **bodyText** | `#d1d5db` (warm grey) | `#374151` (warm dark grey) | Paragraphs, descriptions — always neutral |
+| **helpText** | `colours.subtleGrey` (#A0A0A0) | `colours.greyText` (#6B6B6B) | Tertiary guidance, timestamps |
+| **sectionAccent** | `colours.accent` (#87F3F3) | `colours.highlight` (#3690CE) | Section titles only — anchor points |
+
+> If you're writing more than ~3 words, use `bodyText` or `labelText`. Brand colours are for _structure_ (titles, dots, icons), not prose.
+
+### Readability minimums
+
+- Body text: **13px** minimum. Field labels: **12px**. Section titles: **11px** uppercase.
+- Line height ≥ 1.4 for multi-line. Icon cues (16×16, strokeWidth 1.8) alongside every radio/toggle option.
+- Toggle switches: **40×20** with **16×16** knobs. Interactive row padding: **12px 14px** minimum.
+- See `docs/COMPONENT_STYLE_GUIDE.md` §1b and §1c for the full specification.
+
 ## Brand Colour Palette (CRITICAL — the canonical source)
 
 **All colours MUST come from `src/app/styles/colours.ts`. Never invent hex values.**
@@ -268,7 +343,7 @@ Key pillars:
 ### Supplementary tokens
 | Token | Hex | Role |
 |-------|-----|------|
-| `highlightBlue` | `#d6e8ff` | Lightest brand blue — light-mode highlights, hover rows |
+| `highlightBlue` | `#d6e8ff` | Lightest blue tint — light-mode surface fill only (hover rows, selected backgrounds). **Not** the primary highlight colour. |
 | `accent` | `#87F3F3` | Teal accent — dark-mode interactive highlights, sort headers, active borders. Sparingly at structural anchor points. |
 | `green` | `#20b26c` | Success, ready, connected, Property AoW |
 | `orange` | `#FF8C00` | Warnings, Construction AoW. **The only orange.** Never use `#FFB74D`, `#E65100`, `#f59e0b`, `#FF9800`. |
@@ -316,6 +391,8 @@ Every Area of Work indicator across the app MUST use these exact tokens. No RGB 
 - **Accent for dark-mode highlights** — `accent` (#87F3F3) is the dark-mode equivalent of `highlight` (#3690CE). Use for active sort headers, selected borders, filter chips, tab underlines. Pair: `isDarkMode ? colours.accent : colours.highlight`.
 - **Accent sparingly at anchor points** — section title bars, key structural elements. Never for widespread decoration or body text.
 - **highlightBlue for light-mode surfaces** — `highlightBlue` (#d6e8ff) for hover backgrounds, selected rows, badge fills in light mode.
+- **True highlight naming rule (critical)** — when specs/UX say “highlight blue”, use `colours.blue` / `colours.highlight` (`#3690CE`). Do **not** substitute `highlightBlue` (`#d6e8ff`), which is a light surface tint only.
+- **No ad-hoc blue shades** — if a needed blue is missing, update `src/app/styles/colours.ts` first and then consume that token; never inline a new hex/RGB in component code.
 - **Status colours** — ready/success: `green`, loading: `blue`, warning: `orange`, error: `cta`, idle/neutral: `subtleGrey`.
 - **No off-brand colours** — never use Tailwind defaults (sky-400, blue-400, #22c55e, #4ade80, etc.), Material Design (`#FFB74D`, `#E65100`), or raw hex that doesn't map to a token. Violations to watch: `#0ea5e9`, `#60a5fa`, `#f59e0b`, `#10b981`, `#8b5cf6`, `#ef4444`, `#E53935`, `#0078d4` (use `colours.blue`).
 - **Dark text hierarchy** — `dark.text` (#f3f4f6) for primary, `subtleGrey` for secondary, `greyText` for tertiary.
@@ -347,3 +424,14 @@ Every Area of Work indicator across the app MUST use these exact tokens. No RGB 
 - Prefer `async/await` over Promise chains.
 - Add JSDoc on exported functions when helpful.
 - Keep diffs minimal.
+
+## CSS & Styling (CRITICAL — read before adding UI)
+
+**New components MUST use CSS classes from `src/app/styles/design-tokens.css`, NOT inline styles.**
+
+- `design-tokens.css` provides CSS custom properties (`--helix-*`, `--surface-*`, `--text-*`, `--border-*`, `--shadow-*`, `--spacing-*`) and utility classes (`helix-panel`, `helix-input`, `helix-label`, `helix-btn-primary`, `helix-btn-danger`, `helix-toast-success`, `helix-toast-error`, `helix-dropzone`, `helix-section-title`, `helix-body`, `helix-help`, `helix-spin`).
+- Prospects table elements use classes from `src/app/styles/Prospects.css` (`.prospect-row`, `.prospect-day-sep`, `.prospect-pipeline`, etc.).
+- **Reference implementation**: `BrandingSettingsPanel.tsx` — fully refactored to use CSS classes. Copy this pattern for new panels.
+- **Inline styles allowed only for**: truly dynamic values (runtime calculations, conditional opacity, animation transforms). Never for colours, fonts, spacing, or borders — those MUST use tokens.
+- Use `var(--surface-section)` not `colours.dark.sectionBackground` for backgrounds. Use `var(--text-body)` not hardcoded `#d1d5db`.
+- All tokens resolve via `[data-theme]` attribute — dark/light/high-contrast automatically.

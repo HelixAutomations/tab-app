@@ -80,22 +80,24 @@ function getScenarioName(scenarioId?: string | null): string {
  */
 export function getScenarioColor(scenarioId?: string | null): string {
   if (!scenarioId) {
-    return '#60a5fa'; // Blue for generic pitch
+    return '#3690CE'; // Brand highlight blue for generic pitch
   }
 
   switch (scenarioId) {
     case 'before-call-call':
-      return '#3690ce'; // Blue
+      return '#3690CE'; // Brand highlight blue
     case 'before-call-no-call':
-      return '#f59e0b'; // Amber/Yellow
+      return '#FF8C00'; // Brand orange (colours.orange)
     case 'after-call-probably-cant-assist':
-      return '#ef4444'; // Red
+      return '#D65541'; // Brand CTA red (colours.cta)
     case 'after-call-want-instruction':
-      return '#20b26c'; // Green - matches colours.green
+      return '#20b26c'; // Brand green (colours.green)
+    case 'after-call-email':
+      return '#3690CE'; // Brand highlight blue
     case 'cfa':
-      return '#a855f7'; // Purple
+      return '#a855f7'; // Purple (accepted accent)
     default:
-      return '#60a5fa'; // Blue
+      return '#3690CE'; // Brand highlight blue
   }
 }
 

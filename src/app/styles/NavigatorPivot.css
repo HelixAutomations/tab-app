@@ -2,10 +2,14 @@
 /* Styles for pivot menus shown inside the Navigator component */
 .navigatorPivot .ms-Pivot-link {
     position: relative;
-    padding: 4px 10px; /* compact */
+    padding: 0 10px;
     border-bottom: none;
     transition: background-color 0.15s ease, color 0.15s ease;
-    border-radius: 6px;
+    border-radius: 0;
+    /* Stretch to fill container height — underline sits flush at bottom edge */
+    align-self: stretch;
+    display: flex;
+    align-items: center;
 }
 
 .navigatorPivot .ms-Pivot-link:hover {
@@ -32,15 +36,42 @@
     background-color: var(--helix-highlight, #3690CE);
     transform: translateX(-50%) scaleX(0);
     transform-origin: center;
-    transition: transform 0.2s ease;
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease;
+    opacity: 0;
 }
 
-.navigatorPivot .ms-Pivot-link:hover::after,
+/* Hover — partial underline expand */
+.navigatorPivot .ms-Pivot-link:hover::after {
+    transform: translateX(-50%) scaleX(0.35);
+    opacity: 0.4;
+}
+
+/* Active — full underline flush at edge */
 .navigatorPivot .ms-Pivot-link[aria-selected='true']::after {
     transform: translateX(-50%) scaleX(1);
+    opacity: 1;
+}
+
+/* Active + hover */
+.navigatorPivot .ms-Pivot-link[aria-selected='true']:hover::after {
+    opacity: 1;
 }
 
 .navigatorPivot .ms-Pivot-link[aria-selected='true'] {
     color: var(--helix-highlight, #3690CE);
-    background-color: rgba(54, 144, 206, 0.08);
+    background-color: transparent;
+}
+
+/* ─── Dark-mode overrides ─────────────────────────── */
+.theme-dark .navigatorPivot .ms-Pivot-link:hover {
+    background-color: rgba(255, 255, 255, 0.06);
+}
+
+.theme-dark .navigatorPivot .ms-Pivot-link::after {
+    background-color: #f3f4f6;
+}
+
+.theme-dark .navigatorPivot .ms-Pivot-link[aria-selected='true'] {
+    color: #f3f4f6;
+    background-color: transparent;
 }

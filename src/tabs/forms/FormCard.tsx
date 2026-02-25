@@ -20,8 +20,8 @@ const iconButtonStyles = (iconColor: string, isDarkMode: boolean) => ({
     marginBottom: '8px',
     color: iconColor,
     background: 'transparent',
-    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)'}`,
-    borderRadius: '8px',
+    border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+    borderRadius: 0,
     transition: 'all 0.2s ease',
     selectors: {
       ':hover': {
@@ -42,8 +42,8 @@ const iconButtonStyles = (iconColor: string, isDarkMode: boolean) => ({
     width: '32px',
     padding: '4px',
     boxShadow: isDarkMode
-      ? '0 2px 4px rgba(0, 0, 0, 0.2)'
-      : '0 2px 4px rgba(15, 23, 42, 0.04)',
+      ? 'none'
+      : 'none',
   },
   icon: {
     fontSize: '16px',
@@ -66,9 +66,9 @@ interface FormCardProps {
 const cardStyle = (isDarkMode: boolean) =>
   mergeStyles({
     padding: '16px 20px',
-    background: isDarkMode ? 'rgba(17, 24, 39, 0.72)' : 'rgba(255, 255, 255, 0.95)',
-    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(15, 23, 42, 0.06)'}`,
-    borderRadius: 12,
+    background: isDarkMode ? colours.darkBlue : colours.light.cardBackground,
+    border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
+    borderRadius: 0,
     boxShadow: 'none',
     transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
     cursor: 'pointer',
@@ -80,9 +80,10 @@ const cardStyle = (isDarkMode: boolean) =>
     marginBottom: '8px',
     selectors: {
       ':hover': {
-        borderColor: isDarkMode ? 'rgba(148, 163, 184, 0.35)' : 'rgba(15, 23, 42, 0.12)',
-        boxShadow: isDarkMode ? '0 4px 12px rgba(0, 0, 0, 0.2)' : '0 4px 12px rgba(15, 23, 42, 0.08)',
+        borderColor: isDarkMode ? colours.dark.borderColor : colours.light.border,
+        boxShadow: 'none',
         transform: 'translateY(-1px)',
+        background: isDarkMode ? colours.helixBlue : colours.light.cardHover,
       },
     },
   });

@@ -2,6 +2,7 @@ import React, { useRef, useState } from 'react';
 import { Icon } from '@fluentui/react';
 import { Enquiry, UserData } from '../../../app/functionality/types';
 import { useTheme } from '../../../app/functionality/ThemeContext';
+import { colours } from '../../../app/styles/colours';
 import '../../../app/styles/animations.css';
 
 /**
@@ -50,6 +51,8 @@ export interface ProspectHeaderProps {
   dealCreationInProgress?: boolean;
   onCaptureDealForLink?: () => Promise<string | null>;
   showFeeEarnerToggle?: boolean;
+  noAmountMode?: boolean;
+  onNoAmountModeChange?: (value: boolean) => void;
 }
 
 function formatPounds(value: string | number | undefined): string {
@@ -86,6 +89,8 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
   dealCreationInProgress = false,
   onCaptureDealForLink,
   showFeeEarnerToggle = false,
+  noAmountMode: noAmountModeProp,
+  onNoAmountModeChange,
 }) => {
   const { isDarkMode } = useTheme();
   const [showPrefill, setShowPrefill] = useState(false);
@@ -100,6 +105,12 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
   const [whiteboardText, setWhiteboardText] = useState('');
   const [whiteboardSplit, setWhiteboardSplit] = useState(0.62);
   const [hasAnimated, setHasAnimated] = useState(false);
+  const [internalNoAmountMode, setInternalNoAmountMode] = useState(false);
+  const noAmountMode = noAmountModeProp ?? internalNoAmountMode;
+  const setNoAmountMode = (v: boolean) => {
+    if (noAmountModeProp === undefined) setInternalNoAmountMode(v);
+    onNoAmountModeChange?.(v);
+  };
 
   const scopeDescriptionRef = useRef<HTMLInputElement>(null);
   const amountRef = useRef<HTMLInputElement>(null);
@@ -137,16 +148,16 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
     setHasAnimated(true);
   }, []);
 
-  // Theme
-  const textPrimary = isDarkMode ? '#F1F5F9' : '#1E293B';
-  const textSecondary = isDarkMode ? '#94A3B8' : '#64748B';
-  const borderColor = isDarkMode ? 'rgba(125, 211, 252, 0.2)' : 'rgba(148, 163, 184, 0.25)';
-  const innerBorder = isDarkMode ? 'rgba(125, 211, 252, 0.12)' : 'rgba(148, 163, 184, 0.18)';
-  const surfaceBg = isDarkMode ? 'rgba(15, 23, 42, 0.5)' : '#F8FAFC';
-  const cardBg = isDarkMode
-    ? 'linear-gradient(135deg, rgba(7, 16, 32, 0.94) 0%, rgba(11, 30, 55, 0.86) 100%)'
-    : '#FFFFFF';
-  const accent = isDarkMode ? '#7DD3FC' : '#3690CE';
+  // Theme — brand 2.0 tokens from colours.ts (mirrors UserBubble depth ladder)
+  const textPrimary = isDarkMode ? colours.dark.text : colours.light.text;
+  const textSecondary = isDarkMode ? colours.subtleGrey : colours.greyText;
+  const textMuted = isDarkMode ? colours.subtleGrey : colours.greyText;
+  const borderColor = isDarkMode ? colours.dark.border : colours.highlightNeutral;
+  const innerBorder = isDarkMode ? colours.dark.border : colours.highlightNeutral;
+  const surfaceBg = isDarkMode ? colours.darkBlue : colours.grey;
+  const cardBg = isDarkMode ? colours.websiteBlue : '#ffffff';
+  const accent = isDarkMode ? colours.accent : colours.highlight;
+  const controlRowBg = isDarkMode ? colours.darkBlue : colours.grey;
 
   // Prospect data
   const clientName = `${enquiry?.First_Name || ''} ${enquiry?.Last_Name || ''}`.trim() || '—';
@@ -204,17 +215,17 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
     <div style={{
       background: surfaceBg,
       border: `1px solid ${innerBorder}`,
-      borderRadius: '4px',
+      borderRadius: 2,
       padding: '12px 14px',
       animation: hasAnimated ? 'none' : `contentReveal 240ms ease-out ${animationDelay}ms both`,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: '10px' }}>
         <div style={{
-          fontSize: '10px',
-          fontWeight: 700,
+          fontSize: 10,
+          fontWeight: 600,
           textTransform: 'uppercase',
-          letterSpacing: '0.6px',
-          color: textSecondary,
+          letterSpacing: '0.5px',
+          color: textMuted,
         }}>
           {title}
         </div>
@@ -265,7 +276,7 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
     <div style={{
       background: surfaceBg,
       border: `1px solid ${innerBorder}`,
-      borderRadius: '4px',
+      borderRadius: 2,
       padding: '12px 14px',
     }}>
       <div style={{ marginBottom: 10 }}>
@@ -307,13 +318,13 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
           cursor: canCopy ? 'pointer' : 'default',
         }}
       >
-        <span style={{ fontSize: '11px', color: textSecondary, fontWeight: 500 }}>
+        <span style={{ fontSize: '12px', color: textSecondary, fontWeight: 500 }}>
           {label}
         </span>
         <span style={{
           fontSize: '13px',
           fontWeight: 600,
-          color: isCopied ? '#10B981' : textPrimary,
+          color: isCopied ? colours.green : textPrimary,
           transition: 'color 0.15s',
         }}>
           {isCopied ? '✓ Copied' : value}
@@ -326,7 +337,7 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
   const passcodeLinkHref = passcode ? `${instructionsBaseUrl}/pitch/${encodeURIComponent(String(passcode))}` : '';
   const isDealLinkReady = dealStatus === 'ready';
   const numericAmount = normalizeCurrencyToNumber(amount);
-  const hasRequiredDealInfo = Boolean(initialScopeDescription && initialScopeDescription.trim()) && Number.isFinite(numericAmount) && numericAmount > 0;
+  const hasRequiredDealInfo = Boolean(initialScopeDescription && initialScopeDescription.trim()) && (noAmountMode || (Number.isFinite(numericAmount) && numericAmount > 0));
   const canAttemptCapture = Boolean(onCaptureDealForLink) && hasRequiredDealInfo && passcodeConfirmed && !dealCreationInProgress;
 
   const canEditDealDetailsHere = Boolean(onInitialScopeDescriptionChange || onAmountChange);
@@ -396,13 +407,31 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
   function PasscodeLinkRow(): JSX.Element | null {
     if (passcode === undefined) return null;
 
-    const rowBorder = `1px solid ${innerBorder}`;
     const maskText = `${instructionsBaseUrl.replace(/^https?:\/\//, '')}/pitch/•••••`;
 
+    // Brand 2.0 row tokens (UserBubble system)
+    const rowBg = isDarkMode
+      ? `linear-gradient(90deg, rgba(54, 144, 206, 0.10) 0%, rgba(54, 144, 206, 0.00) 42%), ${controlRowBg}`
+      : controlRowBg;
+    const rowHoverBg = isDarkMode
+      ? `linear-gradient(90deg, rgba(54, 144, 206, 0.18) 0%, rgba(54, 144, 206, 0.00) 50%), ${colours.helixBlue}`
+      : colours.light.cardHover;
+    const rowShadow = isDarkMode ? 'inset 0 0 0 1px rgba(54, 144, 206, 0.05)' : 'none';
+    const rowHoverShadow = isDarkMode ? '0 8px 18px rgba(0, 3, 25, 0.42)' : '0 4px 12px rgba(6, 23, 51, 0.08)';
+    const panelBg = isDarkMode ? colours.darkBlue : colours.grey;
+    const panelBorder = isDarkMode ? colours.dark.border : colours.highlightNeutral;
+    const inputBg = isDarkMode ? colours.dark.cardBackground : '#FFFFFF';
+    const inputBorder = isDarkMode ? colours.dark.border : colours.highlightNeutral;
+    const errorColour = colours.cta;
+
+    // Text tokens — aligned to the UserBubble system (no invented hex values)
+    const helpText = isDarkMode ? colours.subtleGrey : colours.greyText; // tertiary guidance
+    const labelText = isDarkMode ? colours.dark.text : colours.light.text; // bright headings
+
     return (
-      <div style={{ padding: '6px 0', borderBottom: rowBorder }}>
+      <div style={{ padding: '6px 0', borderBottom: `1px solid ${innerBorder}` }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: '11px', color: textSecondary, fontWeight: 500 }}>
+          <span style={{ fontSize: 11, fontWeight: 600, color: textMuted, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
             Passcode link
           </span>
 
@@ -413,14 +442,15 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
                 target="_blank"
                 rel="noopener noreferrer"
                 style={{
-                  fontSize: '13px',
-                  fontWeight: 650,
+                  fontSize: 13,
+                  fontWeight: 700,
                   color: accent,
                   textDecoration: 'none',
                   maxWidth: 260,
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap',
+                  letterSpacing: '-0.2px',
                 }}
                 title={passcodeLinkHref}
               >
@@ -435,19 +465,20 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
                   display: 'inline-flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  width: 22,
-                  height: 22,
-                  borderRadius: 4,
-                  border: `1px solid ${borderColor}`,
+                  width: 24,
+                  height: 24,
+                  borderRadius: 2,
+                  border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.12)' : borderColor}`,
                   background: linkCopied
-                    ? (isDarkMode ? 'rgba(16, 185, 129, 0.12)' : 'rgba(16, 185, 129, 0.10)')
+                    ? `rgba(32, 178, 108, 0.12)`
                     : 'transparent',
                   cursor: 'pointer',
+                  transition: 'all 0.15s ease',
                 }}
               >
                 <Icon
                   iconName={linkCopied ? 'CompletedSolid' : 'Copy'}
-                  styles={{ root: { fontSize: 12, color: linkCopied ? '#10B981' : textSecondary } }}
+                  styles={{ root: { fontSize: 12, color: linkCopied ? colours.green : helpText } }}
                 />
               </button>
             </div>
@@ -455,11 +486,12 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span
                 style={{
-                  fontSize: '13px',
-                  fontWeight: 650,
-                  color: textSecondary,
-                  opacity: 0.75,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: helpText,
+                  opacity: 0.55,
                   userSelect: 'none',
+                  letterSpacing: '-0.2px',
                 }}
                 title="This link is disabled until a Deal is captured"
               >
@@ -470,17 +502,18 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
                 type="button"
                 onClick={() => setShowPasscodeConfirm((v) => !v)}
                 style={{
-                  fontSize: '11px',
-                  fontWeight: 650,
-                  padding: '4px 10px',
-                  borderRadius: 4,
-                  border: `1px solid ${borderColor}`,
-                  background: showPasscodeConfirm
-                    ? (isDarkMode ? 'rgba(125, 211, 252, 0.10)' : 'rgba(54, 144, 206, 0.08)')
-                    : 'transparent',
-                  color: showPasscodeConfirm ? accent : textSecondary,
+                  fontSize: 10,
+                  fontWeight: 700,
+                  padding: '5px 12px',
+                  borderRadius: 2,
+                  border: `1px solid ${showPasscodeConfirm ? (isDarkMode ? 'rgba(54, 144, 206, 0.28)' : colours.highlightNeutral) : (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : colours.highlightNeutral)}`,
+                  background: showPasscodeConfirm ? rowBg : 'transparent',
+                  color: showPasscodeConfirm ? accent : helpText,
                   cursor: 'pointer',
                   whiteSpace: 'nowrap',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px',
+                  transition: 'all 0.15s ease',
                 }}
                 title="Enable a working link (captures Deal)"
               >
@@ -493,68 +526,197 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
         {!isDealLinkReady && showPasscodeConfirm && (
           <div
             style={{
-              marginTop: 8,
-              padding: '10px 12px',
-              border: `1px solid ${innerBorder}`,
-              background: isDarkMode ? 'rgba(2, 6, 23, 0.35)' : 'rgba(248, 250, 252, 0.7)',
-              borderRadius: 4,
+              marginTop: 10,
+              padding: '16px 18px',
+              border: `1px solid ${panelBorder}`,
+              background: panelBg,
+              borderRadius: 2,
+              position: 'relative',
             }}
           >
-            <div style={{ fontSize: 12, color: textPrimary, fontWeight: 650, marginBottom: 6 }}>
+            {/* Subtle top line — brand blue only, no teal */}
+            <div style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              height: 1,
+              background: isDarkMode
+                ? 'linear-gradient(90deg, transparent 0%, rgba(54, 144, 206, 0.25) 30%, rgba(54, 144, 206, 0.15) 50%, rgba(54, 144, 206, 0.25) 70%, transparent 100%)'
+                : `linear-gradient(90deg, transparent 0%, ${colours.highlight}30 30%, ${colours.highlight}12 50%, ${colours.highlight}30 70%, transparent 100%)`,
+              borderRadius: '2px 2px 0 0',
+            }} />
+
+            {/* Title — sectionTitle style (textMuted, 10px, uppercase) per UserBubble */}
+            <div style={{
+              fontSize: 10,
+              fontWeight: 600,
+              color: textMuted,
+              textTransform: 'uppercase',
+              letterSpacing: '0.5px',
+              marginBottom: 8,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 7,
+            }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={textMuted} strokeWidth="2">
+                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+              </svg>
               Activate passcode link
             </div>
-            <div style={{ fontSize: 11, color: textSecondary, lineHeight: 1.4, marginBottom: 10 }}>
-              The link becomes available after a pitch is sent. You can also manually activate it now for use outside the pitch flow.
+
+            <div style={{ fontSize: 13, color: textSecondary, lineHeight: 1.55, marginBottom: 16 }}>
+              The link becomes available after a pitch is sent.
+              You can also manually activate it now for use outside the pitch flow.
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
-              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer' }}>
-                <input
-                  type="radio"
-                  name="link-activation-mode"
-                  checked={linkActivationMode === 'pitch'}
-                  onChange={() => setLinkActivationMode('pitch')}
-                />
-                <div>
-                  <div style={{ fontSize: 11, color: textPrimary, fontWeight: 600 }}>Proceed with pitch below (automatic)</div>
-                  <div style={{ fontSize: 10, color: textSecondary, marginTop: 2 }}>
-                    The link activates once the pitch is sent from the editor below.
+            {/* Mode selection — custom radio rows with icons */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+              {[
+                {
+                  value: 'pitch' as const,
+                  label: 'Proceed with pitch below',
+                  sublabel: 'The link activates once the pitch is sent from the editor below.',
+                  icon: (colour: string) => (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={colour} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                    </svg>
+                  ),
+                },
+                {
+                  value: 'manual' as const,
+                  label: 'Manually activate now',
+                  sublabel: 'Enable the link immediately for use outside the pitch/send flow.',
+                  icon: (colour: string) => (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={colour} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                    </svg>
+                  ),
+                },
+              ].map((opt) => {
+                const isActive = linkActivationMode === opt.value;
+                const iconColour = isActive ? accent : helpText;
+                return (
+                  <div
+                    key={opt.value}
+                    onClick={() => setLinkActivationMode(opt.value)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: 12,
+                      padding: '12px 14px',
+                      background: isActive ? rowBg : 'transparent',
+                      border: `1px solid ${isActive ? (isDarkMode ? 'rgba(54, 144, 206, 0.28)' : colours.highlightNeutral) : (isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(148, 163, 184, 0.12)')}`,
+                      borderRadius: 2,
+                      cursor: 'pointer',
+                      transition: 'all 0.18s ease',
+                      transform: 'translateY(0)',
+                      boxShadow: isActive ? rowShadow : 'none',
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!isActive) {
+                        e.currentTarget.style.background = rowHoverBg;
+                        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.18)' : colours.highlightNeutral;
+                        e.currentTarget.style.transform = 'translateY(-1px)';
+                        e.currentTarget.style.boxShadow = rowHoverShadow;
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isActive) {
+                        e.currentTarget.style.background = 'transparent';
+                        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(148, 163, 184, 0.12)';
+                        e.currentTarget.style.transform = 'translateY(0)';
+                        e.currentTarget.style.boxShadow = 'none';
+                      }
+                    }}
+                  >
+                    {/* Icon cue */}
+                    <div style={{ flexShrink: 0, marginTop: 1 }}>
+                      {opt.icon(iconColour)}
+                    </div>
+                    {/* Custom radio indicator */}
+                    <div style={{
+                      width: 16,
+                      height: 16,
+                      borderRadius: '50%',
+                      border: `2px solid ${isActive ? accent : (isDarkMode ? colours.dark.borderColor : colours.highlightNeutral)}`,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                      marginTop: 1,
+                      transition: 'border-color 0.15s ease',
+                    }}>
+                      {isActive && (
+                        <div style={{
+                          width: 7,
+                          height: 7,
+                          borderRadius: '50%',
+                          background: accent,
+                        }} />
+                      )}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, color: isActive ? labelText : textSecondary, fontWeight: 600, lineHeight: 1.35 }}>
+                        {opt.label}
+                      </div>
+                      <div style={{ fontSize: 12, color: helpText, marginTop: 3, lineHeight: 1.45 }}>
+                        {opt.sublabel}
+                      </div>
+                    </div>
                   </div>
-                </div>
-              </label>
-              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer' }}>
-                <input
-                  type="radio"
-                  name="link-activation-mode"
-                  checked={linkActivationMode === 'manual'}
-                  onChange={() => setLinkActivationMode('manual')}
-                />
-                <div>
-                  <div style={{ fontSize: 11, color: textPrimary, fontWeight: 600 }}>Manually activate now</div>
-                  <div style={{ fontSize: 10, color: textSecondary, marginTop: 2 }}>
-                    Enable the link immediately for use outside the pitch/send flow.
-                  </div>
-                </div>
-              </label>
+                );
+              })}
             </div>
 
             {linkActivationMode === 'pitch' && (
-              <div style={{ fontSize: 11, color: textSecondary, lineHeight: 1.4, marginBottom: 10 }}>
+              <div style={{
+                fontSize: 13,
+                color: textSecondary,
+                lineHeight: 1.5,
+                padding: '12px 14px',
+                background: isDarkMode ? 'rgba(54, 144, 206, 0.04)' : 'rgba(54, 144, 206, 0.03)',
+                border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)'}`,
+                borderRadius: 2,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+              }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={helpText} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                  <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+                </svg>
                 Continue with the pitch below to activate the link when you send.
               </div>
             )}
 
             {linkActivationMode === 'manual' && (
               <>
-                <div style={{ marginBottom: 10 }}>
-                  <div style={{ fontSize: 11, color: textSecondary, fontWeight: 650, marginBottom: 6 }}>
+                {/* Deal details section */}
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{
+                    fontSize: 10,
+                    fontWeight: 600,
+                    color: textMuted,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px',
+                    marginBottom: 10,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 7,
+                  }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={textMuted} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                      <polyline points="14 2 14 8 20 8"/>
+                    </svg>
                     Deal details
                   </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {/* Service description */}
                     <div>
-                      <div style={{ fontSize: 11, color: textSecondary, marginBottom: 4 }}>
-                        Service description <span style={{ color: isDarkMode ? '#FCA5A5' : '#DC2626' }}>*</span>
+                      <div style={{ fontSize: 12, color: textSecondary, fontWeight: 600, marginBottom: 5, letterSpacing: '0.2px' }}>
+                        Service description <span style={{ color: errorColour }}>*</span>
                       </div>
                       {onInitialScopeDescriptionChange ? (
                         <input
@@ -565,25 +727,30 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
                           onBlur={() => onInitialScopeDescriptionChange(getScopeValue())}
                           style={{
                             width: '100%',
-                            fontSize: 12,
-                            padding: '7px 9px',
-                            borderRadius: 4,
-                            border: `1px solid ${borderColor}`,
-                            background: isDarkMode ? 'rgba(15, 23, 42, 0.55)' : '#FFFFFF',
-                            color: textPrimary,
+                            fontSize: 13,
+                            padding: '9px 12px',
+                            borderRadius: 2,
+                            border: `1px solid ${inputBorder}`,
+                            background: inputBg,
+                            color: labelText,
                             outline: 'none',
+                            transition: 'border-color 0.15s ease',
+                            fontWeight: 500,
                           }}
+                          onFocus={(e) => { e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.35)' : colours.highlight; }}
+                          onBlurCapture={(e) => { e.currentTarget.style.borderColor = isDarkMode ? colours.dark.border : colours.highlightNeutral; }}
                         />
                       ) : (
-                        <div style={{ fontSize: 12, color: textPrimary, fontWeight: 650 }}>
+                        <div style={{ fontSize: 13, color: labelText, fontWeight: 650 }}>
                           {initialScopeDescription?.trim() ? initialScopeDescription.trim() : '—'}
                         </div>
                       )}
                     </div>
 
+                    {/* Amount */}
                     <div>
-                      <div style={{ fontSize: 11, color: textSecondary, marginBottom: 4 }}>
-                        Amount <span style={{ color: isDarkMode ? '#FCA5A5' : '#DC2626' }}>*</span>
+                      <div style={{ fontSize: 12, color: textSecondary, fontWeight: 600, marginBottom: 5, letterSpacing: '0.2px' }}>
+                        Amount {!noAmountMode && <span style={{ color: errorColour }}>*</span>}
                       </div>
                       {onAmountChange ? (
                         <input
@@ -591,66 +758,251 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
                           inputMode="decimal"
                           ref={amountRef}
                           defaultValue={String(amount ?? '')}
-                          placeholder="1500"
+                          placeholder={noAmountMode ? '0' : '1500'}
+                          disabled={noAmountMode}
                           onBlur={() => onAmountChange(getAmountValue())}
                           style={{
                             width: '100%',
-                            fontSize: 12,
-                            padding: '7px 9px',
-                            borderRadius: 4,
-                            border: `1px solid ${borderColor}`,
-                            background: isDarkMode ? 'rgba(15, 23, 42, 0.55)' : '#FFFFFF',
-                            color: textPrimary,
+                            fontSize: 13,
+                            padding: '9px 12px',
+                            borderRadius: 2,
+                            border: `1px solid ${inputBorder}`,
+                            background: noAmountMode ? (isDarkMode ? colours.dark.background : colours.grey) : inputBg,
+                            color: noAmountMode ? helpText : labelText,
                             outline: 'none',
+                            opacity: noAmountMode ? 0.5 : 1,
+                            transition: 'border-color 0.15s ease, opacity 0.15s ease',
+                            fontWeight: 500,
                           }}
+                          onFocus={(e) => { if (!noAmountMode) e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.35)' : colours.highlight; }}
+                          onBlurCapture={(e) => { e.currentTarget.style.borderColor = isDarkMode ? colours.dark.border : colours.highlightNeutral; }}
                         />
                       ) : (
-                        <div style={{ fontSize: 12, color: textPrimary, fontWeight: 650 }}>
-                          {Number.isFinite(numericAmount) && numericAmount > 0 ? formatPounds(numericAmount) : '—'}
+                        <div style={{ fontSize: 13, color: labelText, fontWeight: 650 }}>
+                          {noAmountMode ? '£0 (ID only)' : (Number.isFinite(numericAmount) && numericAmount > 0 ? formatPounds(numericAmount) : '—')}
                         </div>
                       )}
                     </div>
                   </div>
 
                   {canEditDealDetailsHere && (
-                    <div style={{ fontSize: 10, color: textSecondary, marginTop: 6 }}>
-                      Manual activation uses these details only. The pitch builder below is disabled while this is selected.
+                    <div style={{ fontSize: 11, color: helpText, marginTop: 8, fontStyle: 'italic' }}>
+                      Manual activation uses these details only.
                     </div>
                   )}
                 </div>
 
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: textPrimary, marginBottom: 10 }}>
-                  <input
-                    type="checkbox"
-                    checked={passcodeConfirmed}
-                    onChange={(e) => setPasscodeConfirmed(e.target.checked)}
-                  />
-                  I confirm the amount and service description are correct.
-                </label>
+                {/* Toggle options — custom switches with icons */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+                  {/* No amount toggle */}
+                  <div
+                    onClick={() => setNoAmountMode(!noAmountMode)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '12px 14px',
+                      background: rowBg,
+                      border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.12)' : colours.highlightNeutral}`,
+                      borderRadius: 2,
+                      cursor: 'pointer',
+                      boxShadow: rowShadow,
+                      transform: 'translateY(0)',
+                      transition: 'background 0.2s ease, border-color 0.2s ease, transform 0.18s ease, box-shadow 0.18s ease',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = isDarkMode ? colours.dark.borderColor : colours.highlightNeutral;
+                      e.currentTarget.style.background = rowHoverBg;
+                      e.currentTarget.style.transform = 'translateY(-1px)';
+                      e.currentTarget.style.boxShadow = rowHoverShadow;
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.12)' : colours.highlightNeutral;
+                      e.currentTarget.style.background = rowBg;
+                      e.currentTarget.style.transform = 'translateY(0)';
+                      e.currentTarget.style.boxShadow = rowShadow;
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      {/* ID card icon */}
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={noAmountMode ? accent : helpText} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                        <rect x="2" y="5" width="20" height="14" rx="2"/><line x1="6" y1="10" x2="6.01" y2="10"/><line x1="6" y1="14" x2="6.01" y2="14"/><line x1="10" y1="10" x2="18" y2="10"/><line x1="10" y1="14" x2="14" y2="14"/>
+                      </svg>
+                      <div>
+                        <div style={{ fontSize: 13, color: labelText, fontWeight: 600 }}>No amount</div>
+                        <div style={{ fontSize: 12, color: helpText, marginTop: 2 }}>ID verification only — skip payment</div>
+                      </div>
+                    </div>
+                    {/* Toggle switch */}
+                    <div style={{
+                      width: 40,
+                      height: 20,
+                      background: noAmountMode ? colours.blue : (isDarkMode ? colours.dark.borderColor : colours.highlightNeutral),
+                      borderRadius: 2,
+                      position: 'relative',
+                      transition: 'all 0.2s ease',
+                      flexShrink: 0,
+                    }}>
+                      <div style={{
+                        width: 16,
+                        height: 16,
+                        background: '#fff',
+                        borderRadius: 1,
+                        position: 'absolute',
+                        top: 2,
+                        left: noAmountMode ? 22 : 2,
+                        transition: 'all 0.2s ease',
+                        boxShadow: isDarkMode ? '0 1px 2px rgba(0, 3, 25, 0.3)' : '0 1px 2px rgba(0, 0, 0, 0.04)',
+                      }} />
+                    </div>
+                  </div>
 
+                  {/* Confirm toggle */}
+                  <div
+                    onClick={() => setPasscodeConfirmed(!passcodeConfirmed)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '12px 14px',
+                      background: rowBg,
+                      border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.12)' : colours.highlightNeutral}`,
+                      borderRadius: 2,
+                      cursor: 'pointer',
+                      boxShadow: rowShadow,
+                      transform: 'translateY(0)',
+                      transition: 'background 0.2s ease, border-color 0.2s ease, transform 0.18s ease, box-shadow 0.18s ease',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = isDarkMode ? colours.dark.borderColor : colours.highlightNeutral;
+                      e.currentTarget.style.background = rowHoverBg;
+                      e.currentTarget.style.transform = 'translateY(-1px)';
+                      e.currentTarget.style.boxShadow = rowHoverShadow;
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.12)' : colours.highlightNeutral;
+                      e.currentTarget.style.background = rowBg;
+                      e.currentTarget.style.transform = 'translateY(0)';
+                      e.currentTarget.style.boxShadow = rowShadow;
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
+                      {/* Shield check icon */}
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={passcodeConfirmed ? colours.green : helpText} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/>
+                      </svg>
+                      <div>
+                        <div style={{ fontSize: 13, color: labelText, fontWeight: 600, lineHeight: 1.35 }}>
+                          {noAmountMode ? 'Confirm details' : 'Confirm amount & details'}
+                        </div>
+                        <div style={{ fontSize: 12, color: helpText, marginTop: 2, lineHeight: 1.45 }}>
+                          {noAmountMode
+                            ? 'Service description is correct. No payment will be collected.'
+                            : 'The amount and service description are correct.'}
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{
+                      width: 40,
+                      height: 20,
+                      background: passcodeConfirmed ? colours.green : (isDarkMode ? colours.dark.borderColor : colours.highlightNeutral),
+                      borderRadius: 2,
+                      position: 'relative',
+                      transition: 'all 0.2s ease',
+                      flexShrink: 0,
+                    }}>
+                      <div style={{
+                        width: 16,
+                        height: 16,
+                        background: '#fff',
+                        borderRadius: 1,
+                        position: 'absolute',
+                        top: 2,
+                        left: passcodeConfirmed ? 22 : 2,
+                        transition: 'all 0.2s ease',
+                        boxShadow: isDarkMode ? '0 1px 2px rgba(0, 3, 25, 0.3)' : '0 1px 2px rgba(0, 0, 0, 0.04)',
+                      }} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Validation message */}
                 {!hasRequiredDealInfo && (
-                  <div style={{ fontSize: 11, color: isDarkMode ? '#FCA5A5' : '#B91C1C', marginBottom: 10 }}>
-                    Add a Service Description and a positive Amount in the pitch builder before enabling this link.
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '10px 14px',
+                    marginBottom: 12,
+                    background: isDarkMode ? 'rgba(214, 85, 65, 0.10)' : 'rgba(214, 85, 65, 0.06)',
+                    border: `1px solid ${isDarkMode ? 'rgba(214, 85, 65, 0.30)' : 'rgba(214, 85, 65, 0.20)'}`,
+                    borderRadius: 2,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: errorColour,
+                    lineHeight: 1.4,
+                  }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ flexShrink: 0 }}>
+                      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                      <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                    </svg>
+                    {noAmountMode
+                      ? 'Add a Service Description before enabling this link.'
+                      : 'Add a Service Description and a positive Amount before enabling this link.'}
                   </div>
                 )}
 
+                {/* Action button — brand 2.0 primary action */}
                 <button
                   type="button"
                   onClick={handleCreateDealAndEnableLink}
                   disabled={!canAttemptCapture}
                   style={{
-                    fontSize: '11px',
+                    width: '100%',
+                    fontSize: 13,
                     fontWeight: 700,
-                    padding: '6px 12px',
-                    borderRadius: 4,
-                    border: `1px solid ${borderColor}`,
+                    padding: '12px 14px',
+                    borderRadius: 2,
+                    border: `1px solid ${canAttemptCapture ? (isDarkMode ? 'rgba(54, 144, 206, 0.28)' : colours.highlightNeutral) : (isDarkMode ? 'rgba(54, 144, 206, 0.08)' : colours.highlightNeutral)}`,
                     background: canAttemptCapture
-                      ? (isDarkMode ? 'rgba(125, 211, 252, 0.14)' : 'rgba(54, 144, 206, 0.12)')
+                      ? (isDarkMode
+                        ? `linear-gradient(90deg, rgba(54, 144, 206, 0.18) 0%, rgba(54, 144, 206, 0.00) 50%), ${colours.darkBlue}`
+                        : colours.grey)
                       : 'transparent',
-                    color: canAttemptCapture ? accent : textSecondary,
+                    color: canAttemptCapture ? (isDarkMode ? colours.accent : colours.highlight) : helpText,
                     cursor: canAttemptCapture ? 'pointer' : 'not-allowed',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 10,
+                    boxShadow: canAttemptCapture ? rowShadow : 'none',
+                    transform: 'translateY(0)',
+                    transition: 'background 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.18s ease, box-shadow 0.18s ease',
+                    letterSpacing: '0.3px',
+                  }}
+                  onMouseEnter={(e) => {
+                    if (canAttemptCapture) {
+                      e.currentTarget.style.background = rowHoverBg;
+                      e.currentTarget.style.borderColor = isDarkMode ? colours.dark.borderColor : colours.highlightNeutral;
+                      e.currentTarget.style.transform = 'translateY(-1px)';
+                      e.currentTarget.style.boxShadow = rowHoverShadow;
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (canAttemptCapture) {
+                      e.currentTarget.style.background = isDarkMode
+                        ? `linear-gradient(90deg, rgba(54, 144, 206, 0.18) 0%, rgba(54, 144, 206, 0.00) 50%), ${colours.darkBlue}`
+                        : colours.grey;
+                      e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.28)' : colours.highlightNeutral;
+                      e.currentTarget.style.transform = 'translateY(0)';
+                      e.currentTarget.style.boxShadow = rowShadow;
+                    }
                   }}
                 >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+                  </svg>
                   {dealCreationInProgress || dealStatus === 'processing' ? 'Creating deal…' : 'Create deal & enable link'}
                 </button>
               </>
@@ -670,20 +1022,20 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      borderRadius: 3,
-      background: isDarkMode ? 'rgba(125, 211, 252, 0.08)' : 'rgba(54, 144, 206, 0.06)',
-      border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.18)' : 'rgba(54, 144, 206, 0.14)'}`,
+      borderRadius: 2,
+      background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)',
+      border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)'}`,
       cursor: 'pointer',
       flex: '0 0 auto',
       transition: 'transform 160ms ease, box-shadow 160ms ease, background 160ms ease, border-color 160ms ease',
     };
 
     const copiedStyle: React.CSSProperties = {
-      background: isDarkMode ? 'rgba(16, 185, 129, 0.16)' : 'rgba(16, 185, 129, 0.12)',
-      border: `1px solid ${isDarkMode ? 'rgba(16, 185, 129, 0.5)' : 'rgba(16, 185, 129, 0.38)'}`,
+      background: isDarkMode ? 'rgba(32, 178, 108, 0.16)' : 'rgba(32, 178, 108, 0.12)',
+      border: `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.5)' : 'rgba(32, 178, 108, 0.38)'}`,
       boxShadow: isDarkMode
-        ? '0 0 0 1px rgba(16, 185, 129, 0.15)'
-        : '0 0 0 1px rgba(16, 185, 129, 0.12)',
+        ? '0 0 0 1px rgba(32, 178, 108, 0.15)'
+        : '0 0 0 1px rgba(32, 178, 108, 0.12)',
       transform: 'scale(1.06)',
     };
 
@@ -734,7 +1086,7 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
                 styles={{
                   root: {
                     fontSize: 11,
-                    color: isEmailCopied ? '#10B981' : textSecondary,
+                    color: isEmailCopied ? colours.green : textSecondary,
                     transform: isEmailCopied ? 'scale(1.05)' : 'scale(1)',
                     transition: 'transform 160ms ease, color 160ms ease',
                   },
@@ -775,7 +1127,7 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
                 styles={{
                   root: {
                     fontSize: 11,
-                    color: isPhoneCopied ? '#10B981' : textSecondary,
+                    color: isPhoneCopied ? colours.green : textSecondary,
                     transform: isPhoneCopied ? 'scale(1.05)' : 'scale(1)',
                     transition: 'transform 160ms ease, color 160ms ease',
                   },
@@ -802,12 +1154,12 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
           display: 'inline-flex',
           alignItems: 'center',
           padding: '4px 10px',
-          background: isDarkMode ? 'rgba(125, 211, 252, 0.1)' : 'rgba(54, 144, 206, 0.08)',
-          border: `1px solid ${isDarkMode ? 'rgba(125, 211, 252, 0.2)' : 'rgba(54, 144, 206, 0.15)'}`,
-          borderRadius: '3px',
+          background: isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(54, 144, 206, 0.08)',
+          border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.20)' : 'rgba(54, 144, 206, 0.15)'}`,
+          borderRadius: 2,
           fontSize: '12px',
           fontWeight: 500,
-          color: isCopied ? '#10B981' : textPrimary,
+          color: isCopied ? colours.green : textPrimary,
           cursor: copyable ? 'pointer' : 'default',
           transition: 'color 0.15s',
         }}
@@ -825,9 +1177,7 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
         borderTop: `1px solid ${borderColor}`,
         borderBottom: `1px solid ${borderColor}`,
         borderRadius: 0,
-        boxShadow: isDarkMode
-          ? 'inset 0 1px 0 rgba(125, 211, 252, 0.08), inset 0 -1px 0 rgba(125, 211, 252, 0.08)'
-          : 'inset 0 1px 0 rgba(148, 163, 184, 0.12), inset 0 -1px 0 rgba(148, 163, 184, 0.12)',
+        boxShadow: 'none',
         width: '100%',
       }}
     >
@@ -900,10 +1250,10 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
                     fontSize: '11px',
                     fontWeight: 600,
                     padding: '5px 12px',
-                    borderRadius: '3px',
+                    borderRadius: 2,
                     border: `1px solid ${borderColor}`,
                     background: showPrefill 
-                      ? (isDarkMode ? 'rgba(125, 211, 252, 0.1)' : 'rgba(54, 144, 206, 0.08)')
+                      ? (isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(54, 144, 206, 0.08)')
                       : 'transparent',
                     color: showPrefill ? accent : textSecondary,
                     cursor: 'pointer',
@@ -948,11 +1298,11 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
                   {(clientEmail || clientPhone) && (
                     <>
                       <div style={{
-                        fontSize: '10px',
+                        fontSize: 10,
                         fontWeight: 600,
                         textTransform: 'uppercase',
                         letterSpacing: '0.5px',
-                        color: textSecondary,
+                        color: textMuted,
                         marginBottom: '8px',
                         marginTop: '4px',
                       }}>
@@ -980,11 +1330,11 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
                         onClick={() => setWhiteboardEnabled((v) => !v)}
                         style={{
                           background: whiteboardEnabled
-                            ? (isDarkMode ? 'rgba(125, 211, 252, 0.12)' : 'rgba(54, 144, 206, 0.10)')
+                            ? (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.10)')
                             : 'transparent',
                           border: `1px solid ${whiteboardEnabled ? borderColor : innerBorder}`,
                           padding: '2px 8px',
-                          borderRadius: 4,
+                          borderRadius: 2,
                           cursor: 'pointer',
                           fontSize: 10,
                           fontWeight: 600,
@@ -1022,7 +1372,7 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
                           cursor: 'pointer',
                           fontSize: 10,
                           fontWeight: 600,
-                          color: notesCopied ? '#10B981' : textSecondary,
+                          color: notesCopied ? colours.green : textSecondary,
                         }}
                       >
                         {notesCopied ? '✓ Copied' : 'Copy'}

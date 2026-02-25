@@ -1,11 +1,15 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Icon } from '@fluentui/react';
+import { jsPDF } from 'jspdf';
+import { RALEWAY_REGULAR_B64, RALEWAY_BOLD_B64, HELIX_LOGO_WHITE_B64 } from '../../utils/pdfAssets';
 import type { TeamData } from '../../app/functionality/types';
 import { colours } from '../../app/styles/colours';
+import { getAreaOfWorkIcon as getAreaOfWorkEmoji } from '../enquiries/components/prospectDisplayUtils';
 import { useToast } from '../../components/feedback/ToastProvider';
 import { resolveActiveCampaignContactId } from '../../utils/resolveActiveCampaignContactId';
 import activecampaignIcon from '../../assets/activecampaign.svg';
+import clioLogo from '../../assets/clio.svg';
 import { approveVerification, draftVerificationDocumentRequest, fetchVerificationDetails } from '../../services/verificationAPI';
 import {
   FaBuilding,
@@ -16,24 +20,38 @@ import {
   FaClock,
   FaCopy,
   FaCreditCard,
+  FaCloudUploadAlt,
+  FaDownload,
   FaEnvelope,
   FaExchangeAlt,
   FaExclamationTriangle,
+  FaExpand,
   FaFileAlt,
+  FaFilePdf,
   FaFolder,
+  FaFolderOpen,
+  FaHardHat,
+  FaBriefcase,
   FaRegFolder,
   FaHome,
   FaIdCard,
   FaLink,
   FaPassport,
+  FaPaperPlane,
   FaReceipt,
   FaShieldAlt,
+  FaStar,
   FaTimes,
+  FaTimesCircle,
   FaUser,
   FaEdit,
+  FaCode,
+  FaExternalLinkAlt,
 } from 'react-icons/fa';
-import RiskAssessmentPage from './RiskAssessmentPage';
+import type { RiskCore } from '../../components/RiskAssessment';
+import DocumentUploadZone from '../../components/DocumentUploadZone';
 import FlatMatterOpening from './MatterOpening/FlatMatterOpening';
+import CompactMatterWizard from './MatterOpening/CompactMatterWizard';
 import type { POID } from '../../app/functionality/types';
 
 type StageStatus = 'pending' | 'processing' | 'review' | 'complete' | 'neutral';
@@ -63,18 +81,19 @@ type InlineWorkbenchProps = {
   teamData?: TeamData[] | null;
   enableContextStageChips?: boolean;
   contextStageKeys?: ContextStageKey[];
-  enableTabStages?: boolean; // Show ID/Pay/Risk/Matter/Docs tabs (default true)
+  enableTabStages?: boolean;
   onDocumentPreview?: (doc: any) => void;
   onOpenRiskAssessment?: (instruction: any) => void;
   onOpenMatter?: (instruction: any) => void;
   onTriggerEID?: (instructionRef: string) => void | Promise<void>;
   onOpenIdReview?: (instructionRef: string) => void;
   onConfirmBankPayment?: (paymentId: string, confirmedDate: string) => void | Promise<void>;
-  onRefreshData?: () => void | Promise<void>;
+  onRefreshData?: (instructionRef?: string) => void | Promise<void>;
   onClose?: () => void;
   currentUser?: { FullName?: string; Email?: string } | null;
   onRiskAssessmentSave?: (risk: any) => void | Promise<void>;
   demoModeEnabled?: boolean;
+  flatEmbedMode?: boolean;
 };
 
 const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
@@ -98,18 +117,14 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   currentUser,
   onRiskAssessmentSave,
   demoModeEnabled = false,
+  flatEmbedMode = false,
 }) => {
   const [activeTab, setActiveTab] = useState<WorkbenchTab>(initialTab);
   const [showLocalRiskModal, setShowLocalRiskModal] = useState(false);
+  const [riskEditMode, setRiskEditMode] = useState(false);
   const [showLocalMatterModal, setShowLocalMatterModal] = useState(false);
   const [localPoidData, setLocalPoidData] = useState<POID[]>([]);
   const [activeContextStage, setActiveContextStage] = useState<ContextStageKey | null>(initialContextStage);
-
-  // Sync activeTab when initialTab prop changes (e.g. parent switches to matter tab)
-  useEffect(() => {
-    console.log('[MATTER-DEBUG] InlineWorkbench useEffect initialTab =', initialTab, '→ setActiveTab');
-    setActiveTab(initialTab);
-  }, [initialTab]);
   const [expandedPayment, setExpandedPayment] = useState<string | null>(null);
   const [teamsCardLink, setTeamsCardLink] = useState<string | null>(null);
   const [isTeamsLinkLoading, setIsTeamsLinkLoading] = useState(false);
@@ -127,10 +142,19 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   const [showApproveModal, setShowApproveModal] = useState(false);
   const [showRequestDocsModal, setShowRequestDocsModal] = useState(false);
   const [showTriggerEidConfirmModal, setShowTriggerEidConfirmModal] = useState(false);
+  const [rawRecordPdfUrl, setRawRecordPdfUrl] = useState<string | null>(null);
+  const [showRawRecordPdfPreview, setShowRawRecordPdfPreview] = useState(false);
+  const [showEidReportPanel, setShowEidReportPanel] = useState(false);
+  const [isPersistingRawRecordPdf, setIsPersistingRawRecordPdf] = useState(false);
+  const [rawRecordSubmitState, setRawRecordSubmitState] = useState<'idle' | 'submitting' | 'submitted' | 'failed'>('idle');
+  const [rawRecordSubmitMessage, setRawRecordSubmitMessage] = useState('');
+  const [rawRecordSubmittedAt, setRawRecordSubmittedAt] = useState<string | null>(null);
   const [copiedPaymentRefId, setCopiedPaymentRefId] = useState<string | null>(null);
   const { showToast, updateToast, hideToast } = useToast();
   const [eidProcessingState, setEidProcessingState] = useState<'idle' | 'processing' | 'complete' | 'error'>('idle');
   const eidProcessingToastRef = React.useRef<string | null>(null);
+  const persistRawRecordPdfRef = React.useRef<(source?: 'manual' | 'auto') => Promise<void>>(async () => {});
+  const autoReportSubmitAttemptedRef = React.useRef<Record<string, boolean>>({});
   const [emailOverrideTo, setEmailOverrideTo] = useState<string>('');
   const [emailOverrideCc, setEmailOverrideCc] = useState<string>('');
   const [useManualToRecipient, setUseManualToRecipient] = useState<boolean>(false);
@@ -139,6 +163,10 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   // Pitch content fetch state (for when deal exists but pitch email content wasn't included)
   const [fetchedPitchContent, setFetchedPitchContent] = useState<any>(null);
   const [isFetchingPitchContent, setIsFetchingPitchContent] = useState(false);
+
+  // Hub-side document management state
+  const [hubDocuments, setHubDocuments] = useState<any[]>([]);
+  const [hubDocsLoaded, setHubDocsLoaded] = useState(false);
   
   // Payment Link Request state
   const [showPaymentLinkModal, setShowPaymentLinkModal] = useState(false);
@@ -147,6 +175,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   const [paymentLinkIncludesVat, setPaymentLinkIncludesVat] = useState(true);
   const [isCreatingPaymentLink, setIsCreatingPaymentLink] = useState(false);
   const [createdPaymentLink, setCreatedPaymentLink] = useState<string | null>(null);
+  const isCompactIdentityView = flatEmbedMode;
 
   const safeCopy = React.useCallback(async (text?: string | null) => {
     if (!text) return false;
@@ -173,6 +202,96 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
       return false;
     }
   }, []);
+
+  useEffect(() => {
+    return () => {
+      if (rawRecordPdfUrl) {
+        URL.revokeObjectURL(rawRecordPdfUrl);
+      }
+    };
+  }, [rawRecordPdfUrl]);
+
+  const getRawRecordText = useCallback(() => {
+    const raw = verificationDetails?.rawResponse || (item as any)?.instruction?.EID_Result;
+    if (!raw) return 'No raw record available.';
+    const parsed = parseRawResponse(raw);
+    if (parsed && typeof parsed === 'object') {
+      try {
+        return JSON.stringify(parsed, null, 2);
+      } catch {
+        return String(raw ?? '');
+      }
+    }
+    return typeof raw === 'string' ? raw : String(raw ?? '');
+  }, [verificationDetails, item]);
+
+  const normaliseVerificationFieldValue = useCallback((value: unknown): string => {
+    const rawValue = String(value ?? '').trim();
+    if (!rawValue || rawValue === '—' || rawValue === '?' || /^(unknown|n\/a|na|null|undefined)$/i.test(rawValue)) {
+      return '—';
+    }
+    return rawValue;
+  }, []);
+
+  const resolveCurrentInstructionRef = useCallback(() => {
+    return (
+      (item as any)?.instruction?.InstructionRef ||
+      (item as any)?.instruction?.instructionRef ||
+      (item as any)?.deal?.InstructionRef ||
+      (item as any)?.deal?.instructionRef ||
+      ''
+    );
+  }, [item]);
+
+  const resolvePitchEnquiryId = useCallback((): number | null => {
+    const candidates = [
+      (item as any)?.enquiry?.ID,
+      (item as any)?.enquiry?.id,
+      (item as any)?.enquiry?.pitchEnquiryId,
+      (item as any)?.instruction?.EnquiryId,
+      (item as any)?.instruction?.enquiryId,
+      (item as any)?.deal?.EnquiryId,
+      (item as any)?.deal?.enquiryId,
+      (item as any)?.deal?.ProspectId,
+      (item as any)?.deal?.prospectId,
+    ];
+
+    for (const candidate of candidates) {
+      if (typeof candidate === 'number' && Number.isFinite(candidate)) return candidate;
+      const parsed = Number.parseInt(String(candidate ?? ''), 10);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+    return null;
+  }, [item]);
+
+  const resolveDocWorkspacePasscode = useCallback(async (): Promise<string> => {
+    const directPasscode =
+      String((item as any)?.metadata?.workspacePasscode || '').trim() ||
+      String((item as any)?.deal?.Passcode || '').trim() ||
+      String((item as any)?.deal?.passcode || '').trim() ||
+      String((item as any)?.instruction?.Passcode || '').trim() ||
+      String((item as any)?.instruction?.passcode || '').trim() ||
+      String((item as any)?.pitch?.Passcode || '').trim() ||
+      String((item as any)?.pitch?.passcode || '').trim();
+
+    if (directPasscode) return directPasscode;
+
+    const pitchEnquiryId = resolvePitchEnquiryId();
+    if (!pitchEnquiryId) return '';
+
+    try {
+      const statusRes = await fetch(`/api/doc-workspace/status?enquiry_id=${pitchEnquiryId}`);
+      if (!statusRes.ok) return '';
+      const statusData: unknown = await statusRes.json();
+      if (!statusData || typeof statusData !== 'object') return '';
+      const passcode = (statusData as Record<string, unknown>).passcode;
+      return typeof passcode === 'string' ? passcode.trim() : '';
+    } catch {
+      return '';
+    }
+  }, [item, resolvePitchEnquiryId]);
+
+
 
   useEffect(() => {
     if (initialTab) {
@@ -203,11 +322,92 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   const pitch = item?.pitch || item?.Pitch || item?.pitchRecord || item?.pitchData || null;
   const eid = item?.eid;
   const risk = item?.risk;
-  const documents = item?.documents || inst?.documents || [];
-  const payments = inst?.payments || [];
+  const parentDocuments = item?.documents || inst?.documents || [];
+  const payments = (() => {
+    const instructionPayments = Array.isArray(inst?.payments) ? inst.payments : [];
+    const itemPayments = Array.isArray(item?.payments) ? item.payments : [];
+    return instructionPayments.length > 0 ? instructionPayments : itemPayments;
+  })();
   const clients = item?.clients || [];
   const matters = item?.matters || (inst as any)?.matters || [];
-  
+  const baseInstructionRef = (inst?.InstructionRef || inst?.instructionRef || deal?.InstructionRef || deal?.instructionRef || '').trim();
+  const [hydratedInstruction, setHydratedInstruction] = useState<any | null>(null);
+
+  useEffect(() => {
+    setHydratedInstruction(null);
+  }, [baseInstructionRef]);
+
+  useEffect(() => {
+    if (!baseInstructionRef) return;
+
+    const hasEssentialInstructionData = Boolean(
+      inst?.DOB ||
+      inst?.DateOfBirth ||
+      inst?.PassportNumber ||
+      inst?.DriversLicenseNumber ||
+      inst?.HouseNumber ||
+      inst?.Street ||
+      inst?.Postcode
+    );
+
+    if (hasEssentialInstructionData) return;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const response = await fetch(`/api/instructions/${encodeURIComponent(baseInstructionRef)}`);
+        if (!response.ok) return;
+        const data = await response.json();
+        if (!cancelled && data?.InstructionRef) {
+          setHydratedInstruction(data);
+        }
+      } catch {
+        // Silent fallback: retain existing workbench data
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [baseInstructionRef, inst]);
+
+  const resolvedInstruction = hydratedInstruction || inst;
+
+  // Hub-side document fetching (merges with parent-passed docs)
+  const fetchDocuments = useCallback(async () => {
+    const ref = inst?.InstructionRef || deal?.InstructionRef;
+    if (!ref) return;
+    try {
+      const res = await fetch(`/api/documents/${encodeURIComponent(ref)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setHubDocuments(data.documents || []);
+        setHubDocsLoaded(true);
+      }
+    } catch {
+      // Silently fall back to parent-passed documents
+    }
+  }, [inst?.InstructionRef, deal?.InstructionRef]);
+
+  useEffect(() => {
+    if (inst?.InstructionRef || deal?.InstructionRef) {
+      fetchDocuments();
+    }
+    return () => { setHubDocuments([]); setHubDocsLoaded(false); };
+  }, [inst?.InstructionRef, deal?.InstructionRef, fetchDocuments]);
+
+  // Use hub-fetched docs when available, fall back to parent-passed
+  const documents = hubDocsLoaded ? hubDocuments : parentDocuments;
+
+  // Check if an EID PDF already exists in instruction documents
+  const existingEidPdfDoc = useMemo(() => {
+    if (!documents?.length) return null;
+    return documents.find((d: any) =>
+      d.FileName && /eid-raw-record/i.test(d.FileName) && /\.pdf$/i.test(d.FileName)
+    ) || null;
+  }, [documents]);
+
   // Find matching matter for this instruction
   const matter = useMemo(() => {
     if (!matters?.length) return null;
@@ -231,6 +431,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     MessageTimestamp?: string;
     CreatedAt?: string;
     CreatedAtMs?: number;
+    ClaimedAt?: string;
+    ClaimedBy?: string;
   } | null | undefined;
   
   // Activity tracking (Teams card origin & AC contact)
@@ -381,7 +583,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
   // Derive values
   // NOTE: keep instructionRef sourced from instruction/deal (used for actions like ID/EID)
-  const instructionRef = inst?.InstructionRef || deal?.InstructionRef || '';
+  const instructionRef = resolvedInstruction?.InstructionRef || resolvedInstruction?.instructionRef || deal?.InstructionRef || deal?.instructionRef || '';
 
   // Client identity/contact shown in Details should be stage-aware.
   const firstName = getValue(['First_Name', 'FirstName', 'firstName', 'first_name'], '');
@@ -453,12 +655,30 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   
   // Personal details
   const title = getValue(['Title', 'title', 'Salutation', 'salutation'], '');
-  const dobRaw = getValue(['DateOfBirth', 'dateOfBirth', 'DOB'], '') || inst?.DOB || inst?.DateOfBirth;
+  const dobRaw = getValue(['DateOfBirth', 'dateOfBirth', 'DOB'], '') || resolvedInstruction?.DOB || resolvedInstruction?.DateOfBirth;
   const formatDate = (raw: any) => {
     if (!raw || raw === '—') return '—';
     const parsed = new Date(raw);
     if (Number.isNaN(parsed.getTime())) return '—';
     return parsed.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  };
+
+  const formatRelativeDay = (value: Date): string => {
+    const today = new Date();
+    const target = new Date(value);
+    const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const startOfTarget = new Date(target.getFullYear(), target.getMonth(), target.getDate());
+    const diffDays = Math.round((startOfToday.getTime() - startOfTarget.getTime()) / (24 * 60 * 60 * 1000));
+    if (diffDays === 0) return 'Today';
+    if (diffDays === 1) return 'Yesterday';
+    return target.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  };
+
+  const formatRelativeDateOnly = (raw: any): string => {
+    if (!raw || raw === '—') return '—';
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) return '—';
+    return formatRelativeDay(parsed);
   };
 
 
@@ -468,7 +688,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     try {
       return new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(n);
     } catch {
-      return `£${n.toFixed(2)}`;
+      return `—${n.toFixed(2)}`;
     }
   };
 
@@ -476,7 +696,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     if (!enquiryValueRaw || enquiryValueRaw === '—') return '—';
     const raw = String(enquiryValueRaw).trim();
     if (!raw) return '—';
-    if (/[£$€]/.test(raw)) return raw;
+    if (/[—$—]/.test(raw)) return raw;
     const numeric = Number(raw.replace(/,/g, ''));
     if (Number.isFinite(numeric)) return formatMoney(numeric);
     return raw;
@@ -506,11 +726,13 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   })();
   
   // Submission date (after formatDate is defined)
-  const submissionDateRaw = getValue(['Touchpoint_Date', 'Date_Created', 'DateCreated', 'SubmissionDate', 'submission_date', 'DateSubmitted', 'InstructionDate', 'created_at', 'createdAt']);
+  // 'datetime' is the new-space enquiry arrival timestamp (from enquiry-processing-v2).
+  // 'Touchpoint_Date' is the legacy enquiry date. 'created_at' is DB insertion time (can match claim time — DO NOT use for duration).
+  const submissionDateRaw = getValue(['Touchpoint_Date', 'Date_Created', 'DateCreated', 'datetime', 'SubmissionDate', 'submission_date', 'DateSubmitted', 'InstructionDate']);
   const submissionDate = formatDate(submissionDateRaw);
 
   // Timeline dates - include effectivePitch for fetched pitch content
-  const pitchDateRaw = deal?.PitchedDate || deal?.pitchedDate || deal?.CreatedDate || deal?.createdDate || effectivePitch?.CreatedAt || effectivePitch?.createdAt || pitch?.CreatedAt || pitch?.createdAt || null;
+  const pitchDateRaw = deal?.PitchedDate || deal?.pitchedDate || deal?.CreatedDate || deal?.createdDate || effectivePitch?.CreatedAt || effectivePitch?.createdAt || effectivePitch?.pitchedDate || effectivePitch?.PitchedDate || pitch?.CreatedAt || pitch?.createdAt || pitch?.pitchedDate || pitch?.PitchedDate || null;
   const pitchDate = formatDate(pitchDateRaw);
   
   // Matter open date - prioritize matter object from new space
@@ -544,7 +766,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     return String(years);
   }, [dobRaw]);
   const gender = getValue(['Gender', 'gender', 'Sex', 'sex']);
-  const nationalityFull = getValue(['Nationality', 'nationality'], '') || inst?.Nationality || inst?.nationality || '—';
+  const nationalityFull = getValue(['Nationality', 'nationality'], '') || resolvedInstruction?.Nationality || resolvedInstruction?.nationality || '—';
   
   // Convert nationality to alpha code
   const nationalityAlpha = React.useMemo(() => {
@@ -578,8 +800,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   }, [nationalityFull]);
   
   // ID status
-  const passport = getValue(['PassportNumber', 'passportNumber'], '') || inst?.PassportNumber || inst?.passportNumber || '—';
-  const license = getValue(['DriversLicenseNumber', 'driversLicenseNumber', 'DrivingLicenseNumber'], '') || inst?.DriversLicenseNumber || inst?.driversLicenseNumber || inst?.DrivingLicenseNumber || '—';
+  const passport = getValue(['PassportNumber', 'passportNumber'], '') || resolvedInstruction?.PassportNumber || resolvedInstruction?.passportNumber || '—';
+  const license = getValue(['DriversLicenseNumber', 'driversLicenseNumber', 'DrivingLicenseNumber'], '') || resolvedInstruction?.DriversLicenseNumber || resolvedInstruction?.driversLicenseNumber || resolvedInstruction?.DrivingLicenseNumber || '—';
   const passportExpiryRaw = getValue(['PassportExpiry', 'PassportExpiryDate', 'passportExpiry', 'passportExpiryDate']);
   const licenseExpiryRaw = getValue(['DriversLicenseExpiry', 'DrivingLicenseExpiry', 'DrivingLicenceExpiry', 'LicenseExpiry', 'licenseExpiry']);
   const passportExpiry = formatDate(passportExpiryRaw);
@@ -593,9 +815,9 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   
   // Calculate expiry status color (green = 3 years away, neutral = today/expired)
   const getExpiryStatusColor = (expiryRaw: string | null | undefined, isDark: boolean): { color: string; label: string } => {
-    if (!expiryRaw || expiryRaw === '—') return { color: isDark ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)', label: '' };
+    if (!expiryRaw || expiryRaw === '—') return { color: isDark ? colours.subtleGrey : colours.greyText, label: '' };
     const expiry = new Date(expiryRaw);
-    if (Number.isNaN(expiry.getTime())) return { color: isDark ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)', label: '' };
+    if (Number.isNaN(expiry.getTime())) return { color: isDark ? colours.subtleGrey : colours.greyText, label: '' };
     
     const now = new Date();
     const diffMs = expiry.getTime() - now.getTime();
@@ -603,7 +825,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     const maxDays = 3 * 365; // 3 years in days
     
     if (diffDays <= 0) {
-      return { color: '#ef4444', label: 'Expired' }; // Red for expired
+      return { color: '#D65541', label: 'Expired' }; // Red for expired
     }
     if (diffDays <= 90) {
       return { color: '#f97316', label: 'Expiring soon' }; // Orange for < 3 months
@@ -621,9 +843,9 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   
   // Address
   const getInstValue = (keys: string[]) => {
-    if (!inst) return undefined;
+    if (!resolvedInstruction) return undefined;
     for (const k of keys) {
-      if (inst[k] && inst[k] !== '—') return inst[k];
+      if (resolvedInstruction[k] && resolvedInstruction[k] !== '—') return resolvedInstruction[k];
     }
     return undefined;
   };
@@ -703,6 +925,108 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     pepResult: DemoEidSubResult;
     addressResult: DemoEidSubResult;
   }
+  const DEMO_EID_RAW_RESPONSE_SAMPLE = [
+    {
+      correlationId: '632aabdd-227d-4051-ab86-ea766efc7baa',
+      externalReferenceId: '18207',
+      checkStatuses: [
+        {
+          sourceResults: {
+            id: 2719999,
+            date: '2026-02-23T15:41:53.29',
+            rule: 'Address Verification Check',
+            ruleId: 2,
+            status: { id: 3, status: 'Completed' },
+            result: { id: 1, result: 'Passed' },
+            title: 'Address Verification Check',
+            summaryTitle: 'Information used in check',
+            results: [
+              {
+                id: 3961853,
+                title: 'UK identity verification',
+                description: 'UK identity verification sources',
+                result: 'Passed',
+                recordedDate: '2026-02-23 15:41:53',
+                detail: {
+                  reasons: [
+                    { id: 42449450, key: 'Name, Address and DOB Match', result: 'Passed', reason: 'A check for the name and date of birth has been matched to the provided address', code: '6100' },
+                    { id: 42449451, key: 'Name and Address Match', result: 'Review', reason: 'A check for the name has not been matched to the provided address', code: '7110' },
+                    { id: 42449452, key: 'Mortality Register', result: 'Passed', reason: 'Name and address not found on the Millennium Mortality file', code: 'C9110' },
+                    { id: 42449453, key: 'Name and Address Match', result: 'Passed', reason: 'Evidence found that the address supplied may not be the current address AND no match found at current address', code: 'C4002' },
+                  ],
+                },
+              },
+            ],
+          },
+          result: { id: 1, result: 'Passed' },
+          id: 'db0c50e9-ad9a-4ecf-9ce3-44f8acb80813',
+          checkTypeId: 1,
+          externalCheckReferenceId: null,
+          status: { id: 3, status: 'Complete' },
+          resultCount: { totalSourcesChecked: 1, totalSourcesPassed: 1, totalSourcesFailed: 0, totalSourcesForReview: 0 },
+        },
+        {
+          sourceResults: {
+            id: 2720000,
+            date: '2026-02-23T15:41:53.79',
+            rule: 'Pep & Sanctions Check',
+            ruleId: 4,
+            status: { id: 3, status: 'Completed' },
+            result: { id: 1, result: 'Passed' },
+            title: 'Pep & Sanctions Check',
+            summaryTitle: 'Information used in check',
+            results: [
+              {
+                id: 3961854,
+                title: 'Pep Check',
+                description: 'Pep Check',
+                result: 'Passed',
+                recordedDate: '2026-02-23 15:41:53',
+                detail: {
+                  reasons: [
+                    { id: 42449454, key: 'Personal Details', result: 'Passed', reason: 'Supplied personal details did not match', code: 'NA' },
+                  ],
+                },
+              },
+              {
+                id: 3961855,
+                title: 'Sanctions Check',
+                description: 'Sanctions Check',
+                result: 'Passed',
+                recordedDate: '2026-02-23 15:41:53',
+                detail: {
+                  reasons: [
+                    { id: 42449455, key: 'Personal Details', result: 'Passed', reason: 'Supplied personal details did not match', code: 'NA' },
+                  ],
+                },
+              },
+              {
+                id: 3961856,
+                title: 'Adverse Media Check',
+                description: 'Adverse Media Check',
+                result: 'Passed',
+                recordedDate: '2026-02-23 15:41:53',
+                detail: {
+                  reasons: [
+                    { id: 42449456, key: 'Personal Details', result: 'Passed', reason: 'Supplied personal details did not match', code: 'NA' },
+                  ],
+                },
+              },
+            ],
+            resultsExcludedByFilters: [],
+          },
+          result: { id: 1, result: 'Passed' },
+          id: '6a804bee-2e5e-4e3b-aa86-554110ceccb2',
+          checkTypeId: 2,
+          externalCheckReferenceId: null,
+          status: { id: 3, status: 'Complete' },
+          resultCount: { totalSourcesChecked: 3, totalSourcesPassed: 3, totalSourcesFailed: 0, totalSourcesForReview: 0 },
+        },
+      ],
+      overallResult: { id: 1, result: 'Passed' },
+      overallStatus: { id: 3, status: 'Completed' },
+    },
+  ] as const;
   const DEMO_EID_SIM_CONFIG_KEY = 'demoEidSimulationConfig';
   const readDemoEidSimConfig = React.useCallback((): DemoEidSimConfig => {
     try {
@@ -761,11 +1085,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
           pepResult: pepResult || (eidStatusValue.includes('pending') ? 'pending' : '—'),
           addressResult: addressVerification || (eidStatusValue.includes('pending') ? 'pending' : '—'),
           checkedDate: eidDate,
-          rawResponse: {
-            demo: true,
-            provider: 'DEMO',
-            status: eidStatusValue || (eid ? 'complete' : 'idle'),
-          },
+          rawResponse: DEMO_EID_RAW_RESPONSE_SAMPLE,
           documentsRequested: false,
           documentsReceived: false,
         });
@@ -830,8 +1150,14 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
       // Auto-refresh data so the UI updates without a manual reload
       if (onRefreshData) {
-        try { await onRefreshData(); } catch { /* silent */ }
+        try { await onRefreshData?.(instructionRef); } catch { /* silent */ }
       }
+
+      // Auto-upload the EID report PDF to instruction documents (fire-and-forget)
+      // Small delay so verification data has populated after the refresh
+      setTimeout(() => {
+        void persistRawRecordPdfRef.current('auto');
+      }, 2000);
     } catch {
       setEidProcessingState('error');
       if (toastId) {
@@ -859,6 +1185,24 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     void loadVerificationDetails();
   }, [isDemoInstruction, activeTab, instructionRef, eid?.EIDStatus, eid?.EIDOverallResult, loadVerificationDetails]);
 
+  useEffect(() => {
+    if (!isDemoInstruction) return;
+    if (!instructionRef) return;
+
+    if (existingEidPdfDoc) {
+      setRawRecordSubmitState('submitted');
+      setRawRecordSubmitMessage('Report submitted');
+      setRawRecordSubmittedAt(existingEidPdfDoc.UploadedAt || null);
+      return;
+    }
+
+    if (eidStatus === 'pending') return;
+    if (autoReportSubmitAttemptedRef.current[instructionRef]) return;
+
+    autoReportSubmitAttemptedRef.current[instructionRef] = true;
+    void persistRawRecordPdfRef.current('auto');
+  }, [isDemoInstruction, instructionRef, existingEidPdfDoc, eidStatus]);
+
   const parseRawResponse = React.useCallback((raw: unknown) => {
     if (typeof raw === 'string') {
       try {
@@ -869,6 +1213,14 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     }
     return raw as any;
   }, []);
+
+  const getPrimaryRawVerificationRecord = React.useCallback((raw: unknown) => {
+    const parsed = parseRawResponse(raw);
+    if (Array.isArray(parsed)) {
+      return parsed.find((entry) => entry && typeof entry === 'object') || null;
+    }
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  }, [parseRawResponse]);
 
   const normaliseMetaText = React.useCallback((value: unknown): string | null => {
     if (value === null || value === undefined) return null;
@@ -936,7 +1288,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
       ? (formatMaybeDate(verificationDetails.checkedDate) || verificationDetails.checkedDate || eidDate || '—')
       : (eidDate || '—');
 
-    const raw = verificationDetails ? parseRawResponse(verificationDetails.rawResponse) : null;
+    const raw = verificationDetails ? getPrimaryRawVerificationRecord(verificationDetails.rawResponse) : null;
     const checkStatuses = Array.isArray(raw?.checkStatuses) ? raw.checkStatuses : [];
 
     const groupFailures = (failures: VerificationDetails['failureReasons'] | undefined) => {
@@ -1017,10 +1369,27 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         failures: sanitiseFailures(addressFailuresFromStatus.length > 0 ? addressFailuresFromStatus : (failuresByCheck.get('Address Verification') || [])),
       },
     };
-  }, [verificationDetails, eidDate, parseRawResponse, formatMaybeDate, isMeaningfulFailureReason]);
+  }, [verificationDetails, eidDate, getPrimaryRawVerificationRecord, formatMaybeDate, isMeaningfulFailureReason]);
+
+  const rawCheckResultSnapshot = React.useMemo(() => {
+    const raw = verificationDetails ? getPrimaryRawVerificationRecord(verificationDetails.rawResponse) : null;
+    const checkStatuses = Array.isArray(raw?.checkStatuses) ? raw.checkStatuses : [];
+
+    const extractCheckResult = (predicate: (status: any) => boolean) => {
+      const match = checkStatuses.find(predicate);
+      const result = match?.sourceResults?.result?.result || match?.result?.result || '';
+      return normaliseVerificationFieldValue(result);
+    };
+
+    return {
+      overall: normaliseVerificationFieldValue(raw?.overallResult?.result || raw?.overallResult || ''),
+      pep: extractCheckResult((status: any) => status?.checkTypeId === 2 || /pep|sanction/i.test(String(status?.sourceResults?.rule || ''))),
+      address: extractCheckResult((status: any) => status?.checkTypeId === 1 || /address/i.test(String(status?.sourceResults?.rule || ''))),
+    };
+  }, [verificationDetails, getPrimaryRawVerificationRecord, normaliseVerificationFieldValue]);
 
   const verificationMeta = React.useMemo(() => {
-    const raw = verificationDetails ? parseRawResponse(verificationDetails.rawResponse) : null;
+    const raw = verificationDetails ? getPrimaryRawVerificationRecord(verificationDetails.rawResponse) : null;
 
     const providerCandidates: string[] = [];
     const addProviderCandidate = (value: unknown) => {
@@ -1131,12 +1500,393 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
       references,
       correlationId: correlationId || '—',
     };
-  }, [verificationDetails, normaliseMetaText, parseRawResponse]);
+  }, [verificationDetails, normaliseMetaText, getPrimaryRawVerificationRecord]);
+
+  const buildRawRecordPdfBlob = useCallback(() => {
+    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+    const pageW = 595.28;
+    const pageH = 841.89;
+    const marginL = 40;
+    const marginR = 40;
+    const contentW = pageW - marginL - marginR;
+    const currentInstructionRef = resolveCurrentInstructionRef();
+
+    // ── Register Raleway fonts ──
+    try {
+      doc.addFileToVFS('Raleway-Regular.ttf', RALEWAY_REGULAR_B64);
+      doc.addFont('Raleway-Regular.ttf', 'Raleway', 'normal');
+      doc.addFileToVFS('Raleway-Bold.ttf', RALEWAY_BOLD_B64);
+      doc.addFont('Raleway-Bold.ttf', 'Raleway', 'bold');
+    } catch (e) {
+      // Fall back to helvetica if font registration fails
+      console.warn('Raleway font registration failed, falling back to helvetica', e);
+    }
+
+    const fontFamily = doc.getFontList()['Raleway'] ? 'Raleway' : 'helvetica';
+
+    // ── Brand tokens (from colours.ts) ──
+    const navy   = { r: 6,   g: 23,  b: 51  }; // #061733  darkBlue
+    const helix  = { r: 13,  g: 47,  b: 96  }; // #0D2F60  helixBlue
+    const blue   = { r: 54,  g: 144, b: 206 }; // #3690CE  highlight
+    const green  = { r: 32,  g: 178, b: 108 }; // #20b26c  success
+    const red    = { r: 214, g: 85,  b: 65  }; // #D65541  cta
+    const grey   = { r: 107, g: 107, b: 107 }; // #6B6B6B  greyText
+    const lGrey  = { r: 244, g: 244, b: 246 }; // #F4F4F6  grey surface
+    const ftrGrey = { r: 107, g: 114, b: 128 }; // #6B7280 footer text
+
+    const headerH = 72;
+    const footerH = 36;
+    const footerTop = pageH - footerH;
+    let y = 0;
+
+    // ── Colour helpers ──
+    const passFailCol = (v: string) => {
+      const lc = (v || '').toLowerCase();
+      if (lc.includes('pass') || lc.includes('verified') || lc.includes('clear')) return green;
+      if (lc.includes('fail')) return red;
+      if (lc.includes('review')) return blue;
+      return grey;
+    };
+
+    // ── Parse raw record ──
+    const rawData = verificationDetails?.rawResponse || (item as any)?.instruction?.EID_Result;
+    const rec = rawData ? getPrimaryRawVerificationRecord(rawData) : null;
+    const checks: any[] = Array.isArray(rec?.checkStatuses) ? rec.checkStatuses : [];
+    const overallResult = rec?.overallResult?.result || eidResult || '\u2014';
+    const checkedDateStr = verificationDetails?.checkedDate || eidDate || '\u2014';
+    const correlationId = normaliseVerificationFieldValue(rec?.correlationId || verificationMeta?.correlationId);
+    const externalRef = normaliseVerificationFieldValue(rec?.externalReferenceId);
+
+    // ── Reusable drawing primitives ──
+    const drawHeader = () => {
+      // Navy header bar
+      doc.setFillColor(navy.r, navy.g, navy.b);
+      doc.rect(0, 0, pageW, headerH, 'F');
+
+      // Logo (left side — native aspect 4.55:1)
+      const logoH = 26;
+      const logoW = logoH * 4.55;
+      const logoY = 12;
+      try {
+        if (HELIX_LOGO_WHITE_B64) {
+          doc.addImage(
+            'data:image/png;base64,' + HELIX_LOGO_WHITE_B64,
+            'PNG', marginL, logoY, logoW, logoH, undefined, 'FAST'
+          );
+        }
+      } catch { /* logo embed failed — continue without */ }
+
+      // Subtitle (below logo)
+      doc.setFont(fontFamily, 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(200, 215, 240);
+      doc.text('Identity Verification Report', marginL, logoY + logoH + 14);
+
+      // Instruction ref (right-aligned, vertically centred)
+      if (currentInstructionRef) {
+        doc.setFont(fontFamily, 'bold');
+        doc.setFontSize(7.5);
+        doc.setTextColor(255, 255, 255);
+        doc.text(currentInstructionRef, pageW - marginR, headerH / 2 + 3, { align: 'right' });
+      }
+    };
+
+    const drawFooter = (page: number, total: number) => {
+      const genDate = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+      doc.setFillColor(250, 250, 250);
+      doc.rect(0, footerTop, pageW, footerH, 'F');
+      doc.setDrawColor(243, 244, 246);
+      doc.setLineWidth(0.5);
+      doc.line(0, footerTop, pageW, footerTop);
+      doc.setFont(fontFamily, 'normal');
+      doc.setFontSize(6);
+      doc.setTextColor(ftrGrey.r, ftrGrey.g, ftrGrey.b);
+      doc.text('SRA Regulated  \u2022  SRA ID 565557  \u2022  Correlation-linked identity checks', marginL, footerTop + 14);
+      doc.setFontSize(5);
+      doc.text('\u00A9 Helix Law Limited.  helix-law.co.uk', marginL, footerTop + 24);
+      doc.setFontSize(6);
+      doc.text(`Page ${page} of ${total}  \u2022  ${genDate}`, pageW - marginR, footerTop + 14, { align: 'right' });
+    };
+
+    const ensureSpace = (need: number) => {
+      if (y + need > footerTop - 12) {
+        doc.addPage();
+        drawHeader();
+        y = headerH + 20;
+      }
+    };
+
+    // ── Section band (light grey bar, check name left, result right) ──
+    const drawSectionBand = (sectionTitle: string, result?: string) => {
+      ensureSpace(28);
+      doc.setFillColor(lGrey.r, lGrey.g, lGrey.b);
+      doc.rect(marginL, y - 10, contentW, 20, 'F');
+      doc.setFont(fontFamily, 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(helix.r, helix.g, helix.b);
+      doc.text(sectionTitle, marginL + 8, y + 3);
+      if (result) {
+        const rc = passFailCol(result);
+        doc.setTextColor(rc.r, rc.g, rc.b);
+        doc.text(result, pageW - marginR - 4, y + 3, { align: 'right' });
+      }
+      y += 20;
+    };
+
+    // ── Key-value row ──
+    const kv = (label: string, value: string, opts?: { color?: typeof navy; bold?: boolean }) => {
+      ensureSpace(14);
+      doc.setFont(fontFamily, 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(grey.r, grey.g, grey.b);
+      doc.text(label, marginL + 8, y);
+      const c = opts?.color || navy;
+      doc.setFont(fontFamily, opts?.bold ? 'bold' : 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(c.r, c.g, c.b);
+      doc.text(String(value || '\u2014'), marginL + 130, y);
+      y += 13;
+    };
+
+    // ── Build page 1 ──
+    drawHeader();
+    y = headerH + 24;
+
+    // Summary heading
+    doc.setFont(fontFamily, 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(helix.r, helix.g, helix.b);
+    doc.text('Summary', marginL, y);
+    y += 16;
+
+    const subjectName = [title, firstName, lastName].filter(Boolean).join(' ') || verificationDetails?.clientName || '\u2014';
+    kv('Name', subjectName);
+    kv('Date of Birth', dob !== '\u2014' ? dob : '\u2014');
+    const docType = passport !== '\u2014' ? 'Passport' : license !== '\u2014' ? 'Driving Licence' : '\u2014';
+    const docNum = passport !== '\u2014' ? passport : license !== '\u2014' ? license : '\u2014';
+    kv('Document', docType + (docNum !== '\u2014' ? ` (${docNum})` : ''));
+    if (address) kv('Address', address);
+    kv('Checked', checkedDateStr);
+    if (correlationId !== '\u2014') kv('Correlation ID', correlationId);
+    if (externalRef !== '\u2014') kv('External Ref', externalRef);
+    if (verificationDetails?.clientEmail) kv('Email', verificationDetails.clientEmail);
+
+    y += 6;
+    kv('Overall Result', overallResult, { color: passFailCol(overallResult), bold: true });
+    y += 10;
+
+    // ── Check sections ──
+    const checkLabel: Record<number, string> = { 1: 'Address Verification', 2: 'PEP & Sanctions' };
+
+    checks.forEach((cs: any) => {
+      const name = checkLabel[cs?.checkTypeId] || cs?.sourceResults?.rule || 'Verification Check';
+      const result = cs?.sourceResults?.result?.result || cs?.result?.result || '\u2014';
+      const checkDate = cs?.sourceResults?.date
+        ? new Date(cs.sourceResults.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+        : '';
+
+      drawSectionBand(name, result);
+
+      if (checkDate) kv('Date', checkDate);
+      const rc = cs?.resultCount;
+      if (rc) {
+        kv('Sources Checked', String(rc.totalSourcesChecked ?? '\u2014'));
+        kv('Sources Passed', String(rc.totalSourcesPassed ?? '\u2014'), { color: green });
+        if ((rc.totalSourcesFailed ?? 0) > 0) kv('Sources Failed', String(rc.totalSourcesFailed), { color: red });
+      }
+
+      // Sub-results
+      const results = cs?.sourceResults?.results || [];
+      results.forEach((r: any) => {
+        const rTitle = r?.title || 'Result';
+        const rResult = r?.result || '\u2014';
+        ensureSpace(16);
+        y += 2;
+        doc.setFont(fontFamily, 'bold');
+        doc.setFontSize(8);
+        doc.setTextColor(navy.r, navy.g, navy.b);
+        doc.text(`${rTitle} \u2014 ${rResult}`, marginL + 8, y);
+        y += 12;
+
+        // Reasons
+        const reasons = r?.detail?.reasons || [];
+        reasons.forEach((reason: any) => {
+          ensureSpace(20);
+          doc.setFont(fontFamily, 'normal');
+          doc.setFontSize(7);
+          doc.setTextColor(grey.r, grey.g, grey.b);
+          const line = `${reason?.key || 'Reason'}: ${reason?.reason || '\u2014'}${reason?.code && reason.code !== 'NA' ? ` (${reason.code})` : ''}`;
+          const wrapped = doc.splitTextToSize(line, contentW - 20);
+          wrapped.forEach((part: string) => {
+            ensureSpace(10);
+            doc.text(part, marginL + 14, y);
+            y += 9;
+          });
+        });
+        y += 4;
+      });
+      y += 6;
+    });
+
+    // ── Stamp footers on every page ──
+    const pageCount = doc.getNumberOfPages();
+    for (let p = 1; p <= pageCount; p++) {
+      doc.setPage(p);
+      drawFooter(p, pageCount);
+    }
+
+    return doc.output('blob');
+  }, [
+    resolveCurrentInstructionRef, verificationDetails, item, getPrimaryRawVerificationRecord, normaliseVerificationFieldValue, verificationMeta,
+    eidResult, eidDate, title, firstName, lastName, dob, passport, license, address,
+  ]);
+
+  const buildRawRecordPdfBlobUrl = useCallback(() => {
+    const blob = buildRawRecordPdfBlob();
+    const blobUrl = URL.createObjectURL(blob);
+
+    // Convert blob → data URI for inline embed rendering.
+    // blob: URLs trigger a download in Teams webview / some browsers;
+    // data:application/pdf;base64,… renders inline in <object>.
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const dataUri = reader.result as string;
+      setRawRecordPdfUrl((prev) => {
+        if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
+        return dataUri;
+      });
+    };
+    reader.readAsDataURL(blob);
+
+    // Set blobUrl immediately so download functions can use the return value.
+    // The state will flip to the data URI once FileReader finishes (~instant).
+    setRawRecordPdfUrl((prev) => {
+      if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
+      return blobUrl;
+    });
+    return blobUrl;
+  }, [buildRawRecordPdfBlob]);
+
+  const openRawRecordPdfPreview = useCallback(() => {
+    buildRawRecordPdfBlobUrl();
+    setShowRawRecordPdfPreview(true);
+  }, [buildRawRecordPdfBlobUrl]);
+
+  const downloadRawRecordPdf = useCallback(() => {
+    const url = buildRawRecordPdfBlobUrl();
+    const currentInstructionRef = resolveCurrentInstructionRef() || 'instruction';
+    const fileName = `eid-raw-record-${currentInstructionRef}.pdf`;
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }, [buildRawRecordPdfBlobUrl, resolveCurrentInstructionRef]);
+
+  const persistRawRecordPdf = useCallback(async (source: 'manual' | 'auto' = 'manual') => {
+    if (isPersistingRawRecordPdf) return;
+
+    const instructionRef = resolveCurrentInstructionRef();
+    if (!instructionRef) {
+      showToast({ type: 'warning', message: 'Unable to determine instruction reference.' });
+      if (source === 'auto') {
+        setRawRecordSubmitState('failed');
+        setRawRecordSubmitMessage('Auto-submit failed: missing instruction reference');
+      }
+      return;
+    }
+
+    setIsPersistingRawRecordPdf(true);
+    if (source === 'auto') {
+      setRawRecordSubmitState('submitting');
+      setRawRecordSubmitMessage('Auto-submitting report…');
+    }
+    try {
+      const blob = buildRawRecordPdfBlob();
+      const fileName = `eid-raw-record-${instructionRef}.pdf`;
+      const file = new File([blob], fileName, { type: 'application/pdf' });
+
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch(`/api/documents/${encodeURIComponent(instructionRef)}`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => null);
+        const message = typeof err?.error === 'string' ? err.error : 'Upload failed';
+        throw new Error(message);
+      }
+
+      const body = await response.json().catch(() => null);
+
+      showToast({ type: 'success', title: 'EID Report Saved', message: 'PDF uploaded to instruction documents' });
+      if (source === 'auto') {
+        setRawRecordSubmitState('submitted');
+        setRawRecordSubmitMessage('Report submitted');
+        setRawRecordSubmittedAt(
+          body && typeof body === 'object' && (body as any).uploadedAt
+            ? String((body as any).uploadedAt)
+            : new Date().toISOString()
+        );
+      }
+
+      // Refresh documents list to show the new file
+      if (fetchDocuments) {
+        await fetchDocuments();
+      }
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to save EID report PDF';
+      showToast({ type: 'error', message });
+      if (source === 'auto') {
+        setRawRecordSubmitState('failed');
+        setRawRecordSubmitMessage(`Auto-submit failed: ${message}`);
+      }
+    } finally {
+      setIsPersistingRawRecordPdf(false);
+    }
+  }, [
+    isPersistingRawRecordPdf,
+    buildRawRecordPdfBlob,
+    resolveCurrentInstructionRef,
+    showToast,
+    fetchDocuments,
+    setRawRecordSubmitState,
+    setRawRecordSubmitMessage,
+    setRawRecordSubmittedAt,
+  ]);
+
+  // Keep the ref in sync so handleTriggerEid can call it without declaration-order issues
+  persistRawRecordPdfRef.current = persistRawRecordPdf;
+
   
   // Payment status
   const hasSuccessfulPayment = payments.some((p: any) => 
     p.payment_status === 'succeeded' || p.payment_status === 'confirmed'
   );
+  const getPaymentMethodKind = (payment: any): 'card' | 'bank' | 'unknown' => {
+    const methodRaw = (
+      payment?.payment_method || payment?.payment_type || payment?.method || payment?.type || payment?.paymentMethod || payment?.PaymentMethod || payment?.PaymentType || ''
+    ).toString().toLowerCase();
+    const metadata = typeof payment?.metadata === 'object' && payment?.metadata !== null ? payment.metadata : {};
+    const metaMethod = (metadata?.payment_method || metadata?.method || metadata?.paymentMethod || '').toString().toLowerCase();
+    const intentId = (payment?.payment_intent_id || payment?.paymentIntentId || '').toString();
+    const combined = methodRaw || metaMethod;
+
+    if (combined.includes('bank') || combined.includes('transfer') || combined.includes('bacs') || combined.includes('ach') || intentId.startsWith('bank_')) {
+      return 'bank';
+    }
+    if (combined.includes('card') || combined.includes('stripe') || combined === 'cc' || intentId.startsWith('pi_')) {
+      return 'card';
+    }
+    return 'unknown';
+  };
+  const successfulPayments = payments.filter((p: any) => p.payment_status === 'succeeded' || p.payment_status === 'confirmed');
+  const hasSuccessfulBankPayment = successfulPayments.some((p: any) => getPaymentMethodKind(p) === 'bank');
+  const hasSuccessfulCardPayment = successfulPayments.some((p: any) => getPaymentMethodKind(p) === 'card');
   const hasFailedPayment = payments.some((p: any) => 
     p.payment_status === 'failed' || p.internal_status === 'failed'
   );
@@ -1171,6 +1921,128 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   const valueOfInstruction = risk?.ValueOfInstruction || '—';
   const limitationPeriod = risk?.Limitation || '—';
   
+  // ── Inline risk assessment form state ──────────────────────────────
+  const [inlineRiskCore, setInlineRiskCore] = useState<RiskCore>({
+    clientType: risk?.ClientType ?? '',
+    clientTypeValue: risk?.ClientType_Value ?? 0,
+    destinationOfFunds: risk?.DestinationOfFunds ?? '',
+    destinationOfFundsValue: risk?.DestinationOfFunds_Value ?? 0,
+    fundsType: risk?.FundsType ?? '',
+    fundsTypeValue: risk?.FundsType_Value ?? 0,
+    clientIntroduced: risk?.HowWasClientIntroduced ?? '',
+    clientIntroducedValue: risk?.HowWasClientIntroduced_Value ?? 0,
+    limitation: risk?.Limitation ?? '',
+    limitationValue: risk?.Limitation_Value ?? 0,
+    sourceOfFunds: risk?.SourceOfFunds ?? '',
+    sourceOfFundsValue: risk?.SourceOfFunds_Value ?? 0,
+    valueOfInstruction: risk?.ValueOfInstruction ?? '',
+    valueOfInstructionValue: risk?.ValueOfInstruction_Value ?? 0,
+  });
+  const [inlineLimitationDate, setInlineLimitationDate] = useState<Date | undefined>();
+  const [inlineLimitationDateTbc, setInlineLimitationDateTbc] = useState(false);
+  const [inlineConsideredClientRisk, setInlineConsideredClientRisk] = useState<boolean | undefined>(
+    risk?.ClientRiskFactorsConsidered !== undefined ? !!risk?.ClientRiskFactorsConsidered : undefined,
+  );
+  const [inlineConsideredTransactionRisk, setInlineConsideredTransactionRisk] = useState<boolean | undefined>(
+    risk?.TransactionRiskFactorsConsidered !== undefined ? !!risk?.TransactionRiskFactorsConsidered : undefined,
+  );
+  const [inlineTransactionRiskLevel, setInlineTransactionRiskLevel] = useState(
+    risk?.TransactionRiskLevel ?? '',
+  );
+  const [inlineConsideredFirmWideSanctions, setInlineConsideredFirmWideSanctions] = useState<boolean | undefined>(
+    risk?.FirmWideSanctionsRiskConsidered !== undefined ? !!risk?.FirmWideSanctionsRiskConsidered : undefined,
+  );
+  const [inlineConsideredFirmWideAML, setInlineConsideredFirmWideAML] = useState<boolean | undefined>(
+    risk?.FirmWideAMLPolicyConsidered !== undefined ? !!risk?.FirmWideAMLPolicyConsidered : undefined,
+  );
+  const [isRiskSubmitting, setIsRiskSubmitting] = useState(false);
+
+  const isInlineRiskComplete = useCallback(() =>
+    Object.values(inlineRiskCore).every((v) => v !== '' && v !== 0) &&
+    inlineConsideredClientRisk === true &&
+    inlineConsideredTransactionRisk === true &&
+    (inlineConsideredTransactionRisk ? inlineTransactionRiskLevel !== '' : true) &&
+    inlineConsideredFirmWideSanctions === true &&
+    inlineConsideredFirmWideAML === true &&
+    (inlineRiskCore.limitationValue === 1 || inlineLimitationDateTbc || !!inlineLimitationDate),
+  [inlineRiskCore, inlineConsideredClientRisk, inlineConsideredTransactionRisk, inlineTransactionRiskLevel, inlineConsideredFirmWideSanctions, inlineConsideredFirmWideAML, inlineLimitationDate, inlineLimitationDateTbc]);
+
+  const handleInlineRiskSubmit = useCallback(async () => {
+    if (!isInlineRiskComplete() || isRiskSubmitting) return;
+    setIsRiskSubmitting(true);
+    try {
+      const score =
+        inlineRiskCore.clientTypeValue +
+        inlineRiskCore.destinationOfFundsValue +
+        inlineRiskCore.fundsTypeValue +
+        inlineRiskCore.clientIntroducedValue +
+        inlineRiskCore.limitationValue +
+        inlineRiskCore.sourceOfFundsValue +
+        inlineRiskCore.valueOfInstructionValue;
+
+      let result = 'Low Risk';
+      if (inlineRiskCore.limitationValue === 3 || score >= 16) result = 'High Risk';
+      else if (score >= 11) result = 'Medium Risk';
+
+      const compDate = new Date();
+      const compExpiry = new Date(compDate.getTime());
+      compExpiry.setMonth(compExpiry.getMonth() + 6);
+
+      let limitationText = inlineRiskCore.limitation;
+      if ([2, 3].includes(inlineRiskCore.limitationValue)) {
+        const datePart = inlineLimitationDateTbc ? 'TBC' : inlineLimitationDate ? inlineLimitationDate.toLocaleDateString('en-GB') : '';
+        if (datePart) limitationText += ` - ${datePart}`;
+      }
+
+      const ref = inst?.InstructionRef || inst?.instructionRef || instructionRef || '';
+      const payload = {
+        MatterId: ref,
+        InstructionRef: ref,
+        RiskAssessor: currentUser?.FullName || 'Unknown',
+        ComplianceDate: compDate.toISOString().split('T')[0],
+        ComplianceExpiry: compExpiry.toISOString().split('T')[0],
+        ClientType: inlineRiskCore.clientType,
+        ClientType_Value: inlineRiskCore.clientTypeValue,
+        DestinationOfFunds: inlineRiskCore.destinationOfFunds,
+        DestinationOfFunds_Value: inlineRiskCore.destinationOfFundsValue,
+        FundsType: inlineRiskCore.fundsType,
+        FundsType_Value: inlineRiskCore.fundsTypeValue,
+        HowWasClientIntroduced: inlineRiskCore.clientIntroduced,
+        HowWasClientIntroduced_Value: inlineRiskCore.clientIntroducedValue,
+        Limitation: limitationText,
+        Limitation_Value: inlineRiskCore.limitationValue,
+        LimitationDate: inlineLimitationDate ? inlineLimitationDate.toISOString() : null,
+        LimitationDateTbc: inlineLimitationDateTbc,
+        SourceOfFunds: inlineRiskCore.sourceOfFunds,
+        SourceOfFunds_Value: inlineRiskCore.sourceOfFundsValue,
+        ValueOfInstruction: inlineRiskCore.valueOfInstruction,
+        ValueOfInstruction_Value: inlineRiskCore.valueOfInstructionValue,
+        TransactionRiskLevel: inlineTransactionRiskLevel,
+        ClientRiskFactorsConsidered: inlineConsideredClientRisk,
+        TransactionRiskFactorsConsidered: inlineConsideredTransactionRisk,
+        FirmWideSanctionsRiskConsidered: inlineConsideredFirmWideSanctions,
+        FirmWideAMLPolicyConsidered: inlineConsideredFirmWideAML,
+        RiskScore: score,
+        RiskScoreIncrementBy: score,
+        RiskAssessmentResult: result,
+      };
+
+      const response = await fetch('/api/risk-assessments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      if (!response.ok) throw new Error(`API call failed: ${response.status}`);
+
+      if (onRiskAssessmentSave) { try { await onRiskAssessmentSave(payload); } catch { /* silent */ } }
+      if (onRefreshData) { try { await onRefreshData?.(instructionRef); } catch { /* silent */ } }
+
+      showToast({ type: 'success', title: 'Risk Assessment Saved', message: `Result: ${result}` });
+      setRiskEditMode(false);
+    } catch (err) {
+      console.error('❌ Risk assessment submit failed', err);
+      showToast({ type: 'error', message: 'Failed to save risk assessment' });
+    } finally {
+      setIsRiskSubmitting(false);
+    }
+  }, [isInlineRiskComplete, isRiskSubmitting, inlineRiskCore, inlineLimitationDate, inlineLimitationDateTbc, inlineTransactionRiskLevel, inlineConsideredClientRisk, inlineConsideredTransactionRisk, inlineConsideredFirmWideSanctions, inlineConsideredFirmWideAML, inst, instructionRef, currentUser, onRiskAssessmentSave, onRefreshData, showToast]);
+
   // Matter status - prioritize matter object from Matters table ("new space")
   const hasMatter = !!(matter || inst?.MatterId || inst?.MatterRef || inst?.DisplayNumber);
   const matterRef = matter?.DisplayNumber || matter?.['Display Number'] || matter?.display_number || inst?.MatterRef || inst?.DisplayNumber || inst?.MatterId || '—';
@@ -1181,9 +2053,38 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   const matterResponsibleSolicitor = matter?.ResponsibleSolicitor || matter?.['Responsible Solicitor'] || matter?.responsible_solicitor || inst?.ResponsibleSolicitor || getValue(['ResponsibleSolicitor']) || '—';
   const matterOriginatingSolicitor = matter?.OriginatingSolicitor || matter?.['Originating Solicitor'] || matter?.originating_solicitor || inst?.OriginatingSolicitor || getValue(['OriginatingSolicitor']) || '—';
   const matterValue = matter?.ApproxValue || matter?.['Approx Value'] || matter?.approx_value || inst?.ApproxValue || getValue(['ApproxValue', 'MatterValue']) || '—';
+  const matterClioId = matter?.MatterID || matter?.matter_id || matter?.['Unique ID'] || matter?.UniqueID || inst?.MatterId || '—';
+  const matterInstructionRef = matter?.InstructionRef || matter?.instruction_ref || matter?.['Instruction Ref'] || inst?.InstructionRef || instructionRef || '—';
+  const matterClientId = matter?.ClientID || matter?.ClientId || matter?.client_id || inst?.ClientId || inst?.ClientID || getValue(['ClientId', 'ClientID', 'client_id']) || '—';
+  const matterClientType = matter?.ClientType || matter?.client_type || inst?.ClientType || getValue(['ClientType', 'client_type']) || '—';
+  const matterClientEmail = matter?.ClientEmail || matter?.client_email || inst?.Email || getValue(['Email', 'email', 'ClientEmail']) || '—';
+  const matterClientPhone = matter?.ClientPhone || matter?.client_phone || inst?.Phone || getValue(['Phone', 'phone', 'ClientPhone']) || '—';
+  const matterClientCompany = matter?.ClientCompany || matter?.client_company || inst?.CompanyName || getValue(['CompanyName', 'Company']) || '—';
+  const matterOpenMethod = matter?.OpenMethod || matter?.open_method || matter?.OpeningMethod || matter?.opening_method || '—';
+  const feeEarner = matter?.ResponsibleSolicitor || matter?.['Responsible Solicitor'] || getValue(['HelixContact', 'FeeEarner', 'feeEarner', 'ResponsibleSolicitor']);
+  const matterOpenedBy = matter?.OpenedBy || matter?.opened_by || matter?.CreatedBy || matter?.created_by || matterResponsibleSolicitor || feeEarner || '—';
+  const matterOpenedByDisplay = String(matterOpenedBy || '').trim() || '—';
+  const matterOpenTimestampRaw = matter?.OpenedAt || matter?.opened_at || matter?.CreatedAt || matter?.created_at || matter?.OpenDate || matter?.['Open Date'] || null;
+  const matterPortalPasscode = matterClientId && matterClientId !== '—'
+    ? String(matterClientId).trim()
+    : (deal?.Passcode || deal?.passcode || inst?.Passcode || inst?.passcode || '');
+  const matterPortalOpened = Boolean(hasMatter && matterPortalPasscode);
+  const matterSupervisingPartner = matter?.SupervisingPartner || matter?.['Supervising Partner'] || matter?.supervising_partner || '—';
+  const matterOpenTrail = [
+    { label: 'Opened On', value: matterOpenDate !== '—' ? matterOpenDate : null },
+    { label: 'Opened By', value: matterOpenedByDisplay !== '—' ? matterOpenedByDisplay : null },
+    { label: 'Method', value: matterOpenMethod !== '—' ? matterOpenMethod : null },
+    { label: 'Responsible', value: matterResponsibleSolicitor !== '—' ? matterResponsibleSolicitor : null },
+    { label: 'Originating', value: matterOriginatingSolicitor !== '—' ? matterOriginatingSolicitor : null },
+    { label: 'Supervising', value: matterSupervisingPartner !== '—' ? matterSupervisingPartner : null },
+  ].filter(item => item.value);
+  const matterReferrer = matter?.Referrer || matter?.referrer || '—';
+  const matterSourceDisplay = !isPlaceholderSource(matterSource) ? String(matterSource) : '—';
+  const matterCloseDateRaw = matter?.CloseDate || matter?.['Close Date'] || matter?.close_date || matter?.closed_at || null;
+  const matterCloseDate = formatDate(matterCloseDateRaw);
+  const isMatterClosed = /closed|complete|completed/i.test(String(matterStatus || ''));
   const instructionStage = String(inst?.Stage ?? inst?.stage ?? deal?.Stage ?? deal?.stage ?? '').trim();
   const isInstructionInitialised = /initiali[sz]ed/i.test(instructionStage);
-  const feeEarner = matter?.ResponsibleSolicitor || matter?.['Responsible Solicitor'] || getValue(['HelixContact', 'FeeEarner', 'feeEarner', 'ResponsibleSolicitor']);
 
   // Look up fee earner email from teamData
   const feeEarnerEmail = useMemo(() => {
@@ -1250,6 +2151,28 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   const matterStageStatus: StageStatus = (stageStatuses?.matter || (hasMatter ? 'complete' : 'pending')) as StageStatus;
   const documentStatus: StageStatus = (stageStatuses?.documents || (documents.length > 0 ? 'complete' : 'neutral')) as StageStatus;
 
+  // Banner status safety: only show complete/blue when we have concrete evidence in this record.
+  const identityBannerStatus: StageStatus =
+    identityStatus === 'complete' && !(hasId || eidStatus === 'verified' || isManuallyApproved)
+      ? 'pending'
+      : identityStatus;
+  const paymentBannerStatus: StageStatus =
+    paymentStatus === 'complete' && !hasSuccessfulPayment
+      ? 'pending'
+      : paymentStatus;
+  const riskBannerStatus: StageStatus =
+    riskStatus === 'complete' && !riskComplete
+      ? 'pending'
+      : riskStatus;
+  const matterBannerStatus: StageStatus =
+    matterStageStatus === 'complete' && !hasMatter
+      ? 'pending'
+      : matterStageStatus;
+  const documentBannerStatus: StageStatus =
+    documentStatus === 'complete' && documents.length === 0
+      ? 'neutral'
+      : documentStatus;
+
   const getStatusColors = React.useCallback((status: StageStatus) => {
     if (status === 'complete') return { 
       bg: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
@@ -1258,8 +2181,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     };
     if (status === 'review') return {
       bg: isDarkMode ? 'rgba(239, 68, 68, 0.12)' : 'rgba(239, 68, 68, 0.08)',
-      border: '#ef4444',
-      text: '#ef4444'
+      border: '#D65541',
+      text: '#D65541'
     };
     if (status === 'processing') return {
       bg: isDarkMode ? 'rgba(251, 191, 36, 0.12)' : 'rgba(251, 191, 36, 0.08)',
@@ -1267,14 +2190,14 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
       text: '#f59e0b'
     };
     if (status === 'neutral') return {
-      bg: isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(148, 163, 184, 0.05)',
-      border: isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.16)',
-      text: isDarkMode ? 'rgba(148, 163, 184, 0.65)' : 'rgba(100, 116, 139, 0.65)'
+      bg: isDarkMode ? `${colours.subtleGrey}0f` : `${colours.subtleGrey}0d`,
+      border: isDarkMode ? colours.dark.border : `${colours.subtleGrey}29`,
+      text: isDarkMode ? colours.subtleGrey : colours.greyText
     };
     return {
-      bg: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)',
-      border: isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.22)',
-      text: isDarkMode ? 'rgba(148, 163, 184, 0.65)' : 'rgba(100, 116, 139, 0.65)'
+      bg: isDarkMode ? `${colours.subtleGrey}14` : `${colours.subtleGrey}0f`,
+      border: isDarkMode ? colours.dark.border : `${colours.subtleGrey}38`,
+      text: isDarkMode ? colours.subtleGrey : colours.greyText
     };
   }, [isDarkMode]);
 
@@ -1286,23 +2209,24 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     action?: React.ReactNode,
   ) => {
     const colors = getStatusColors(status);
+    const headerCueColor = isDarkMode && status === 'complete' ? colours.accent : colors.text;
     return (
       <div style={{
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
         gap: 8,
-        padding: '8px 14px',
-        background: colors.bg,
-        border: `1px solid ${colors.border}`,
+        padding: flatEmbedMode ? '6px 0' : '8px 14px',
+        background: flatEmbedMode ? 'transparent' : colors.bg,
+        border: flatEmbedMode ? 'none' : `1px solid ${colors.border}`,
         borderRadius: 0,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ color: colors.text, display: 'flex', alignItems: 'center' }}>
+          <span style={{ color: headerCueColor, display: 'flex', alignItems: 'center' }}>
             {icon}
           </span>
-          <span style={{ fontSize: 10, fontWeight: 800, color: colors.text, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{title}</span>
-          <span style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.78)', marginLeft: 4 }}>{prompt}</span>
+          <span style={{ fontSize: 10, fontWeight: 800, color: headerCueColor, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{title}</span>
+          <span style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? 'rgba(243, 244, 246, 0.85)' : 'rgba(6, 23, 51, 0.78)', marginLeft: 4 }}>{prompt}</span>
         </div>
         {action && <div>{action}</div>}
       </div>
@@ -1314,7 +2238,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     ? 'complete'
     : (isInstructionInitialised ? 'complete' : 'pending');
 
-  // Timeline stages - unified navigation: Enquiry → Pitch → Instructed → ID → Pay → Risk → Matter → Docs
+  // Timeline stages - unified navigation: Enquiry ? Pitch ? Instructed ? ID ? Pay ? Risk ? Matter ? Docs
   // Combines the old tabs with the timeline concept - clickable stages that also show completion
   const timelineStages = useMemo(() => {
     return [
@@ -1348,7 +2272,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
       },
       { 
         key: 'instructed' as const,
-        label: 'Instructed', 
+        label: 'Instruction', 
         icon: <FaFileAlt size={10} />,
         date: submissionDate !== '—' ? submissionDate : null,
         dateRaw: submissionDateRaw,
@@ -1356,17 +2280,6 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         hasIssue: false,
         status: instructedStatus,
         navigatesTo: 'details' as WorkbenchTab,
-      },
-      { 
-        key: 'identity' as const,
-        label: eidProcessingState === 'processing' ? 'ID Check' : 'ID', 
-        icon: <FaIdCard size={10} />,
-        date: null, // No specific date for ID
-        dateRaw: null,
-        isComplete: hasId || eidStatus === 'verified',
-        hasIssue: eidStatus === 'failed' || eidStatus === 'review',
-        status: (eidProcessingState === 'processing' ? 'processing' : stageStatuses?.id || (eidStatus === 'verified' ? 'complete' : (eidStatus === 'failed' || eidStatus === 'review') ? 'review' : 'pending')) as StageStatus,
-        navigatesTo: 'identity' as WorkbenchTab,
       },
       { 
         key: 'payment' as const,
@@ -1380,6 +2293,17 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         navigatesTo: 'payment' as WorkbenchTab,
       },
       { 
+        key: 'identity' as const,
+        label: eidProcessingState === 'processing' ? 'ID Check' : 'ID', 
+        icon: <FaIdCard size={10} />,
+        date: null, // No specific date for ID
+        dateRaw: null,
+        isComplete: hasId || eidStatus === 'verified',
+        hasIssue: eidStatus === 'failed' || eidStatus === 'review',
+        status: (eidProcessingState === 'processing' ? 'processing' : stageStatuses?.id || (eidStatus === 'verified' ? 'complete' : (eidStatus === 'failed' || eidStatus === 'review') ? 'review' : 'pending')) as StageStatus,
+        navigatesTo: 'identity' as WorkbenchTab,
+      },
+      { 
         key: 'risk' as const,
         label: 'Risk', 
         icon: <FaShieldAlt size={10} />,
@@ -1387,13 +2311,13 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         dateRaw: null,
         isComplete: riskComplete && !isHighRisk && !isMediumRisk,
         hasIssue: isHighRisk || isMediumRisk,
-        status: (showLocalRiskModal ? 'processing' : stageStatuses?.risk || (riskComplete ? ((isHighRisk || isMediumRisk) ? 'review' : 'complete') : 'pending')) as StageStatus,
+        status: (riskEditMode ? 'processing' : stageStatuses?.risk || (riskComplete ? ((isHighRisk || isMediumRisk) ? 'review' : 'complete') : 'pending')) as StageStatus,
         navigatesTo: 'risk' as WorkbenchTab,
       },
       { 
         key: 'matter' as const,
         label: 'Matter', 
-        icon: hasMatter ? <FaFolder size={10} /> : <FaRegFolder size={10} />,
+        icon: hasMatter ? <FaFolderOpen size={10} /> : <FaRegFolder size={10} />,
         date: matterOpenDate !== '—' ? matterOpenDate : null,
         dateRaw: matterOpenDateRaw,
         isComplete: hasMatter,
@@ -1414,7 +2338,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         navigatesTo: 'documents' as WorkbenchTab,
       },
     ];
-  }, [prospectId, hasId, eidStatus, eidProcessingState, hasSuccessfulPayment, hasFailedPayment, documents.length, riskComplete, isHighRisk, isMediumRisk, showLocalRiskModal, showLocalMatterModal, hasMatter, stageStatuses, pitchDate, pitchDateRaw, submissionDate, submissionDateRaw, paymentDate, paymentDateRaw, matterOpenDate, matterOpenDateRaw, firstDocUploadDate, firstDocUploadDateRaw, isInstructedComplete, instructedStatus]);
+  }, [prospectId, hasId, eidStatus, eidProcessingState, hasSuccessfulPayment, hasFailedPayment, documents.length, riskComplete, isHighRisk, isMediumRisk, riskEditMode, showLocalMatterModal, hasMatter, stageStatuses, pitchDate, pitchDateRaw, submissionDate, submissionDateRaw, paymentDate, paymentDateRaw, matterOpenDate, matterOpenDateRaw, firstDocUploadDate, firstDocUploadDateRaw, isInstructedComplete, instructedStatus]);
 
   const contextStageKeyList = useMemo(() => {
     // If context stage chips disabled, don't show any context stages
@@ -1454,20 +2378,21 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   })), [timelineStages]);
 
   const isTabbedContent = ['identity', 'payment', 'risk', 'matter', 'documents'].includes(activeTab);
+  const headerCueAccent = isDarkMode ? colours.accent : colours.highlight;
 
   // Palette helper for tab/timeline statuses
   const getStagePalette = (stage: (typeof timelineStages)[number]) => {
     if (stage.status === 'complete') return { 
-      bg: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)',
-      border: isDarkMode ? 'rgba(54, 144, 206, 0.4)' : 'rgba(54, 144, 206, 0.35)',
-      text: colours.highlight,
-      line: colours.highlight,
+      bg: isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.08)',
+      border: isDarkMode ? 'rgba(32, 178, 108, 0.35)' : 'rgba(32, 178, 108, 0.3)',
+      text: colours.green,
+      line: colours.green,
     };
     if (stage.status === 'review') return {
       bg: isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)',
       border: isDarkMode ? 'rgba(239, 68, 68, 0.4)' : 'rgba(239, 68, 68, 0.35)',
-      text: '#ef4444',
-      line: '#ef4444',
+      text: '#D65541',
+      line: '#D65541',
     };
     if (stage.status === 'processing') return {
       bg: isDarkMode ? 'rgba(251, 191, 36, 0.15)' : 'rgba(251, 191, 36, 0.1)',
@@ -1476,10 +2401,10 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
       line: '#f59e0b',
     };
     return {
-      bg: isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(148, 163, 184, 0.05)',
-      border: isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)',
-      text: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.45)',
-      line: isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)',
+      bg: isDarkMode ? `${colours.subtleGrey}0f` : `${colours.subtleGrey}0d`,
+      border: isDarkMode ? colours.dark.border : `${colours.subtleGrey}26`,
+      text: isDarkMode ? colours.subtleGrey : colours.greyText,
+      line: isDarkMode ? colours.dark.border : `${colours.subtleGrey}26`,
     };
   };
 
@@ -1498,9 +2423,9 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   };
   
   const tabBasePalette = {
-    bg: isDarkMode ? 'rgba(148, 163, 184, 0.03)' : 'rgba(148, 163, 184, 0.04)',
-    border: isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)',
-    text: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.55)',
+    bg: isDarkMode ? `${colours.subtleGrey}08` : `${colours.subtleGrey}0a`,
+    border: isDarkMode ? colours.dark.border : `${colours.subtleGrey}1f`,
+    text: isDarkMode ? colours.subtleGrey : colours.greyText,
   };
 
   // Stop all click events from bubbling up to the row (which toggles expansion)
@@ -1518,7 +2443,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
     const netAmount = parseFloat(paymentLinkAmount);
     if (Number.isNaN(netAmount) || netAmount < 1) {
-      showToast({ type: 'warning', message: 'Please enter a valid amount (at least £1)' });
+      showToast({ type: 'warning', message: 'Please enter a valid amount (at least —1)' });
       return;
     }
 
@@ -1565,19 +2490,19 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
   // Status pill
   const StatusPill = ({ status, label }: { status: 'pass' | 'fail' | 'pending' | 'warn'; label: string }) => {
-    const bg = status === 'pass' ? 'rgba(54, 144, 206, 0.12)' 
+    const bg = status === 'pass' ? `${colours.highlight}1f` 
       : status === 'fail' ? 'rgba(239, 68, 68, 0.12)'
       : status === 'warn' ? 'rgba(239, 68, 68, 0.12)'
-      : 'rgba(148, 163, 184, 0.1)';
+      : (isDarkMode ? `${colours.subtleGrey}1a` : `${colours.subtleGrey}14`);
     const color = status === 'pass' ? colours.highlight 
       : status === 'fail' ? colours.cta
       : status === 'warn' ? colours.cta
-      : (isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)');
+      : (isDarkMode ? colours.subtleGrey : colours.greyText);
     return (
       <span style={{
         fontSize: 9,
         padding: '3px 8px',
-        borderRadius: 4,
+        borderRadius: 0,
         background: bg,
         color,
         fontWeight: 600,
@@ -1605,9 +2530,9 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         text: '#f59e0b'
       };
       return {
-        bg: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)',
-        border: isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.25)',
-        text: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)'
+        bg: isDarkMode ? `${colours.subtleGrey}1a` : `${colours.subtleGrey}14`,
+        border: isDarkMode ? colours.dark.borderColor : `${colours.subtleGrey}40`,
+        text: isDarkMode ? colours.subtleGrey : colours.greyText
       };
     };
     const colors = getColors();
@@ -1657,12 +2582,12 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         padding: '10px 14px',
         background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.05)',
         border: `1px dashed ${isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.25)'}`,
-        borderRadius: 6,
+        borderRadius: 0,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 9, color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)', textTransform: 'uppercase', letterSpacing: '0.3px', fontWeight: 700, marginBottom: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 9, color: isDarkMode ? colours.subtleGrey : colours.greyText, textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 700, marginBottom: 8 }}>
           <FaBuilding size={10} /> Confirm Bank Payment
         </div>
-        <div style={{ fontSize: 10, color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.65)', marginBottom: 10, lineHeight: 1.4 }}>
+        <div style={{ fontSize: 10, color: isDarkMode ? 'rgba(243, 244, 246, 0.7)' : 'rgba(6, 23, 51, 0.65)', marginBottom: 10, lineHeight: 1.4 }}>
           Bank transfer received? Enter the date from your statement to confirm.
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1674,11 +2599,11 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
             style={{
               flex: 1,
               padding: '6px 10px',
-              background: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : '#ffffff',
-              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
-              borderRadius: 3,
+              background: isDarkMode ? 'rgba(6, 23, 51, 0.5)' : '#ffffff',
+              border: `1px solid ${isDarkMode ? colours.dark.border : 'rgba(0, 0, 0, 0.1)'}`,
+              borderRadius: 0,
               fontSize: 11,
-              color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)',
+              color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : 'rgba(6, 23, 51, 0.85)',
               fontFamily: 'monospace',
             }}
           />
@@ -1688,17 +2613,17 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
             onClick={(e) => { e.stopPropagation(); void handleConfirm(); }}
             style={{
               padding: '6px 14px',
-              background: confirmDate ? colours.highlight : (isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(0, 0, 0, 0.08)'),
-              color: confirmDate ? '#ffffff' : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)'),
+              background: confirmDate ? colours.highlight : (isDarkMode ? `${colours.subtleGrey}26` : 'rgba(0, 0, 0, 0.08)'),
+              color: confirmDate ? '#ffffff' : (isDarkMode ? colours.subtleGrey : colours.greyText),
               border: 'none',
-              borderRadius: 3,
+              borderRadius: 0,
               fontSize: 10,
               fontWeight: 700,
               cursor: confirmDate && !isConfirming ? 'pointer' : 'default',
               opacity: isConfirming ? 0.7 : 1,
             }}
           >
-            {isConfirming ? 'Saving…' : 'Confirm'}
+            {isConfirming ? 'Saving—' : 'Confirm'}
           </button>
         </div>
       </div>
@@ -1729,394 +2654,462 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   }) => {
     const activePayments = payments.filter((p: any) => !p.archived && !p.deleted);
     const isLocalEnv = typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname);
+    const dealAmount = Number(deal?.Amount || deal?.amount || 0);
+    const paymentCount = activePayments.length;
+    const successCount = activePayments.filter((p: any) => p.payment_status === 'succeeded' || p.payment_status === 'confirmed').length;
+    const successfulPayments = activePayments.filter((p: any) => p.payment_status === 'succeeded' || p.payment_status === 'confirmed');
+    const lastPayment = activePayments.length > 0 ? activePayments[activePayments.length - 1] : null;
+    const lastPaymentDate = lastPayment?.created_at || lastPayment?.date || lastPayment?.payment_date;
+    const formattedLastDate = lastPaymentDate
+      ? new Date(lastPaymentDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+      : '\u2014';
+    const lastSuccessfulPayment = successfulPayments.length > 0 ? successfulPayments[successfulPayments.length - 1] : null;
+    const lastSuccessfulPaymentDateRaw = lastSuccessfulPayment?.created_at || lastSuccessfulPayment?.date || lastSuccessfulPayment?.payment_date;
+    const formattedPaidTimestamp = lastSuccessfulPaymentDateRaw
+      ? new Date(lastSuccessfulPaymentDateRaw).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+      : null;
+    const allSuccess = successCount === paymentCount && paymentCount > 0;
+    const anyFailed = activePayments.some((p: any) => p.payment_status === 'failed');
+    const showPerPaymentStatusPills = !(paymentCount === 1 && allSuccess);
+
+    // Derive overall method from payments
+    const hasCard = activePayments.some((p: any) => {
+      const m = (p.payment_method || p.method || p.type || '').toString().toLowerCase();
+      const iid = (p.payment_intent_id || '').toString();
+      return m.includes('card') || m.includes('stripe') || iid.startsWith('pi_');
+    });
+    const hasBank = activePayments.some((p: any) => {
+      const m = (p.payment_method || p.method || p.type || '').toString().toLowerCase();
+      const iid = (p.payment_intent_id || '').toString();
+      return m.includes('bank') || m.includes('transfer') || m.includes('bacs') || iid.startsWith('bank_');
+    });
+
+    // Colour helper for border separator
+    const sep = isDarkMode ? `${colours.dark.border}40` : colours.highlightNeutral || 'rgba(0,0,0,0.06)';
 
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {/* Payment Records Section - styled like Identity tab */}
+
+        {/* \u2500\u2500 Payment Section Container \u2500\u2500 */}
         <div style={{
-          background: isDarkMode ? 'rgba(15, 23, 42, 0.45)' : 'rgba(255, 255, 255, 0.7)',
-          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
+          padding: '12px 14px',
+          background: isDarkMode ? 'rgba(6, 23, 51, 0.35)' : 'rgba(255, 255, 255, 0.7)',
+          border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
           borderRadius: 0,
-          overflow: 'hidden',
         }}>
-          {/* Section Header - matches Identity tab pattern */}
-          <div style={{
-            padding: '8px 14px',
-            background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.03)',
-            borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 9, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.65)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-              <FaCreditCard size={11} /> Payment Records
+
+          {/* \u2500\u2500 Summary Data Bar (matches Identity data bar) \u2500\u2500 */}
+          {paymentCount > 0 && (
+            <div style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 0,
+              fontFamily: 'Raleway, sans-serif',
+              padding: '10px 0',
+              background: isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(244, 244, 246, 0.25)',
+              borderRadius: 0,
+              border: `1px solid ${sep}`,
+              marginBottom: 12,
+            }}>
+              {/* Total Paid */}
+              <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-start', minHeight: 34, gap: 4, padding: '0 14px' }}>
+                <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Total Paid</span>
+                <span style={{ fontSize: 12, fontWeight: 600, fontFamily: 'Raleway, sans-serif', color: totalPaid > 0 ? colours.highlight : (isDarkMode ? '#d1d5db' : '#374151'), textAlign: 'left' }}>
+                  £{totalPaid.toLocaleString()}
+                </span>
+              </div>
+
+              {/* Separator */}
+              <div style={{ width: 1, background: sep, margin: '4px 0' }} />
+
+              {/* Deal Amount */}
+              {dealAmount > 0 && (
+                <>
+                  <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-start', minHeight: 34, gap: 4, padding: '0 14px' }}>
+                    <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Deal Amount</span>
+                    <span style={{ fontSize: 12, fontWeight: 500, fontFamily: 'Raleway, sans-serif', color: isDarkMode ? '#d1d5db' : '#374151', textAlign: 'left' }}>
+                      £{dealAmount.toLocaleString()}
+                    </span>
+                  </div>
+                  <div style={{ width: 1, background: sep, margin: '4px 0' }} />
+                </>
+              )}
+
+              {/* Payments */}
+              <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-start', minHeight: 34, gap: 4, padding: '0 14px' }}>
+                <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Payments</span>
+                <span style={{ fontSize: 12, fontWeight: 500, fontFamily: 'Raleway, sans-serif', color: isDarkMode ? '#d1d5db' : '#374151', textAlign: 'left' }}>
+                  {successCount}/{paymentCount} succeeded
+                </span>
+              </div>
+
+              {/* Separator */}
+              <div style={{ width: 1, background: sep, margin: '4px 0' }} />
+
+              {/* Last Payment */}
+              <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-start', minHeight: 34, gap: 4, padding: '0 14px' }}>
+                <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Last Payment</span>
+                <span style={{ fontSize: 12, fontWeight: 500, fontFamily: 'Raleway, sans-serif', color: isDarkMode ? '#d1d5db' : '#374151', textAlign: 'left' }}>
+                  {formattedLastDate}
+                </span>
+              </div>
+
+              {/* Separator */}
+              <div style={{ width: 1, background: sep, margin: '4px 0' }} />
+
+              {/* Method */}
+              <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-start', minHeight: 34, gap: 4, padding: '0 14px' }}>
+                <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Method</span>
+                <span style={{ fontSize: 12, fontWeight: 500, fontFamily: 'Raleway, sans-serif', color: isDarkMode ? '#d1d5db' : '#374151', display: 'flex', alignItems: 'center', gap: 4, textAlign: 'left' }}>
+                  {hasCard && <FaCreditCard size={10} />}
+                  {hasBank && <FaBuilding size={10} />}
+                  {hasCard && hasBank ? 'Mixed' : hasCard ? 'Card' : hasBank ? 'Bank' : '\u2014'}
+                </span>
+              </div>
             </div>
+          )}
+
+          {/* \u2500\u2500 Result Indicator Pills (matches Identity pills) \u2500\u2500 */}
+          {paymentCount > 0 && showPerPaymentStatusPills && (
+            <div style={{
+              display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8,
+              padding: '8px 0',
+            }}>
+              {/* Per-payment status pills */}
+              {activePayments.map((p: any, idx: number) => {
+                const st = p.payment_status || p.status || 'pending';
+                const ok = st === 'succeeded' || st === 'confirmed';
+                const fail = st === 'failed';
+                const pColor = ok ? colours.highlight : fail ? colours.cta : (isDarkMode ? '#d1d5db' : '#374151');
+                const amt = Number(p.amount || 0);
+                return (
+                  <div key={p.id || idx} style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 5,
+                    padding: '4px 10px',
+                    background: isDarkMode ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.03)',
+                    border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)'}`,
+                    borderRadius: 0,
+                  }}>
+                    <span style={{ fontSize: 9, fontWeight: 600, color: isDarkMode ? colours.subtleGrey : colours.greyText, textTransform: 'uppercase', letterSpacing: '0.3px' }}>
+                      £{amt.toLocaleString()}
+                    </span>
+                    {ok ? <FaCheckCircle size={9} color={pColor} /> : fail ? <FaExclamationTriangle size={9} color={pColor} /> : <FaClock size={9} color={pColor} />}
+                    <span style={{ fontSize: 10, fontWeight: 600, color: pColor }}>{st}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* \u2500\u2500 Controls Bar (matches Identity controls bar) \u2500\u2500 */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '6px 0',
+            borderTop: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
+          }}>
+            {/* Payment count badge */}
+            <div style={{
+              display: 'inline-flex', alignItems: 'center', gap: 4,
+              padding: '4px 8px',
+              background: isDarkMode ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.03)',
+              border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)'}`,
+              borderRadius: 0,
+              fontSize: 9,
+              fontWeight: 600,
+              color: isDarkMode ? colours.subtleGrey : colours.greyText,
+            }}>
+              <FaCreditCard size={8} />
+              {paymentCount} record{paymentCount !== 1 ? 's' : ''}
+            </div>
+
+            {/* Spacer */}
+            <div style={{ flex: 1 }} />
+
+            {/* Create payment link */}
             {isLocalEnv && (
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); onRequestPaymentLink?.(); }}
                 title="Generate a Stripe payment link (copy & send to the client)"
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 5,
-                  padding: '4px 10px',
+                  display: 'inline-flex', alignItems: 'center', gap: 5,
+                  padding: '5px 10px',
                   background: colours.highlight,
                   color: '#FFFFFF',
                   border: 'none',
                   borderRadius: 0,
-                  fontSize: 9,
-                  fontWeight: 600,
+                  fontSize: 10,
+                  fontWeight: 700,
                   cursor: 'pointer',
-                  transition: 'all 0.15s ease',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = '#2d7ab8';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = colours.highlight;
                 }}
               >
                 <FaLink size={9} />
-                Create payment link
+                Create Payment Link
               </button>
             )}
           </div>
 
-          {/* No payments state */}
-          {activePayments.length === 0 ? (
+          {/* \u2500\u2500 Payment Records \u2500\u2500 */}
+          {paymentCount === 0 ? (
             <div style={{ 
               textAlign: 'center',
               padding: '24px 0',
-              color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)',
+              color: isDarkMode ? colours.subtleGrey : colours.greyText,
             }}>
               <FaCreditCard size={24} style={{ marginBottom: 8, opacity: 0.4 }} />
               <div style={{ fontSize: 11 }}>No payment records</div>
             </div>
           ) : (
-          <>
-            {/* Table Header */}
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: '70px 90px 1fr 160px 70px 60px 90px 24px',
-              gap: 8,
-              padding: '8px 12px',
-              background: isDarkMode ? 'rgba(148, 163, 184, 0.03)' : 'rgba(0, 0, 0, 0.015)',
-              borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(0, 0, 0, 0.03)'}`,
-            }}>
-              <span style={{ fontSize: 9, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.75)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Date</span>
-              <span style={{ fontSize: 9, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.75)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Amount</span>
-              <span style={{ fontSize: 9, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.75)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Description</span>
-              <span style={{ fontSize: 9, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.75)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Ref</span>
-              <span style={{ fontSize: 9, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.75)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Currency</span>
-              <span style={{ fontSize: 9, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.75)', textTransform: 'uppercase', letterSpacing: '0.5px', textAlign: 'center' }}>Method</span>
-              <span style={{ fontSize: 9, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.75)', textTransform: 'uppercase', letterSpacing: '0.5px', textAlign: 'right' }}>Status</span>
-              <span></span>
-            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 0, marginTop: 4 }}>
+              {activePayments.map((payment: any, idx: number) => {
+                const paymentId = payment.id || payment.payment_id || `payment-${idx}`;
+                const isExpanded = expandedPayment === paymentId;
+                const status = payment.payment_status || payment.status || 'pending';
+                const isSuccess = status === 'succeeded' || status === 'confirmed';
+                const isFailed = status === 'failed';
+                const statusColor = isSuccess ? colours.green : isFailed ? colours.cta : colours.orange;
+                const paymentDate = payment.created_at || payment.date || payment.payment_date;
+                const formattedDate = paymentDate 
+                  ? new Date(paymentDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
+                  : '\u2014';
+                const formattedTime = paymentDate
+                  ? new Date(paymentDate).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+                  : '';
+                
+                // Determine payment method
+                const methodRaw = (payment.payment_method || payment.payment_type || payment.method || payment.type || payment.paymentMethod || payment.PaymentMethod || payment.PaymentType || '').toString().toLowerCase();
+                const meta = typeof payment.metadata === 'object' ? payment.metadata : {};
+                const metaMethod = (meta?.payment_method || meta?.method || meta?.paymentMethod || '').toString().toLowerCase();
+                const intentId = (payment.payment_intent_id || payment.paymentIntentId || '').toString();
+                const intentIsBank = intentId.startsWith('bank_');
+                const intentIsCard = intentId.startsWith('pi_');
+                const combinedMethod = methodRaw || metaMethod || (intentIsBank ? 'bank' : intentIsCard ? 'card' : '');
+                const isCard = combinedMethod.includes('card') || combinedMethod.includes('stripe') || combinedMethod === 'cc' || intentIsCard;
+                const isBank = combinedMethod.includes('bank') || combinedMethod.includes('transfer') || combinedMethod.includes('bacs') || combinedMethod.includes('ach') || intentIsBank;
+                const methodLabel = isCard ? 'Card' : isBank ? 'Bank' : combinedMethod ? combinedMethod.slice(0, 6) : '\u2014';
+                const serviceLabel = deal?.ServiceDescription || deal?.serviceDescription || deal?.service_description || payment.product_description || payment.description || payment.product || 'Payment on Account';
+                const paymentIdRaw = (payment.payment_id || payment.stripe_payment_id || payment.id || '\u2014').toString();
+                const paymentRef = instructionRef || payment.instruction_ref || '\u2014';
 
-          {/* Payment Rows */}
-          {activePayments.map((payment: any, idx: number) => {
-            const paymentId = payment.id || payment.payment_id || `payment-${idx}`;
-            const isExpanded = expandedPayment === paymentId;
-            const status = payment.payment_status || payment.status || 'pending';
-            const isSuccess = status === 'succeeded' || status === 'confirmed';
-            const isFailed = status === 'failed';
-            const statusColor = isSuccess ? colours.green : isFailed ? colours.cta : colours.orange;
-            const paymentDate = payment.created_at || payment.date || payment.payment_date;
-            const formattedDate = paymentDate 
-              ? new Date(paymentDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
-              : '—';
-            const formattedTime = paymentDate
-              ? new Date(paymentDate).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
-              : '';
-            
-            const currentJourneyIndex = isSuccess ? 2 : status === 'requires_action' ? 1 : 0;
-            
-            // Determine payment method - check multiple possible field names and infer from payment_intent_id
-            const methodRaw = (
-              payment.payment_method || 
-              payment.payment_type || 
-              payment.method || 
-              payment.type || 
-              payment.paymentMethod ||
-              payment.PaymentMethod ||
-              payment.PaymentType ||
-              ''
-            ).toString().toLowerCase();
-            // Check metadata for method
-            const meta = typeof payment.metadata === 'object' ? payment.metadata : {};
-            const metaMethod = (meta?.payment_method || meta?.method || meta?.paymentMethod || '').toString().toLowerCase();
-            // Check payment_intent_id prefix (bank_ = bank transfer, pi_ = stripe card)
-            const intentId = (payment.payment_intent_id || payment.paymentIntentId || '').toString();
-            const intentIsBank = intentId.startsWith('bank_');
-            const intentIsCard = intentId.startsWith('pi_');
-            // Determine final method
-            const combinedMethod = methodRaw || metaMethod || (intentIsBank ? 'bank' : intentIsCard ? 'card' : '');
-            const isCard = combinedMethod.includes('card') || combinedMethod.includes('stripe') || combinedMethod === 'cc' || intentIsCard;
-            const isBank = combinedMethod.includes('bank') || combinedMethod.includes('transfer') || combinedMethod.includes('bacs') || combinedMethod.includes('ach') || intentIsBank;
-            const methodLabel = isCard ? 'Card' : isBank ? 'Bank' : combinedMethod ? combinedMethod.slice(0, 6) : '';
-            const serviceLabel = deal?.ServiceDescription || deal?.serviceDescription || deal?.service_description || payment.product_description || payment.description || payment.product || 'Payment on Account';
-            const currencyLabel = (payment.currency || 'GBP').toString().toUpperCase();
-            const paymentIdRaw = (payment.payment_id || payment.stripe_payment_id || payment.id || '—').toString();
-            const paymentIdDisplay = paymentIdRaw === '—' ? '—' : paymentIdRaw;
-            const paymentRef = instructionRef || payment.instruction_ref || '—';
-
-            return (
-              <div key={paymentId}>
-                {/* Payment Row */}
-                <div
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setExpandedPayment(isExpanded ? null : paymentId);
-                  }}
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: '70px 90px 1fr 160px 70px 60px 90px 24px',
-                    gap: 8,
-                    padding: '10px 12px',
-                    alignItems: 'center',
-                    cursor: 'pointer',
-                    background: isExpanded 
-                      ? (isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.04)')
-                      : 'transparent',
-                    borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.05)' : 'rgba(0, 0, 0, 0.02)'}`,
-                    transition: 'background 0.15s ease',
-                  }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                      <span style={{ 
-                        fontSize: 10, 
-                        color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)',
-                      }}>
-                        {formattedDate}
-                      </span>
-                      {formattedTime && (
-                        <span style={{ 
-                          fontSize: 9, 
-                          color: isDarkMode ? 'rgba(148, 163, 184, 0.55)' : 'rgba(100, 116, 139, 0.55)',
-                        }}>
-                          {formattedTime}
-                        </span>
-                      )}
-                    </div>
-                    <span style={{ 
-                      fontSize: 12, 
-                      fontWeight: 600, 
-                      color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)',
-                      fontFamily: 'monospace',
-                    }}>
-                      £{Number(payment.amount || 0).toLocaleString()}
-                    </span>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0, justifyContent: 'center' }}>
-                      <span style={{ 
-                        fontSize: 11, 
-                        color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.65)',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}>
-                        {payment.description || payment.product_description || 'Payment on Account'}
-                      </span>
-                      <span style={{
-                        fontSize: 9,
-                        color: isDarkMode ? 'rgba(148, 163, 184, 0.65)' : 'rgba(100, 116, 139, 0.65)',
-                        fontFamily: 'monospace',
-                        whiteSpace: 'normal',
-                        wordBreak: 'break-all',
-                        overflow: 'visible',
-                        textOverflow: 'clip',
-                      }}>
-                        ID {paymentIdDisplay}
-                      </span>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                      <span style={{
-                        fontSize: 11,
-                        color: isDarkMode ? 'rgba(148, 163, 184, 0.65)' : 'rgba(100, 116, 139, 0.65)',
-                        fontFamily: 'monospace',
-                        whiteSpace: 'normal',
-                        wordBreak: 'break-all',
-                        overflow: 'visible',
-                        textOverflow: 'clip',
-                      }}>
-                        {paymentRef}
-                      </span>
-                      {paymentRef !== '—' && (
-                        <button
-                          type="button"
-                          onClick={async (event) => {
-                            event.stopPropagation();
-                            const copied = await safeCopy(paymentRef);
-                            if (copied) {
-                              setCopiedPaymentRefId(paymentId);
-                              showToast({ type: 'success', message: 'Ref copied to clipboard' });
-                              window.setTimeout(() => {
-                                setCopiedPaymentRefId((current) => (current === paymentId ? null : current));
-                              }, 1400);
-                            }
-                          }}
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: 4,
-                            padding: '0 4px',
-                            background: 'transparent',
-                            border: 'none',
-                            borderRadius: 0,
-                            color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)',
-                            fontSize: 8,
-                            fontWeight: 500,
-                            cursor: 'pointer',
-                          }}
-                          title="Copy ref"
-                          aria-label="Copy ref"
-                        >
-                          {copiedPaymentRefId === paymentId ? <FaCheck size={9} /> : <FaCopy size={9} />}
-                        </button>
-                      )}
-                    </div>
-                    <span style={{
-                      fontSize: 10,
-                      color: isDarkMode ? 'rgba(148, 163, 184, 0.65)' : 'rgba(100, 116, 139, 0.65)',
-                      textTransform: 'uppercase',
-                    }}>
-                      {currencyLabel}
-                    </span>
-                  <span style={{ 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    justifyContent: 'center',
-                    gap: 4,
-                    fontSize: 10,
-                    color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)',
-                  }}>
-                    {isCard ? <FaCreditCard size={10} /> : isBank ? <FaBuilding size={10} /> : <span>—</span>}
-                    {methodLabel && <span style={{ fontSize: 9, fontWeight: 600 }}>{methodLabel}</span>}
-                  </span>
-                  <span style={{ textAlign: 'right' }}>
-                    <span style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      minHeight: 20,
-                      fontSize: 9,
-                      padding: '0 8px',
-                      borderRadius: 0,
-                      background: isSuccess 
-                        ? (isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)')
-                        : isFailed 
-                          ? (isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)')
-                          : (isDarkMode ? 'rgba(245, 158, 11, 0.15)' : 'rgba(245, 158, 11, 0.1)'),
-                      border: `1px solid ${statusColor}`,
-                      color: statusColor,
-                      fontWeight: 600,
-                      textTransform: 'lowercase',
-                    }}>
-                      {status}
-                    </span>
-                  </span>
-                  <span style={{ 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    justifyContent: 'center',
-                    marginLeft: 6,
-                    width: 20,
-                    height: 20,
+                return (
+                  <div key={paymentId} style={{
+                    border: `1px solid ${isDarkMode ? `${colours.dark.border}40` : (colours.highlightNeutral || 'rgba(0,0,0,0.06)')}`,
                     borderRadius: 0,
-                    background: isExpanded 
-                      ? colours.highlight
-                      : 'transparent',
-                    border: `1px solid ${isExpanded ? colours.highlight : (isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)')}`,
-                    borderLeft: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(0, 0, 0, 0.08)'}`,
-                    color: isExpanded 
-                      ? '#FFFFFF'
-                      : (isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)'),
-                    fontSize: 10,
-                    transition: 'all 0.15s ease',
+                    marginBottom: idx < activePayments.length - 1 ? 6 : 0,
+                    overflow: 'hidden',
                   }}>
-                    <Icon iconName={isExpanded ? 'ChevronUp' : 'ChevronDown'} styles={{ root: { fontSize: 10 } }} />
-                  </span>
-                </div>
-
-                {/* Expanded Payment Details */}
-                {isExpanded && (
-                  <div style={{
-                    padding: '12px 14px',
-                    background: isDarkMode ? 'rgba(15, 23, 42, 0.45)' : 'rgba(255, 255, 255, 0.7)',
-                    borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
-                  }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                      {/* Transaction Details section */}
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 9, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.65)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                          <FaReceipt size={10} /> Transaction Details
-                        </div>
-                        {payment.receipt_url && (
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); window.open(payment.receipt_url, '_blank'); }}
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: 4,
-                              padding: '3px 8px',
-                              background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)',
-                              color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.8)',
-                              border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.25)'}`,
-                              borderRadius: 0,
-                              fontSize: 9,
-                              fontWeight: 600,
-                              cursor: 'pointer',
-                            }}
-                          >
-                            <FaReceipt size={9} />
-                            Receipt
-                            <FaChevronRight size={9} style={{ opacity: 0.7 }} />
-                          </button>
+                    {/* Collapsible Payment Row (matches Verification Data pattern) */}
+                    <div
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setExpandedPayment(isExpanded ? null : paymentId);
+                      }}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        fontFamily: 'Raleway, sans-serif',
+                        padding: '8px 10px',
+                        background: isExpanded
+                          ? (isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.04)')
+                          : (isDarkMode ? 'rgba(2, 6, 23, 0.25)' : 'rgba(244, 244, 246, 0.25)'),
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+                        {/* Status dot */}
+                        <div style={{
+                          width: 8, height: 8, borderRadius: '50%',
+                          background: statusColor,
+                          flexShrink: 0,
+                        }} />
+                        {/* Amount */}
+                        <span style={{
+                          fontSize: 12, fontWeight: 600, fontFamily: 'Raleway, sans-serif',
+                          color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : 'rgba(6, 23, 51, 0.85)',
+                          flexShrink: 0,
+                        }}>
+                          £{Number(payment.amount || 0).toLocaleString()}
+                        </span>
+                        {/* Method icon */}
+                        <span style={{ color: isDarkMode ? colours.subtleGrey : colours.greyText, display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0 }}>
+                          {isCard ? <FaCreditCard size={10} /> : isBank ? <FaBuilding size={10} /> : null}
+                          <span style={{ fontSize: 9, fontWeight: 600 }}>{methodLabel}</span>
+                        </span>
+                        {/* Collapsed preview: date + status */}
+                        {!isExpanded && (
+                          <span style={{
+                            fontSize: 10,
+                            color: isDarkMode ? 'rgba(243, 244, 246, 0.6)' : 'rgba(6, 23, 51, 0.55)',
+                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                          }}>
+                            {formattedDate}
+                          </span>
                         )}
                       </div>
-                      <div style={{
-                        display: 'flex',
-                        alignItems: 'stretch',
-                        gap: 10,
-                        padding: '10px 14px',
-                        background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : '#f8fafc',
-                        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : '#e2e8f0'}`,
-                        borderRadius: 6,
-                        marginBottom: 10,
-                      }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flexShrink: 0 }}>
-                          <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Amount</span>
-                          <span style={{ fontSize: 12, fontWeight: 600, color: colours.highlight }}>
-                            £{Number(payment.amount || 0).toLocaleString()}
-                          </span>
-                        </div>
-                        <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', alignSelf: 'stretch' }} />
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1, minWidth: 0 }}>
-                          <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Service</span>
-                          <span style={{ fontSize: 12, fontWeight: 500, lineHeight: 1.5, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b' }}>
-                            {serviceLabel}
-                          </span>
-                        </div>
+                      {/* Status pill + chevron */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                        <span style={{
+                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                          minHeight: 20, fontSize: 9, padding: '0 8px', borderRadius: 0,
+                          background: isSuccess
+                            ? (isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.08)')
+                            : isFailed
+                              ? (isDarkMode ? 'rgba(214, 85, 65, 0.12)' : 'rgba(214, 85, 65, 0.08)')
+                              : (isDarkMode ? 'rgba(255, 140, 0, 0.12)' : 'rgba(255, 140, 0, 0.08)'),
+                          border: `1px solid ${statusColor}`,
+                          color: statusColor,
+                          fontWeight: 600, textTransform: 'lowercase',
+                        }}>
+                          {status}
+                        </span>
+                        <FaChevronDown
+                          size={10}
+                          style={{
+                            color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                            transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                            transition: 'transform 0.15s ease',
+                          }}
+                        />
                       </div>
-
                     </div>
 
-                    {/* Bank Payment Confirmation - for bank transfers without a confirmed date */}
-                    {isBank && !isSuccess && onConfirmBankPayment && (
-                      <BankPaymentConfirmation
-                        paymentId={paymentId}
-                        isDarkMode={isDarkMode}
-                        onConfirm={onConfirmBankPayment}
-                      />
-                    )}
+                    {/* Expanded Detail (data bar pattern) */}
+                    {isExpanded && (
+                      <div style={{
+                        fontFamily: 'Raleway, sans-serif',
+                        borderTop: `1px solid ${isDarkMode ? `${colours.dark.border}40` : (colours.highlightNeutral || 'rgba(0,0,0,0.06)')}`,
+                      }}>
+                        {/* Detail data bar */}
+                        <div style={{
+                          display: 'flex',
+                          flexWrap: 'wrap',
+                          gap: 0,
+                          padding: '10px 0',
+                          background: isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(244, 244, 246, 0.25)',
+                          borderRadius: 0,
+                        }}>
+                          {/* Date */}
+                          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-start', minHeight: 34, gap: 4, padding: '0 14px' }}>
+                            <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Date</span>
+                            <span style={{ fontSize: 12, fontWeight: 500, fontFamily: 'Raleway, sans-serif', color: isDarkMode ? '#d1d5db' : '#374151', textAlign: 'left' }}>
+                              {formattedDate}{formattedTime ? ` ${formattedTime}` : ''}
+                            </span>
+                          </div>
+                          <div style={{ width: 1, background: sep, margin: '4px 0' }} />
 
+                          {/* Amount */}
+                          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-start', minHeight: 34, gap: 4, padding: '0 14px' }}>
+                            <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Amount</span>
+                            <span style={{ fontSize: 12, fontWeight: 600, fontFamily: 'Raleway, sans-serif', color: colours.highlight, textAlign: 'left' }}>
+                              £{Number(payment.amount || 0).toLocaleString()}
+                            </span>
+                          </div>
+                          <div style={{ width: 1, background: sep, margin: '4px 0' }} />
+
+                          {/* Currency */}
+                          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-start', minHeight: 34, gap: 4, padding: '0 14px' }}>
+                            <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Currency</span>
+                            <span style={{ fontSize: 12, fontWeight: 500, color: isDarkMode ? '#d1d5db' : '#374151', textTransform: 'uppercase', textAlign: 'left' }}>
+                              {(payment.currency || 'GBP').toString().toUpperCase()}
+                            </span>
+                          </div>
+                          <div style={{ width: 1, background: sep, margin: '4px 0' }} />
+
+                          {/* Method */}
+                          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-start', minHeight: 34, gap: 4, padding: '0 14px' }}>
+                            <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Method</span>
+                            <span style={{ fontSize: 12, fontWeight: 500, color: isDarkMode ? '#d1d5db' : '#374151', display: 'flex', alignItems: 'center', gap: 4, textAlign: 'left' }}>
+                              {isCard ? <FaCreditCard size={10} /> : isBank ? <FaBuilding size={10} /> : null}
+                              {methodLabel}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Service description */}
+                        <div style={{
+                          padding: '10px 14px',
+                          borderTop: `1px solid ${sep}`,
+                        }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-start', minHeight: 34, gap: 4 }}>
+                            <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Service</span>
+                            <span style={{ fontSize: 12, fontWeight: 500, lineHeight: 1.5, color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : '#061733', textAlign: 'left' }}>
+                              {serviceLabel}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* IDs & Ref */}
+                        <div style={{
+                          padding: '10px 14px',
+                          borderTop: `1px solid ${sep}`,
+                          display: 'flex', flexWrap: 'wrap', gap: 12,
+                        }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-start', minHeight: 34, gap: 4 }}>
+                            <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Payment ID</span>
+                            <span
+                              style={{ fontSize: 11, fontWeight: 500, fontFamily: 'Raleway, sans-serif', color: isDarkMode ? '#d1d5db' : '#374151', cursor: 'pointer', wordBreak: 'break-all', textAlign: 'left' }}
+                              onClick={(e) => { e.stopPropagation(); void safeCopy(paymentIdRaw); showToast({ type: 'success', message: 'Payment ID copied' }); }}
+                              title="Click to copy"
+                            >
+                              {paymentIdRaw}
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-start', minHeight: 34, gap: 4 }}>
+                            <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Instruction Ref</span>
+                            <span
+                              style={{ fontSize: 11, fontWeight: 500, fontFamily: 'Raleway, sans-serif', color: isDarkMode ? '#d1d5db' : '#374151', cursor: 'pointer', textAlign: 'left' }}
+                              onClick={(e) => { e.stopPropagation(); void safeCopy(paymentRef); showToast({ type: 'success', message: 'Ref copied' }); }}
+                              title="Click to copy"
+                            >
+                              {paymentRef}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Actions bar */}
+                        <div style={{
+                          display: 'flex', alignItems: 'center', gap: 6,
+                          padding: '8px 14px',
+                          borderTop: `1px solid ${sep}`,
+                        }}>
+                          {payment.receipt_url && (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); window.open(payment.receipt_url, '_blank'); }}
+                              style={{
+                                display: 'inline-flex', alignItems: 'center', gap: 5,
+                                padding: '5px 10px',
+                                background: 'transparent',
+                                color: isDarkMode ? '#d1d5db' : '#374151',
+                                border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.15)' : 'rgba(0, 0, 0, 0.08)'}`,
+                                borderRadius: 0,
+                                fontSize: 10, fontWeight: 700,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              <FaReceipt size={9} />
+                              View Receipt
+                              <FaChevronRight size={8} style={{ opacity: 0.5 }} />
+                            </button>
+                          )}
+                          <div style={{ flex: 1 }} />
+                          {/* Bank Payment Confirmation */}
+                          {isBank && !isSuccess && onConfirmBankPayment && (
+                            <BankPaymentConfirmation
+                              paymentId={paymentId}
+                              isDarkMode={isDarkMode}
+                              onConfirm={onConfirmBankPayment}
+                            />
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            );
-          })}
-          </>
+                );
+              })}
+            </div>
           )}
         </div>
       </div>
@@ -2130,33 +3123,33 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
       onClick={handleWorkbenchClick}
       onMouseDown={(e) => e.stopPropagation()}
       style={{
-        background: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
-        border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-        borderRadius: 4,
-        overflow: 'hidden',
+        background: 'transparent',
+        border: 'none',
+        borderRadius: 0,
+        overflow: 'visible',
         marginBottom: 0,
         fontFamily: 'Raleway, sans-serif',
         position: 'relative',
         zIndex: 5,
         pointerEvents: 'auto',
-        boxShadow: isDarkMode ? '0 12px 28px rgba(0,0,0,0.35)' : '0 10px 24px rgba(15,23,42,0.08)',
+        boxShadow: 'none',
       }}
     >
-      {/* Pipeline Tabs - Instructed → ID → Pay → Risk → Matter → Docs */}
+      {/* Pipeline Tabs - Instructed → Pay → ID → Risk → Matter → Docs */}
       {pipelineStages.length > 0 && (
       <div 
         data-action-button="true"
         onClick={(e) => e.stopPropagation()}
         onMouseDown={(e) => e.stopPropagation()}
         style={{
-          padding: '8px 16px',
-          borderBottom: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-          background: isDarkMode ? 'rgba(11, 18, 32, 0.65)' : 'rgba(255, 255, 255, 0.8)',
+          padding: '10px 16px 12px',
+          borderBottom: `1px solid ${isDarkMode ? colours.dark.border : colours.grey}`,
+          background: isDarkMode ? colours.dark.sectionBackground : 'rgba(255, 255, 255, 0.8)',
           position: 'relative',
           zIndex: 20,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           {pipelineStages.map((stage, idx) => {
             const prevStage = idx > 0 ? pipelineStages[idx - 1] : null;
             // Enquiry and Pitch are context stages (data views)
@@ -2184,7 +3177,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
             // This shows the progression/link between stages has been achieved
             const connectorColor = prevStage?.isComplete 
               ? colours.highlight  // Blue when previous stage is complete
-              : (isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)'); // Gray otherwise
+              : (isDarkMode ? colours.dark.border : '#d1d5db'); // Gray otherwise
 
             // Click Handler
             const handleClick = (e: React.MouseEvent) => {
@@ -2216,20 +3209,34 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
             // Is the connector "lit" (previous stage complete)?
             const isConnectorLit = prevStage?.isComplete;
 
+            const chipBaseBackground = isActive
+              ? 'rgba(54, 144, 206, 0.12)'
+              : (isDarkMode ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)');
+            const chipBaseBorder = isActive
+              ? '1px solid rgba(54, 144, 206, 0.45)'
+              : `1px solid ${isDarkMode ? colours.dark.border : `${colours.subtleGrey}33`}`;
+            const chipBaseOpacity = stage.status === 'pending' || stage.status === 'neutral' ? 0.7 : 1;
+            const chipHoverBackground = isActive
+              ? 'rgba(54, 144, 206, 0.16)'
+              : (isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.06)');
+            const chipHoverBorder = isActive
+              ? '1px solid rgba(54, 144, 206, 0.55)'
+              : '1px solid rgba(54, 144, 206, 0.35)';
+
             return (
               <React.Fragment key={stage.key}>
-                {/* Connector line - lights up blue when previous stage is complete */}
+                {/* Connector line - lights up green when previous stage is complete */}
                 {idx > 0 && (
                   <div style={{ 
                     display: 'flex',
                     alignItems: 'center',
                   }}>
                     <div style={{
-                      height: 1.5,
-                      width: 10,
+                      height: 2,
+                      width: 12,
                       background: isConnectorLit 
-                        ? 'rgba(54, 144, 206, 0.7)'
-                        : (isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.25)'),
+                        ? colours.green
+                        : (isDarkMode ? colours.dark.border : `${colours.greyText}66`),
                       borderRadius: 1,
                       margin: '0 2px',
                     }} />
@@ -2239,42 +3246,59 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                 <button
                   type="button"
                   onClick={handleClick}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = chipHoverBackground;
+                    e.currentTarget.style.border = chipHoverBorder;
+                    e.currentTarget.style.opacity = '1';
+                    e.currentTarget.style.transform = 'translateY(-1px)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = chipBaseBackground;
+                    e.currentTarget.style.border = chipBaseBorder;
+                    e.currentTarget.style.opacity = String(chipBaseOpacity);
+                    e.currentTarget.style.transform = 'translateY(0)';
+                  }}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
+                    justifyContent: 'center',
                     gap: 6,
                     padding: '6px 12px',
-                    borderRadius: '16px',
-                    background: isActive 
-                      ? 'rgba(125, 211, 252, 0.12)' 
-                      : (isDarkMode ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)'),
-                    border: isActive 
-                      ? '1px solid rgba(125, 211, 252, 0.45)' 
-                      : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.2)'}`,
+                    minHeight: 28,
+                    height: 28,
+                    borderRadius: 0,
+                    background: chipBaseBackground,
+                    border: chipBaseBorder,
                     cursor: 'pointer',
                     transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                     boxShadow: 'none',
                     color: statusColors.text,
                     fontSize: 11,
                     fontWeight: isActive ? 700 : 600,
+                    lineHeight: 1,
                     fontFamily: 'inherit',
                     whiteSpace: 'nowrap' as const,
                     position: 'relative',
-                    zIndex: isActive ? 10 : 1,
-                    opacity: stage.status === 'pending' || stage.status === 'neutral' ? 0.7 : 1,
+                    zIndex: 1,
+                    opacity: chipBaseOpacity,
                   }}
-                  title={stage.date ? `${stage.label}: ${stage.date}` : stage.label}
+                  title={stage.date ? `${stage.label}: ${stage.date}` : `${stage.label}${stage.status === 'pending' || stage.status === 'neutral' ? ' — no records yet' : ''}`}
                 >
                   <span style={{ 
-                    display: 'flex',
+                    display: 'inline-flex',
                     alignItems: 'center',
+                    justifyContent: 'center',
+                    width: 12,
+                    minWidth: 12,
                     color: statusColors.text, 
                     opacity: isActive ? 1 : 0.9,
                   }}>
                     {stage.icon}
                   </span>
                   
-                  <span>{stage.label}</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', lineHeight: 1 }}>
+                    {stage.label}
+                  </span>
 
                   {/* Status Badges / Checks */}
                   {(stage as any).count !== undefined && (stage as any).count > 0 ? (
@@ -2285,22 +3309,39 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                       display: 'flex',
                       alignItems: 'center',
                       borderRadius: 999,
-                      background: 'rgba(148, 163, 184, 0.18)',
-                      color: isDarkMode ? 'rgba(226, 232, 240, 0.8)' : 'rgba(15, 23, 42, 0.7)',
+                      background: isDarkMode ? `${colours.subtleGrey}2e` : `${colours.subtleGrey}2e`,
+                      color: isDarkMode ? 'rgba(243, 244, 246, 0.8)' : 'rgba(6, 23, 51, 0.7)',
                       marginLeft: 2,
+                      flexShrink: 0,
                     }}>
                       {(stage as any).count}
                     </span>
                   ) : stage.isComplete ? (
-                    <FaCheck size={9} style={{ 
-                      color: colours.highlight, 
+                    <span style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: 12,
+                      minWidth: 12,
+                      height: 12,
                       marginLeft: 2,
-                    }} />
+                      flexShrink: 0,
+                    }}>
+                      <FaCheck size={9} style={{ color: colours.highlight }} />
+                    </span>
                   ) : stage.hasIssue ? (
-                    <FaExclamationTriangle size={9} style={{ 
-                      color: '#ef4444', 
-                      marginLeft: 2 
-                    }} />
+                    <span style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: 12,
+                      minWidth: 12,
+                      height: 12,
+                      marginLeft: 2,
+                      flexShrink: 0,
+                    }}>
+                      <FaExclamationTriangle size={9} style={{ color: '#D65541' }} />
+                    </span>
                   ) : null}
                 </button>
               </React.Fragment>
@@ -2312,20 +3353,20 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
       {/* Tab content - expand as needed */}
       <div style={{
-        padding: '18px 20px 20px 20px',
+        padding: '6px 8px 8px 8px',
         minHeight: 96,
-        border: `1px solid ${isTabbedContent ? activeTabPalette.border : (isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.12)')}`,
+        border: 'none',
         borderTop: 'none',
-        borderRadius: 4,
+        borderRadius: 0,
         marginTop: 0,
         marginBottom: 0,
         boxShadow: 'none',
         transform: 'none',
-        transition: 'border-color 0.2s ease, box-shadow 0.2s ease',
+        transition: 'none',
       }}>
         {/* Details Tab - Client/Entity information landing page */}
         {activeTab === 'details' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {(() => {
               // Respect activeContextStage even if chips are hidden
               const contextStage: ContextStageKey = activeContextStage ?? 'enquiry';
@@ -2333,11 +3374,11 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
               return (
                 <>
                   {/* Client Type Banner - Prominent cue for company vs individual */}
-                  {isCompany && (
+                  {isCompany && contextStage !== 'instructed' && (
                     <div style={{
-                      padding: '8px 14px',
-                      background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
-                      border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.18)'}`,
+                      padding: flatEmbedMode ? '4px 0 8px' : '8px 14px',
+                      background: flatEmbedMode ? 'transparent' : (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)'),
+                      border: flatEmbedMode ? 'none' : `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.18)'}`,
                       borderRadius: 0,
                       display: 'flex',
                       alignItems: 'center',
@@ -2347,7 +3388,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                       <span style={{ fontSize: 10, fontWeight: 800, color: colours.highlight, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                         Company Client
                       </span>
-                      <span style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.8)', marginLeft: 4 }}>
+                      <span style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? 'rgba(243, 244, 246, 0.85)' : 'rgba(6, 23, 51, 0.8)', marginLeft: 4 }}>
                         {companyName !== '—' ? companyName : ''}
                         {companyNo !== '—' && <span style={{ fontFamily: 'monospace', marginLeft: 6, opacity: 0.7 }}>({companyNo})</span>}
                       </span>
@@ -2356,10 +3397,10 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
                   {/* Client/Entity Header Card */}
                   <div style={{
-                    background: isDarkMode ? 'rgba(15, 23, 42, 0.45)' : 'rgba(255, 255, 255, 0.7)',
-                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
+                    background: 'transparent',
+                    border: 'none',
                     borderRadius: 0,
-                    padding: '12px 14px',
+                    padding: '0',
                   }}>
 
 
@@ -2371,10 +3412,10 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                           alignItems: 'center',
                           gap: 6,
                           padding: '4px 8px',
-                          borderRadius: 4,
-                          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(15, 23, 42, 0.06)'}`,
-                          background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : 'rgba(15, 23, 42, 0.02)',
-                          color: isDarkMode ? 'rgba(226, 232, 240, 0.78)' : 'rgba(15, 23, 42, 0.72)',
+                          borderRadius: 0,
+                          border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.12)' : 'rgba(6, 23, 51, 0.06)'}`,
+                          background: isDarkMode ? 'rgba(160, 160, 160, 0.04)' : 'rgba(6, 23, 51, 0.02)',
+                          color: isDarkMode ? 'rgba(243, 244, 246, 0.78)' : 'rgba(6, 23, 51, 0.72)',
                           fontSize: 10,
                           fontWeight: 500,
                           lineHeight: 1,
@@ -2396,23 +3437,14 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
                         const resolveAowAccent = (raw: any): string => {
                           const a = String(raw ?? '').toLowerCase();
-                          if (a.includes('commercial')) return 'rgb(54, 144, 206)';
-                          if (a.includes('construction')) return 'rgb(240, 124, 80)';
-                          if (a.includes('property')) return 'rgb(115, 171, 96)';
-                          if (a.includes('employment')) return 'rgb(214, 176, 70)';
-                          return 'rgb(214, 85, 65)';
+                          if (a.includes('commercial')) return colours.blue;
+                          if (a.includes('construction')) return colours.orange;
+                          if (a.includes('property')) return colours.green;
+                          if (a.includes('employment')) return colours.yellow;
+                          return colours.greyText;
                         };
 
-                        const getAreaOfWorkIcon = (raw: any): string => {
-                          const a = String(raw ?? '').toLowerCase().trim();
-                          if (a.includes('triage')) return '🩺';
-                          if (a.includes('construction') || a.includes('building')) return '🏗️';
-                          if (a.includes('property') || a.includes('real estate') || a.includes('conveyancing')) return '🏠';
-                          if (a.includes('commercial') || a.includes('business')) return '🏢';
-                          if (a.includes('employment') || a.includes('hr') || a.includes('workplace')) return '👩🏻‍💼';
-                          if (a.includes('allocation')) return '📂';
-                          return 'ℹ️';
-                        };
+                        const getAreaOfWorkIcon = (raw: any): string => getAreaOfWorkEmoji(String(raw ?? ''));
 
                         const renderTag = (opts: {
                           iconName: string;
@@ -2451,24 +3483,183 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                           const aowAccent = resolveAowAccent(areaOfWork);
                           
                           // Determine rating styling
-                          const ratingColor = enquiryRating === 'Good' ? colours.highlight : enquiryRating === 'Poor' ? '#ef4444' : (isDarkMode ? 'rgba(148, 163, 184, 0.6)' : '#64748b');
+                          const ratingColor = enquiryRating === 'Good' ? colours.highlight : enquiryRating === 'Poor' ? colours.cta : (isDarkMode ? colours.subtleGrey : colours.greyText);
                           
-                          // Claim timestamp for new space enquiries (from enquiry record or enrichment data)
-                          const claimTimestampRaw = getValue(['claim', 'Claim', 'ClaimTimestamp', 'claim_timestamp', 'AllocatedAt', 'allocated_at', 'ClaimedAt', 'claimed_at']);
+                          // Claim timestamp for new space enquiries (from enquiry record, enrichment, or instruction data)
+                          // Use empty-string fallback so we can fall through to enrichment data
+                          const claimFromEnquiry = getValue(['claim', 'Claim', 'ClaimTimestamp', 'claim_timestamp', 'AllocatedAt', 'allocated_at', 'ClaimedAt', 'claimed_at'], '');
+                          const claimTimestampRaw = (claimFromEnquiry && claimFromEnquiry !== '—')
+                            ? claimFromEnquiry
+                            : enrichmentTeamsData?.ClaimedAt || null;
+
+                          const parseDateSafe = (value: any): Date | null => {
+                            if (value === null || value === undefined || value === '') return null;
+                            if (value instanceof Date) {
+                              return Number.isNaN(value.getTime()) ? null : value;
+                            }
+                            if (typeof value === 'number') {
+                              const ts = value < 1e12 ? value * 1000 : value;
+                              const d = new Date(ts);
+                              return Number.isNaN(d.getTime()) ? null : d;
+                            }
+                            if (typeof value === 'string') {
+                              const raw = value.trim();
+                              if (!raw) return null;
+                              if (/^\d{10,13}$/.test(raw)) {
+                                const n = Number(raw);
+                                if (!Number.isNaN(n)) {
+                                  const ts = raw.length === 10 ? n * 1000 : n;
+                                  const d = new Date(ts);
+                                  if (!Number.isNaN(d.getTime())) return d;
+                                }
+                              }
+                              const d = new Date(raw);
+                              return Number.isNaN(d.getTime()) ? null : d;
+                            }
+                            return null;
+                          };
+
+                          const hasExplicitTime = (value: any): boolean => {
+                            if (!value) return false;
+                            if (typeof value === 'string') {
+                              const raw = value.trim();
+                              if (!raw) return false;
+                              if (/^\d{10,13}$/.test(raw)) return true;
+                              return /T\d{2}:\d{2}/.test(raw) || /(?:^|\D)\d{1,2}[:.]\d{2}(?::\d{2})?(?:\D|$)/.test(raw);
+                            }
+                            return value instanceof Date || typeof value === 'number';
+                          };
+
+                          const parseClockTime = (value: any): string | null => {
+                            if (!value) return null;
+                            if (typeof value === 'string') {
+                              const raw = value.trim();
+                              if (!raw) return null;
+                              const m = raw.match(/(\d{1,2})[:.](\d{2})/);
+                              if (m) {
+                                const hh = Math.max(0, Math.min(23, Number(m[1])));
+                                const mm = Math.max(0, Math.min(59, Number(m[2])));
+                                return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+                              }
+                            }
+                            try {
+                              const d = parseDateSafe(value);
+                              if (!d) return null;
+                              return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+                            } catch {
+                              return null;
+                            }
+                          };
+
+                          const mergeDateAndClock = (dateValue: any, clockValue: any): Date | null => {
+                            const hhmm = parseClockTime(clockValue);
+                            if (!dateValue || !hhmm) return null;
+                            try {
+                              const base = parseDateSafe(dateValue);
+                              if (!base) return null;
+                              const [hh, mm] = hhmm.split(':').map((v) => Number(v));
+                              const merged = new Date(base);
+                              merged.setHours(hh, mm, 0, 0);
+                              return merged;
+                            } catch {
+                              return null;
+                            }
+                          };
                           
-                          // Teams timestamp from enrichment data (same source as prospects table uses)
-                          const teamsTimestampRaw = enrichmentTeamsData?.MessageTimestamp 
+                          // Teams timestamp from enrichment data — prefer ClaimedAt (actual claim time),
+                          // then MessageTimestamp (original bot card), then CreatedAt (tracking record)
+                          const teamsTimestampRaw = enrichmentTeamsData?.ClaimedAt
+                            || enrichmentTeamsData?.MessageTimestamp 
                             || enrichmentTeamsData?.CreatedAt 
                             || (enrichmentTeamsData?.CreatedAtMs ? new Date(enrichmentTeamsData.CreatedAtMs).toISOString() : null);
+
+                          const claimedFallbackRaw = getValue([
+                            'ClaimedDateTime',
+                            'claimedDateTime',
+                            'ClaimedDate',
+                            'claimedDate',
+                            'Date_Claimed',
+                            'date_claimed',
+                            'DateClaimed',
+                            'dateClaimed',
+                            'Claimed_On',
+                            'claimed_on',
+                            'ClaimedOn',
+                            'claimedOn',
+                          ], '');
+
+                          const claimTimeRaw =
+                            getValue(['ClaimedTime', 'claimedTime', 'Claim_Time', 'claim_time', 'AllocatedTime', 'allocatedTime', 'allocated_time', 'ClaimTime'], '') ||
+                            (enquiry as any)?.ClaimedTime || (enquiry as any)?.claimedTime || (enquiry as any)?.Claim_Time || (enquiry as any)?.claim_time ||
+                            (inst as any)?.ClaimedTime || (inst as any)?.claimedTime || (inst as any)?.Claim_Time || (inst as any)?.claim_time ||
+                            null;
                           
+                          const claimedByInitials = (() => {
+                            const raw = String(pointOfContact || '').trim();
+                            if (!raw || raw === '—') return '—';
+                            if (/^[A-Za-z]{1,4}$/.test(raw)) return raw.toUpperCase();
+                            const parts = raw.split(/\s+/).filter(Boolean);
+                            if (parts.length >= 2) {
+                              return `${parts[0][0] || ''}${parts[1][0] || ''}`.toUpperCase();
+                            }
+                            return raw.slice(0, 2).toUpperCase();
+                          })();
+
                           // Prefer Teams timestamp from enrichment, fall back to claim timestamp
-                          const teamsTime = (() => {
-                            const raw = teamsTimestampRaw || (claimTimestampRaw !== '—' ? claimTimestampRaw : null);
-                            if (!raw) return null;
+                          const claimedDateTime = (() => {
+                            const claimDateBase = teamsTimestampRaw || claimTimestampRaw || claimedFallbackRaw || submissionDateRaw || null;
+                            const mergedClaimDateTime = mergeDateAndClock(claimDateBase, claimTimeRaw);
+                            const candidates: Array<{ value: string | number | Date; allowTime: boolean }> = [
+                              { value: mergedClaimDateTime, allowTime: true },
+                              { value: teamsTimestampRaw, allowTime: true },
+                              { value: claimTimestampRaw, allowTime: true },
+                              { value: claimedFallbackRaw || null, allowTime: true },
+                              { value: submissionDateRaw, allowTime: false },
+                            ].filter((item) => Boolean(item.value)) as Array<{ value: string | number | Date; allowTime: boolean }>;
+
+                            let dateOnlyFallback: string | null = null;
+
+                            for (const candidate of candidates) {
+                              try {
+                                const d = parseDateSafe(candidate.value);
+                                if (d) {
+                                  const date = formatRelativeDay(d);
+                                  const hasIntrinsicTime = d.getHours() !== 0 || d.getMinutes() !== 0 || d.getSeconds() !== 0;
+                                  const canShowTime = candidate.allowTime && (hasExplicitTime(candidate.value) || hasIntrinsicTime);
+                                  if (canShowTime) {
+                                    const time = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+                                    return `${date} ${time}`;
+                                  }
+                                  if (!dateOnlyFallback) dateOnlyFallback = date;
+                                }
+                              } catch {
+                                // continue to next candidate
+                              }
+                            }
+
+                            return dateOnlyFallback;
+                          })();
+
+                          // Duration between touchpoint and claim
+                          const claimDuration = (() => {
+                            const claimRaw = teamsTimestampRaw || claimTimestampRaw;
+                            if (!submissionDateRaw || submissionDateRaw === '—' || !claimRaw) return null;
+                            if (!hasExplicitTime(submissionDateRaw)) return null;
                             try {
-                              const d = new Date(raw);
-                              if (Number.isNaN(d.getTime())) return null;
-                              return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+                              const start = new Date(submissionDateRaw);
+                              const end = new Date(claimRaw);
+                              if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+                              const diffMs = end.getTime() - start.getTime();
+                              if (diffMs < 0) return null;
+                              const mins = Math.floor(diffMs / 60000);
+                              if (mins < 1) return '<1m';
+                              if (mins < 60) return `${mins}m`;
+                              const hrs = Math.floor(mins / 60);
+                              const remMins = mins % 60;
+                              if (hrs < 24) return remMins > 0 ? `${hrs}h ${remMins}m` : `${hrs}h`;
+                              const days = Math.floor(hrs / 24);
+                              const remHrs = hrs % 24;
+                              return remHrs > 0 ? `${days}d ${remHrs}h` : `${days}d`;
                             } catch { return null; }
                           })();
                           
@@ -2476,194 +3667,394 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                           const effectiveTeamsLink = enrichmentTeamsData?.teamsLink || teamsCardLink || null;
                           
                           // Teams chip shows if we have enrichment data, teamsCardLink, teamsIdentifier (can fetch), or claim time
-                          const hasTeamsData = Boolean(enrichmentTeamsData || teamsCardLink || teamsIdentifier || teamsTime || isDemoInstruction);
+                          const hasTeamsData = Boolean(enrichmentTeamsData || teamsCardLink || teamsIdentifier || claimedDateTime || isDemoInstruction);
+
+                          // Flattened layout tokens (no nested panel container)
+                          const textPrimary = isDarkMode ? colours.dark.text : colours.light.text;
+                          const textMuted = isDarkMode ? colours.subtleGrey : colours.greyText;
+                          const textBody = isDarkMode ? '#d1d5db' : '#374151';
+                          const dividerColour = isDarkMode ? colours.dark.border : colours.grey;
+                          const enquiryId = enquiry?.ID || enquiry?.id || '';
+
+                          // ── Ledger tokens ──
+                          const borderLine = isDarkMode ? `1px solid ${colours.dark.border}50` : `1px solid ${colours.highlightNeutral}`;
+                          const hoverBg = isDarkMode ? 'rgba(13, 47, 96, 0.25)' : 'rgba(214, 232, 255, 0.25)';
+                          const insetBg = isDarkMode ? 'rgba(0, 3, 25, 0.25)' : 'rgba(255, 255, 255, 0.4)';
+                          const separatorColor = isDarkMode ? `${colours.dark.border}40` : colours.highlightNeutral;
+
+                          // Dispatch edit event
+                          const dispatchEdit = (field: string) => {
+                            window.dispatchEvent(new CustomEvent('helix:edit-enquiry-field', {
+                              detail: { enquiryId: String(enquiryId), field, currentValue: getValue([field]) }
+                            }));
+                          };
+
+                          // Data bar column with hover-to-edit
+                          const DataCol = ({ label, value, accent, mono, icon: colIcon, onEdit, maxW }: {
+                            label: string;
+                            value: string;
+                            accent?: string;
+                            mono?: boolean;
+                            icon?: React.ReactNode;
+                            onEdit?: () => void;
+                            maxW?: number;
+                          }) => (
+                            <div
+                              style={{
+                                display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-start', minHeight: 34, gap: 4, padding: '0 14px',
+                                position: 'relative', cursor: onEdit ? 'default' : undefined,
+                              }}
+                              onMouseEnter={(e) => {
+                                const ed = e.currentTarget.querySelector('[data-edit]') as HTMLElement;
+                                if (ed) ed.style.opacity = '1';
+                              }}
+                              onMouseLeave={(e) => {
+                                const ed = e.currentTarget.querySelector('[data-edit]') as HTMLElement;
+                                if (ed) ed.style.opacity = '0';
+                              }}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: textMuted }}>{label}</span>
+                                {onEdit && (
+                                  <span
+                                    data-edit=""
+                                    style={{ opacity: 0, cursor: 'pointer', transition: 'opacity 0.12s ease', lineHeight: 1 }}
+                                    onClick={(e) => { e.stopPropagation(); onEdit(); }}
+                                    title={`Edit ${label.toLowerCase()}`}
+                                  >
+                                    <Icon iconName="Edit" styles={{ root: { fontSize: 8, color: textMuted } }} />
+                                  </span>
+                                )}
+                              </div>
+                              <span style={{
+                                fontSize: 12, fontWeight: value && value !== '—' ? 500 : 400,
+                                color: accent || (value && value !== '—' ? textBody : textMuted),
+                                fontFamily: mono ? 'Raleway, sans-serif' : 'Raleway, sans-serif',
+                                display: 'flex', alignItems: 'center', gap: 4,
+                                textAlign: 'left',
+                                maxWidth: maxW, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                              }}>
+                                {colIcon}{value}
+                              </span>
+                            </div>
+                          );
+
+                          // Vertical separator
+                          const Sep = () => (
+                            <div style={{ width: 1, alignSelf: 'stretch', background: separatorColor, margin: '4px 0' }} />
+                          );
+
+                          // Inline action chip (contact / integration)
+                          const actionChipStyle: React.CSSProperties = {
+                            display: 'inline-flex', alignItems: 'center', gap: 5,
+                            padding: '4px 9px', borderRadius: 0,
+                            border: borderLine, background: 'transparent',
+                            fontSize: 11, fontWeight: 500, fontFamily: 'inherit',
+                            cursor: 'pointer', transition: 'background 0.12s ease',
+                            whiteSpace: 'nowrap',
+                          };
+
+                          // Submission time (HH:MM) for v2/instruction space enquiries
+                          const submissionTime = (() => {
+                            const shouldHideTouchpointTime = (time: string | null): boolean => time === '00:00';
+                            const asTime = (value: any, requireExplicitTime: boolean = false): string | null => {
+                              if (!value) return null;
+                              if (requireExplicitTime && !hasExplicitTime(value)) return null;
+                              try {
+                                const d = new Date(value);
+                                if (Number.isNaN(d.getTime())) return null;
+                                return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+                              } catch {
+                                return null;
+                              }
+                            };
+
+                            // Primary: touchpoint datetime itself, but only if it actually contains time.
+                            if (submissionDateRaw && submissionDateRaw !== '—') {
+                              const iso = typeof submissionDateRaw === 'string' ? submissionDateRaw : '';
+                              const hasTime = /T\d{2}:/.test(iso) || /\d{2}:\d{2}/.test(iso);
+                              if (hasTime) {
+                                const direct = asTime(submissionDateRaw, true);
+                                if (direct && !shouldHideTouchpointTime(direct)) return direct;
+                              }
+                            }
+
+                            // Secondary: explicit time fields from enquiry/instruction payloads.
+                            const explicitTime =
+                              getValue(['Touchpoint_Time', 'touchpoint_time', 'SubmissionTime', 'submission_time', 'Time', 'time'], '') ||
+                              inst?.SubmissionTime || inst?.submissionTime || inst?.CreatedTime || inst?.createdTime ||
+                              (enquiry as any)?.Touchpoint_Time || (enquiry as any)?.touchpoint_time || null;
+                            const explicitParsed = asTime(explicitTime, true);
+                            if (explicitParsed && !shouldHideTouchpointTime(explicitParsed)) return explicitParsed;
+
+                            // Demo fallback: use claim timestamp time so touchpoint visuals stay representative.
+                            if (isDemoInstruction) {
+                              const demoFallback = asTime(teamsTimestampRaw || claimTimestampRaw || claimedFallbackRaw || null);
+                              if (demoFallback) return demoFallback;
+                            }
+
+                            return null;
+                          })();
+
+                          const enquiryHeaderDescription = 'Review details below.';
 
                           return (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                              
-                              {/* Row 1: Integration Chips + Timestamp */}
-                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                            <div style={{
+                              fontFamily: "'Raleway', 'Segoe UI', sans-serif",
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 8,
+                            }}>
+                              <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'flex-start',
+                                gap: 8,
+                                padding: flatEmbedMode ? '6px 0' : '8px 14px',
+                              }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                  {/* ActiveCampaign Chip */}
-                                  {acContactId && (
-                                    <a 
-                                      href={`https://helixlaw.activehosted.com/app/contacts/${acContactId}`}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      title={`Open ActiveCampaign Contact ${acContactId}`}
-                                      style={{ 
-                                        display: 'flex', alignItems: 'center', gap: 6,
-                                        padding: '5px 10px', borderRadius: 4,
-                                        background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
-                                        border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.15)'}`,
-                                        textDecoration: 'none',
-                                        transition: 'all 0.15s ease'
-                                      }}
-                                    >
-                                      <img src={activecampaignIcon} alt="AC" title="ActiveCampaign" style={{ width: 12, height: 12, filter: activeCampaignBlueFilter }} />
-                                      <span style={{ fontSize: 10, fontWeight: 600, color: colours.highlight, fontFamily: 'monospace' }}>{acContactId}</span>
-                                    </a>
-                                  )}
-                                  
-                                  {/* Teams Chip - blue styling like AC chip */}
-                                  {hasTeamsData && (
-                                    <div
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        if (effectiveTeamsLink) {
-                                          window.open(effectiveTeamsLink, '_blank');
-                                        } else if (teamsIdentifier && !teamsCardLink) {
-                                          // Trigger fetch if we have identifier but no link yet
-                                          void resolveTeamsCardLink();
-                                        }
-                                      }}
-                                      title={effectiveTeamsLink ? 'Open Teams Card' : 'Teams activity tracked'}
-                                      style={{ 
-                                        display: 'flex', alignItems: 'center', gap: 6,
-                                        padding: '5px 10px', borderRadius: 4,
-                                        background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
-                                        border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.15)'}`,
-                                        textDecoration: 'none',
-                                        cursor: effectiveTeamsLink ? 'pointer' : 'default',
-                                        transition: 'all 0.15s ease'
-                                      }}
-                                    >
-                                      <Icon iconName="TeamsLogo" styles={{ root: { fontSize: 12, color: colours.highlight } }} />
-                                      <span style={{ fontSize: 10, fontWeight: 600, color: colours.highlight }}>
-                                        {teamsTime ? `Claimed ${teamsTime}` : 'Teams'}
-                                      </span>
-                                    </div>
-                                  )}
-                                  
-                                  {/* Rating inline - clickable if unrated */}
-                                  <div 
+                                  <span style={{ color: headerCueAccent, display: 'flex', alignItems: 'center' }}>
+                                    <FaEnvelope size={12} />
+                                  </span>
+                                  <span style={{
+                                    fontSize: 10,
+                                    fontWeight: 800,
+                                    textTransform: 'uppercase',
+                                    letterSpacing: '0.5px',
+                                    color: headerCueAccent,
+                                  }}>
+                                    Enquiry claimed
+                                  </span>
+                                  <span style={{
+                                    fontSize: 10,
+                                    fontWeight: 600,
+                                    color: isDarkMode ? 'rgba(243, 244, 246, 0.85)' : 'rgba(6, 23, 51, 0.78)',
+                                    marginLeft: 4,
+                                  }}>
+                                    {enquiryHeaderDescription}
+                                  </span>
+                                </div>
+                              </div>
+
+                              {(submissionDate && submissionDate !== '—') || hasTeamsData ? (
+                                <div style={{
+                                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+                                  padding: flatEmbedMode ? '0 0 2px' : '0 14px 2px', minHeight: 36,
+                                }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+                                    {submissionDate && submissionDate !== '—' && (
+                                      <div style={{
+                                        display: 'flex', alignItems: 'center', gap: 5,
+                                        padding: '5px 10px', borderRadius: 0,
+                                        background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0,0,0,0.03)',
+                                        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0,0,0,0.04)'}`,
+                                        flexShrink: 0,
+                                      }}>
+                                        <FaClock size={10} style={{ color: textMuted }} />
+                                        <span style={{ fontSize: 10, fontWeight: 600, color: textBody }}>
+                                          Touchpoint · {formatRelativeDateOnly(submissionDateRaw)}{submissionTime && <span style={{ color: textMuted, fontWeight: 500 }}> · {submissionTime}</span>}
+                                        </span>
+                                      </div>
+                                    )}
+
+                                    {hasTeamsData && (
+                                      <div style={{
+                                        display: 'flex', alignItems: 'center', width: 60,
+                                        margin: '0 2px',
+                                      }}>
+                                        <div style={{
+                                          flex: 1, height: 1,
+                                          background: isDarkMode ? `${colours.dark.border}60` : '#e2e8f0',
+                                        }} />
+                                        {claimDuration && (
+                                          <span style={{
+                                            fontSize: 9,
+                                            fontWeight: isDarkMode ? 700 : 600,
+                                            color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                                            opacity: isDarkMode ? 1 : 0.72,
+                                            padding: '1px 5px',
+                                            whiteSpace: 'nowrap',
+                                          }}>
+                                            {claimDuration}
+                                          </span>
+                                        )}
+                                        <div style={{
+                                          flex: 1, height: 1,
+                                          background: isDarkMode ? `${colours.dark.border}60` : '#e2e8f0',
+                                        }} />
+                                      </div>
+                                    )}
+
+                                    {hasTeamsData && (
+                                      <div
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          if (effectiveTeamsLink) window.open(effectiveTeamsLink, '_blank');
+                                          else if (teamsIdentifier && !teamsCardLink) void resolveTeamsCardLink();
+                                        }}
+                                        title={effectiveTeamsLink ? 'Open Teams Card' : 'Teams activity tracked'}
+                                        style={{
+                                          display: 'flex', alignItems: 'center', gap: 6,
+                                          padding: '5px 10px', borderRadius: 0,
+                                          background: isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.08)',
+                                          border: `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.25)' : 'rgba(32, 178, 108, 0.16)'}`,
+                                          cursor: effectiveTeamsLink ? 'pointer' : 'default',
+                                          transition: 'all 0.15s ease',
+                                          flexShrink: 0,
+                                        }}
+                                      >
+                                        <Icon iconName="TeamsLogo" styles={{ root: { fontSize: 12, color: colours.green } }} />
+                                        {claimedDateTime ? (
+                                          <span style={{ fontSize: 10, fontWeight: 600, color: colours.green }}>
+                                            Claimed by {claimedByInitials}
+                                            <span style={{ color: isDarkMode ? 'rgba(32, 178, 108, 0.8)' : 'rgba(32, 178, 108, 0.9)', fontWeight: 500 }}> · {claimedDateTime}</span>
+                                          </span>
+                                        ) : (
+                                          <span style={{ fontSize: 10, fontWeight: 600, color: colours.green }}>Teams</span>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  <div
                                     onClick={() => {
                                       if (!enquiryRating || enquiryRating === '—') {
-                                        const enquiryId = enquiry?.ID || enquiry?.id;
-                                        if (enquiryId) {
-                                          window.dispatchEvent(new CustomEvent('helix:rate-enquiry', { detail: { enquiryId: String(enquiryId) } }));
-                                        }
+                                        const eid = enquiry?.ID || enquiry?.id;
+                                        if (eid) window.dispatchEvent(new CustomEvent('helix:rate-enquiry', { detail: { enquiryId: String(eid) } }));
                                       }
                                     }}
                                     title={!enquiryRating || enquiryRating === '—' ? 'Click to rate this enquiry' : `Rated: ${enquiryRating}`}
-                                    style={{ 
+                                    style={{
                                       display: 'flex', alignItems: 'center', gap: 5,
-                                      padding: '5px 10px', borderRadius: 4,
+                                      padding: '5px 10px', borderRadius: 0,
                                       background: isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(0,0,0,0.02)',
                                       border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0,0,0,0.04)'}`,
                                       cursor: (!enquiryRating || enquiryRating === '—') ? 'pointer' : 'default',
-                                      transition: 'all 0.15s ease'
+                                      transition: 'all 0.15s ease',
+                                      flexShrink: 0,
                                     }}
                                   >
-                                    <Icon iconName={enquiryRating === 'Good' ? 'Like' : enquiryRating === 'Poor' ? 'Dislike' : 'FavoriteStar'} styles={{ root: { fontSize: 11, color: ratingColor } }} />
+                                    {enquiryRating === 'Good' ? <Icon iconName="Like" styles={{ root: { fontSize: 11, color: ratingColor } }} />
+                                    : enquiryRating === 'Poor' ? <Icon iconName="Dislike" styles={{ root: { fontSize: 11, color: ratingColor } }} />
+                                    : <FaStar size={11} color={ratingColor} />}
                                     <span style={{ fontSize: 10, fontWeight: 600, color: ratingColor }}>{enquiryRating || 'Rate'}</span>
                                   </div>
                                 </div>
-                                
-                                {/* Timestamp */}
-                                <div style={{ 
-                                  display: 'flex', alignItems: 'center', gap: 6, 
-                                  fontSize: 11, 
-                                  color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : '#475569',
-                                  background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0,0,0,0.03)',
-                                  padding: '4px 10px',
-                                  borderRadius: 4
-                                }}>
-                                  <FaClock size={10} />
-                                  <span style={{ fontWeight: 600 }}>{submissionDate}</span>
-                                </div>
-                              </div>
+                              ) : null}
 
-                              {/* Row 2: Key Info Strip */}
-                              <div style={{ 
-                                display: 'flex', flexWrap: 'wrap', gap: 0, 
-                                padding: '10px 0',
-                                background: isDarkMode ? 'rgba(2, 6, 23, 0.4)' : '#f8fafc',
-                                borderRadius: 6,
-                                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : '#e2e8f0'}`
+                              <div style={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: 10,
+                                background: isDarkMode ? 'rgba(6, 23, 51, 0.45)' : 'rgba(255, 255, 255, 0.7)',
+                                border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
+                                borderRadius: 0,
+                                padding: '12px 14px',
                               }}>
-                                {/* Area with icon */}
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
-                                  <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Area</span>
-                                  <span style={{ fontSize: 12, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 5, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b' }}>
-                                    <span style={{ fontSize: 14 }}>{getAreaOfWorkIcon(areaOfWork)}</span>
-                                    {areaOfWork || '—'}
-                                  </span>
-                                </div>
-                                
-                                {/* Type */}
+
+                              {/* ── Data bar: horizontal columns with vertical separators ── */}
+                              <div style={{
+                                display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 0,
+                                padding: '14px 0',
+                                border: `1px solid ${separatorColor}`,
+                                background: isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(244, 244, 246, 0.4)',
+                              }}>
+                                <DataCol
+                                  label="Area" value={areaOfWork ? areaOfWork.charAt(0).toUpperCase() + areaOfWork.slice(1) : '—'}
+                                  icon={
+                                    <span
+                                      style={{
+                                        display: 'inline-flex',
+                                        width: 7,
+                                        height: 7,
+                                        borderRadius: '50%',
+                                        background: areaOfWork && areaOfWork !== '—' ? aowAccent : (isDarkMode ? colours.subtleGrey : colours.greyText),
+                                        boxShadow: areaOfWork && areaOfWork !== '—' ? `0 0 0 1px ${isDarkMode ? 'rgba(0, 3, 25, 0.5)' : 'rgba(255, 255, 255, 0.85)'}` : 'none',
+                                        flexShrink: 0,
+                                      }}
+                                    />
+                                  }
+                                  onEdit={() => dispatchEdit('Area_of_Work')}
+                                />
                                 {isMeaningful(typeOfWork) && (
-                                  <>
-                                    <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
-                                      <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Type</span>
-                                      <span style={{ fontSize: 12, fontWeight: 500, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b' }}>{typeOfWork}</span>
-                                    </div>
-                                  </>
+                                  <><Sep /><DataCol label="Type" value={String(typeOfWork)} onEdit={() => dispatchEdit('Type_of_Work')} /></>
                                 )}
-                                
-                                {/* Separator */}
-                                <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
-                                
-                                {/* POC */}
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
-                                  <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Claimed By</span>
-                                  <span style={{ fontSize: 12, fontWeight: 600, color: pointOfContact ? colours.highlight : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
-                                    {pointOfContact || 'Unclaimed'}
-                                  </span>
-                                </div>
-                                
-                                {/* Separator */}
-                                <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
-                                
-                                {/* Value - always show */}
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
-                                  <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Value</span>
-                                  <span style={{ fontSize: 12, fontWeight: isMeaningful(enquiryValue) ? 600 : 400, color: isMeaningful(enquiryValue) ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b') : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
-                                    {isMeaningful(enquiryValue) ? enquiryValue : '—'}
-                                  </span>
-                                </div>
-                                
-                                {/* Separator */}
-                                <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
-                                
-                                {/* Method - always show */}
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
-                                  <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Method</span>
-                                  <span style={{ fontSize: 12, fontWeight: 500, color: isMeaningful(methodOfContact) ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b') : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
-                                    {isMeaningful(methodOfContact) ? methodOfContact : '—'}
-                                  </span>
-                                </div>
-                                
-                                {/* Separator */}
-                                <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
-                                
-                                {/* Source - always show */}
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
-                                  <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Source</span>
-                                  <span style={{ fontSize: 12, fontWeight: 500, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: isMeaningful(enquirySourceSummary) ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b') : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
-                                    {isMeaningful(enquirySourceSummary) ? enquirySourceSummary : '—'}
-                                  </span>
-                                </div>
+                                <Sep />
+                                <DataCol
+                                  label="Claimed By"
+                                  value={(() => {
+                                    if (!pointOfContact) return 'Unclaimed';
+                                    if (teamData) {
+                                      const n = pointOfContact.toLowerCase().trim();
+                                      const match = teamData.find(t => {
+                                        const em = (t.Email || '').toLowerCase().trim();
+                                        const init = (t.Initials || '').toLowerCase().trim();
+                                        const nick = (t.Nickname || '').toLowerCase().trim();
+                                        return em === n || init === n || nick === n;
+                                      });
+                                      if (match) return match['Full Name'] || match.First || pointOfContact;
+                                    }
+                                    return pointOfContact;
+                                  })()}
+                                />
+                                <Sep />
+                                <DataCol
+                                  label="Value"
+                                  value={isMeaningful(enquiryValue) ? String(enquiryValue) : '—'}
+                                  onEdit={() => dispatchEdit('Value')}
+                                />
+                                <Sep />
+                                <DataCol
+                                  label="Channel"
+                                  value={isMeaningful(methodOfContact) ? String(methodOfContact) : '—'}
+                                  onEdit={() => dispatchEdit('Method_of_Contact')}
+                                />
+                                <Sep />
+                                <DataCol
+                                  label="Source"
+                                  value={isMeaningful(enquirySourceSummary) ? String(enquirySourceSummary) : '—'}
+                                  onEdit={() => dispatchEdit('Source')}
+                                  maxW={120}
+                                />
                               </div>
 
-                              {/* Row 3: Notes */}
+                              {/* ── Notes (full-width footer) ── */}
                               {hasEnquiryNotes && (
-                                <div style={{
-                                  padding: '12px 14px',
-                                  background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : '#fff',
-                                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : '#e2e8f0'}`,
-                                  borderRadius: 6,
-                                  fontSize: 12,
-                                  lineHeight: 1.65,
-                                  color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#334155',
-                                  whiteSpace: 'pre-wrap',
-                                  maxHeight: 180,
-                                  overflowY: 'auto'
-                                }}>
-                                  {enquiryNotes}
+                                <div>
+                                  <div style={{
+                                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                    padding: '4px 0 3px',
+                                  }}>
+                                    <span style={{
+                                      fontSize: 9, fontWeight: 700, letterSpacing: '0.5px',
+                                      textTransform: 'uppercase',
+                                      color: isDarkMode ? colours.accent : colours.highlight,
+                                      display: 'flex', alignItems: 'center', gap: 4,
+                                    }}>
+                                      <Icon iconName="EditNote" styles={{ root: { fontSize: 10, color: isDarkMode ? colours.accent : colours.highlight } }} />
+                                      Enquiry Notes
+                                    </span>
+                                    <span
+                                      style={{ cursor: 'pointer', padding: '2px 4px' }}
+                                      onClick={() => dispatchEdit('Notes')}
+                                      title="Edit notes"
+                                    >
+                                      <Icon iconName="Edit" styles={{ root: { fontSize: 10, color: textMuted } }} />
+                                    </span>
+                                  </div>
+                                  <div style={{
+                                    fontSize: 12, lineHeight: 1.6, color: textBody,
+                                    whiteSpace: 'pre-wrap', maxHeight: 180, overflowY: 'auto',
+                                    padding: '8px 14px',
+                                    margin: '4px 0 10px',
+                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.04)' : 'rgba(54, 144, 206, 0.03)',
+                                    border: `1px solid ${separatorColor}`,
+                                  }}>
+                                    {enquiryNotes}
+                                  </div>
                                 </div>
                               )}
+                              </div>
                             </div>
                           );
                         }
@@ -2675,10 +4066,32 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                           const dealAmount = deal?.Amount || deal?.amount || deal?.FeeAmount || deal?.feeAmount || effectivePitch?.Amount || effectivePitch?.amount;
                           const dealScenario = effectivePitch?.scenarioLabel || effectivePitch?.scenario || effectivePitch?.ServiceDescription || deal?.ServiceDescription || deal?.serviceDescription || '';
                           const pitchInstructionRef = deal?.InstructionRef || deal?.instructionRef || effectivePitch?.InstructionRef || effectivePitch?.instructionRef || '';
+                          const resolvedPitchPasscode = (() => {
+                            if (dealPasscode) return String(dealPasscode);
+                            const ref = String(pitchInstructionRef || '').trim();
+                            const match = ref.match(/^HLX-\d+-(\d+)$/i);
+                            return match?.[1] || '';
+                          })();
                           const pitchedBy = effectivePitch?.CreatedBy || effectivePitch?.createdBy || deal?.PitchedBy || deal?.pitchedBy || pointOfContact || '';
                           const pitchStatus = deal?.Status || deal?.status || effectivePitch?.Status || effectivePitch?.status || '';
-                          const pitchExpiryRaw = deal?.PitchValidUntil || deal?.pitchValidUntil || effectivePitch?.PitchValidUntil || effectivePitch?.pitchValidUntil || null;
-                          const pitchExpiry = pitchExpiryRaw ? formatDate(pitchExpiryRaw) : null;
+                          const pitchExpiryRawFromSource =
+                            deal?.PitchValidUntil ||
+                            deal?.pitchValidUntil ||
+                            deal?.ExpiryDate ||
+                            deal?.expiryDate ||
+                            deal?.ExpiresAt ||
+                            deal?.expiresAt ||
+                            deal?.ValidUntil ||
+                            deal?.validUntil ||
+                            effectivePitch?.PitchValidUntil ||
+                            effectivePitch?.pitchValidUntil ||
+                            effectivePitch?.ExpiryDate ||
+                            effectivePitch?.expiryDate ||
+                            effectivePitch?.ExpiresAt ||
+                            effectivePitch?.expiresAt ||
+                            effectivePitch?.ValidUntil ||
+                            effectivePitch?.validUntil ||
+                            null;
                           const pitchEmailSubject = effectivePitch?.EmailSubject || effectivePitch?.emailSubject || '';
                           const pitchEmailBody = effectivePitch?.EmailBody || effectivePitch?.emailBody || '';
                           // Don't fall back to enquiry notes - pitch content should be pitch-specific
@@ -2698,291 +4111,750 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                               .trim();
                           };
                           const cleanEmailBody = pitchEmailBody ? stripHtml(pitchEmailBody) : '';
+
+                          const extractClockParts = (value: any): { hours: number; minutes: number } | null => {
+                            if (!value) return null;
+                            if (typeof value === 'string') {
+                              const raw = value.trim();
+                              if (!raw) return null;
+                              const isoMatch = raw.match(/T(\d{2}):(\d{2})/);
+                              if (isoMatch) {
+                                return { hours: Number(isoMatch[1]), minutes: Number(isoMatch[2]) };
+                              }
+                              const plainMatch = raw.match(/(\d{1,2})[:.](\d{2})/);
+                              if (plainMatch) {
+                                return {
+                                  hours: Math.max(0, Math.min(23, Number(plainMatch[1]))),
+                                  minutes: Math.max(0, Math.min(59, Number(plainMatch[2]))),
+                                };
+                              }
+                            }
+                            try {
+                              const d = new Date(value);
+                              if (Number.isNaN(d.getTime())) return null;
+                              return { hours: d.getUTCHours(), minutes: d.getUTCMinutes() };
+                            } catch {
+                              return null;
+                            }
+                          };
+
+                          const formatUkTime = (date: Date): string => date.toLocaleTimeString('en-GB', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            timeZone: 'Europe/London',
+                          });
                           
                           // Check if we have any pitch data at all
                           const hasNoPitchData = !deal && !effectivePitch && !isFetchingPitchContent;
                           
                           // Combine PitchedDate and PitchedTime for accurate datetime
+                          const pitchedDateRaw = deal?.PitchedDate || deal?.pitchedDate || effectivePitch?.CreatedAt || effectivePitch?.createdAt;
                           const pitchedDateTime = (() => {
-                            const dateRaw = deal?.PitchedDate || deal?.pitchedDate || effectivePitch?.CreatedAt || effectivePitch?.createdAt;
+                            const dateRaw = pitchedDateRaw;
                             const timeRaw = deal?.PitchedTime || deal?.pitchedTime;
                             if (!dateRaw) return null;
                             try {
                               const d = new Date(dateRaw);
                               if (Number.isNaN(d.getTime())) return null;
+                              const sourceRaw = typeof dateRaw === 'string' ? dateRaw : '';
+                              const sourceHasTime = /T\d{2}:\d{2}/.test(sourceRaw) || /\d{2}:\d{2}/.test(sourceRaw);
+                              const includeTime = Boolean(timeRaw) || sourceHasTime;
+
                               // If we have a separate time field, extract HH:MM from it
                               if (timeRaw) {
-                                const t = new Date(timeRaw);
-                                if (!Number.isNaN(t.getTime())) {
-                                  d.setHours(t.getHours(), t.getMinutes(), 0, 0);
+                                const clock = extractClockParts(timeRaw);
+                                if (clock) {
+                                  d.setUTCHours(clock.hours, clock.minutes, 0, 0);
                                 }
                               }
-                              const date = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-                              const time = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+                              const date = formatRelativeDay(d);
+                              if (!includeTime) return date;
+                              const time = formatUkTime(d);
                               return `${date} ${time}`;
                             } catch { return null; }
                           })();
+
+                          const instructedTimelineRaw = inst?.SubmissionDate || inst?.InstructionDate || inst?.DateCreated || inst?.CreatedAt || null;
+                          const instructedTimelineTimeRaw = inst?.SubmissionTime || inst?.submissionTime || inst?.CreatedTime || inst?.createdTime || null;
+
+                          const instructedDateTime = (() => {
+                            if (!instructedTimelineRaw) return null;
+                            try {
+                              const d = new Date(instructedTimelineRaw);
+                              if (Number.isNaN(d.getTime())) return null;
+                              const sourceRaw = typeof instructedTimelineRaw === 'string' ? instructedTimelineRaw : '';
+                              const sourceHasTime = /T\d{2}:\d{2}/.test(sourceRaw) || /\d{2}:\d{2}/.test(sourceRaw);
+                              const includeTime = Boolean(instructedTimelineTimeRaw) || sourceHasTime;
+                              if (instructedTimelineTimeRaw) {
+                                const clock = extractClockParts(instructedTimelineTimeRaw);
+                                if (clock) {
+                                  d.setUTCHours(clock.hours, clock.minutes, 0, 0);
+                                }
+                              }
+                              const date = formatRelativeDay(d);
+                              if (!includeTime) return date;
+                              const time = formatUkTime(d);
+                              return `${date} ${time}`;
+                            } catch {
+                              return null;
+                            }
+                          })();
+
+                          const pitchExpiryRaw = (() => {
+                            if (pitchExpiryRawFromSource) return pitchExpiryRawFromSource;
+                            if (!pitchedDateRaw) return null;
+                            try {
+                              const pitchedDate = new Date(pitchedDateRaw);
+                              if (Number.isNaN(pitchedDate.getTime())) return null;
+                              const inferredExpiry = new Date(pitchedDate.getTime() + (14 * 24 * 60 * 60 * 1000));
+                              return inferredExpiry.toISOString();
+                            } catch {
+                              return null;
+                            }
+                          })();
+                          const pitchExpiry = pitchExpiryRaw ? formatDate(pitchExpiryRaw) : null;
+
+                          const formatShortDuration = (diffMs: number) => {
+                            const totalMins = Math.floor(diffMs / 60000);
+                            if (totalMins < 1) return '<1m';
+                            if (totalMins < 60) return `${totalMins}m`;
+                            const hrs = Math.floor(totalMins / 60);
+                            if (hrs < 24) {
+                              const remMins = totalMins % 60;
+                              return remMins > 0 ? `${hrs}h ${remMins}m` : `${hrs}h`;
+                            }
+                            const days = Math.floor(hrs / 24);
+                            const remHrs = hrs % 24;
+                            return remHrs > 0 ? `${days}d ${remHrs}h` : `${days}d`;
+                          };
+
+                          const pitchedDateObj = (() => {
+                            if (!pitchedDateRaw) return null;
+                            const date = new Date(pitchedDateRaw);
+                            return Number.isNaN(date.getTime()) ? null : date;
+                          })();
+                          const instructedDateObj = (() => {
+                            const instructedRaw = instructedTimelineRaw && instructedTimelineRaw !== '—' ? instructedTimelineRaw : null;
+                            if (!instructedRaw) return null;
+                            const date = new Date(instructedRaw);
+                            if (!Number.isNaN(date.getTime()) && instructedTimelineTimeRaw) {
+                              const t = new Date(instructedTimelineTimeRaw);
+                              if (!Number.isNaN(t.getTime())) {
+                                date.setHours(t.getHours(), t.getMinutes(), 0, 0);
+                              }
+                            }
+                            return Number.isNaN(date.getTime()) ? null : date;
+                          })();
+                          const expiryDateObj = (() => {
+                            if (!pitchExpiryRaw) return null;
+                            const date = new Date(pitchExpiryRaw);
+                            return Number.isNaN(date.getTime()) ? null : date;
+                          })();
+
+                          const pitchToInstructCue = (() => {
+                            if (!pitchedDateObj || !instructedDateObj) return null;
+                            const diffMs = Math.abs(instructedDateObj.getTime() - pitchedDateObj.getTime());
+                            return {
+                              label: formatShortDuration(diffMs),
+                              color: isDarkMode ? colours.accent : colours.highlight,
+                            };
+                          })();
+
+                          const instructToExpiryCue = (() => {
+                            if (!expiryDateObj) return null;
+
+                            if (instructedDateObj) {
+                              const diffMs = Math.abs(expiryDateObj.getTime() - instructedDateObj.getTime());
+                              const withinWindow = instructedDateObj.getTime() <= expiryDateObj.getTime();
+                              return {
+                                label: withinWindow ? `${formatShortDuration(diffMs)} before` : `${formatShortDuration(diffMs)} late`,
+                                color: withinWindow ? colours.green : colours.cta,
+                                kind: withinWindow ? 'confirmed-before' : 'confirmed-late',
+                              };
+                            }
+
+                            const now = new Date();
+                            const remainingMs = expiryDateObj.getTime() - now.getTime();
+                            const durationLabel = formatShortDuration(Math.abs(remainingMs));
+                            if (remainingMs >= 0) {
+                              return {
+                                label: `${durationLabel} left`,
+                                color: isDarkMode ? colours.accent : colours.highlight,
+                                kind: 'remaining',
+                              };
+                            }
+                            return {
+                              label: `Expired ${durationLabel} ago`,
+                              color: colours.cta,
+                              kind: 'expired',
+                            };
+                          })();
+
+                          const hasPitchedChip = Boolean(pitchedDateTime || (pitchDate && pitchDate !== '—' && pitchDate !== '�'));
+                          const instructionStageLowerForPitch = String(instructionStage || '').toLowerCase();
+                          const hasInstructedStageSignal = (
+                            instructionStageLowerForPitch.includes('instruct') ||
+                            instructionStageLowerForPitch.includes('matter-opened') ||
+                            instructionStageLowerForPitch.includes('matter_opened') ||
+                            instructionStageLowerForPitch.includes('proof-of-id') ||
+                            instructionStageLowerForPitch.includes('proof_of_id') ||
+                            instructionStageLowerForPitch.includes('payment') ||
+                            instructionStageLowerForPitch.includes('id check') ||
+                            instructionStageLowerForPitch.includes('risk')
+                          );
+                          const hasInstructedChip = hasInstructedStageSignal && Boolean(instructedDateObj || instructedDateTime);
+                          const strikeExpiryChip = hasInstructedChip && Boolean(instructedDateObj);
                           
+                          // Flattened layout tokens (matches enquiry section treatment)
+                          const textMuted = isDarkMode ? colours.subtleGrey : colours.greyText;
+                          const textBody = isDarkMode ? '#d1d5db' : '#374151';
+                          const separatorColor = isDarkMode ? `${colours.dark.border}40` : colours.highlightNeutral;
+
+                          // Resolve pitched-by to name via teamData
+                          const resolvedPitchedBy = (() => {
+                            if (!pitchedBy || pitchedBy === '\ufffd' || pitchedBy === '\u2014') return '\u2014';
+                            if (teamData) {
+                              const n = pitchedBy.toLowerCase().trim();
+                              const match = teamData.find((t: any) => {
+                                const em = (t.Email || '').toLowerCase().trim();
+                                const init = (t.Initials || '').toLowerCase().trim();
+                                const nick = (t.Nickname || '').toLowerCase().trim();
+                                return em === n || init === n || nick === n;
+                              });
+                              if (match) return match['Full Name'] || match.First || pitchedBy;
+                            }
+                            return pitchedBy;
+                          })();
+
+                          // Data bar column (same pattern as enquiry section)
+                          const isEmptyVal = (v: string) => !v || v === '\u2014' || v === '\ufffd';
+                          const DataCol = ({ label, value, accent, mono, icon: colIcon, maxW, isStruck }: {
+                            label: string; value: string; accent?: string; mono?: boolean;
+                            icon?: React.ReactNode; maxW?: number;
+                            isStruck?: boolean;
+                          }) => (
+                            <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-start', minHeight: 34, gap: 4, padding: '0 14px' }}>
+                              <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: textMuted }}>{label}</span>
+                              <span style={{
+                                fontSize: 12, fontWeight: !isEmptyVal(value) ? 500 : 400,
+                                color: isStruck ? textMuted : (accent || (!isEmptyVal(value) ? textBody : textMuted)),
+                                fontFamily: mono ? 'Raleway, sans-serif' : 'Raleway, sans-serif',
+                                display: 'flex', alignItems: 'center', gap: 4,
+                                textAlign: 'left',
+                                maxWidth: maxW, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                textDecoration: isStruck ? 'line-through' : 'none',
+                              }}>
+                                {colIcon}{isEmptyVal(value) ? '\u2014' : value}
+                              </span>
+                            </div>
+                          );
+                          const Sep = () => (
+                            <div style={{ width: 1, alignSelf: 'stretch', background: separatorColor, margin: '4px 0' }} />
+                          );
+
                           // Show loading state while fetching pitch content
                           if (isFetchingPitchContent) {
                             return (
-                              <div style={{ 
-                                display: 'flex', alignItems: 'center', justifyContent: 'center', 
-                                padding: '24px', 
-                                color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)',
-                                fontSize: 12 
+                              <div style={{
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                padding: '24px', color: textMuted, fontSize: 12,
                               }}>
                                 Loading pitch data...
                               </div>
                             );
                           }
-                          
+
                           // Show empty state if no pitch data
                           if (hasNoPitchData) {
                             return (
                               <div style={{
-                                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                                padding: '24px 16px', gap: 8,
-                                background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : 'rgba(0,0,0,0.02)',
-                                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0,0,0,0.04)'}`,
-                                borderRadius: 6
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                padding: '24px', color: textMuted, fontSize: 12,
+                                fontFamily: "'Raleway', 'Segoe UI', sans-serif", gap: 6,
                               }}>
-                                <FaUser size={16} style={{ color: isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(100, 116, 139, 0.4)' }} />
-                                <div style={{ fontSize: 12, fontWeight: 600, color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)' }}>
-                                  No pitch recorded
-                                </div>
-                                <div style={{ fontSize: 10, color: isDarkMode ? 'rgba(148, 163, 184, 0.45)' : 'rgba(100, 116, 139, 0.45)' }}>
-                                  Use the Pitch Builder to create a pitch for this enquiry
-                                </div>
+                                <FaEnvelope size={12} style={{ color: textMuted }} />
+                                No pitch recorded
                               </div>
                             );
                           }
                           
+                          const instructedTimelineColour = instructToExpiryCue?.kind === 'confirmed-late' ? colours.cta : colours.green;
+                          const isPitchExpired = !hasInstructedChip && instructToExpiryCue?.kind === 'expired';
+                          const pitchHeaderTitle = hasInstructedChip
+                            ? 'Deal closed'
+                            : isPitchExpired
+                              ? 'Pitch expired'
+                              : 'Pitch sent';
+                          const pitchHeaderDescription = hasInstructedChip
+                            ? 'Instruction received — review closed deal details below.'
+                            : isPitchExpired
+                              ? 'Pitch window elapsed — review expiry details below.'
+                              : 'Review details below.';
+
                           return (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                              
-                              {/* Row 1: Pitched Badge + Timestamp */}
-                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                            <div style={{
+                              fontFamily: "'Raleway', 'Segoe UI', sans-serif",
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 8,
+                            }}>
+                              <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'flex-start',
+                                gap: 8,
+                                padding: flatEmbedMode ? '6px 0' : '8px 14px',
+                              }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                  {/* Pitched Badge - styled like Teams claimed badge */}
-                                  <div
-                                    title="Pitch sent"
-                                    style={{ 
-                                      display: 'flex', alignItems: 'center', gap: 6,
-                                      padding: '5px 10px', borderRadius: 4,
-                                      background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
-                                      border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.15)'}`,
-                                      textDecoration: 'none',
-                                      cursor: 'default',
-                                      transition: 'all 0.15s ease'
-                                    }}
-                                  >
-                                    <Icon iconName="Send" styles={{ root: { fontSize: 11, color: colours.highlight } }} />
-                                    <span style={{ fontSize: 10, fontWeight: 600, color: colours.highlight }}>
-                                      {pitchedDateTime ? `Pitched ${pitchedDateTime}` : 'Pitched'}
-                                    </span>
-                                  </div>
-                                  
-                                  {/* Passcode chip - clickable to copy */}
-                                  {dealPasscode && (
-                                    <div
-                                      onClick={(e) => { e.stopPropagation(); void safeCopy(String(dealPasscode)); }}
-                                      title="Click to copy passcode"
-                                      style={{ 
-                                        display: 'flex', alignItems: 'center', gap: 5,
-                                        padding: '5px 10px', borderRadius: 4,
-                                        background: isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(0,0,0,0.02)',
-                                        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0,0,0,0.04)'}`,
-                                        cursor: 'pointer',
-                                        transition: 'all 0.15s ease'
-                                      }}
-                                    >
-                                      <Icon iconName="NumberSymbol" styles={{ root: { fontSize: 10, color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : '#64748b' } }} />
-                                      <span style={{ fontSize: 10, fontWeight: 600, fontFamily: 'monospace', color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b' }}>{dealPasscode}</span>
+                                  <span style={{ color: headerCueAccent, display: 'flex', alignItems: 'center' }}>
+                                    <FaPaperPlane size={12} />
+                                  </span>
+                                  <span style={{
+                                    fontSize: 10,
+                                    fontWeight: 800,
+                                    textTransform: 'uppercase',
+                                    letterSpacing: '0.5px',
+                                    color: headerCueAccent,
+                                  }}>
+                                    {pitchHeaderTitle}
+                                  </span>
+                                  <span style={{
+                                    fontSize: 10,
+                                    fontWeight: 600,
+                                    color: isDarkMode ? 'rgba(243, 244, 246, 0.85)' : 'rgba(6, 23, 51, 0.78)',
+                                    marginLeft: 4,
+                                  }}>
+                                    {pitchHeaderDescription}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div style={{
+                                display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 8,
+                                padding: flatEmbedMode ? '0 0 2px' : '0 14px 2px', minHeight: 36,
+                              }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+                                  {hasPitchedChip && (
+                                    <div style={{
+                                      display: 'flex', alignItems: 'center', gap: 5,
+                                      padding: '5px 10px', borderRadius: 0,
+                                      background: isDarkMode ? 'rgba(160, 160, 160, 0.08)' : 'rgba(0,0,0,0.03)',
+                                      border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.12)' : 'rgba(0,0,0,0.06)'}`,
+                                      flexShrink: 0,
+                                    }}>
+                                      <FaClock size={10} style={{ color: textMuted }} />
+                                      <span style={{ fontSize: 10, fontWeight: 600, color: textBody }}>
+                                        Pitched
+                                        <span style={{ color: textMuted, fontWeight: 500 }}> · {pitchedDateTime || pitchDate}</span>
+                                      </span>
+                                    </div>
+                                  )}
+
+                                  {hasPitchedChip && hasInstructedChip && (
+                                    <div style={{
+                                      display: 'flex', alignItems: 'center', width: pitchToInstructCue?.label ? 'auto' : 60,
+                                      margin: '0 2px',
+                                    }}>
+                                      <div style={{
+                                        flex: 1, height: 1, minWidth: 12,
+                                        background: isDarkMode ? `${colours.dark.border}60` : '#e2e8f0',
+                                      }} />
+                                      {pitchToInstructCue?.label && (
+                                        <span style={{
+                                          fontSize: 9,
+                                          fontWeight: isDarkMode ? 700 : 600,
+                                          color: textMuted,
+                                          opacity: isDarkMode ? 1 : 0.72,
+                                          padding: '1px 5px',
+                                          whiteSpace: 'nowrap',
+                                        }}>
+                                          {pitchToInstructCue.label}
+                                        </span>
+                                      )}
+                                      <div style={{
+                                        flex: 1, height: 1, minWidth: 12,
+                                        background: isDarkMode ? `${colours.dark.border}60` : '#e2e8f0',
+                                      }} />
+                                    </div>
+                                  )}
+
+                                  {hasInstructedChip && (
+                                    <div style={{
+                                      display: 'flex', alignItems: 'center', gap: 5,
+                                      padding: '5px 10px', borderRadius: 0,
+                                      background: `${instructedTimelineColour}12`,
+                                      border: `1px solid ${instructedTimelineColour}25`,
+                                      flexShrink: 0,
+                                    }}>
+                                      <span style={{
+                                        width: 6, height: 6, borderRadius: '50%',
+                                        background: instructedTimelineColour, flexShrink: 0,
+                                      }} />
+                                      <span style={{ fontSize: 10, fontWeight: 600, color: instructedTimelineColour }}>
+                                        Instructed
+                                        {instructedDateTime && <span style={{ color: isDarkMode ? `${instructedTimelineColour}CC` : instructedTimelineColour, fontWeight: 500 }}> · {instructedDateTime}</span>}
+                                      </span>
+                                    </div>
+                                  )}
+
+                                  {!hasInstructedChip && pitchExpiry && (
+                                    <div style={{
+                                      display: 'flex', alignItems: 'center', width: (instructToExpiryCue?.label && !strikeExpiryChip) ? 'auto' : 44,
+                                      margin: '0 2px',
+                                    }}>
+                                      <div style={{
+                                        flex: 1, height: 1, minWidth: 12,
+                                        background: isDarkMode ? `${colours.dark.border}60` : '#e2e8f0',
+                                      }} />
+                                      {instructToExpiryCue?.label && !strikeExpiryChip && (
+                                        <span style={{
+                                          fontSize: 9,
+                                          fontWeight: isDarkMode ? 700 : 600,
+                                          color: textMuted,
+                                          opacity: isDarkMode ? 1 : 0.72,
+                                          padding: '1px 5px',
+                                          whiteSpace: 'nowrap',
+                                        }}>
+                                          {instructToExpiryCue.label}
+                                        </span>
+                                      )}
+                                      <div style={{
+                                        flex: 1, height: 1, minWidth: 12,
+                                        background: isDarkMode ? `${colours.dark.border}60` : '#e2e8f0',
+                                      }} />
+                                    </div>
+                                  )}
+
+                                  {!hasInstructedChip && pitchExpiry && (
+                                    <div style={{
+                                      display: 'flex', alignItems: 'center', gap: 5,
+                                      padding: '5px 10px', borderRadius: 0,
+                                      background: strikeExpiryChip
+                                        ? (isDarkMode ? 'rgba(160, 160, 160, 0.045)' : 'rgba(107, 107, 107, 0.045)')
+                                        : (isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0,0,0,0.03)'),
+                                      border: `1px solid ${strikeExpiryChip
+                                        ? (isDarkMode ? 'rgba(160, 160, 160, 0.14)' : 'rgba(107, 107, 107, 0.12)')
+                                        : (isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0,0,0,0.04)')}`,
+                                      flexShrink: 0,
+                                    }}>
+                                      <FaClock size={10} style={{ color: textMuted }} />
+                                      <span style={{
+                                        fontSize: 10,
+                                        fontWeight: 600,
+                                        color: strikeExpiryChip ? textMuted : textBody,
+                                        textDecoration: 'none',
+                                        opacity: strikeExpiryChip ? (isDarkMode ? 0.75 : 0.72) : 1,
+                                      }}>
+                                        {strikeExpiryChip
+                                          ? (instructToExpiryCue?.label ? `Expiry window · ${instructToExpiryCue.label}` : `Expiry window · ${pitchExpiry}`)
+                                          : `Expires ${pitchExpiry}`}
+                                      </span>
                                     </div>
                                   )}
                                 </div>
-                                
-                                {/* Timestamp */}
-                                <div style={{ 
-                                  display: 'flex', alignItems: 'center', gap: 6, 
-                                  fontSize: 11, 
-                                  color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : '#475569',
-                                  background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0,0,0,0.03)',
-                                  padding: '4px 10px',
-                                  borderRadius: 4
-                                }}>
-                                  <FaClock size={10} />
-                                  <span style={{ fontWeight: 600 }}>{pitchDate}</span>
-                                </div>
                               </div>
 
-                              {/* Row 2: Key Info Strip - matches enquiry design */}
-                              <div style={{ 
-                                display: 'flex', flexWrap: 'wrap', gap: 0, 
-                                padding: '10px 0',
-                                background: isDarkMode ? 'rgba(2, 6, 23, 0.4)' : '#f8fafc',
-                                borderRadius: 6,
-                                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : '#e2e8f0'}`
-                              }}>  
-                                {/* Pitched To (prospect name - first item) */}
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
-                                  <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Pitched To</span>
-                                  <span style={{ fontSize: 12, fontWeight: 500, lineHeight: '18px', color: fullName !== '—' && fullName !== 'Unknown' ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b') : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
-                                    {fullName !== 'Unknown' ? fullName : '—'}
-                                  </span>
-                                </div>
-                                
-                                {/* Separator */}
-                                <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
-                                
-                                {/* Area with icon */}
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
-                                  <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Area</span>
-                                  <span style={{ fontSize: 12, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 5, lineHeight: '18px', color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b' }}>
-                                    <span style={{ fontSize: 14, lineHeight: 1 }}>{getAreaOfWorkIcon(areaOfWork)}</span>
-                                    {areaOfWork || '—'}
-                                  </span>
-                                </div>
-                                
-                                {/* Separator */}
-                                <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
-                                
-                                {/* Pitched By */}
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
-                                  <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Pitched By</span>
-                                  <span style={{ fontSize: 12, fontWeight: 500, lineHeight: '18px', color: pitchedBy ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b') : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
-                                    {pitchedBy || '—'}
-                                  </span>
-                                </div>
-                                
-                                {/* Separator */}
-                                <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
-                                
-                                {/* Status */}
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
-                                  <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Status</span>
-                                  <span style={{ fontSize: 12, fontWeight: 500, lineHeight: '18px', textTransform: 'capitalize', color: pitchStatus ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b') : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
-                                    {pitchStatus || '—'}
-                                  </span>
-                                </div>
-                                
-                                {/* Separator */}
-                                <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
-                                
-                                {/* Expiry */}
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
-                                  <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Valid Until</span>
-                                  <span style={{ fontSize: 12, fontWeight: 500, lineHeight: '18px', color: pitchExpiry ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b') : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
-                                    {pitchExpiry || '—'}
-                                  </span>
-                                </div>
-                                
-                                {/* Separator */}
-                                <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
-                                
-                                {/* Deal ID */}
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
-                                  <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Deal</span>
-                                  <span style={{ fontSize: 12, fontWeight: 500, fontFamily: 'monospace', lineHeight: '18px', color: dealId ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b') : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
-                                    {dealId || '—'}
-                                  </span>
-                                </div>
-                                
-                                {/* Separator */}
-                                <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
-                                
-                                {/* Instruction Ref */}
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
-                                  <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Ref</span>
-                                  <span 
-                                    onClick={pitchInstructionRef ? (e) => { e.stopPropagation(); void safeCopy(String(pitchInstructionRef)); } : undefined}
-                                    style={{ 
-                                      fontSize: 12, fontWeight: 500, fontFamily: 'monospace', lineHeight: '18px',
-                                      color: pitchInstructionRef ? colours.highlight : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8'),
-                                      cursor: pitchInstructionRef ? 'pointer' : 'default'
-                                    }}
-                                  >
-                                    {pitchInstructionRef || '—'}
-                                  </span>
-                                </div>
-                              </div>
-
-                              {/* Row 3: Amount and Service side by side */}
                               <div style={{
-                                display: 'flex', alignItems: 'stretch', gap: 10,
-                                padding: '10px 14px',
-                                background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : '#f8fafc',
-                                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : '#e2e8f0'}`,
-                                borderRadius: 6
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: 10,
+                                background: isDarkMode ? 'rgba(6, 23, 51, 0.45)' : 'rgba(255, 255, 255, 0.7)',
+                                border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
+                                borderRadius: 0,
+                                padding: '12px 14px',
                               }}>
-                                {/* Amount - fixed width */}
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flexShrink: 0 }}>
-                                  <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Amount</span>
-                                  <span style={{ fontSize: 12, fontWeight: 600, color: dealAmount ? colours.highlight : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
-                                    {dealAmount ? formatMoney(dealAmount) : '—'}
+
+                              {/* ── Data bar: horizontal columns with vertical separators ── */}
+                              <div style={{
+                                display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 0,
+                                padding: '14px 0',
+                                border: `1px solid ${separatorColor}`,
+                                background: isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(244, 244, 246, 0.4)',
+                              }}>
+                                <DataCol
+                                  label="Area" value={areaOfWork ? areaOfWork.charAt(0).toUpperCase() + areaOfWork.slice(1) : '\u2014'}
+                                  icon={
+                                    <span
+                                      style={{
+                                        display: 'inline-flex',
+                                        width: 7,
+                                        height: 7,
+                                        borderRadius: '50%',
+                                        background: areaOfWork && areaOfWork !== '\u2014' ? resolveAowAccent(areaOfWork) : (isDarkMode ? colours.subtleGrey : colours.greyText),
+                                        boxShadow: areaOfWork && areaOfWork !== '\u2014' ? `0 0 0 1px ${isDarkMode ? 'rgba(0, 3, 25, 0.5)' : 'rgba(255, 255, 255, 0.85)'}` : 'none',
+                                        flexShrink: 0,
+                                      }}
+                                    />
+                                  }
+                                />
+                                <Sep />
+                                <DataCol label="Pitched By" value={resolvedPitchedBy} />
+                                <Sep />
+                                <DataCol label="Deal" value={dealId ? String(dealId) : '\u2014'} mono />
+                                {pitchInstructionRef && (
+                                  <><Sep /><DataCol label="Ref" value={String(pitchInstructionRef)} mono /></>
+                                )}
+                                {resolvedPitchPasscode && (
+                                  <><Sep /><DataCol label="Passcode" value={String(resolvedPitchPasscode)} mono /></>
+                                )}
+                                {pitchExpiry && (
+                                  <><Sep /><DataCol label="Expiry" value={pitchExpiry} isStruck={hasInstructedChip} /></>
+                                )}
+                              </div>
+
+                              {/* ── Amount + Service side by side (amount first for fixed width) ── */}
+                              <div style={{
+                                display: 'flex', alignItems: 'stretch', gap: 0,
+                                border: `1px solid ${separatorColor}`,
+                                background: isDarkMode ? 'rgba(2, 6, 23, 0.15)' : 'rgba(244, 244, 246, 0.25)',
+                              }}>
+                                {/* Amount + VAT — left, fixed width with accent stripe */}
+                                <div style={{
+                                  padding: '10px 14px', flexShrink: 0, width: 130,
+                                }}>
+                                  <span style={{
+                                    fontSize: 9, fontWeight: 700, letterSpacing: '0.5px',
+                                    textTransform: 'uppercase', color: textMuted,
+                                  }}>
+                                    Amount
                                   </span>
+                                  <div style={{
+                                    fontSize: 13, fontWeight: 600, marginTop: 4,
+                                    color: dealAmount ? textBody : textMuted,
+                                  }}>
+                                    {dealAmount ? formatMoney(dealAmount) : '\u00a30 / CFA'}
+                                  </div>
+                                  <div style={{
+                                    fontSize: 10, fontWeight: 500, marginTop: 6,
+                                    color: textMuted,
+                                  }}>
+                                    {dealAmount
+                                      ? `incl. VAT ${formatMoney(Number(dealAmount) * 1.2)}`
+                                      : 'incl. VAT \u00a30.00'}
+                                  </div>
                                 </div>
-                                
+
                                 {/* Separator */}
-                                <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', alignSelf: 'stretch' }} />
-                                
-                                {/* Service - takes remaining space */}
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1, minWidth: 0 }}>
-                                  <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Service</span>
-                                  <span style={{ fontSize: 12, fontWeight: 500, lineHeight: 1.5, color: dealScenario ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b') : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
-                                    {dealScenario || '—'}
+                                <div style={{ width: 1, alignSelf: 'stretch', background: separatorColor }} />
+
+                                {/* Service / Scenario — right, fills remaining space */}
+                                <div style={{ flex: 1, minWidth: 0, padding: '10px 14px' }}>
+                                  <span style={{
+                                    fontSize: 9, fontWeight: 700, letterSpacing: '0.5px',
+                                    textTransform: 'uppercase', color: textMuted,
+                                    display: 'flex', alignItems: 'center', gap: 4,
+                                  }}>
+                                    <FaFileAlt size={10} style={{ color: textMuted }} />
+                                    Service
                                   </span>
+                                  <div style={{
+                                    fontSize: 12, lineHeight: 1.6, marginTop: 4,
+                                    color: dealScenario ? textBody : textMuted,
+                                    whiteSpace: 'pre-wrap',
+                                  }}>
+                                    {dealScenario || '\u2014'}
+                                  </div>
                                 </div>
                               </div>
 
-                              {/* Row 4: Pitch content preview */}
-                              {hasPitchContent && (() => {
-                                const needsExpansion = cleanEmailBody && cleanEmailBody.length > 300;
-                                const displayBody = isPitchContentExpanded || !needsExpansion
-                                  ? cleanEmailBody
-                                  : `${cleanEmailBody.slice(0, 300)}...`;
-                                return (
-                                  <div style={{
-                                    padding: '12px 14px',
-                                    background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : '#fff',
-                                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : '#e2e8f0'}`,
-                                    borderRadius: 6,
-                                    fontSize: 12,
-                                    lineHeight: 1.65,
-                                    color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#334155',
-                                    whiteSpace: 'pre-wrap',
-                                    ...(!isPitchContentExpanded && { maxHeight: 180, overflowY: 'auto' as const })
-                                  }}>
-                                    {pitchEmailSubject && (
-                                      <div style={{ fontWeight: 600, marginBottom: cleanEmailBody ? 8 : 0, display: 'flex', alignItems: 'center', gap: 6 }}>
-                                        <FaEnvelope size={10} style={{ opacity: 0.6 }} />
-                                        {pitchEmailSubject}
+                              {/* ── Pitch link bar (below amount, matching instructed pattern) ── */}
+                              {resolvedPitchPasscode && (
+                                <div style={{
+                                  display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12,
+                                  padding: '6px 14px',
+                                  background: isDarkMode ? 'rgba(54, 144, 206, 0.04)' : 'rgba(54, 144, 206, 0.03)',
+                                  border: `1px solid ${separatorColor}`,
+                                }}>
+                                  {(() => {
+                                    const pitchLinkStatus = hasInstructedChip ? 'Instructed' : (isPitchExpired ? 'Expired' : 'Pending');
+                                    const pitchLinkColor = hasInstructedChip
+                                      ? colours.green
+                                      : isPitchExpired
+                                        ? colours.cta
+                                        : (isDarkMode ? colours.accent : colours.highlight);
+                                    const checkoutLabel = hasPitchContent ? 'Pitch Link' : 'Checkout Link (via link)';
+                                    return (
+                                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                        <span style={{
+                                          display: 'inline-flex', alignItems: 'center', gap: 5,
+                                          padding: '5px 10px', borderRadius: 0,
+                                          background: isDarkMode ? 'rgba(160, 160, 160, 0.08)' : 'rgba(0,0,0,0.03)',
+                                          border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.12)' : 'rgba(0,0,0,0.06)'}`,
+                                          color: textMuted,
+                                          fontSize: 10,
+                                          fontWeight: 700,
+                                        }}>
+                                          <FaLink size={10} />
+                                          {checkoutLabel}
+                                        </span>
+
+                                        <a
+                                          href={`https://instruct.helix-law.com/pitch/${resolvedPitchPasscode}`}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            showToast({ type: 'success', message: 'Opening pitch link' });
+                                          }}
+                                          title={`Open pitch page: instruct.helix-law.com/pitch/${resolvedPitchPasscode}`}
+                                          style={{
+                                            display: 'inline-flex', alignItems: 'center', gap: 6,
+                                            padding: '5px 10px', borderRadius: 0,
+                                            background: hasInstructedChip
+                                              ? (isDarkMode ? 'rgba(32, 178, 108, 0.08)' : 'rgba(32, 178, 108, 0.05)')
+                                              : isPitchExpired
+                                                ? (isDarkMode ? 'rgba(214, 85, 65, 0.08)' : 'rgba(214, 85, 65, 0.05)')
+                                                : (isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(54, 144, 206, 0.05)'),
+                                            border: `1px solid ${hasInstructedChip
+                                              ? (isDarkMode ? 'rgba(32, 178, 108, 0.2)' : 'rgba(32, 178, 108, 0.15)')
+                                              : isPitchExpired
+                                                ? (isDarkMode ? 'rgba(214, 85, 65, 0.2)' : 'rgba(214, 85, 65, 0.15)')
+                                                : (isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(54, 144, 206, 0.15)')}`,
+                                            color: pitchLinkColor,
+                                            fontSize: 10,
+                                            fontWeight: 600,
+                                            textDecoration: 'none',
+                                            cursor: 'pointer',
+                                            transition: 'all 0.15s ease',
+                                          }}
+                                          onMouseEnter={(e) => {
+                                            e.currentTarget.style.transform = 'translateY(-1px)';
+                                            e.currentTarget.style.boxShadow = isDarkMode ? '0 2px 8px rgba(0,0,0,0.35)' : '0 2px 8px rgba(6,23,51,0.12)';
+                                          }}
+                                          onMouseLeave={(e) => {
+                                            e.currentTarget.style.transform = 'translateY(0)';
+                                            e.currentTarget.style.boxShadow = 'none';
+                                          }}
+                                        >
+                                          <span style={{ fontFamily: 'Raleway, sans-serif', opacity: 0.95 }}>instruct.helix-law.com/pitch/{resolvedPitchPasscode}</span>
+                                        </a>
+
+
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            void safeCopy(`https://instruct.helix-law.com/pitch/${resolvedPitchPasscode}`);
+                                            showToast({ type: 'success', message: 'Pitch link copied' });
+                                          }}
+                                          title="Copy pitch link"
+                                          style={{
+                                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                            width: 24, height: 24,
+                                            borderRadius: 0,
+                                            border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.18)' : 'rgba(0,0,0,0.08)'}`,
+                                            background: isDarkMode ? 'rgba(160, 160, 160, 0.08)' : 'rgba(0,0,0,0.02)',
+                                            color: textMuted,
+                                            cursor: 'pointer',
+                                            transition: 'all 0.15s ease',
+                                          }}
+                                          onMouseEnter={(e) => {
+                                            e.currentTarget.style.borderColor = pitchLinkColor;
+                                            e.currentTarget.style.color = pitchLinkColor;
+                                          }}
+                                          onMouseLeave={(e) => {
+                                            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(160, 160, 160, 0.18)' : 'rgba(0,0,0,0.08)';
+                                            e.currentTarget.style.color = textMuted;
+                                          }}
+                                        >
+                                          <FaCopy size={10} />
+                                        </button>
                                       </div>
-                                    )}
-                                    {cleanEmailBody && (
-                                      <div style={{ opacity: 0.85 }}>
-                                        {displayBody}
+                                    );
+                                  })()}
+                                </div>
+                              )}
+
+                              {/* ── Pitch content / link generation confirmation ── */}
+                              {(() => {
+                                // If we have pitch email content, show it
+                                if (hasPitchContent) {
+                                  const needsExpansion = cleanEmailBody && cleanEmailBody.length > 300;
+                                  const displayBody = isPitchContentExpanded || !needsExpansion
+                                    ? cleanEmailBody
+                                    : `${cleanEmailBody.slice(0, 300)}...`;
+                                  return (
+                                    <div>
+                                      <div style={{
+                                        display: 'flex', alignItems: 'center', padding: '4px 10px 3px',
+                                      }}>
+                                        <span style={{
+                                          fontSize: 9, fontWeight: 700, letterSpacing: '0.5px',
+                                          textTransform: 'uppercase',
+                                          color: isDarkMode ? colours.accent : colours.highlight,
+                                          display: 'flex', alignItems: 'center', gap: 4,
+                                        }}>
+                                          <FaEnvelope size={10} style={{ color: isDarkMode ? colours.accent : colours.highlight }} />
+                                          Pitch Content
+                                        </span>
                                       </div>
-                                    )}
-                                    {needsExpansion && (
-                                      <div
-                                        onClick={(e) => { e.stopPropagation(); setIsPitchContentExpanded(prev => !prev); }}
-                                        style={{
-                                          marginTop: 8,
-                                          fontSize: 11,
-                                          fontWeight: 500,
-                                          color: colours.highlight,
-                                          cursor: 'pointer',
-                                          display: 'inline-block'
-                                        }}
-                                      >
-                                        {isPitchContentExpanded ? 'Show less' : 'Show more'}
+                                      <div style={{
+                                        fontSize: 12, lineHeight: 1.6, color: textBody,
+                                        whiteSpace: 'pre-wrap',
+                                        maxHeight: isPitchContentExpanded ? undefined : 180,
+                                        overflowY: isPitchContentExpanded ? undefined : ('auto' as const),
+                                        padding: '8px 14px',
+                                        margin: '4px 0 10px',
+                                        background: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+                                        border: `1px solid ${separatorColor}`,
+                                      }}>
+                                        {pitchEmailSubject && (
+                                          <div style={{ fontWeight: 600, marginBottom: cleanEmailBody ? 8 : 0 }}>
+                                            {pitchEmailSubject}
+                                          </div>
+                                        )}
+                                        {cleanEmailBody && <div style={{ opacity: 0.85 }}>{displayBody}</div>}
+                                        {needsExpansion && (
+                                          <div
+                                            onClick={(e) => { e.stopPropagation(); setIsPitchContentExpanded(prev => !prev); }}
+                                            style={{
+                                              marginTop: 8, fontSize: 11, fontWeight: 500,
+                                              color: colours.highlight, cursor: 'pointer', display: 'inline-block',
+                                            }}
+                                          >
+                                            {isPitchContentExpanded ? 'Show less' : 'Show more'}
+                                          </div>
+                                        )}
                                       </div>
-                                    )}
-                                  </div>
-                                );
+                                    </div>
+                                  );
+                                }
+
+                                // If we have pitch notes (but no email content), show notes
+                                if (pitchNotes) {
+                                  return (
+                                    <div>
+                                      <div style={{
+                                        display: 'flex', alignItems: 'center', padding: '4px 10px 3px',
+                                      }}>
+                                        <span style={{
+                                          fontSize: 9, fontWeight: 700, letterSpacing: '0.5px',
+                                          textTransform: 'uppercase',
+                                          color: isDarkMode ? colours.accent : colours.highlight,
+                                          display: 'flex', alignItems: 'center', gap: 4,
+                                        }}>
+                                          <FaEdit size={10} style={{ color: isDarkMode ? colours.accent : colours.highlight }} />
+                                          Pitch Notes
+                                        </span>
+                                      </div>
+                                      <div style={{
+                                        fontSize: 12, lineHeight: 1.6, color: textBody,
+                                        whiteSpace: 'pre-wrap', maxHeight: 180, overflowY: 'auto',
+                                        padding: '8px 14px',
+                                        margin: '4px 0 10px',
+                                        background: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+                                        border: `1px solid ${separatorColor}`,
+                                      }}>
+                                        {pitchNotes}
+                                      </div>
+                                    </div>
+                                  );
+                                }
+
+                                // No pitch content — confirm link generation
+                                return null;
                               })()}
+                              </div>
                             </div>
                           );
                         }
@@ -3010,7 +4882,10 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                         const instFirstName = String(inst?.FirstName ?? inst?.firstName ?? firstName ?? '').trim();
                         const instLastName = String(inst?.LastName ?? inst?.lastName ?? lastName ?? '').trim();
                         const instFullName = [instTitle, instFirstName, instLastName].filter(Boolean).join(' ') || fullName;
-                        const instGender = String(inst?.Gender ?? inst?.gender ?? gender ?? '').trim();
+                        const instGender = (() => {
+                          const raw = String(inst?.Gender ?? inst?.gender ?? inst?.Sex ?? inst?.sex ?? gender ?? '').trim();
+                          return (!raw || raw === '\ufffd' || raw === '\u2014') ? '\u2014' : raw;
+                        })();
                         const instNationality = String(inst?.Nationality ?? inst?.nationality ?? nationalityFull ?? '').trim();
                         const instNationalityAlpha = String(inst?.NationalityAlpha2 ?? inst?.nationalityAlpha2 ?? nationalityAlpha ?? '').trim();
                         const instDobRaw = inst?.DOB || inst?.dob || inst?.DateOfBirth || dobRaw;
@@ -3047,7 +4922,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                           instCounty,
                           instPostcode,
                           instCountry
-                        ].filter(v => v && v !== '—');
+                        ].filter(v => v && v !== '—' && v !== '—');
                         const instFullAddress = instAddressParts.join(', ') || '—';
                         const hasIndividualAddress = instAddressParts.length > 0;
                         
@@ -3067,9 +4942,9 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                           instCompanyCounty,
                           instCompanyPostcode,
                           instCompanyCountry
-                        ].filter(v => v && v !== '—');
+                        ].filter(v => v && v !== '—' && v !== '—');
                         const instCompanyFullAddress = instCompanyAddressParts.join(', ') || '—';
-                        const hasCompanyDetails = (instCompanyName && instCompanyName !== '—') || (instCompanyNumber && instCompanyNumber !== '—');
+                        const hasCompanyDetails = (instCompanyName && instCompanyName !== '—' && instCompanyName !== '—') || (instCompanyNumber && instCompanyNumber !== '—' && instCompanyNumber !== '—');
                         
                         // Passcode for checkout link
                         const instPasscode = deal?.Passcode || deal?.passcode || inst?.Passcode || inst?.passcode || '';
@@ -3082,37 +4957,39 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                           try {
                             const d = new Date(dateRaw);
                             if (Number.isNaN(d.getTime())) return null;
-                            const date = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
                             const timeRaw = inst?.SubmissionTime || inst?.submissionTime || inst?.CreatedTime || inst?.createdTime || null;
                             if (timeRaw) {
                               const t = new Date(timeRaw);
                               if (!Number.isNaN(t.getTime())) {
                                 const time = t.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-                                return `${date} ${time}`;
+                                return `${formatRelativeDay(d)} ${time}`;
                               }
                             }
-                            return date;
+                            return formatRelativeDay(d);
                           } catch {
                             return null;
                           }
                         })();
                         
-                        // Determine instruction status label
+                        // Determine instruction status label (instruction-specific stage, not matter status)
                         const instStatusLabel = (() => {
                           const stage = instructionStage.toLowerCase();
-                          if (hasMatter && matterRef && matterRef !== '—') return 'Matter Created';
+                          if (stage.includes('matter-opened') || stage.includes('matter_opened') || stage.includes('matter opened')) return 'Instructed';
+                          if (stage.includes('proof-of-id') || stage.includes('proof_of_id')) return 'Proof-of-ID';
                           if (stage.includes('complet')) return 'Completed';
                           if (stage.includes('active') || stage.includes('progress')) return 'In Progress';
                           if (stage.includes('initiali')) return 'Initialised';
                           if (stage.includes('instruct')) return 'Instructed';
-                          return matterStatus !== '—' ? matterStatus : 'Instructed';
+                          if (stage) return instructionStage;
+                          return 'Instructed';
                         })();
                         
-                        // Status color based on stage
+                        // Status color based on instruction stage
                         const instStatusColor = (() => {
-                          if (hasMatter) return colours.highlight;
-                          if (instructionStage.toLowerCase().includes('complet')) return colours.highlight;
-                          if (instructionStage.toLowerCase().includes('active') || instructionStage.toLowerCase().includes('progress')) return colours.highlight;
+                          const stage = instructionStage.toLowerCase();
+                          if (stage.includes('complet')) return colours.green;
+                          if (stage.includes('active') || stage.includes('progress')) return colours.highlight;
+                          if (stage.includes('initiali')) return colours.orange;
                           return colours.highlight;
                         })();
                         
@@ -3136,334 +5013,622 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                         const instPaymentIsCard = instPaymentMethodRaw.includes('card') || instPaymentMethodRaw.includes('stripe') || instPaymentMethodRaw === 'cc' || (instPayment?.payment_intent_id || '').startsWith('pi_');
                         const instPaymentIsBank = instPaymentMethodRaw.includes('bank') || instPaymentMethodRaw.includes('transfer') || instPaymentMethodRaw.includes('bacs') || instPaymentMethodRaw.includes('ach') || (instPayment?.payment_intent_id || '').startsWith('bank_');
 
+                        // Amount + Service (same source chain as pitch)
+                        const instAmount = inst?.Amount || inst?.amount || deal?.Amount || deal?.amount || deal?.FeeAmount || deal?.feeAmount || effectivePitch?.Amount || effectivePitch?.amount || '';
+                        const instService = inst?.ServiceDescription || inst?.serviceDescription || effectivePitch?.scenarioLabel || effectivePitch?.scenario || effectivePitch?.ServiceDescription || deal?.ServiceDescription || deal?.serviceDescription || '';
+
+                        // Layout tokens (matching enquiry/pitch)
+                        const textMuted = isDarkMode ? colours.subtleGrey : colours.greyText;
+                        const textBody = isDarkMode ? '#d1d5db' : '#374151';
+                        const separatorColor = isDarkMode ? `${colours.dark.border}40` : colours.highlightNeutral;
+
+                        // DataCol + Sep (same pattern as enquiry/pitch)
+                        const isEmptyVal = (v: string) => !v || v === '\u2014' || v === '\ufffd';
+                        const DataCol = ({ label, value, accent, mono, icon: colIcon, maxW }: {
+                          label: string; value: string; accent?: string; mono?: boolean;
+                          icon?: React.ReactNode; maxW?: number;
+                        }) => (
+                          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-start', minHeight: 34, gap: 4, padding: '0 14px' }}>
+                            <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: textMuted }}>{label}</span>
+                            <span style={{
+                              fontSize: 12, fontWeight: !isEmptyVal(value) ? 500 : 400,
+                              color: accent || (!isEmptyVal(value) ? textBody : textMuted),
+                              fontFamily: mono ? 'Raleway, sans-serif' : 'Raleway, sans-serif',
+                              display: 'flex', alignItems: 'center', gap: 4,
+                              textAlign: 'left',
+                              maxWidth: maxW, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                            }}>
+                              {colIcon}{isEmptyVal(value) ? '\u2014' : value}
+                            </span>
+                          </div>
+                        );
+                        const Sep = () => (
+                          <div style={{ width: 1, alignSelf: 'stretch', background: separatorColor, margin: '4px 0' }} />
+                        );
+
+                        // Elapsed duration: pitch → instruction
+                        const pitchToInstElapsed = (() => {
+                          const instDateRaw = inst?.SubmissionDate || inst?.InstructionDate || inst?.DateCreated || inst?.CreatedAt || inst?.createdAt || null;
+                          if (!pitchDateRaw || !instDateRaw) return null;
+                          try {
+                            const start = new Date(pitchDateRaw);
+                            const end = new Date(instDateRaw);
+                            if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+                            const diffMs = end.getTime() - start.getTime();
+                            if (diffMs < 0) return null;
+                            const mins = Math.floor(diffMs / 60000);
+                            if (mins < 1) return '<1m';
+                            if (mins < 60) return `${mins}m`;
+                            const hrs = Math.floor(mins / 60);
+                            const remMins = mins % 60;
+                            if (hrs < 24) return remMins > 0 ? `${hrs}h ${remMins}m` : `${hrs}h`;
+                            const days = Math.floor(hrs / 24);
+                            const remHrs = hrs % 24;
+                            return remHrs > 0 ? `${days}d ${remHrs}h` : `${days}d`;
+                          } catch { return null; }
+                        })();
+                        const hasPitchedTimelineChip = Boolean(pitchDate && pitchDate !== '\u2014' && pitchDate !== '\ufffd');
+                        const hasInstructionTimelineChip = Boolean(instructionDateTime);
+                        const showPitchToInstructionConnector = hasPitchedTimelineChip && hasInstructionTimelineChip;
+
+                        const instructionHeaderPrompt = 'Review details below.';
+
                         return (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                              
-                            {/* Row 1: Instructed Timestamp + Chips */}
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                              {/* Instructed Timestamp chip - at the start */}
-                              {instructionDateTime && (
-                                <div
-                                  title="Instruction date"
-                                  style={{ 
-                                    display: 'flex', alignItems: 'center', gap: 6,
-                                    padding: '5px 10px', borderRadius: 4,
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
-                                    border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.15)'}`,
-                                    cursor: 'default',
-                                    transition: 'all 0.15s ease'
-                                  }}
-                                >
-                                  <FaClock size={10} style={{ color: colours.highlight }} />
-                                  <span style={{ fontSize: 10, fontWeight: 600, color: colours.highlight }}>Instructed {instructionDateTime}</span>
-                                </div>
-                              )}
-                                
-                              {/* Instruction Ref chip - clickable to copy */}
-                                {instructionRef && (
-                                  <div
-                                    onClick={(e) => { e.stopPropagation(); void safeCopy(String(instructionRef)); }}
-                                    title="Click to copy instruction reference"
-                                    style={{ 
-                                      display: 'flex', alignItems: 'center', gap: 5,
-                                      padding: '5px 10px', borderRadius: 4,
-                                      background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
-                                      border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.15)'}`,
-                                      cursor: 'pointer',
-                                      transition: 'all 0.15s ease'
-                                    }}
-                                  >
-                                    <Icon iconName="Tag" styles={{ root: { fontSize: 10, color: colours.highlight } }} />
-                                    <span style={{ fontSize: 10, fontWeight: 600, fontFamily: 'monospace', color: colours.highlight }}>{instructionRef}</span>
-                                  </div>
-                                )}
-                                
-                                {/* Instruct Link chip - opens pitch page */}
-                                {checkoutUrl && instPasscode && (
-                                  <a
-                                    href={checkoutUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    onClick={(e) => e.stopPropagation()}
-                                    title={`Open instruct page: instruct.helix-law.com/pitch/${instPasscode}`}
-                                    style={{ 
-                                      display: 'flex', alignItems: 'center', gap: 5,
-                                      padding: '5px 10px', borderRadius: 4,
-                                      background: isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(0,0,0,0.02)',
-                                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0,0,0,0.04)'}`,
-                                      cursor: 'pointer',
-                                      textDecoration: 'none',
-                                      transition: 'all 0.15s ease'
-                                    }}
-                                  >
-                                    <FaLink size={9} style={{ color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : '#64748b' }} />
-                                    <span style={{ fontSize: 10, fontWeight: 500, color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : '#64748b' }}>Instruct Link</span>
-                                    <span style={{ fontSize: 10, fontWeight: 600, fontFamily: 'monospace', color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b' }}>{instPasscode}</span>
-                                  </a>
-                                )}
-                            </div>
-
-                            {/* Row 2: Key Info Strip */}
-                            <div style={{ 
-                              display: 'flex', flexWrap: 'wrap', gap: 0, 
-                              padding: '10px 0',
-                              background: isDarkMode ? 'rgba(2, 6, 23, 0.4)' : '#f8fafc',
-                              borderRadius: 6,
-                              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : '#e2e8f0'}`
-                            }}>
-                              {/* Client Type */}
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
-                                <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Type</span>
-                                <span style={{ fontSize: 12, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 5, color: clientType && clientType !== '—' ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b') : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
-                                  {clientType && clientType !== '—' && (clientType.toLowerCase().includes('company') || clientType.toLowerCase().includes('business') || clientType.toLowerCase().includes('corporate')) 
-                                    ? <FaBuilding size={10} style={{ opacity: 0.7 }} />
-                                    : <FaUser size={10} style={{ opacity: 0.7 }} />}
-                                  {clientType || '—'}
-                                </span>
-                              </div>
-                              
-                              {/* Separator */}
-                              <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
-
-                              {/* Client - shows Company Name for Company clients, Person Name for Individual */}
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
-                                <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Client</span>
-                                <span style={{ fontSize: 12, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 5, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b' }}>
-                                  {clientType && (clientType.toLowerCase().includes('company') || clientType.toLowerCase().includes('business') || clientType.toLowerCase().includes('corporate'))
-                                    ? <><FaBuilding size={10} style={{ opacity: 0.7 }} />{instCompanyName || instFullName || '—'}</>
-                                    : <><FaUser size={10} style={{ opacity: 0.7 }} />{instFullName || '—'}</>
-                                  }
-                                </span>
-                              </div>
-                              
-                              {/* Separator */}
-                              <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
-
-                              {/* Fee Earner / Helix Contact */}
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
-                                <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Helix Contact</span>
-                                <span style={{ fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', color: feeEarner && feeEarner !== '—' ? colours.highlight : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
-                                  {feeEarner || '—'}
-                                </span>
-                              </div>
-                              
-                              {/* Separator */}
-                              <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
-                              
-                              {/* Stage */}
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
-                                <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Stage</span>
-                                <span style={{ fontSize: 12, fontWeight: 500, color: instructionStage ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b') : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
-                                  {instructionStage || matterStatus || '—'}
-                                </span>
-                              </div>
-                              
-                              {/* Separator */}
-                              <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
-
-                              {/* Payment Status */}
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
-                                <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Payment</span>
-                                <span style={{ fontSize: 12, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 5, color: instPaymentStatus === 'Paid' ? colours.highlight : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
-                                  {instPaymentStatus === 'Paid' && (
-                                    instPaymentIsCard ? <FaCreditCard size={10} style={{ opacity: 0.8 }} /> 
-                                    : instPaymentIsBank ? <FaBuilding size={10} style={{ opacity: 0.8 }} /> 
-                                    : null
-                                  )}
-                                  {instPaymentStatus === 'Paid' && instPaymentDate ? `Paid ${instPaymentDate}` : instPaymentStatus}
-                                </span>
-                              </div>
-                              
-                              {/* Separator */}
-                              <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
-
-                              {/* Consent */}
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
-                                <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Consent</span>
-                                <span style={{ fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4, color: colours.highlight }}>
-                                  <FaCheck size={9} />
-                                  Given
-                                </span>
-                              </div>
-
-                              {instLastUpdated && (
-                                <>
-                                  {/* Separator */}
-                                  <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
-                                  {/* Last Updated */}
-                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
-                                    <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Updated</span>
-                                    <span style={{ fontSize: 12, fontWeight: 500, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b' }}>
-                                      {instLastUpdated}
-                                    </span>
-                                  </div>
-                                </>
-                              )}
-                            </div>
-
-                            {/* Row 3: Identity */}
+                          <div style={{
+                            fontFamily: "'Raleway', 'Segoe UI', sans-serif",
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 8,
+                          }}>
                             <div style={{
-                              padding: '12px 14px',
-                              background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : '#f8fafc',
-                              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : '#e2e8f0'}`,
-                              borderRadius: 6
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'flex-start',
+                              gap: 8,
+                              padding: flatEmbedMode ? '6px 0' : '8px 14px',
                             }}>
-                              <div style={{ fontWeight: 600, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6, fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>
-                                <FaIdCard size={10} style={{ opacity: 0.6 }} />
-                                Identity
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <span style={{ color: headerCueAccent, display: 'flex', alignItems: 'center' }}>
+                                  <FaCheckCircle size={12} />
+                                </span>
+                                <span style={{
+                                  fontSize: 10,
+                                  fontWeight: 800,
+                                  textTransform: 'uppercase',
+                                  letterSpacing: '0.5px',
+                                  color: headerCueAccent,
+                                }}>
+                                  Instruction received
+                                </span>
+                                <span style={{
+                                  fontSize: 10,
+                                  fontWeight: 600,
+                                  color: isDarkMode ? 'rgba(243, 244, 246, 0.85)' : 'rgba(6, 23, 51, 0.78)',
+                                  marginLeft: 4,
+                                }}>
+                                  {instructionHeaderPrompt}
+                                </span>
                               </div>
-                              
-                              {/* Personal info grid */}
-                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 20px', marginBottom: hasIndividualAddress ? 12 : 0 }}>
-                                {/* DOB */}
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 80 }}>
-                                  <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>DOB</span>
-                                  <span style={{ fontSize: 12, fontWeight: 500, color: instDob && instDob !== '—' ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b') : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
-                                    {instDob || '—'}{instAge && instAge !== '—' ? ` (${instAge})` : ''}
-                                  </span>
-                                </div>
-                                
-                                {/* Gender */}
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 60 }}>
-                                  <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Gender</span>
-                                  <span style={{ fontSize: 12, fontWeight: 500, color: instGender ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b') : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
-                                    {instGender || '—'}
-                                  </span>
-                                </div>
-                                
-                                {/* Nationality */}
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 80 }}>
-                                  <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Nationality</span>
-                                  <span style={{ fontSize: 12, fontWeight: 500, color: instNationality ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b') : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
-                                    {instNationality || '—'}
-                                  </span>
-                                </div>
-                                
-                                {/* ID Type */}
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 80 }}>
-                                  <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>ID Type</span>
-                                  <span style={{ fontSize: 12, fontWeight: 500, textTransform: 'capitalize', display: 'flex', alignItems: 'center', gap: 4, color: instIdType ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b') : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
-                                    {instIdType === 'passport' ? <FaPassport size={10} style={{ opacity: 0.6 }} /> : null}
-                                    {instIdType || '—'}
-                                  </span>
-                                </div>
-                                
-                                {/* ID Number (passport or license based on ID Type) */}
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 100 }}>
-                                  <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>
-                                    {instIdType?.toLowerCase().includes('license') || instIdType?.toLowerCase().includes('licence') ? 'License No.' : 'Passport No.'}
-                                  </span>
-                                  <span 
-                                    onClick={(instPassportNumber || instDriversLicense) ? (e) => { e.stopPropagation(); void safeCopy(instIdType?.toLowerCase().includes('licen') ? instDriversLicense : instPassportNumber || instDriversLicense); } : undefined}
-                                    style={{ fontSize: 12, fontWeight: 500, fontFamily: 'monospace', color: (instPassportNumber || instDriversLicense) ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b') : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8'), cursor: (instPassportNumber || instDriversLicense) ? 'pointer' : 'default' }}>
-                                    {instIdType?.toLowerCase().includes('licen') ? (instDriversLicense || '—') : (instPassportNumber || '—')}
-                                  </span>
-                                </div>
-                                
-                                {/* Related Client ID */}
-                                {instRelatedClientId && (
-                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 100 }}>
-                                    <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Related Client</span>
-                                    <span 
-                                      onClick={(e) => { e.stopPropagation(); void safeCopy(String(instRelatedClientId)); }}
-                                      style={{ fontSize: 12, fontWeight: 500, fontFamily: 'monospace', color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b', cursor: 'pointer' }}>
-                                      {instRelatedClientId}
+                            </div>
+
+                            <div style={{
+                              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+                              padding: flatEmbedMode ? '0 0 2px' : '0 14px 2px', minHeight: 36,
+                            }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+                                {hasPitchedTimelineChip && (
+                                  <div style={{
+                                    display: 'flex', alignItems: 'center', gap: 5,
+                                    padding: '5px 10px', borderRadius: 0,
+                                    background: isDarkMode ? 'rgba(160, 160, 160, 0.08)' : 'rgba(0,0,0,0.03)',
+                                    border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.12)' : 'rgba(0,0,0,0.06)'}`,
+                                    flexShrink: 0,
+                                  }}>
+                                    <FaClock size={10} style={{ color: textMuted }} />
+                                    <span style={{ fontSize: 10, fontWeight: 600, color: textBody }}>
+                                      Pitched
+                                      <span style={{ color: textMuted, fontWeight: 500 }}> · {pitchDate}</span>
+                                    </span>
+                                  </div>
+                                )}
+
+                                {showPitchToInstructionConnector && (
+                                  <div style={{
+                                    display: 'flex', alignItems: 'center', width: pitchToInstElapsed ? 'auto' : 60,
+                                    margin: '0 2px',
+                                  }}>
+                                    <div style={{
+                                      flex: 1, height: 1, minWidth: 12,
+                                      background: isDarkMode ? `${colours.dark.border}60` : '#e2e8f0',
+                                    }} />
+                                    {pitchToInstElapsed && (
+                                      <span style={{
+                                        fontSize: 9,
+                                        fontWeight: isDarkMode ? 700 : 600,
+                                        color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                                        opacity: isDarkMode ? 1 : 0.72,
+                                        padding: '1px 5px', whiteSpace: 'nowrap',
+                                      }}>
+                                        {pitchToInstElapsed}
+                                      </span>
+                                    )}
+                                    <div style={{
+                                      flex: 1, height: 1, minWidth: 12,
+                                      background: isDarkMode ? `${colours.dark.border}60` : '#e2e8f0',
+                                    }} />
+                                  </div>
+                                )}
+
+                                {instructionDateTime && (
+                                  <div style={{
+                                    display: 'flex', alignItems: 'center', gap: 5,
+                                    padding: '5px 10px', borderRadius: 0,
+                                    background: isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.08)',
+                                    border: `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.25)' : 'rgba(32, 178, 108, 0.16)'}`,
+                                    flexShrink: 0,
+                                  }}>
+                                    <FaCheckCircle size={10} style={{ color: colours.green }} />
+                                    <span style={{ fontSize: 10, fontWeight: 600, color: colours.green }}>
+                                      Instructed
+                                      <span style={{ color: isDarkMode ? 'rgba(32, 178, 108, 0.8)' : 'rgba(32, 178, 108, 0.9)', fontWeight: 500 }}> · {instructionDateTime}</span>
                                     </span>
                                   </div>
                                 )}
                               </div>
-                              
-                              {/* Address (labeled, inside box) */}
-                              {hasIndividualAddress && (
-                                <div style={{ 
-                                  paddingTop: 10, 
-                                  borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : '#e2e8f0'}`
-                                }}>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>
-                                    <FaHome size={10} style={{ opacity: 0.6 }} />
-                                    Address
-                                  </div>
-                                  <span 
-                                    onClick={(e) => { e.stopPropagation(); void safeCopy(instFullAddress); }}
-                                    style={{ fontSize: 12, fontWeight: 500, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b', cursor: 'pointer', lineHeight: 1.5 }}>
-                                    {instFullAddress}
-                                  </span>
-                                </div>
-                              )}
                             </div>
 
-                            {/* Row 6: Company Details */}
-                            {hasCompanyDetails && (
+                            <div style={{
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 10,
+                              background: isDarkMode ? 'rgba(6, 23, 51, 0.45)' : 'rgba(255, 255, 255, 0.7)',
+                              border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
+                              borderRadius: 0,
+                              padding: '12px 14px',
+                            }}>
+
+                            {/* ── Data bar: horizontal columns with vertical separators ── */}
+                            <div style={{
+                              display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 0,
+                              padding: '14px 0',
+                              borderTop: `1px solid ${separatorColor}`,
+                              borderBottom: `1px solid ${separatorColor}`,
+                              background: isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(244, 244, 246, 0.4)',
+                            }}>
+                              <DataCol
+                                label="Type" value={clientType || '\u2014'}
+                                icon={clientType && clientType !== '\u2014' && (clientType.toLowerCase().includes('company') || clientType.toLowerCase().includes('business') || clientType.toLowerCase().includes('corporate'))
+                                  ? <FaBuilding size={10} style={{ opacity: 0.7 }} />
+                                  : <FaUser size={10} style={{ opacity: 0.7 }} />}
+                              />
+                              <Sep />
+                              <DataCol
+                                label="Client"
+                                value={clientType && (clientType.toLowerCase().includes('company') || clientType.toLowerCase().includes('business') || clientType.toLowerCase().includes('corporate'))
+                                  ? (instCompanyName || instFullName || '\u2014')
+                                  : (instFullName || '\u2014')}
+                              />
+                              <Sep />
+                              {(() => {
+                                // Resolve initials → full name via teamData (also check inst-level fields)
+                                const isMissing = (v: any) => !v || v === '\u2014' || v === '\ufffd' || String(v).trim() === '';
+                                const rawFe = !isMissing(feeEarner)
+                                  ? feeEarner
+                                  : (inst?.HelixContact || inst?.helixContact || inst?.FeeEarner || inst?.feeEarner || inst?.Solicitor || inst?.solicitor || deal?.pitchedBy || deal?.PitchedBy || effectivePitch?.pitchedBy || effectivePitch?.CreatedBy || '');
+                                const feName = (() => {
+                                  const fe = String(rawFe || '').trim();
+                                  if (!fe || fe === '\ufffd' || fe === '\u2014') return '\u2014';
+                                  if (!teamData) return fe;
+                                  const match = teamData.find((t: any) =>
+                                    t['Full Name']?.toLowerCase() === fe.toLowerCase() ||
+                                    t['Nickname']?.toLowerCase() === fe.toLowerCase() ||
+                                    t['Initials']?.toLowerCase() === fe.toLowerCase()
+                                  );
+                                  return match?.['Full Name'] || match?.['Nickname'] || fe;
+                                })();
+                                return <DataCol label="Fee Earner" value={feName} />;
+                              })()}
+                              <Sep />
+                              <DataCol label="Stage" value={instructionStage || matterStatus || '\u2014'} />
+                              <Sep />
+                              <DataCol
+                                label="Payment"
+                                value={
+                                  instPaymentStatus === 'Paid'
+                                    ? instPaymentIsBank
+                                      ? `Confirmed${instPaymentDate ? ` ${instPaymentDate}` : ''}`
+                                      : instPaymentDate ? `Paid ${instPaymentDate}` : 'Paid'
+                                    : instPaymentStatus
+                                }
+                                accent={
+                                  instPaymentStatus === 'Paid'
+                                    ? instPaymentIsBank ? colours.orange : undefined
+                                    : undefined
+                                }
+                                icon={instPaymentStatus === 'Paid' ? (
+                                  instPaymentIsCard ? <FaCreditCard size={10} style={{ opacity: 0.8 }} />
+                                  : instPaymentIsBank ? <FaBuilding size={10} style={{ opacity: 0.8 }} />
+                                  : undefined
+                                ) : undefined}
+                              />
+                              <Sep />
+                              <DataCol
+                                label="Consent"
+                                value="Given"
+                                icon={<FaCheck size={9} />}
+                              />
+                            </div>
+
+                            {isCompany && (
                               <div style={{
-                                padding: '12px 14px',
-                                background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : '#f8fafc',
-                                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : '#e2e8f0'}`,
-                                borderRadius: 6
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 6,
+                                alignSelf: 'flex-start',
+                                padding: '5px 10px',
+                                borderRadius: 0,
+                                background: isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.04)',
+                                border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(54, 144, 206, 0.15)'}`,
+                                borderLeft: `3px solid ${isDarkMode ? colours.accent : colours.highlight}`,
+                                color: isDarkMode ? 'rgba(243, 244, 246, 0.88)' : '#475569',
+                                fontSize: 10,
+                                fontWeight: 600,
                               }}>
-                                <div style={{ fontWeight: 600, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6, fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>
-                                  <FaBuilding size={10} style={{ opacity: 0.6 }} />
-                                  Company
+                                <Icon iconName="Info" styles={{ root: { fontSize: 10, color: isDarkMode ? colours.accent : colours.highlight } }} />
+                                <span>Company client</span>
+                              </div>
+                            )}
+
+                            {/* ── Amount + Service side by side (matching pitch layout) ── */}
+                            <div style={{
+                              display: 'flex', alignItems: 'stretch', gap: 0,
+                              background: isDarkMode ? 'rgba(2, 6, 23, 0.15)' : 'rgba(244, 244, 246, 0.25)',
+                            }}>
+                              {/* Amount + VAT — left, fixed width with accent stripe */}
+                              <div style={{
+                                padding: '10px 14px', flexShrink: 0, width: 130,
+                              }}>
+                                <span style={{
+                                  fontSize: 9, fontWeight: 700, letterSpacing: '0.5px',
+                                  textTransform: 'uppercase', color: textMuted,
+                                }}>
+                                  Amount
+                                </span>
+                                <div style={{
+                                  fontSize: 13, fontWeight: 600, marginTop: 4,
+                                  color: instAmount ? textBody : textMuted,
+                                }}>
+                                  {instAmount ? formatMoney(instAmount) : '\u00a30 / CFA'}
                                 </div>
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
-                                  {instCompanyName && (
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                                      <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Name</span>
-                                      <span style={{ fontSize: 12, fontWeight: 500, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b' }}>{instCompanyName}</span>
-                                    </div>
-                                  )}
-                                  {instCompanyNumber && (
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                                      <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Company No.</span>
-                                      <span 
-                                        onClick={(e) => { e.stopPropagation(); void safeCopy(instCompanyNumber); }}
-                                        style={{ fontSize: 12, fontWeight: 500, fontFamily: 'monospace', color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b', cursor: 'pointer' }}>{instCompanyNumber}</span>
-                                    </div>
-                                  )}
+                                <div style={{
+                                  fontSize: 10, fontWeight: 500, marginTop: 6,
+                                  color: textMuted,
+                                }}>
+                                  {instAmount
+                                    ? `incl. VAT ${formatMoney(Number(instAmount) * 1.2)}`
+                                    : 'incl. VAT \u00a30.00'}
                                 </div>
-                                
-                                {/* Company Address (labeled, inside box like individual address) */}
-                                {instCompanyAddressParts.length > 0 && (
-                                  <div style={{ 
-                                    paddingTop: 10, 
-                                    marginTop: 10,
-                                    borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : '#e2e8f0'}`
-                                  }}>
-                                    <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8', display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
-                                      <FaBuilding size={9} style={{ opacity: 0.6 }} />
-                                      Address
+                              </div>
+
+                              {/* Separator */}
+                              <div style={{ width: 1, alignSelf: 'stretch', background: separatorColor }} />
+
+                              {/* Service — right, fills remaining space */}
+                              <div style={{ flex: 1, minWidth: 0, padding: '10px 14px' }}>
+                                <span style={{
+                                  fontSize: 9, fontWeight: 700, letterSpacing: '0.5px',
+                                  textTransform: 'uppercase', color: textMuted,
+                                  display: 'flex', alignItems: 'center', gap: 4,
+                                }}>
+                                  <FaFileAlt size={10} style={{ color: textMuted }} />
+                                  Service
+                                </span>
+                                <div style={{
+                                  fontSize: 12, lineHeight: 1.6, marginTop: 4,
+                                  color: instService ? textBody : textMuted,
+                                  whiteSpace: 'pre-wrap',
+                                }}>
+                                  {instService || '\u2014'}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* ── Link + Ref bar ── */}
+                            {(checkoutUrl || instructionRef) && (
+                              <div style={{
+                                display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12,
+                                padding: '6px 14px',
+                                background: isDarkMode ? 'rgba(54, 144, 206, 0.04)' : 'rgba(54, 144, 206, 0.03)',
+                                borderTop: `1px solid ${separatorColor}`,
+                              }}>
+                                {checkoutUrl && instPasscode && (
+                                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                    <span style={{
+                                      display: 'inline-flex', alignItems: 'center', gap: 5,
+                                      padding: '5px 10px', borderRadius: 0,
+                                      background: isDarkMode ? 'rgba(160, 160, 160, 0.08)' : 'rgba(0,0,0,0.03)',
+                                      border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.12)' : 'rgba(0,0,0,0.06)'}`,
+                                      color: textMuted,
+                                      fontSize: 10,
+                                      fontWeight: 700,
+                                    }}>
+                                      <FaLink size={10} />
+                                      Checkout Link
                                     </span>
-                                    <div 
-                                      onClick={(e) => { e.stopPropagation(); void safeCopy(instCompanyFullAddress); }}
-                                      style={{ fontSize: 12, fontWeight: 500, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b', cursor: 'pointer', lineHeight: 1.5 }}>
-                                      {instCompanyFullAddress}
-                                      {instCompanyCountryCode && instCompanyCountryCode !== instCompanyCountry && <span style={{ marginLeft: 6, fontSize: 10, color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : '#94a3b8' }}>({instCompanyCountryCode})</span>}
-                                    </div>
+
+                                    <a
+                                      href={checkoutUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        showToast({ type: 'success', message: 'Opening checkout link' });
+                                      }}
+                                      title={`Open instruct page: instruct.helix-law.com/pitch/${instPasscode}`}
+                                      style={{
+                                        display: 'inline-flex', alignItems: 'center', gap: 6,
+                                        padding: '5px 10px', borderRadius: 0,
+                                        background: isDarkMode ? 'rgba(32, 178, 108, 0.08)' : 'rgba(32, 178, 108, 0.05)',
+                                        border: `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.2)' : 'rgba(32, 178, 108, 0.15)'}`,
+                                        color: colours.green,
+                                        fontSize: 10,
+                                        fontWeight: 600,
+                                        cursor: 'pointer',
+                                        transition: 'all 0.15s ease',
+                                        textDecoration: 'none',
+                                      }}
+                                      onMouseEnter={(e) => {
+                                        e.currentTarget.style.transform = 'translateY(-1px)';
+                                        e.currentTarget.style.boxShadow = isDarkMode ? '0 2px 8px rgba(0,0,0,0.35)' : '0 2px 8px rgba(6,23,51,0.12)';
+                                      }}
+                                      onMouseLeave={(e) => {
+                                        e.currentTarget.style.transform = 'translateY(0)';
+                                        e.currentTarget.style.boxShadow = 'none';
+                                      }}
+                                    >
+                                      <span style={{ fontFamily: 'Raleway, sans-serif', opacity: 0.95 }}>instruct.helix-law.com/pitch/{instPasscode}</span>
+                                    </a>
+
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        void safeCopy(checkoutUrl);
+                                        showToast({ type: 'success', message: 'Checkout link copied' });
+                                      }}
+                                      title="Copy checkout link"
+                                      style={{
+                                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                        width: 24, height: 24,
+                                        borderRadius: 0,
+                                        border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.18)' : 'rgba(0,0,0,0.08)'}`,
+                                        background: isDarkMode ? 'rgba(160, 160, 160, 0.08)' : 'rgba(0,0,0,0.02)',
+                                        color: textMuted,
+                                        cursor: 'pointer',
+                                        transition: 'all 0.15s ease',
+                                      }}
+                                      onMouseEnter={(e) => {
+                                        e.currentTarget.style.borderColor = colours.green;
+                                        e.currentTarget.style.color = colours.green;
+                                      }}
+                                      onMouseLeave={(e) => {
+                                        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(160, 160, 160, 0.18)' : 'rgba(0,0,0,0.08)';
+                                        e.currentTarget.style.color = textMuted;
+                                      }}
+                                    >
+                                      <FaCopy size={10} />
+                                    </button>
                                   </div>
+                                )}
+                                {instructionRef && (
+                                  <span
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      void safeCopy(String(instructionRef));
+                                      showToast({ type: 'success', message: 'Instruction reference copied' });
+                                    }}
+                                    title="Click to copy instruction reference"
+                                    style={{
+                                      display: 'inline-flex', alignItems: 'center', gap: 5,
+                                      padding: '5px 10px', borderRadius: 0,
+                                      background: isDarkMode ? 'rgba(160, 160, 160, 0.06)' : 'rgba(0,0,0,0.02)',
+                                      border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.12)' : 'rgba(0,0,0,0.06)'}`,
+                                      fontSize: 10, fontWeight: 600, fontFamily: 'Raleway, sans-serif',
+                                      color: textBody, cursor: 'pointer',
+                                      transition: 'all 0.15s ease',
+                                    }}
+                                    onMouseEnter={(e) => {
+                                      e.currentTarget.style.borderColor = isDarkMode ? 'rgba(135, 243, 243, 0.3)' : 'rgba(54, 144, 206, 0.25)';
+                                      e.currentTarget.style.background = isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.05)';
+                                    }}
+                                    onMouseLeave={(e) => {
+                                      e.currentTarget.style.borderColor = isDarkMode ? 'rgba(160, 160, 160, 0.12)' : 'rgba(0,0,0,0.06)';
+                                      e.currentTarget.style.background = isDarkMode ? 'rgba(160, 160, 160, 0.06)' : 'rgba(0,0,0,0.02)';
+                                    }}
+                                  >
+                                    <Icon iconName="Tag" styles={{ root: { fontSize: 10, color: textMuted } }} />
+                                    <span>Instruction</span>
+                                    <span style={{ opacity: 0.92 }}>{instructionRef}</span>
+                                    <span style={{ display: 'inline-flex', alignItems: 'center', marginLeft: 2, opacity: 0.85 }} title="Click to copy">
+                                      <FaCopy size={9} />
+                                    </span>
+                                  </span>
                                 )}
                               </div>
                             )}
 
-                            {/* Row 7: Instruction notes (if provided) */}
-                            {instNotes && (
-                              <div style={{
-                                padding: '12px 14px',
-                                background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : '#fff',
-                                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : '#e2e8f0'}`,
-                                borderRadius: 6,
-                                fontSize: 12,
-                                lineHeight: 1.65,
-                                color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#334155',
-                                whiteSpace: 'pre-wrap'
-                              }}>
-                                <div style={{ fontWeight: 600, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : '#64748b' }}>
-                                  <FaFileAlt size={10} style={{ opacity: 0.6 }} />
-                                  Instruction notes
+                            {/* ── Individual section ── */}
+                            <div style={{
+                              borderTop: `1px solid ${separatorColor}`,
+                              background: isDarkMode ? 'rgba(2, 6, 23, 0.2)' : 'rgba(244, 244, 246, 0.3)',
+                            }}>
+                                {/* Header */}
+                                <div style={{
+                                  display: 'flex', alignItems: 'center', gap: 5,
+                                  padding: '8px 0 6px',
+                                  borderBottom: `1px solid ${separatorColor}`,
+                                }}>
+                                  <FaUser size={10} style={{ color: isDarkMode ? colours.accent : colours.highlight }} />
+                                  <span style={{
+                                    fontSize: 9, fontWeight: 700, letterSpacing: '0.5px',
+                                    textTransform: 'uppercase',
+                                    color: isDarkMode ? colours.accent : colours.highlight,
+                                  }}>
+                                    Individual
+                                  </span>
+                                  <span style={{ fontSize: 11, fontWeight: 500, color: textBody, marginLeft: 'auto' }}>
+                                    {instFullName}
+                                  </span>
                                 </div>
-                                <div style={{ opacity: 0.95 }}>
+
+                                {/* Identity fields — flex row with separators */}
+                                <div style={{
+                                  display: 'flex', flexWrap: 'wrap', alignItems: 'stretch',
+                                  gap: 0, padding: '10px 0',
+                                }}>
+                                  <DataCol label="DOB" value={`${instDob || '\u2014'}${instAge && instAge !== '\u2014' ? ` (${instAge})` : ''}`} />
+                                  <Sep />
+                                  <DataCol label="Gender" value={instGender || '\u2014'} />
+                                  <Sep />
+                                  <DataCol label="Nationality" value={instNationality || '\u2014'} />
+                                  <Sep />
+                                  <DataCol
+                                    label="ID Type" value={instIdType || '\u2014'}
+                                    icon={instIdType?.toLowerCase().includes('passport') ? <FaPassport size={10} style={{ opacity: 0.6 }} /> : undefined}
+                                  />
+                                  <Sep />
+                                  <DataCol
+                                    label={instIdType?.toLowerCase().includes('licen') ? 'License No.' : 'Passport No.'}
+                                    value={instIdType?.toLowerCase().includes('licen') ? (instDriversLicense || '\u2014') : (instPassportNumber || '\u2014')}
+                                    mono
+                                  />
+                                  {instRelatedClientId && (<>
+                                    <Sep />
+                                    <DataCol label="Related Client" value={instRelatedClientId} mono />
+                                  </>)}
+                                </div>
+
+                                {/* Address */}
+                                {hasIndividualAddress && (
+                                  <div style={{
+                                    padding: '6px 14px 10px',
+                                  }}>
+                                    <div style={{
+                                      display: 'flex', alignItems: 'center', gap: 4, marginBottom: 3,
+                                      fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: textMuted,
+                                    }}>
+                                      <FaHome size={10} style={{ color: textMuted }} />
+                                      Address
+                                    </div>
+                                    <span
+                                      onClick={(e) => { e.stopPropagation(); void safeCopy(instFullAddress); }}
+                                      style={{ fontSize: 12, fontWeight: 500, color: textBody, cursor: 'pointer', lineHeight: 1.5 }}>
+                                      {instFullAddress}
+                                    </span>
+                                  </div>
+                                )}
+                            </div>
+
+                            {/* ── Company section ── */}
+                            {hasCompanyDetails && (
+                              <div style={{
+                                borderTop: `1px solid ${separatorColor}`,
+                                background: isDarkMode ? 'rgba(6, 23, 51, 0.35)' : 'rgba(214, 232, 255, 0.15)',
+                              }}>
+                                  {/* Header */}
+                                  <div style={{
+                                    display: 'flex', alignItems: 'center', gap: 5,
+                                    padding: '8px 0 6px',
+                                    borderBottom: `1px solid ${separatorColor}`,
+                                  }}>
+                                    <FaBuilding size={10} style={{ color: isDarkMode ? colours.accent : colours.highlight }} />
+                                    <span style={{
+                                      fontSize: 9, fontWeight: 700, letterSpacing: '0.5px',
+                                      textTransform: 'uppercase',
+                                      color: isDarkMode ? colours.accent : colours.highlight,
+                                    }}>
+                                      Company
+                                    </span>
+                                    {clientType?.toLowerCase().includes('company') && (
+                                      <span style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        padding: '1px 6px',
+                                        borderRadius: 0,
+                                        fontSize: 8,
+                                        fontWeight: 700,
+                                        letterSpacing: '0.4px',
+                                        textTransform: 'uppercase',
+                                        background: isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(54, 144, 206, 0.08)',
+                                        border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.28)' : 'rgba(54, 144, 206, 0.18)'}`,
+                                        color: isDarkMode ? colours.accent : colours.highlight,
+                                      }}>
+                                        Client
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  {/* Company fields */}
+                                  <div style={{
+                                    display: 'flex', flexWrap: 'wrap', alignItems: 'stretch',
+                                    gap: 0, padding: '10px 0',
+                                  }}>
+                                    {instCompanyName && <DataCol label="Name" value={instCompanyName} />}
+                                    {instCompanyName && instCompanyNumber && <Sep />}
+                                    {instCompanyNumber && <DataCol label="Company No." value={instCompanyNumber} mono />}
+                                  </div>
+
+                                  {/* Company address */}
+                                  {instCompanyAddressParts.length > 0 && (
+                                    <div style={{
+                                      padding: '6px 14px 10px',
+                                    }}>
+                                      <div style={{
+                                        display: 'flex', alignItems: 'center', gap: 4, marginBottom: 3,
+                                        fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: textMuted,
+                                      }}>
+                                        <FaBuilding size={9} style={{ color: textMuted }} />
+                                        Address
+                                      </div>
+                                      <div
+                                        onClick={(e) => { e.stopPropagation(); void safeCopy(instCompanyFullAddress); }}
+                                        style={{ fontSize: 12, fontWeight: 500, color: textBody, cursor: 'pointer', lineHeight: 1.5 }}>
+                                        {instCompanyFullAddress}
+                                        {instCompanyCountryCode && instCompanyCountryCode !== instCompanyCountry && <span style={{ marginLeft: 6, fontSize: 10, color: textMuted }}>({instCompanyCountryCode})</span>}
+                                      </div>
+                                    </div>
+                                  )}
+                              </div>
+                            )}
+
+                            {/* ── Instruction notes (subtle box) ── */}
+                            {instNotes && (
+                              <div>
+                                <div style={{
+                                  display: 'flex', alignItems: 'center', padding: '4px 10px 3px',
+                                }}>
+                                  <span style={{
+                                    fontSize: 9, fontWeight: 700, letterSpacing: '0.5px',
+                                    textTransform: 'uppercase', color: textMuted,
+                                    display: 'flex', alignItems: 'center', gap: 4,
+                                  }}>
+                                    <FaFileAlt size={10} style={{ color: textMuted }} />
+                                    Instruction Notes
+                                  </span>
+                                </div>
+                                <div style={{
+                                  fontSize: 12, lineHeight: 1.6, color: textBody,
+                                  whiteSpace: 'pre-wrap', maxHeight: 180, overflowY: 'auto',
+                                  padding: '8px 10px',
+                                  margin: '4px 10px 10px',
+                                  background: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+                                  border: `1px solid ${separatorColor}`,
+                                }}>
                                   {instNotes}
                                 </div>
                               </div>
                             )}
+                            </div>
                           </div>
                         );
                       })()}
@@ -3485,8 +5650,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                             gap: 10,
                             cursor: 'pointer',
                             padding: '8px 10px',
-                            background: isDarkMode ? 'rgba(148, 163, 184, 0.05)' : 'rgba(0, 0, 0, 0.02)',
-                            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
+                            background: isDarkMode ? 'rgba(160, 160, 160, 0.05)' : 'rgba(0, 0, 0, 0.02)',
+                            border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
                           }}
                           title={isEnquiryNotesExpanded ? 'Collapse notes' : 'Show notes'}
                         >
@@ -3496,8 +5661,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                 width: 20,
                                 height: 20,
                                 borderRadius: 0,
-                                background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)',
-                                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.2)'}`,
+                                background: isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(160, 160, 160, 0.08)',
+                                border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.3)' : 'rgba(160, 160, 160, 0.2)'}`,
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
@@ -3520,7 +5685,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                   fontWeight: 700,
                                   letterSpacing: '0.5px',
                                   textTransform: 'uppercase',
-                                  color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)',
+                                  color: isDarkMode ? colours.subtleGrey : colours.greyText,
                                   lineHeight: 1,
                                 }}
                               >
@@ -3530,7 +5695,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                 <div
                                   style={{
                                     fontSize: 10,
-                                    color: isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(15, 23, 42, 0.55)',
+                                    color: isDarkMode ? 'rgba(243, 244, 246, 0.6)' : 'rgba(6, 23, 51, 0.55)',
                                     overflow: 'hidden',
                                     textOverflow: 'ellipsis',
                                     whiteSpace: 'nowrap',
@@ -3579,18 +5744,18 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         {activeTab === 'identity' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {renderStatusBanner(
-              identityStatus === 'complete' 
+              identityBannerStatus === 'complete' 
                 ? (isManuallyApproved ? 'ID Approved' : 'ID Verified')
-                : identityStatus === 'review' ? 'ID Needs Review' : 'ID Pending',
-              identityStatus,
-              identityStatus === 'complete'
+                : identityBannerStatus === 'review' ? 'ID Needs Review' : 'ID Pending',
+              identityBannerStatus,
+              identityBannerStatus === 'complete'
                 ? (isManuallyApproved && hasUnderlyingIssues 
                     ? 'Manually approved despite individual check issues (see below).'
-                    : 'ID verification completed.')
-                : identityStatus === 'review'
-                  ? 'Review and approve ID or request further documents.'
+                    : 'Verification complete.')
+                : identityBannerStatus === 'review'
+                  ? 'Review required. Approve or request additional documents.'
                   : 'Run ID verification to proceed.',
-              identityStatus === 'complete' ? <FaCheckCircle size={12} /> : identityStatus === 'review' ? <FaExclamationTriangle size={12} /> : <FaIdCard size={12} />,
+              identityBannerStatus === 'complete' ? <FaCheckCircle size={12} /> : identityBannerStatus === 'review' ? <FaExclamationTriangle size={12} /> : <FaIdCard size={12} />,
               // Inline action button based on status
               eidStatus === 'pending' && onTriggerEID ? (
                 <button
@@ -3618,18 +5783,153 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
               ) : undefined,
             )}
 
+            {(() => {
+              const instructedRaw = inst?.SubmissionDate || inst?.InstructionDate || inst?.DateCreated || inst?.CreatedAt || submissionDateRaw || null;
+              const identityTimelineRaw = eidTileDetails?.overall?.checkedAt || verificationDetails?.checkedDate || eid?.EIDCheckedDate || null;
+
+              const parseDate = (raw: any): Date | null => {
+                if (!raw) return null;
+                const d = new Date(raw);
+                return Number.isNaN(d.getTime()) ? null : d;
+              };
+
+              const formatStamp = (raw: any): string | null => {
+                const d = parseDate(raw);
+                if (!d) return null;
+                const rawText = typeof raw === 'string' ? raw : '';
+                const hasTime = /T\d{2}:\d{2}/.test(rawText) || /\d{2}:\d{2}/.test(rawText);
+                const date = formatRelativeDay(d);
+                if (!hasTime) return date;
+                const time = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+                return `${date} ${time}`;
+              };
+
+              const formatDiff = (fromRaw: any, toRaw: any): string | null => {
+                const from = parseDate(fromRaw);
+                const to = parseDate(toRaw);
+                if (!from || !to) return null;
+                const diffMs = Math.abs(to.getTime() - from.getTime());
+                const mins = Math.floor(diffMs / 60000);
+                if (mins < 60) return `${mins}m`;
+                const hrs = Math.floor(mins / 60);
+                if (hrs < 24) {
+                  const remMins = mins % 60;
+                  return remMins > 0 ? `${hrs}h ${remMins}m` : `${hrs}h`;
+                }
+                const days = Math.floor(hrs / 24);
+                const remHrs = hrs % 24;
+                return remHrs > 0 ? `${days}d ${remHrs}h` : `${days}d`;
+              };
+
+              const instructedStamp = formatStamp(instructedRaw);
+              const identityStamp = formatStamp(identityTimelineRaw);
+              const elapsed = formatDiff(instructedRaw, identityTimelineRaw);
+              const showTimeline = Boolean(instructedStamp || identityStamp);
+
+              if (!showTimeline) return null;
+
+              return (
+                <div style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+                  padding: flatEmbedMode ? '8px 10px' : '8px 14px', minHeight: 36,
+                  background: isDarkMode ? 'rgba(2, 6, 23, 0.25)' : 'rgba(244, 244, 246, 0.35)',
+                  border: `1px solid ${isDarkMode ? `${colours.dark.border}40` : colours.highlightNeutral}`,
+                  borderRadius: 0,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+                    {instructedStamp && (
+                      <div style={{
+                        display: 'flex', alignItems: 'center', gap: 5,
+                        padding: '5px 10px', borderRadius: 0,
+                        background: isDarkMode ? 'rgba(160, 160, 160, 0.08)' : 'rgba(0, 0, 0, 0.03)',
+                        border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(0, 0, 0, 0.08)'}`,
+                        flexShrink: 0,
+                      }}>
+                        <FaClock size={10} style={{ color: isDarkMode ? colours.subtleGrey : colours.greyText }} />
+                        <span style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+                          Instructed
+                          <span style={{ color: isDarkMode ? 'rgba(160, 160, 160, 0.85)' : 'rgba(107, 107, 107, 0.9)', fontWeight: 500 }}> · {instructedStamp}</span>
+                        </span>
+                      </div>
+                    )}
+
+                    {(instructedStamp && identityStamp) && (
+                      <div style={{
+                        display: 'flex', alignItems: 'center', width: elapsed ? 'auto' : 60,
+                        margin: '0 2px',
+                      }}>
+                        <div style={{
+                          flex: 1, height: 1, minWidth: 12,
+                          background: isDarkMode ? `${colours.dark.border}60` : '#e2e8f0',
+                        }} />
+                        {elapsed && (
+                          <span style={{
+                            fontSize: 9,
+                            fontWeight: isDarkMode ? 700 : 600,
+                            color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                            opacity: isDarkMode ? 1 : 0.72,
+                            padding: '1px 5px', whiteSpace: 'nowrap',
+                          }}>
+                            {elapsed}
+                          </span>
+                        )}
+                        <div style={{
+                          flex: 1, height: 1, minWidth: 12,
+                          background: isDarkMode ? `${colours.dark.border}60` : '#e2e8f0',
+                        }} />
+                      </div>
+                    )}
+
+                    {identityStamp && (
+                      <div style={{
+                        display: 'flex', alignItems: 'center', gap: 5,
+                        padding: '5px 10px', borderRadius: 0,
+                        background: identityBannerStatus === 'complete'
+                          ? (isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.08)')
+                          : identityBannerStatus === 'review'
+                            ? (isDarkMode ? 'rgba(214, 85, 65, 0.12)' : 'rgba(214, 85, 65, 0.08)')
+                            : (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)'),
+                        border: `1px solid ${identityBannerStatus === 'complete'
+                          ? (isDarkMode ? 'rgba(32, 178, 108, 0.25)' : 'rgba(32, 178, 108, 0.16)')
+                          : identityBannerStatus === 'review'
+                            ? (isDarkMode ? 'rgba(214, 85, 65, 0.25)' : 'rgba(214, 85, 65, 0.16)')
+                            : (isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.16)')}`,
+                        flexShrink: 0,
+                      }}>
+                        {identityBannerStatus === 'complete'
+                          ? <FaCheckCircle size={10} style={{ color: colours.green }} />
+                          : identityBannerStatus === 'review'
+                            ? <FaExclamationTriangle size={10} style={{ color: colours.cta }} />
+                            : <FaIdCard size={10} style={{ color: colours.highlight }} />}
+                        <span style={{
+                          fontSize: 10,
+                          fontWeight: 600,
+                          color: identityBannerStatus === 'complete' ? colours.green : identityBannerStatus === 'review' ? colours.cta : colours.highlight,
+                        }}>
+                          {identityBannerStatus === 'complete' ? 'Verified' : identityBannerStatus === 'review' ? 'Review' : 'Pending'}
+                          <span style={{ color: identityBannerStatus === 'complete' ? (isDarkMode ? 'rgba(32, 178, 108, 0.8)' : 'rgba(32, 178, 108, 0.9)') : identityBannerStatus === 'review' ? (isDarkMode ? 'rgba(214, 85, 65, 0.82)' : 'rgba(214, 85, 65, 0.9)') : (isDarkMode ? 'rgba(54, 144, 206, 0.82)' : 'rgba(54, 144, 206, 0.9)'), fontWeight: 500 }}> · {identityStamp}</span>
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* ID Verification Section */}
             <div style={{
-              padding: '12px 14px',
-              background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : '#f8fafc',
-              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : '#e2e8f0'}`,
-              borderRadius: 6
+              padding: flatEmbedMode ? '0' : '12px 14px',
+              background: flatEmbedMode ? 'transparent' : (isDarkMode ? 'rgba(2, 6, 23, 0.25)' : 'rgba(244, 244, 246, 0.35)'),
+              border: flatEmbedMode ? 'none' : `1px solid ${isDarkMode ? `${colours.dark.border}40` : colours.highlightNeutral}`,
+              borderRadius: 0
             }}>
               {/* Header */}
-              <div style={{ fontWeight: 600, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6, fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>
-                <FaIdCard size={10} style={{ opacity: 0.6 }} />
-                ID Verification
-              </div>
+              {eidStatus === 'pending' && (
+                <div style={{ fontWeight: 600, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6, fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? colours.accent : colours.highlight }}>
+                  <FaIdCard size={10} style={{ opacity: 0.8 }} />
+                  ID Readiness
+                </div>
+              )}
 
               {/* Data bar - Check metadata (only when verification has run) */}
               {eidStatus !== 'pending' && (
@@ -3638,57 +5938,59 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                   flexWrap: 'wrap',
                   gap: 0,
                   padding: '10px 0',
-                  background: isDarkMode ? 'rgba(2, 6, 23, 0.4)' : '#f8fafc',
-                  borderRadius: 6,
-                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : '#e2e8f0'}`,
+                  background: isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(244, 244, 246, 0.25)',
+                  borderRadius: 0,
+                  border: `1px solid ${isDarkMode ? `${colours.dark.border}40` : colours.highlightNeutral}`,
                   marginBottom: 12
                 }}>
                   {/* Checked Date */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
-                    <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Checked</span>
-                    <span style={{ fontSize: 12, fontWeight: 500, fontFamily: 'monospace', color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b' }}>
-                      {formatMaybeDate(verificationDetails?.checkedDate) || verificationDetails?.checkedDate || eidDate || '—'}
+                    <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Checked</span>
+                    <span style={{ fontSize: 12, fontWeight: 500, fontFamily: 'monospace', color: isDarkMode ? '#d1d5db' : '#374151' }}>
+                      {eidTileDetails?.overall?.checkedAt || formatMaybeDate(verificationDetails?.checkedDate) || verificationDetails?.checkedDate || eidDate || '—'}
                     </span>
                   </div>
                   
                   {/* Separator */}
-                  <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
+                  <div style={{ width: 1, background: isDarkMode ? `${colours.dark.border}40` : colours.highlightNeutral, margin: '4px 0' }} />
                   
                   {/* Document Type */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
-                    <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>
+                    <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
                       Document
                     </span>
-                    <span style={{ fontSize: 12, fontWeight: 500, color: (passport !== '—' || license !== '—') ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b') : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
+                    <span style={{ fontSize: 12, fontWeight: 500, color: (passport !== '—' || license !== '—') ? (isDarkMode ? '#d1d5db' : '#374151') : (isDarkMode ? colours.subtleGrey : colours.greyText) }}>
                       {passport !== '—' ? 'Passport' : license !== '—' ? 'Driving License' : '—'}
                     </span>
                   </div>
                   
                   {/* Separator */}
-                  <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
+                  <div style={{ width: 1, background: isDarkMode ? `${colours.dark.border}40` : colours.highlightNeutral, margin: '4px 0' }} />
                   
                   {/* Provider */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
-                    <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Provider</span>
-                    <span
-                      style={{ fontSize: 12, fontWeight: 500, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b', cursor: verificationMeta.provider !== '—' ? 'pointer' : 'default' }}
-                      onClick={(e) => { if (verificationMeta.provider === '—') return; e.stopPropagation(); void safeCopy(verificationMeta.provider); }}
-                      title={verificationMeta.provider !== '—' ? 'Click to copy' : undefined}
-                    >
-                      {verificationMeta.provider || '—'}
-                    </span>
-                  </div>
+                  {(
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
+                      <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Provider</span>
+                      <span
+                        style={{ fontSize: 12, fontWeight: 500, color: isDarkMode ? '#d1d5db' : '#374151', cursor: verificationMeta.provider !== '—' ? 'pointer' : 'default' }}
+                        onClick={(e) => { if (verificationMeta.provider === '—') return; e.stopPropagation(); void safeCopy(verificationMeta.provider); }}
+                        title={verificationMeta.provider !== '—' ? 'Click to copy' : undefined}
+                      >
+                        {verificationMeta.provider || '—'}
+                      </span>
+                    </div>
+                  )}
                   
                   {/* Ref */}
-                  {verificationMeta.correlationId !== '—' && (
+                  {!isCompactIdentityView && verificationMeta.correlationId !== '—' && (
                     <>
                       {/* Separator */}
-                      <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
+                      <div style={{ width: 1, background: isDarkMode ? `${colours.dark.border}40` : colours.highlightNeutral, margin: '4px 0' }} />
                       
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
-                        <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Ref</span>
+                        <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Ref</span>
                         <span
-                          style={{ fontSize: 12, fontWeight: 500, fontFamily: 'monospace', color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b', cursor: 'pointer', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                          style={{ fontSize: 12, fontWeight: 500, fontFamily: 'monospace', color: isDarkMode ? '#d1d5db' : '#374151', cursor: 'pointer', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                           onClick={(e) => { e.stopPropagation(); void safeCopy(verificationMeta.correlationId); }}
                           title={`${verificationMeta.correlationId}\n\nClick to copy`}
                         >
@@ -3710,9 +6012,9 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                       alignItems: 'center',
                       justifyContent: 'space-between',
                       padding: '8px 10px',
-                      background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : 'rgba(0, 0, 0, 0.02)',
-                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.06)'}`,
-                      borderRadius: 4,
+                      background: isDarkMode ? 'rgba(2, 6, 23, 0.25)' : 'rgba(244, 244, 246, 0.25)',
+                      border: `1px solid ${isDarkMode ? `${colours.dark.border}40` : colours.highlightNeutral}`,
+                      borderRadius: 0,
                       cursor: 'pointer',
                       transition: 'all 0.15s ease'
                     }}
@@ -3723,15 +6025,15 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                         fontWeight: 600,
                         textTransform: 'uppercase',
                         letterSpacing: '0.3px',
-                        color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)',
+                        color: isDarkMode ? colours.subtleGrey : colours.greyText,
                         lineHeight: 1
                       }}>
                         Verification Data
                       </div>
-                      {!isVerificationDataExpanded && (
+                      {!isVerificationDataExpanded && !isCompactIdentityView && (
                         <div style={{
                           fontSize: 10,
-                          color: isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(15, 23, 42, 0.55)',
+                          color: isDarkMode ? 'rgba(243, 244, 246, 0.6)' : 'rgba(6, 23, 51, 0.55)',
                           overflow: 'hidden',
                           textOverflow: 'ellipsis',
                           whiteSpace: 'nowrap',
@@ -3744,7 +6046,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                     <FaChevronDown
                       size={10}
                       style={{
-                        color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)',
+                        color: isDarkMode ? colours.subtleGrey : colours.greyText,
                         transform: isVerificationDataExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
                         transition: 'transform 0.15s ease'
                       }}
@@ -3757,64 +6059,64 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                       flexWrap: 'wrap',
                       gap: 0,
                       padding: '10px 0',
-                      background: isDarkMode ? 'rgba(2, 6, 23, 0.4)' : '#f8fafc',
-                      borderRadius: 6,
-                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : '#e2e8f0'}`,
+                      background: isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(244, 244, 246, 0.25)',
+                      borderRadius: 0,
+                      border: `1px solid ${isDarkMode ? `${colours.dark.border}40` : colours.highlightNeutral}`,
                       marginTop: 8
                     }}>
                       {/* Name */}
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
-                        <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Name</span>
-                        <span style={{ fontSize: 12, fontWeight: 500, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b' }}>
+                        <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Name</span>
+                        <span style={{ fontSize: 12, fontWeight: 500, color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : '#061733' }}>
                           {[title, firstName, lastName].filter(Boolean).join(' ') || '—'}
                         </span>
                       </div>
 
                       {/* Separator */}
-                      <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
+                      <div style={{ width: 1, background: isDarkMode ? colours.dark.border : '#e1e1e1', margin: '4px 0' }} />
 
                       {/* Document Number */}
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
-                        <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>
+                        <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
                           {passport !== '—' ? 'Passport' : license !== '—' ? 'License' : 'Doc No.'}
                         </span>
                         <span 
                           onClick={(passport !== '—' || license !== '—') ? (e) => { e.stopPropagation(); void safeCopy(passport !== '—' ? passport : license); } : undefined}
                           title={(passport !== '—' || license !== '—') ? 'Click to copy' : undefined}
-                          style={{ fontSize: 12, fontWeight: 500, fontFamily: 'monospace', color: (passport !== '—' || license !== '—') ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b') : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8'), cursor: (passport !== '—' || license !== '—') ? 'pointer' : 'default' }}>
+                          style={{ fontSize: 12, fontWeight: 500, fontFamily: 'monospace', color: (passport !== '—' || license !== '—') ? (isDarkMode ? 'rgba(243, 244, 246, 0.9)' : '#061733') : (isDarkMode ? 'rgba(160, 160, 160, 0.5)' : '#A0A0A0'), cursor: (passport !== '—' || license !== '—') ? 'pointer' : 'default' }}>
                           {(passport !== '—' ? passport : license !== '—' ? license : '—')}
                         </span>
                       </div>
 
                       {/* Separator */}
-                      <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
+                      <div style={{ width: 1, background: isDarkMode ? colours.dark.border : '#e1e1e1', margin: '4px 0' }} />
 
                       {/* DOB */}
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
-                        <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>DOB</span>
-                        <span style={{ fontSize: 12, fontWeight: 500, fontFamily: 'monospace', color: dob !== '—' ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b') : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
+                        <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>DOB</span>
+                        <span style={{ fontSize: 12, fontWeight: 500, fontFamily: 'monospace', color: dob !== '—' ? (isDarkMode ? 'rgba(243, 244, 246, 0.9)' : '#061733') : (isDarkMode ? 'rgba(160, 160, 160, 0.5)' : '#A0A0A0') }}>
                           {dob}{age !== '—' ? ` (${age})` : ''}
                         </span>
                       </div>
 
                       {/* Separator */}
-                      <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
+                      <div style={{ width: 1, background: isDarkMode ? colours.dark.border : '#e1e1e1', margin: '4px 0' }} />
 
                       {/* Nationality */}
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
-                        <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Nationality</span>
-                        <span style={{ fontSize: 12, fontWeight: 500, color: nationalityAlpha !== '—' ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b') : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8') }}>
+                        <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Nationality</span>
+                        <span style={{ fontSize: 12, fontWeight: 500, color: nationalityAlpha !== '—' ? (isDarkMode ? 'rgba(243, 244, 246, 0.9)' : '#061733') : (isDarkMode ? 'rgba(160, 160, 160, 0.5)' : '#A0A0A0') }}>
                           {nationalityAlpha}
                         </span>
                       </div>
 
                       {/* Separator */}
-                      <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
+                      <div style={{ width: 1, background: isDarkMode ? colours.dark.border : '#e1e1e1', margin: '4px 0' }} />
 
                       {/* Address (if available) */}
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px', flex: 1, minWidth: 200 }}>
-                        <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Address</span>
-                        <span style={{ fontSize: 12, fontWeight: 500, color: address ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b') : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8'), whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Address</span>
+                        <span style={{ fontSize: 12, fontWeight: 500, color: address ? (isDarkMode ? 'rgba(243, 244, 246, 0.9)' : '#061733') : (isDarkMode ? 'rgba(160, 160, 160, 0.5)' : '#A0A0A0'), whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           {address || '—'}
                         </span>
                       </div>
@@ -3828,137 +6130,546 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                 {/* EID Results - only show when verification has been run */}
                 {eidStatus !== 'pending' ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {/* EID Results Strip - unified layout like Key Info Strip */}
-                <div style={{ 
-                  display: 'flex', flexWrap: 'wrap', gap: 0, 
-                  padding: '10px 0',
-                  background: isDarkMode ? 'rgba(2, 6, 23, 0.4)' : '#f8fafc',
-                  borderRadius: 6,
-                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : '#e2e8f0'}`
+                {/* ── Result Indicator Pills ── */}
+                <div style={{
+                  display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8,
+                  padding: '8px 0',
                 }}>
-                  {/* EID Label with badge */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
-                    <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8', display: 'flex', alignItems: 'center', gap: 5 }}>
-                      <FaShieldAlt size={9} style={{ opacity: 0.6 }} /> EID
-                    </span>
-                    <span style={{ fontSize: 12, fontWeight: 500, color: isManuallyApproved ? '#f59e0b' : (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b') }}>
-                      {isManuallyApproved ? 'Manually Approved' : 'Checked'}
-                    </span>
-                  </div>
-
-                  {/* Separator */}
-                  <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
-
-                  {/* Overall */}
+                  {/* Overall Pill */}
                   {(() => {
-                    const overallValue = isManuallyApproved ? 'Approved' : (eidResult && eidResult !== '—' ? eidResult : (verificationDetails?.overallResult || '—'));
+                    const overallValue = isManuallyApproved
+                      ? 'Approved'
+                      : (rawCheckResultSnapshot.overall !== '—'
+                        ? rawCheckResultSnapshot.overall
+                        : (eidResult && eidResult !== '—' ? eidResult : (verificationDetails?.overallResult || '—')));
                     const isPass = overallValue.toLowerCase().includes('pass') || overallValue.toLowerCase().includes('clear') || overallValue.toLowerCase() === 'approved';
                     const isWarn = overallValue.toLowerCase().includes('review') || overallValue.toLowerCase().includes('refer');
                     const isFail = overallValue.toLowerCase().includes('fail');
-                    const resultColor = isPass ? colours.highlight : (isFail || isWarn) ? colours.cta : (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b');
                     const isOverallNeedsAction = isFail || isWarn;
+                    const pillBg = isPass
+                      ? (isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.08)')
+                      : (isFail || isWarn)
+                        ? (isDarkMode ? 'rgba(214, 85, 65, 0.12)' : 'rgba(214, 85, 65, 0.08)')
+                        : (isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.06)');
+                    const pillBorder = isPass
+                      ? (isDarkMode ? 'rgba(32, 178, 108, 0.3)' : 'rgba(32, 178, 108, 0.2)')
+                      : (isFail || isWarn)
+                        ? (isDarkMode ? 'rgba(214, 85, 65, 0.3)' : 'rgba(214, 85, 65, 0.2)')
+                        : (isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.15)');
+                    const pillColor = isPass ? colours.green : (isFail || isWarn) ? colours.cta : colours.highlight;
                     return (
-                      <div 
-                        onClick={isOverallNeedsAction ? () => setShowEidActionModal(true) : undefined}
-                        style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px', cursor: isOverallNeedsAction ? 'pointer' : 'default' }}
-                        title={isOverallNeedsAction ? 'Click to review' : undefined}
+                      <div
+                        title={'Overall result'}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 5,
+                          padding: '4px 10px',
+                          background: pillBg,
+                          border: `1px solid ${pillBorder}`,
+                          borderRadius: 999,
+                        }}
                       >
-                        <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Overall</span>
-                        <span style={{ fontSize: 12, fontWeight: 600, color: resultColor, display: 'flex', alignItems: 'center', gap: 5 }}>
-                          {isPass ? <FaCheckCircle size={10} style={{ opacity: 0.8 }} /> : (isFail || isWarn) ? <FaExclamationTriangle size={10} style={{ opacity: 0.8 }} /> : null}
-                          {overallValue}
-                        </span>
+                        {isPass ? <FaCheckCircle size={10} color={pillColor} /> : (isFail || isWarn) ? <FaExclamationTriangle size={10} color={pillColor} /> : <FaShieldAlt size={10} color={pillColor} />}
+                        <span style={{ fontSize: 10, fontWeight: 700, color: pillColor }}>{overallValue}</span>
                       </div>
                     );
                   })()}
 
-                  {/* Separator */}
-                  <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
-
-                  {/* PEP/Sanctions */}
+                  {/* PEP/Sanctions Pill */}
                   {(() => {
-                    const pepValue = pepResult && pepResult !== '—' ? pepResult : (verificationDetails?.pepResult || '—');
+                    const pepValue = rawCheckResultSnapshot.pep !== '—'
+                      ? rawCheckResultSnapshot.pep
+                      : normaliseVerificationFieldValue(pepResult && pepResult !== '—' ? pepResult : verificationDetails?.pepResult);
                     const isPass = pepValue.toLowerCase().includes('pass') || pepValue.toLowerCase().includes('clear') || pepValue.toLowerCase().includes('no match');
                     const isWarn = pepValue.toLowerCase().includes('review') || pepValue.toLowerCase().includes('refer');
                     const isFail = pepValue.toLowerCase().includes('fail') || pepValue.toLowerCase().includes('match');
-                    const resultColor = isPass ? colours.highlight : (isFail || isWarn) ? colours.cta : (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b');
+                    const pillColor = isPass ? colours.highlight : (isFail || isWarn) ? colours.cta : (isDarkMode ? '#d1d5db' : '#374151');
                     return (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
-                        <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>PEP/Sanctions</span>
-                        <span style={{ fontSize: 12, fontWeight: 600, color: resultColor, display: 'flex', alignItems: 'center', gap: 5 }}>
-                          {isPass ? <FaCheckCircle size={10} style={{ opacity: 0.8 }} /> : (isFail || isWarn) ? <FaExclamationTriangle size={10} style={{ opacity: 0.8 }} /> : null}
-                          {pepValue}
-                        </span>
+                      <div style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 5,
+                        padding: '4px 10px',
+                        background: isDarkMode ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.03)',
+                        border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)'}`,
+                        borderRadius: 999,
+                      }}>
+                        <span style={{ fontSize: 9, fontWeight: 600, color: isDarkMode ? colours.subtleGrey : colours.greyText, textTransform: 'uppercase', letterSpacing: '0.3px' }}>PEP</span>
+                        {isPass ? <FaCheckCircle size={9} color={pillColor} /> : (isFail || isWarn) ? <FaExclamationTriangle size={9} color={pillColor} /> : null}
+                        <span style={{ fontSize: 10, fontWeight: 600, color: pillColor }}>{pepValue}</span>
                       </div>
                     );
                   })()}
 
-                  {/* Separator */}
-                  <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
-
-                  {/* Address */}
+                  {/* Address Pill */}
                   {(() => {
-                    const addrValue = addressVerification && addressVerification !== '—' ? addressVerification : (verificationDetails?.addressResult || '—');
+                    const addrValue = rawCheckResultSnapshot.address !== '—'
+                      ? rawCheckResultSnapshot.address
+                      : normaliseVerificationFieldValue(addressVerification && addressVerification !== '—' ? addressVerification : verificationDetails?.addressResult);
                     const isPass = addrValue.toLowerCase().includes('pass') || addrValue.toLowerCase().includes('verified');
                     const isWarn = addrValue.toLowerCase().includes('review') || addrValue.toLowerCase().includes('refer');
                     const isFail = addrValue.toLowerCase().includes('fail');
-                    const resultColor = isPass ? colours.highlight : (isFail || isWarn) ? colours.cta : (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b');
+                    const pillColor = isPass ? colours.highlight : (isFail || isWarn) ? colours.cta : (isDarkMode ? '#d1d5db' : '#374151');
                     return (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
-                        <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Address</span>
-                        <span style={{ fontSize: 12, fontWeight: 600, color: resultColor, display: 'flex', alignItems: 'center', gap: 5 }}>
-                          {isPass ? <FaCheckCircle size={10} style={{ opacity: 0.8 }} /> : (isFail || isWarn) ? <FaExclamationTriangle size={10} style={{ opacity: 0.8 }} /> : null}
-                          {addrValue}
-                        </span>
+                      <div style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 5,
+                        padding: '4px 10px',
+                        background: isDarkMode ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.03)',
+                        border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)'}`,
+                        borderRadius: 999,
+                      }}>
+                        <span style={{ fontSize: 9, fontWeight: 600, color: isDarkMode ? colours.subtleGrey : colours.greyText, textTransform: 'uppercase', letterSpacing: '0.3px' }}>Addr</span>
+                        {isPass ? <FaCheckCircle size={9} color={pillColor} /> : (isFail || isWarn) ? <FaExclamationTriangle size={9} color={pillColor} /> : null}
+                        <span style={{ fontSize: 10, fontWeight: 600, color: pillColor }}>{addrValue}</span>
                       </div>
                     );
                   })()}
-
-                  {/* Separator */}
-                  <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
-
-                  {/* Raw Record Toggle */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
-                    <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Raw Record</span>
-                    <span 
-                      onClick={(e) => { e.stopPropagation(); setIsRawRecordExpanded((v) => !v); }}
-                      style={{ fontSize: 12, fontWeight: 500, color: isRawRecordExpanded ? colours.highlight : (isDarkMode ? 'rgba(148, 163, 184, 0.6)' : '#64748b'), cursor: 'pointer' }}
-                    >
-                      {isRawRecordExpanded ? 'Hide' : 'Show'}
-                    </span>
-                  </div>
                 </div>
 
-                {/* Raw Record Expanded (directly below the strip) */}
+                {/* ── Inline Review Actions (shown when EID needs review/fail) ── */}
+                {(() => {
+                  const overallVal = isManuallyApproved
+                    ? 'Approved'
+                    : (rawCheckResultSnapshot.overall !== '—'
+                      ? rawCheckResultSnapshot.overall
+                      : (eidResult && eidResult !== '—' ? eidResult : (verificationDetails?.overallResult || '')));
+                  const needsAction = !isManuallyApproved && (overallVal.toLowerCase().includes('review') || overallVal.toLowerCase().includes('refer') || overallVal.toLowerCase().includes('fail'));
+                  if (!needsAction) return null;
+                  return (
+                    <div style={{
+                      display: 'flex', alignItems: 'center', gap: 10,
+                      padding: '10px 12px',
+                      background: isDarkMode ? 'rgba(214, 85, 65, 0.06)' : 'rgba(214, 85, 65, 0.04)',
+                      border: `1px solid ${isDarkMode ? 'rgba(214, 85, 65, 0.18)' : 'rgba(214, 85, 65, 0.12)'}`,
+                      borderRadius: 0,
+                    }}>
+                      {/* Warning icon + message */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+                        <div style={{
+                          width: 26, height: 26, borderRadius: '50%',
+                          background: isDarkMode ? 'rgba(214, 85, 65, 0.15)' : 'rgba(214, 85, 65, 0.1)',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                        }}>
+                          <FaExclamationTriangle size={11} color={colours.cta} />
+                        </div>
+                        <div style={{ fontSize: 11, lineHeight: 1.4, color: isDarkMode ? '#d1d5db' : '#374151', minWidth: 0 }}>
+                          ID check flagged issues. Approve if acceptable, or request documents.
+                        </div>
+                      </div>
+                      {/* Action buttons */}
+                      <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                        <button
+                          type="button"
+                          onClick={() => setShowApproveModal(true)}
+                          style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 5,
+                            padding: '6px 12px',
+                            background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.06)',
+                            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)'}`,
+                            borderRadius: 0, cursor: 'pointer', textAlign: 'left',
+                          }}
+                        >
+                          <FaCheck size={10} color={colours.highlight} />
+                          <span style={{ fontSize: 10, fontWeight: 700, color: colours.highlight }}>Approve</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowRequestDocsModal(true)}
+                          style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 5,
+                            padding: '6px 12px',
+                            background: isDarkMode ? 'rgba(214, 85, 65, 0.08)' : 'rgba(214, 85, 65, 0.05)',
+                            border: `1px solid ${isDarkMode ? 'rgba(214, 85, 65, 0.25)' : 'rgba(214, 85, 65, 0.15)'}`,
+                            borderRadius: 0, cursor: 'pointer', textAlign: 'left',
+                          }}
+                        >
+                          <FaFileAlt size={10} color={colours.cta} />
+                          <span style={{ fontSize: 10, fontWeight: 700, color: colours.cta }}>Request Docs</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* ── Document Controls Bar ── */}
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  padding: '6px 0',
+                  borderTop: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
+                }}>
+                  {/* View Report toggle */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (!showEidReportPanel) {
+                        buildRawRecordPdfBlobUrl();
+                        setIsRawRecordExpanded(false);
+                      }
+                      setShowEidReportPanel((v) => !v);
+                    }}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 5,
+                      padding: '5px 10px',
+                      background: showEidReportPanel
+                        ? (isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)')
+                        : 'transparent',
+                      color: showEidReportPanel ? colours.highlight : (isDarkMode ? '#d1d5db' : '#374151'),
+                      border: `1px solid ${showEidReportPanel
+                        ? (isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.25)')
+                        : (isDarkMode ? 'rgba(160, 160, 160, 0.15)' : 'rgba(0, 0, 0, 0.08)')}`,
+                      borderRadius: 0,
+                      fontSize: 10,
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <FaFilePdf size={10} />
+                    {showEidReportPanel ? 'Hide Report' : 'View Report'}
+                  </button>
+
+                  {/* Download */}
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); downloadRawRecordPdf(); }}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 5,
+                      padding: '5px 10px',
+                      background: 'transparent',
+                      color: isDarkMode ? '#d1d5db' : '#374151',
+                      border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.15)' : 'rgba(0, 0, 0, 0.08)'}`,
+                      borderRadius: 0,
+                      fontSize: 10,
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <FaDownload size={9} />
+                    Download
+                  </button>
+
+                  {/* Save to Docs / Saved indicator */}
+                  {existingEidPdfDoc ? (
+                    <div
+                      title={`Saved: ${existingEidPdfDoc.FileName}\nUploaded: ${existingEidPdfDoc.UploadedAt ? new Date(existingEidPdfDoc.UploadedAt).toLocaleString('en-GB') : '—'}`}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 4,
+                        padding: '4px 8px',
+                        background: isDarkMode ? 'rgba(32, 178, 108, 0.08)' : 'rgba(32, 178, 108, 0.06)',
+                        border: `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.2)' : 'rgba(32, 178, 108, 0.12)'}`,
+                        borderRadius: 999,
+                        fontSize: 9,
+                        fontWeight: 600,
+                        color: colours.green,
+                      }}
+                    >
+                      <FaCheckCircle size={8} />
+                      Saved to Docs
+                    </div>
+                  ) : !isDemoInstruction ? (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); persistRawRecordPdf(); }}
+                      disabled={isPersistingRawRecordPdf}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 5,
+                        padding: '5px 10px',
+                        background: 'transparent',
+                        color: isDarkMode ? '#d1d5db' : '#374151',
+                        border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.15)' : 'rgba(0, 0, 0, 0.08)'}`,
+                        borderRadius: 0,
+                        fontSize: 10,
+                        fontWeight: 700,
+                        cursor: isPersistingRawRecordPdf ? 'wait' : 'pointer',
+                        opacity: isPersistingRawRecordPdf ? 0.5 : 1,
+                      }}
+                    >
+                      <FaCloudUploadAlt size={10} />
+                      {isPersistingRawRecordPdf ? 'Saving…' : 'Save report'}
+                    </button>
+                  ) : null}
+
+                  {isDemoInstruction && (
+                    <div
+                      title={rawRecordSubmittedAt ? `Submitted: ${new Date(rawRecordSubmittedAt).toLocaleString('en-GB')}` : rawRecordSubmitMessage}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 4,
+                        padding: '4px 8px',
+                        background: rawRecordSubmitState === 'submitting'
+                          ? (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)')
+                          : rawRecordSubmitState === 'failed'
+                            ? (isDarkMode ? 'rgba(214, 85, 65, 0.12)' : 'rgba(214, 85, 65, 0.08)')
+                            : rawRecordSubmitState === 'submitted'
+                              ? (isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.08)')
+                              : (isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0, 0, 0, 0.04)'),
+                        border: `1px solid ${rawRecordSubmitState === 'failed'
+                          ? (isDarkMode ? 'rgba(214, 85, 65, 0.3)' : 'rgba(214, 85, 65, 0.2)')
+                          : rawRecordSubmitState === 'submitted'
+                            ? (isDarkMode ? 'rgba(32, 178, 108, 0.3)' : 'rgba(32, 178, 108, 0.2)')
+                            : (isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(0, 0, 0, 0.08)')}`,
+                        borderRadius: 999,
+                        fontSize: 9,
+                        fontWeight: 700,
+                        color: rawRecordSubmitState === 'submitting'
+                          ? colours.highlight
+                          : rawRecordSubmitState === 'failed'
+                            ? colours.cta
+                            : rawRecordSubmitState === 'submitted'
+                              ? colours.green
+                              : (isDarkMode ? colours.subtleGrey : colours.greyText),
+                      }}
+                    >
+                      {rawRecordSubmitState === 'submitting'
+                        ? 'Auto-submit: Saving…'
+                        : rawRecordSubmitState === 'failed'
+                          ? 'Auto-submit: Failed'
+                          : rawRecordSubmitState === 'submitted'
+                            ? 'Auto-submitted'
+                            : 'Auto-submit enabled'}
+                    </div>
+                  )}
+
+                  {/* Spacer */}
+                  <div style={{ flex: 1 }} />
+
+                  {/* Raw Data toggle */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (!isRawRecordExpanded) setShowEidReportPanel(false);
+                      setIsRawRecordExpanded((v) => !v);
+                    }}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 4,
+                      padding: '4px 8px',
+                      background: isRawRecordExpanded
+                        ? (isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0, 0, 0, 0.04)')
+                        : 'transparent',
+                      color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                      border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
+                      borderRadius: 0,
+                      fontSize: 9,
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <FaCode size={8} />
+                    {isRawRecordExpanded ? 'Hide JSON' : 'Raw JSON'}
+                  </button>
+
+                  {/* Expand to full-screen (only when report panel is open) */}
+                  {showEidReportPanel && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openRawRecordPdfPreview();
+                      }}
+                      title="Expand to full screen"
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                        padding: '4px 6px',
+                        background: 'transparent',
+                        color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                        border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
+                        borderRadius: 0,
+                        fontSize: 9,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <FaExpand size={9} />
+                    </button>
+                  )}
+                </div>
+
+                {/* ── Inline Verification Report Panel ── */}
+                {showEidReportPanel && rawRecordPdfUrl && (
+                  <div style={{
+                    border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.12)'}`,
+                    borderRadius: 0,
+                    overflow: 'hidden',
+                    background: isDarkMode ? colours.dark.sectionBackground : '#ffffff',
+                    transition: 'all 0.2s ease',
+                  }}>
+                    {/* Thin accent header */}
+                    <div style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      padding: '5px 10px',
+                      background: isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.03)',
+                      borderBottom: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)'}`,
+                    }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: colours.highlight, display: 'flex', alignItems: 'center', gap: 5 }}>
+                        <FaFilePdf size={10} />
+                        Identity Verification Report
+                      </span>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setShowEidReportPanel(false); }}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                          width: 20, height: 20,
+                          background: 'transparent',
+                          border: 'none',
+                          color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                          cursor: 'pointer',
+                          padding: 0,
+                        }}
+                      >
+                        <FaTimes size={10} />
+                      </button>
+                    </div>
+                    {/* PDF object — <object> with data URI renders inline; blob: URLs trigger download */}
+                    {rawRecordPdfUrl?.startsWith('data:') ? (
+                      <object
+                        data={rawRecordPdfUrl}
+                        type="application/pdf"
+                        title="Identity Verification Report"
+                        style={{
+                          border: 'none', width: '100%',
+                          height: isCompactIdentityView ? 340 : 420,
+                          background: isDarkMode ? '#1a1a2e' : '#f5f5f5',
+                        }}
+                      >
+                        <p style={{ padding: 20, fontSize: 11, color: isDarkMode ? '#d1d5db' : '#374151' }}>
+                          PDF preview not available in this browser. <a href={rawRecordPdfUrl} download="eid-report.pdf" style={{ color: colours.highlight }}>Download instead</a>.
+                        </p>
+                      </object>
+                    ) : (
+                      <div style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        height: isCompactIdentityView ? 340 : 420,
+                        color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                        fontSize: 11,
+                        gap: 6,
+                      }}>
+                        <div className="helix-spin" style={{ width: 14, height: 14, border: `2px solid ${colours.highlight}`, borderTopColor: 'transparent', borderRadius: '50%' }} />
+                        Generating report…
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* ── Raw JSON (secondary, collapsible) ── */}
                 {isRawRecordExpanded && (
                   <div style={{
-                    padding: '8px 10px',
-                    background: isDarkMode ? 'rgba(15, 23, 42, 0.55)' : 'rgba(255, 255, 255, 0.75)',
-                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
-                    borderRadius: 4,
+                    border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
+                    borderRadius: 0,
+                    overflow: 'hidden',
                   }}>
                     <pre style={{
                       margin: 0,
+                      padding: '8px 10px',
                       fontSize: 10,
                       lineHeight: 1.45,
                       fontFamily: 'monospace',
-                      color: isDarkMode ? 'rgba(226, 232, 240, 0.82)' : 'rgba(15, 23, 42, 0.72)',
+                      color: isDarkMode ? 'rgba(243, 244, 246, 0.82)' : 'rgba(6, 23, 51, 0.72)',
+                      background: isDarkMode ? 'rgba(6, 23, 51, 0.55)' : 'rgba(255, 255, 255, 0.75)',
                       whiteSpace: 'pre-wrap',
                       wordBreak: 'break-word',
-                      maxHeight: 260,
+                      maxHeight: 240,
                       overflow: 'auto',
                     }}>
-                      {(() => {
-                        const raw = verificationDetails?.rawResponse || (item as any)?.instruction?.EID_Result;
-                        if (!raw) return 'No raw record available.';
-                        const parsed = parseRawResponse(raw);
-                        if (parsed && typeof parsed === 'object') {
-                          try { return JSON.stringify(parsed, null, 2); } catch { return String(raw ?? ''); }
-                        }
-                        return typeof raw === 'string' ? raw : String(raw ?? '');
-                      })()}
+                      {getRawRecordText()}
                     </pre>
                   </div>
+                )}
+
+                {/* Full-screen PDF modal (expanded view) */}
+                {showRawRecordPdfPreview && rawRecordPdfUrl && createPortal(
+                  <div
+                    style={{
+                      position: 'fixed',
+                      inset: 0,
+                      background: 'rgba(0, 3, 25, 0.6)',
+                      backdropFilter: 'blur(2px)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      zIndex: 9999,
+                    }}
+                    onClick={() => setShowRawRecordPdfPreview(false)}
+                  >
+                    <div
+                      style={{
+                        width: '92%',
+                        maxWidth: 920,
+                        height: '86vh',
+                        background: isDarkMode ? colours.dark.sectionBackground : '#ffffff',
+                        border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
+                        borderRadius: 0,
+                        display: 'flex',
+                        flexDirection: 'column',
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '8px 10px',
+                        borderBottom: `1px solid ${isDarkMode ? colours.dark.border : colours.highlightNeutral}`,
+                      }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text, display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <FaFilePdf size={12} color={colours.highlight} />
+                          Identity Verification Report
+                        </span>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <button
+                            type="button"
+                            onClick={() => { downloadRawRecordPdf(); }}
+                            title="Download PDF to your device"
+                            style={{
+                              padding: '6px 10px',
+                              background: 'transparent',
+                              color: isDarkMode ? colours.dark.text : colours.light.text,
+                              border: `1px solid ${isDarkMode ? colours.dark.border : colours.highlightNeutral}`,
+                              borderRadius: 0,
+                              fontSize: 10,
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              display: 'inline-flex', alignItems: 'center', gap: 5,
+                            }}
+                          >
+                            <FaDownload size={10} />
+                            Save
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setShowRawRecordPdfPreview(false)}
+                            style={{
+                              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                              padding: '6px 8px',
+                              background: 'transparent',
+                              color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                              border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.25)' : 'rgba(107, 107, 107, 0.25)'}`,
+                              borderRadius: 0,
+                              fontSize: 10,
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            <FaTimes size={11} />
+                          </button>
+                        </div>
+                      </div>
+                      {rawRecordPdfUrl?.startsWith('data:') ? (
+                        <object
+                          data={rawRecordPdfUrl}
+                          type="application/pdf"
+                          title="Identity Verification Report"
+                          style={{ border: 'none', width: '100%', height: '100%' }}
+                        >
+                          <p style={{ padding: 20, fontSize: 12, color: isDarkMode ? '#d1d5db' : '#374151' }}>
+                            PDF preview not available. <a href={rawRecordPdfUrl} download="eid-report.pdf" style={{ color: colours.highlight }}>Download instead</a>.
+                          </p>
+                        </object>
+                      ) : (
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: isDarkMode ? colours.subtleGrey : colours.greyText, fontSize: 12, gap: 8 }}>
+                          <div className="helix-spin" style={{ width: 16, height: 16, border: `2px solid ${colours.highlight}`, borderTopColor: 'transparent', borderRadius: '50%' }} />
+                          Generating report…
+                        </div>
+                      )}
+                    </div>
+                  </div>,
+                  document.body
                 )}
 
                 {/* Expanded details - additional refs */}
@@ -3966,23 +6677,23 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                   <div style={{
                     marginTop: 10,
                     paddingTop: 10,
-                    borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
+                    borderTop: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
                     display: 'flex',
                     flexDirection: 'column',
                     gap: 6,
                   }}>
                     {isVerificationDetailsLoading && (
-                      <div style={{ fontSize: 10, color: isDarkMode ? 'rgba(226, 232, 240, 0.75)' : 'rgba(15, 23, 42, 0.65)' }}>
-                        Loading verification details…
+                      <div style={{ fontSize: 10, color: isDarkMode ? 'rgba(243, 244, 246, 0.75)' : 'rgba(6, 23, 51, 0.65)' }}>
+                        Loading verification details—
                       </div>
                     )}
 
                     {!isVerificationDetailsLoading && verificationDetailsError && (
-                      <div style={{ fontSize: 10, color: '#ef4444', fontWeight: 600 }}>{verificationDetailsError}</div>
+                      <div style={{ fontSize: 10, color: '#D65541', fontWeight: 600 }}>{verificationDetailsError}</div>
                     )}
 
                     {!isVerificationDetailsLoading && !verificationDetailsError && !verificationDetails && (
-                      <div style={{ fontSize: 10, color: isDarkMode ? 'rgba(226, 232, 240, 0.75)' : 'rgba(15, 23, 42, 0.65)' }}>
+                      <div style={{ fontSize: 10, color: isDarkMode ? 'rgba(243, 244, 246, 0.75)' : 'rgba(6, 23, 51, 0.65)' }}>
                         No verification details available.
                       </div>
                     )}
@@ -3992,18 +6703,18 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                     {/* Additional reference IDs */}
                     {verificationMeta.references.length > 0 && (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8 }}>
-                        <div style={{ fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.45)' : 'rgba(100, 116, 139, 0.45)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                        <div style={{ fontSize: 8, color: isDarkMode ? 'rgba(160, 160, 160, 0.45)' : 'rgba(107, 107, 107, 0.45)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
                           Additional References
                         </div>
                         {verificationMeta.references.slice(0, 3).map((ref) => (
                           <div key={ref.label} style={{ display: 'grid', gridTemplateColumns: '64px 1fr', gap: 6, alignItems: 'baseline' }}>
-                            <div style={{ fontSize: 8, color: isDarkMode ? 'rgba(148, 163, 184, 0.4)' : 'rgba(100, 116, 139, 0.4)', textAlign: 'left' }}>{ref.label}</div>
+                            <div style={{ fontSize: 8, color: isDarkMode ? 'rgba(160, 160, 160, 0.4)' : 'rgba(107, 107, 107, 0.4)', textAlign: 'left' }}>{ref.label}</div>
                             <div
                               style={{
                                 fontSize: 10,
                                 fontWeight: 600,
                                 fontFamily: 'monospace',
-                                color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.8)',
+                                color: isDarkMode ? 'rgba(243, 244, 246, 0.85)' : 'rgba(6, 23, 51, 0.8)',
                                 cursor: 'pointer',
                                 overflow: 'hidden',
                                 textOverflow: 'ellipsis',
@@ -4019,126 +6730,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                       </div>
                     )}
 
-                    {/* EID Action Picker Modal — portalled to body */}
-                    {showEidActionModal && createPortal(
-                      <div
-                        style={{
-                          position: 'fixed',
-                          top: 0,
-                          left: 0,
-                          right: 0,
-                          bottom: 0,
-                          background: 'rgba(0, 0, 0, 0.6)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          zIndex: 9999,
-                        }}
-                        onClick={() => setShowEidActionModal(false)}
-                      >
-                        <div
-                          style={{
-                            background: isDarkMode ? '#1e293b' : '#ffffff',
-                            borderRadius: 8,
-                            padding: 20,
-                            maxWidth: 380,
-                            width: '90%',
-                            boxShadow: '0 4px 20px rgba(0, 0, 0, 0.3)',
-                          }}
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-                            <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(239, 68, 68, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                              <FaExclamationTriangle size={16} color="#ef4444" />
-                            </div>
-                            <div>
-                              <div style={{ fontSize: 14, fontWeight: 700, color: isDarkMode ? '#e2e8f0' : '#0f172a' }}>EID Needs Review</div>
-                              <div style={{ fontSize: 11, color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)' }}>Choose an action</div>
-                            </div>
-                          </div>
 
-                          <div style={{ fontSize: 12, lineHeight: 1.5, color: isDarkMode ? 'rgba(226, 232, 240, 0.8)' : 'rgba(15, 23, 42, 0.75)', marginBottom: 16 }}>
-                            The electronic ID check flagged issues. You can either approve the verification (if the result is acceptable) or request additional documents from the client.
-                          </div>
-
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setShowEidActionModal(false);
-                                setShowApproveModal(true);
-                              }}
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 12,
-                                padding: '12px 14px',
-                                background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.05)',
-                                border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)'}`,
-                                borderRadius: 6,
-                                cursor: 'pointer',
-                                textAlign: 'left',
-                              }}
-                            >
-                              <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'rgba(54, 144, 206, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                <FaCheck size={12} color={colours.highlight} />
-                              </div>
-                              <div>
-                                <div style={{ fontSize: 12, fontWeight: 700, color: colours.highlight }}>Approve</div>
-                                <div style={{ fontSize: 10, color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)', marginTop: 2 }}>Mark ID as verified (result is acceptable)</div>
-                              </div>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setShowEidActionModal(false);
-                                setShowRequestDocsModal(true);
-                              }}
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 12,
-                                padding: '12px 14px',
-                                background: isDarkMode ? 'rgba(239, 68, 68, 0.08)' : 'rgba(239, 68, 68, 0.05)',
-                                border: `1px solid ${isDarkMode ? 'rgba(239, 68, 68, 0.25)' : 'rgba(239, 68, 68, 0.2)'}`,
-                                borderRadius: 6,
-                                cursor: 'pointer',
-                                textAlign: 'left',
-                              }}
-                            >
-                              <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'rgba(239, 68, 68, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                <FaFileAlt size={12} color="#ef4444" />
-                              </div>
-                              <div>
-                                <div style={{ fontSize: 12, fontWeight: 700, color: '#ef4444' }}>Request Documents</div>
-                                <div style={{ fontSize: 10, color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)', marginTop: 2 }}>Draft email to fee earner for client docs</div>
-                              </div>
-                            </button>
-                          </div>
-
-                          <button
-                            type="button"
-                            onClick={() => setShowEidActionModal(false)}
-                            style={{
-                              marginTop: 14,
-                              width: '100%',
-                              padding: '8px 14px',
-                              background: 'transparent',
-                              color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)',
-                              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(100, 116, 139, 0.2)'}`,
-                              borderRadius: 4,
-                              fontSize: 11,
-                              fontWeight: 600,
-                              cursor: 'pointer',
-                            }}
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      </div>,
-                      document.body
-                    )}
 
                     {/* Approve Verification Modal — portalled to body */}
                     {showApproveModal && createPortal(
@@ -4159,8 +6751,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                       >
                         <div
                           style={{
-                            background: isDarkMode ? '#1e293b' : '#ffffff',
-                            borderRadius: 8,
+                            background: isDarkMode ? '#061733' : '#ffffff',
+                            borderRadius: 0,
                             padding: 20,
                             maxWidth: 420,
                             width: '90%',
@@ -4173,12 +6765,12 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                               <FaCheck size={16} color={colours.highlight} />
                             </div>
                             <div>
-                              <div style={{ fontSize: 14, fontWeight: 700, color: isDarkMode ? '#e2e8f0' : '#0f172a' }}>Approve ID Verification</div>
-                              <div style={{ fontSize: 11, color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)' }}>{verificationDetails?.instructionRef || instructionRef}</div>
+                              <div style={{ fontSize: 14, fontWeight: 700, color: isDarkMode ? '#e1e1e1' : '#0f172a' }}>Approve ID Verification</div>
+                              <div style={{ fontSize: 11, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>{verificationDetails?.instructionRef || instructionRef}</div>
                             </div>
                           </div>
 
-                          <div style={{ fontSize: 12, lineHeight: 1.5, color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.8)', marginBottom: 16 }}>
+                          <div style={{ fontSize: 12, lineHeight: 1.5, color: isDarkMode ? 'rgba(243, 244, 246, 0.85)' : 'rgba(6, 23, 51, 0.8)', marginBottom: 16 }}>
                             <p style={{ margin: '0 0 10px 0' }}>By approving, you confirm that:</p>
                             <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 6 }}>
                               <li>The EID check results are satisfactory</li>
@@ -4191,9 +6783,9 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                             padding: 10,
                             background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.05)',
                             border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)'}`,
-                            borderRadius: 4,
+                            borderRadius: 0,
                             fontSize: 11,
-                            color: isDarkMode ? 'rgba(226, 232, 240, 0.75)' : 'rgba(15, 23, 42, 0.7)',
+                            color: isDarkMode ? 'rgba(243, 244, 246, 0.75)' : 'rgba(6, 23, 51, 0.7)',
                             marginBottom: 16,
                           }}>
                             <strong>What happens next:</strong> The ID status will be marked as verified and the instruction will move to <strong>proof-of-id-complete</strong>. No emails are sent automatically from this action.
@@ -4206,9 +6798,9 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                               style={{
                                 padding: '8px 14px',
                                 background: 'transparent',
-                                color: isDarkMode ? 'rgba(148, 163, 184, 0.8)' : 'rgba(100, 116, 139, 0.8)',
-                                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.25)'}`,
-                                borderRadius: 4,
+                                color: isDarkMode ? 'rgba(160, 160, 160, 0.8)' : 'rgba(107, 107, 107, 0.8)',
+                                border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.25)' : 'rgba(107, 107, 107, 0.25)'}`,
+                                borderRadius: 0,
                                 fontSize: 11,
                                 fontWeight: 600,
                                 cursor: 'pointer',
@@ -4227,7 +6819,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                   await loadVerificationDetails();
                                   setShowApproveModal(false);
                                   showToast({ type: 'success', title: 'ID Approved', message: 'Verification manually approved' });
-                                  if (onRefreshData) { try { await onRefreshData(); } catch { /* silent */ } }
+                                  if (onRefreshData) { try { await onRefreshData(instructionRef); } catch { /* silent */ } }
                                 } finally {
                                   setIsVerificationActionLoading(false);
                                 }
@@ -4237,14 +6829,14 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                 background: colours.highlight,
                                 color: '#ffffff',
                                 border: 'none',
-                                borderRadius: 4,
+                                borderRadius: 0,
                                 fontSize: 11,
                                 fontWeight: 700,
                                 cursor: isVerificationActionLoading ? 'default' : 'pointer',
                                 opacity: isVerificationActionLoading ? 0.7 : 1,
                               }}
                             >
-                              {isVerificationActionLoading ? 'Approving…' : 'Approve Verification'}
+                              {isVerificationActionLoading ? 'Approving—' : 'Approve Verification'}
                             </button>
                           </div>
                         </div>
@@ -4271,8 +6863,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                       >
                         <div
                           style={{
-                            background: isDarkMode ? '#1e293b' : '#ffffff',
-                            borderRadius: 8,
+                            background: isDarkMode ? '#061733' : '#ffffff',
+                            borderRadius: 0,
                             padding: 20,
                             maxWidth: 520,
                             width: '90%',
@@ -4282,35 +6874,31 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                           }}
                           onClick={(e) => e.stopPropagation()}
                         >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-                            <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(239, 68, 68, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                              <FaFileAlt size={16} color="#ef4444" />
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+                            <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'rgba(239, 68, 68, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                              <FaFileAlt size={14} color="#D65541" />
                             </div>
                             <div>
-                              <div style={{ fontSize: 14, fontWeight: 700, color: isDarkMode ? '#e2e8f0' : '#0f172a' }}>Request ID Documents</div>
-                              <div style={{ fontSize: 11, color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)' }}>{verificationDetails?.instructionRef || instructionRef}</div>
+                              <div style={{ fontSize: 13, fontWeight: 700, color: isDarkMode ? '#e1e1e1' : '#0f172a' }}>Request ID Documents</div>
+                              <div style={{ fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>{verificationDetails?.instructionRef || instructionRef}</div>
                             </div>
-                          </div>
-
-                          <div style={{ fontSize: 12, lineHeight: 1.5, color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.8)', marginBottom: 14 }}>
-                            Draft an email to the fee earner requesting additional ID documents from the client.
                           </div>
 
                           {/* Recipient Override Section */}
                           <div style={{
-                            background: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : 'rgba(248, 250, 252, 1)',
-                            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(0, 0, 0, 0.08)'}`,
-                            borderRadius: 6,
+                            background: isDarkMode ? 'rgba(6, 23, 51, 0.5)' : 'rgba(248, 250, 252, 1)',
+                            border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.15)' : 'rgba(0, 0, 0, 0.08)'}`,
+                            borderRadius: 0,
                             padding: 14,
                             marginBottom: 14,
                           }}>
-                            <div style={{ fontSize: 9, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>
+                            <div style={{ fontSize: 9, fontWeight: 700, color: isDarkMode ? colours.subtleGrey : colours.greyText, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>
                               Recipients
                             </div>
 
                             {/* To */}
                             <div style={{ display: 'grid', gridTemplateColumns: '28px 1fr', gap: 10, alignItems: 'start', marginBottom: 12 }}>
-                              <div style={{ fontSize: 11, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.75)' : 'rgba(100, 116, 139, 0.75)', paddingTop: 6 }}>To</div>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: isDarkMode ? 'rgba(160, 160, 160, 0.75)' : 'rgba(107, 107, 107, 0.75)', paddingTop: 6 }}>To</div>
                               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                                 {!useManualToRecipient ? (
                                   <select
@@ -4328,10 +6916,10 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                       width: '100%',
                                       padding: '7px 10px',
                                       fontSize: 11,
-                                      borderRadius: 6,
-                                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
+                                      borderRadius: 0,
+                                      border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
                                       background: isDarkMode ? 'rgba(0, 0, 0, 0.25)' : '#ffffff',
-                                      color: isDarkMode ? '#e2e8f0' : '#0f172a',
+                                      color: isDarkMode ? '#e1e1e1' : '#0f172a',
                                       outline: 'none',
                                       cursor: 'pointer',
                                     }}
@@ -4357,9 +6945,9 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                         fontSize: 11,
                                         fontFamily: 'inherit',
                                         background: isDarkMode ? 'rgba(0, 0, 0, 0.3)' : '#ffffff',
-                                        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
-                                        borderRadius: 6,
-                                        color: isDarkMode ? '#e2e8f0' : '#0f172a',
+                                        border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
+                                        borderRadius: 0,
+                                        color: isDarkMode ? '#e1e1e1' : '#0f172a',
                                         outline: 'none',
                                       }}
                                     />
@@ -4374,9 +6962,9 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                       style={{
                                         padding: '6px 10px',
                                         background: 'transparent',
-                                        color: isDarkMode ? 'rgba(148, 163, 184, 0.8)' : 'rgba(100, 116, 139, 0.8)',
-                                        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(100, 116, 139, 0.18)'}`,
-                                        borderRadius: 6,
+                                        color: isDarkMode ? 'rgba(160, 160, 160, 0.8)' : 'rgba(107, 107, 107, 0.8)',
+                                        border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.18)' : 'rgba(107, 107, 107, 0.18)'}`,
+                                        borderRadius: 0,
                                         fontSize: 10,
                                         fontWeight: 700,
                                         cursor: 'pointer',
@@ -4392,7 +6980,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
                             {/* CC */}
                             <div style={{ display: 'grid', gridTemplateColumns: '28px 1fr', gap: 10, alignItems: 'start' }}>
-                              <div style={{ fontSize: 11, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.75)' : 'rgba(100, 116, 139, 0.75)', paddingTop: 6 }}>CC</div>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: isDarkMode ? 'rgba(160, 160, 160, 0.75)' : 'rgba(107, 107, 107, 0.75)', paddingTop: 6 }}>CC</div>
                               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                                 {colleagueEmailOptions.length > 0 && (
                                   <select
@@ -4410,10 +6998,10 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                       width: '100%',
                                       padding: '7px 10px',
                                       fontSize: 11,
-                                      borderRadius: 6,
-                                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
+                                      borderRadius: 0,
+                                      border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
                                       background: isDarkMode ? 'rgba(0, 0, 0, 0.25)' : '#ffffff',
-                                      color: isDarkMode ? '#e2e8f0' : '#0f172a',
+                                      color: isDarkMode ? '#e1e1e1' : '#0f172a',
                                       outline: 'none',
                                       cursor: 'pointer',
                                     }}
@@ -4440,9 +7028,9 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                         fontSize: 11,
                                         fontFamily: 'inherit',
                                         background: isDarkMode ? 'rgba(0, 0, 0, 0.3)' : '#ffffff',
-                                        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
-                                        borderRadius: 6,
-                                        color: isDarkMode ? '#e2e8f0' : '#0f172a',
+                                        border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
+                                        borderRadius: 0,
+                                        color: isDarkMode ? '#e1e1e1' : '#0f172a',
                                         outline: 'none',
                                       }}
                                     />
@@ -4456,9 +7044,9 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                         style={{
                                           padding: '5px 8px',
                                           background: 'transparent',
-                                          color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)',
-                                          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(100, 116, 139, 0.18)'}`,
-                                          borderRadius: 6,
+                                          color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                                          border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.18)' : 'rgba(107, 107, 107, 0.18)'}`,
+                                          borderRadius: 0,
                                           fontSize: 10,
                                           fontWeight: 700,
                                           cursor: 'pointer',
@@ -4476,7 +7064,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                       padding: 0,
                                       background: 'transparent',
                                       border: 'none',
-                                      color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)',
+                                      color: isDarkMode ? colours.subtleGrey : colours.greyText,
                                       fontSize: 10,
                                       fontWeight: 700,
                                       cursor: 'pointer',
@@ -4493,28 +7081,25 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
                           {/* Email Preview - matches server template */}
                           <div style={{
-                            background: isDarkMode ? 'rgba(15, 23, 42, 0.5)' : 'rgba(248, 250, 252, 1)',
-                            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(0, 0, 0, 0.08)'}`,
-                            borderRadius: 6,
-                            padding: 14,
-                            marginBottom: 14,
-                            maxHeight: 280,
+                            background: isDarkMode ? 'rgba(6, 23, 51, 0.5)' : 'rgba(248, 250, 252, 1)',
+                            border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.15)' : 'rgba(0, 0, 0, 0.08)'}`,
+                            borderRadius: 0,
+                            padding: 12,
+                            marginBottom: 12,
+                            maxHeight: 200,
                             overflowY: 'auto',
                           }}>
-                            <div style={{ fontSize: 9, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>
-                              Template sent to client (via fee earner)
-                            </div>
-                            <div style={{ fontSize: 11, color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)', marginBottom: 8 }}>
-                              <strong>Subject:</strong> Additional Documents Required - {verificationDetails?.instructionRef || instructionRef}
+                            <div style={{ fontSize: 9, fontWeight: 700, color: isDarkMode ? colours.subtleGrey : colours.greyText, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>
+                              Email preview
                             </div>
                             <div style={{
                               fontSize: 10,
                               lineHeight: 1.6,
-                              color: isDarkMode ? 'rgba(226, 232, 240, 0.8)' : 'rgba(15, 23, 42, 0.75)',
+                              color: isDarkMode ? 'rgba(243, 244, 246, 0.8)' : 'rgba(6, 23, 51, 0.75)',
                               padding: 10,
                               background: isDarkMode ? 'rgba(0, 0, 0, 0.2)' : '#ffffff',
-                              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
-                              borderRadius: 4,
+                              border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
+                              borderRadius: 0,
                               fontFamily: 'inherit',
                             }}>
                               Dear {fullName !== 'Unknown' ? fullName.split(' ')[0] : 'Client'},<br /><br />
@@ -4543,50 +7128,40 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                             padding: 12,
                             background: isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.04)',
                             border: `1.5px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)'}`,
-                            borderRadius: 6,
+                            borderRadius: 0,
                             marginBottom: 14,
                           }}>
-                            <div style={{ fontSize: 10, fontWeight: 700, color: colours.highlight, textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 8 }}>
-                              ✓ Ready to create draft
+                            <div style={{ fontSize: 9, fontWeight: 700, color: colours.highlight, textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 6 }}>
+                              Summary
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                               <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                                <span style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)', minWidth: 50 }}>Send to</span>
-                                <span style={{ fontSize: 11, fontWeight: 700, color: isDarkMode ? '#e2e8f0' : '#0f172a' }}>
+                                <span style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? colours.subtleGrey : colours.greyText, minWidth: 50 }}>Send to</span>
+                                <span style={{ fontSize: 11, fontWeight: 700, color: isDarkMode ? '#e1e1e1' : '#0f172a' }}>
                                   {emailOverrideTo || feeEarnerEmail || '(no recipient)'}
                                 </span>
                               </div>
                               {emailOverrideCc && (
                                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                                  <span style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)', minWidth: 50 }}>CC</span>
-                                  <span style={{ fontSize: 11, fontWeight: 600, color: isDarkMode ? 'rgba(226, 232, 240, 0.8)' : 'rgba(15, 23, 42, 0.75)' }}>
+                                  <span style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? colours.subtleGrey : colours.greyText, minWidth: 50 }}>CC</span>
+                                  <span style={{ fontSize: 11, fontWeight: 600, color: isDarkMode ? 'rgba(243, 244, 246, 0.8)' : 'rgba(6, 23, 51, 0.75)' }}>
                                     {emailOverrideCc}
                                   </span>
                                 </div>
                               )}
                               <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                                <span style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)', minWidth: 50 }}>Subject</span>
-                                <span style={{ fontSize: 11, fontWeight: 600, color: isDarkMode ? 'rgba(226, 232, 240, 0.8)' : 'rgba(15, 23, 42, 0.75)' }}>
-                                  ID Documents Required – {verificationDetails?.instructionRef || instructionRef}
+                                <span style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? colours.subtleGrey : colours.greyText, minWidth: 50 }}>Subject</span>
+                                <span style={{ fontSize: 11, fontWeight: 600, color: isDarkMode ? 'rgba(243, 244, 246, 0.8)' : 'rgba(6, 23, 51, 0.75)' }}>
+                                  ID Documents Required — {verificationDetails?.instructionRef || instructionRef}
                                 </span>
                               </div>
                             </div>
-                            <div style={{ marginTop: 10, fontSize: 10, color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)', lineHeight: 1.4 }}>
+                            <div style={{ marginTop: 10, fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText, lineHeight: 1.4 }}>
                               This creates a <strong>draft only</strong> — the recipient can review, edit, and choose when to send it to the client.
                             </div>
                           </div>
 
-                          <div style={{
-                            padding: 8,
-                            background: isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(148, 163, 184, 0.04)',
-                            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.1)'}`,
-                            borderRadius: 4,
-                            fontSize: 10,
-                            color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.65)',
-                            marginBottom: 16,
-                          }}>
-                            <strong>What happens:</strong> A draft email appears in the recipient's inbox. They review it, edit if needed, then send to the client. Nothing is sent automatically.
-                          </div>
+
 
                           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
                             <button
@@ -4599,9 +7174,9 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                               style={{
                                 padding: '8px 14px',
                                 background: 'transparent',
-                                color: isDarkMode ? 'rgba(148, 163, 184, 0.8)' : 'rgba(100, 116, 139, 0.8)',
-                                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.25)'}`,
-                                borderRadius: 4,
+                                color: isDarkMode ? 'rgba(160, 160, 160, 0.8)' : 'rgba(107, 107, 107, 0.8)',
+                                border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.25)' : 'rgba(107, 107, 107, 0.25)'}`,
+                                borderRadius: 0,
                                 fontSize: 11,
                                 fontWeight: 600,
                                 cursor: 'pointer',
@@ -4637,10 +7212,10 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                               }}
                               style={{
                                 padding: '10px 18px',
-                                background: (!emailOverrideTo && !feeEarnerEmail) ? '#94a3b8' : colours.green,
+                                background: (!emailOverrideTo && !feeEarnerEmail) ? '#A0A0A0' : colours.green,
                                 color: '#ffffff',
                                 border: 'none',
-                                borderRadius: 4,
+                                borderRadius: 0,
                                 fontSize: 11,
                                 fontWeight: 700,
                                 cursor: (isVerificationActionLoading || (!emailOverrideTo && !feeEarnerEmail)) ? 'default' : 'pointer',
@@ -4671,12 +7246,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                 </div>
                 ) : (
                   /* EID not yet run - show readiness + CTA */
-                  <div style={{ paddingTop: 10, borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : '#e2e8f0'}` }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 9, fontWeight: 600, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.3px' }}>
-                        <FaShieldAlt size={10} style={{ opacity: 0.6 }} /> Electronic ID (EID)
-                      </div>
-                    </div>
+                  <div style={{ paddingTop: 10, borderTop: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : '#e1e1e1'}` }}>
 
                     {/* Processing overlay */}
                     {eidProcessingState === 'processing' && (
@@ -4684,7 +7254,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                         padding: '20px 18px',
                         background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.05)',
                         border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.18)'}`,
-                        borderRadius: 6,
+                        borderRadius: 0,
                         display: 'flex',
                         flexDirection: 'column',
                         alignItems: 'center',
@@ -4701,7 +7271,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                           <div style={{ fontSize: 13, fontWeight: 700, color: colours.highlight, marginBottom: 4 }}>
                             Verification in progress
                           </div>
-                          <div style={{ fontSize: 11, color: isDarkMode ? 'rgba(226, 232, 240, 0.6)' : 'rgba(15, 23, 42, 0.55)', lineHeight: 1.5 }}>
+                          <div style={{ fontSize: 11, color: isDarkMode ? 'rgba(243, 244, 246, 0.6)' : 'rgba(6, 23, 51, 0.55)', lineHeight: 1.5 }}>
                             Checking identity, address and PEP/sanctions.<br />
                             Results will appear here automatically.
                           </div>
@@ -4728,33 +7298,38 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                           ];
                           return (
                             <div style={{
-                              padding: '12px 14px',
-                              background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : 'rgba(148, 163, 184, 0.03)',
-                              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)'}`,
-                              borderRadius: 4,
-                              marginBottom: 12,
+                              padding: isCompactIdentityView ? '10px 12px' : '12px 14px',
+                              background: isDarkMode ? 'rgba(2, 6, 23, 0.25)' : 'rgba(244, 244, 246, 0.25)',
+                              border: `1px solid ${isDarkMode ? `${colours.dark.border}40` : colours.highlightNeutral}`,
+                              borderRadius: 0,
+                              marginBottom: 10,
                             }}>
-                              <div style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.4px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8', marginBottom: 8 }}>
+                              <div style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.4px', color: isDarkMode ? 'rgba(160, 160, 160, 0.5)' : '#A0A0A0', marginBottom: 8 }}>
                                 Readiness
                               </div>
-                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 16px' }}>
+                              <div style={{
+                                display: 'grid',
+                                gridTemplateColumns: isCompactIdentityView ? '1fr' : 'repeat(2, minmax(180px, 1fr))',
+                                gap: isCompactIdentityView ? '6px' : '8px 14px',
+                              }}>
                                 {checks.map(c => (
-                                  <div key={c.label} style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 120 }}>
+                                  <div key={c.label} style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
                                     <div style={{
                                       width: 14, height: 14, borderRadius: '50%',
                                       background: c.ready
                                         ? (isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)')
                                         : (isDarkMode ? 'rgba(239, 68, 68, 0.12)' : 'rgba(239, 68, 68, 0.08)'),
                                       display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                      flexShrink: 0,
                                     }}>
                                       {c.ready
                                         ? <FaCheck size={7} color={colours.highlight} />
-                                        : <span style={{ width: 6, height: 1.5, background: '#ef4444', borderRadius: 1 }} />}
+                                        : <span style={{ width: 6, height: 1.5, background: '#D65541', borderRadius: 1 }} />}
                                     </div>
-                                    <span style={{ fontSize: 10, fontWeight: 600, color: c.ready ? (isDarkMode ? 'rgba(226, 232, 240, 0.8)' : 'rgba(15, 23, 42, 0.7)') : (isDarkMode ? 'rgba(239, 68, 68, 0.7)' : 'rgba(239, 68, 68, 0.6)') }}>
+                                    <span style={{ fontSize: 10, fontWeight: 600, minWidth: isCompactIdentityView ? 88 : 96, color: c.ready ? (isDarkMode ? 'rgba(243, 244, 246, 0.8)' : 'rgba(6, 23, 51, 0.7)') : (isDarkMode ? 'rgba(239, 68, 68, 0.7)' : 'rgba(239, 68, 68, 0.6)') }}>
                                       {c.label}
                                     </span>
-                                    <span style={{ fontSize: 10, color: isDarkMode ? 'rgba(148, 163, 184, 0.45)' : 'rgba(100, 116, 139, 0.45)', fontFamily: c.ready ? 'inherit' : undefined }}>
+                                    <span style={{ fontSize: 10, color: isDarkMode ? 'rgba(160, 160, 160, 0.55)' : 'rgba(107, 107, 107, 0.65)', fontFamily: c.ready ? 'inherit' : undefined, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                       {c.value}
                                     </span>
                                   </div>
@@ -4762,56 +7337,20 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                               </div>
                               {!allReady && (
                                 <div style={{ marginTop: 8, fontSize: 10, color: isDarkMode ? 'rgba(239, 68, 68, 0.6)' : 'rgba(239, 68, 68, 0.55)', lineHeight: 1.4 }}>
-                                  Some data is missing — the check may fail. Ensure the instruction data is complete before running.
+                                  Missing data may cause verification to fail. Complete DOB, address, and ID document before running.
                                 </div>
                               )}
+                              <div style={{ marginTop: 8, fontSize: 10, color: isDarkMode ? 'rgba(243, 244, 246, 0.58)' : 'rgba(6, 23, 51, 0.58)', lineHeight: 1.4 }}>
+                                Use <strong>Run Verification</strong> above to start the check.
+                              </div>
                             </div>
                           );
                         })()}
-
-                        <div style={{
-                          padding: '16px 18px',
-                          background: isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.04)',
-                          border: `1px dashed ${isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)'}`,
-                          borderRadius: 6,
-                          display: 'flex',
-                          flexDirection: 'column',
-                          alignItems: 'center',
-                          gap: 12,
-                        }}>
-                          <div style={{ fontSize: 12, color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.6)', textAlign: 'center', lineHeight: 1.5 }}>
-                            No ID verification on record.<br />
-                            <span style={{ fontSize: 11, opacity: 0.8 }}>Run a check to verify identity and compliance.</span>
+                        {!onTriggerEID && (
+                          <div style={{ fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+                            Verification is not available for this record.
                           </div>
-                          {onTriggerEID ? (
-                            <button
-                              type="button"
-                              disabled={isTriggerEidLoading}
-                              onClick={(e) => { e.stopPropagation(); openTriggerEidConfirm(); }}
-                              style={{
-                                padding: '10px 20px',
-                                background: colours.highlight,
-                                color: '#FFFFFF',
-                                border: 'none',
-                                borderRadius: 4,
-                                fontSize: 12,
-                                fontWeight: 600,
-                                cursor: isTriggerEidLoading ? 'default' : 'pointer',
-                                opacity: isTriggerEidLoading ? 0.7 : 1,
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 8,
-                              }}
-                            >
-                              <FaIdCard size={12} />
-                              {isTriggerEidLoading ? 'Starting verification…' : 'Run ID Verification'}
-                            </button>
-                          ) : (
-                            <div style={{ fontSize: 10, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)' }}>
-                              Verification not available
-                            </div>
-                          )}
-                        </div>
+                        )}
                       </>
                     )}
                   </div>
@@ -4827,7 +7366,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                   left: 0,
                   right: 0,
                   bottom: 0,
-                  background: 'rgba(0, 0, 0, 0.6)',
+                  background: 'rgba(0, 3, 25, 0.6)',
+                  backdropFilter: 'blur(2px)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -4837,39 +7377,42 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
               >
                 <div
                   style={{
-                    background: isDarkMode ? '#1e293b' : '#ffffff',
-                    borderRadius: 8,
+                    background: isDarkMode ? colours.dark.sectionBackground : '#ffffff',
+                    borderRadius: 0,
                     padding: 24,
-                    maxWidth: 420,
+                    maxWidth: 460,
                     width: '90%',
-                    boxShadow: '0 4px 20px rgba(0, 0, 0, 0.3)',
+                    maxHeight: '85vh',
+                    overflowY: 'auto',
+                    border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
+                    boxShadow: isDarkMode ? '0 4px 16px rgba(0, 0, 0, 0.4)' : '0 4px 14px rgba(0, 0, 0, 0.14)',
                   }}
                   onClick={(e) => e.stopPropagation()}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
-                    <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'rgba(54, 144, 206, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <div style={{ width: 40, height: 40, borderRadius: '50%', background: isDarkMode ? `${colours.accent}20` : `${colours.highlight}1a`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       <FaIdCard size={18} color={colours.highlight} />
                     </div>
                     <div>
-                      <div style={{ fontSize: 15, fontWeight: 700, color: isDarkMode ? '#e2e8f0' : '#0f172a' }}>Run ID Verification</div>
-                      <div style={{ fontSize: 11, color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)' }}>Confirm notifications</div>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text }}>Run ID Verification</div>
+                      <div style={{ fontSize: 11, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Confirm action</div>
                     </div>
                   </div>
 
                   <div style={{
                     padding: 12,
-                    background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.05)',
-                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)'}`,
-                    borderRadius: 6,
+                    background: isDarkMode ? 'rgba(2, 6, 23, 0.24)' : 'rgba(244, 244, 246, 0.36)',
+                    border: `1px solid ${isDarkMode ? `${colours.dark.border}55` : colours.highlightNeutral}`,
+                    borderRadius: 0,
                     marginBottom: 14,
                   }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.9)', marginBottom: 8 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text, marginBottom: 8 }}>
                       What this does
                     </div>
-                    <div style={{ fontSize: 12, lineHeight: 1.6, color: isDarkMode ? 'rgba(226, 232, 240, 0.82)' : 'rgba(15, 23, 42, 0.78)' }}>
-                      Starts an electronic ID verification with the provider and records the outcome back onto this instruction.
+                    <div style={{ fontSize: 12, lineHeight: 1.6, color: isDarkMode ? '#d1d5db' : '#374151' }}>
+                      Starts an electronic ID verification and records the outcome to this instruction.
                     </div>
-                    <div style={{ marginTop: 10, fontSize: 11, lineHeight: 1.6, color: isDarkMode ? 'rgba(226, 232, 240, 0.78)' : 'rgba(15, 23, 42, 0.72)' }}>
+                    <div style={{ marginTop: 10, fontSize: 11, lineHeight: 1.6, color: isDarkMode ? '#d1d5db' : '#374151' }}>
                       <strong>Checks include:</strong>
                       <ul style={{ margin: '6px 0 0 0', paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 4 }}>
                         <li>Identity match (name + date of birth)</li>
@@ -4877,10 +7420,10 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                         <li>PEP / sanctions screening</li>
                       </ul>
                     </div>
-                    <div style={{ marginTop: 10, fontSize: 11, lineHeight: 1.6, color: isDarkMode ? 'rgba(226, 232, 240, 0.78)' : 'rgba(15, 23, 42, 0.72)' }}>
+                    <div style={{ marginTop: 10, fontSize: 11, lineHeight: 1.6, color: isDarkMode ? '#d1d5db' : '#374151' }}>
                       <strong>Client comms:</strong> No client emails are sent from Helix Hub in this flow.
                     </div>
-                    <div style={{ marginTop: 10, fontSize: 11, lineHeight: 1.6, color: isDarkMode ? 'rgba(226, 232, 240, 0.78)' : 'rgba(15, 23, 42, 0.72)' }}>
+                    <div style={{ marginTop: 10, fontSize: 11, lineHeight: 1.6, color: isDarkMode ? '#d1d5db' : '#374151' }}>
                       You’ll see results appear under EID Results once the check completes.
                     </div>
 
@@ -4888,9 +7431,9 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                       <div style={{
                         marginTop: 12,
                         paddingTop: 12,
-                        borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.18)' : 'rgba(148, 163, 184, 0.15)'}`,
+                        borderTop: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.18)' : 'rgba(160, 160, 160, 0.15)'}`,
                       }}>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.9)', marginBottom: 8 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : 'rgba(6, 23, 51, 0.9)', marginBottom: 8 }}>
                           Demo simulation
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -4906,10 +7449,10 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                               style={{
                                 width: '100%',
                                 padding: '8px 10px',
-                                borderRadius: 6,
-                                border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.25)'}`,
-                                background: isDarkMode ? 'rgba(15, 23, 42, 0.35)' : 'rgba(255, 255, 255, 0.9)',
-                                color: isDarkMode ? 'rgba(226, 232, 240, 0.92)' : 'rgba(15, 23, 42, 0.92)',
+                                borderRadius: 0,
+                                border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.25)' : 'rgba(107, 107, 107, 0.25)'}`,
+                                background: isDarkMode ? 'rgba(6, 23, 51, 0.35)' : 'rgba(255, 255, 255, 0.9)',
+                                color: isDarkMode ? 'rgba(243, 244, 246, 0.92)' : 'rgba(6, 23, 51, 0.92)',
                                 outline: 'none',
                               }}
                             >
@@ -4933,10 +7476,10 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                 style={{
                                   width: '100%',
                                   padding: '8px 10px',
-                                  borderRadius: 6,
-                                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.25)'}`,
-                                  background: isDarkMode ? 'rgba(15, 23, 42, 0.35)' : 'rgba(255, 255, 255, 0.9)',
-                                  color: isDarkMode ? 'rgba(226, 232, 240, 0.92)' : 'rgba(15, 23, 42, 0.92)',
+                                  borderRadius: 0,
+                                  border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.25)' : 'rgba(107, 107, 107, 0.25)'}`,
+                                  background: isDarkMode ? 'rgba(6, 23, 51, 0.35)' : 'rgba(255, 255, 255, 0.9)',
+                                  color: isDarkMode ? 'rgba(243, 244, 246, 0.92)' : 'rgba(6, 23, 51, 0.92)',
                                   outline: 'none',
                                 }}
                               >
@@ -4957,10 +7500,10 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                 style={{
                                   width: '100%',
                                   padding: '8px 10px',
-                                  borderRadius: 6,
-                                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.25)'}`,
-                                  background: isDarkMode ? 'rgba(15, 23, 42, 0.35)' : 'rgba(255, 255, 255, 0.9)',
-                                  color: isDarkMode ? 'rgba(226, 232, 240, 0.92)' : 'rgba(15, 23, 42, 0.92)',
+                                  borderRadius: 0,
+                                  border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.25)' : 'rgba(107, 107, 107, 0.25)'}`,
+                                  background: isDarkMode ? 'rgba(6, 23, 51, 0.35)' : 'rgba(255, 255, 255, 0.9)',
+                                  color: isDarkMode ? 'rgba(243, 244, 246, 0.92)' : 'rgba(6, 23, 51, 0.92)',
                                   outline: 'none',
                                 }}
                               >
@@ -4981,9 +7524,9 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                               style={{
                                 padding: '7px 10px',
                                 background: 'transparent',
-                                color: isDarkMode ? 'rgba(248, 113, 113, 0.9)' : 'rgba(185, 28, 28, 0.9)',
-                                border: `1px solid ${isDarkMode ? 'rgba(248, 113, 113, 0.35)' : 'rgba(185, 28, 28, 0.25)'}`,
-                                borderRadius: 6,
+                                color: colours.cta,
+                                border: `1px solid ${isDarkMode ? `${colours.cta}66` : `${colours.cta}44`}`,
+                                borderRadius: 0,
                                 fontSize: 10,
                                 fontWeight: 700,
                                 cursor: 'pointer',
@@ -5004,9 +7547,9 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                       style={{
                         padding: '8px 16px',
                         background: 'transparent',
-                        color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)',
-                        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(100, 116, 139, 0.2)'}`,
-                        borderRadius: 4,
+                        color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                        border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(107, 107, 107, 0.2)'}`,
+                        borderRadius: 0,
                         fontSize: 11,
                         fontWeight: 600,
                         cursor: 'pointer',
@@ -5023,7 +7566,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                         background: colours.highlight,
                         color: '#ffffff',
                         border: 'none',
-                        borderRadius: 4,
+                        borderRadius: 0,
                         fontSize: 11,
                         fontWeight: 600,
                         cursor: isTriggerEidLoading ? 'default' : 'pointer',
@@ -5049,15 +7592,147 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         {activeTab === 'payment' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {renderStatusBanner(
-              paymentStatus === 'complete' ? 'Payment received' : paymentStatus === 'review' ? 'Payment needs attention' : 'Payment pending',
-              paymentStatus,
-              paymentStatus === 'complete'
-                ? `Received £${totalPaid.toLocaleString()}.`
-                : paymentStatus === 'review'
+              paymentBannerStatus === 'complete'
+                ? (hasSuccessfulBankPayment ? 'Payment confirmed' : hasSuccessfulCardPayment ? 'Payment received' : 'Payment received')
+                : paymentBannerStatus === 'review'
+                  ? 'Payment needs attention'
+                  : 'Payment pending',
+              paymentBannerStatus,
+              paymentBannerStatus === 'complete'
+                ? (hasSuccessfulBankPayment
+                  ? `Confirmed ${paymentDate !== '—' ? paymentDate : 'payment'}. Please verify transactions with Accounts.`
+                  : `£${totalPaid.toLocaleString()} · succeeded`)
+                : paymentBannerStatus === 'review'
                   ? 'Retry failed payment or issue a new link.'
                   : 'Send payment link or take payment on account.',
               <FaCreditCard size={12} />,
             )}
+
+            {(() => {
+              const instructedRaw = inst?.SubmissionDate || inst?.InstructionDate || inst?.DateCreated || inst?.CreatedAt || submissionDateRaw || null;
+              const paymentTimelineRaw = (() => {
+                const lastSuccessful = successfulPayments.length > 0 ? successfulPayments[successfulPayments.length - 1] : null;
+                return lastSuccessful?.created_at || lastSuccessful?.date || lastSuccessful?.payment_date || paymentDateRaw || null;
+              })();
+
+              const parseDate = (raw: any): Date | null => {
+                if (!raw) return null;
+                const d = new Date(raw);
+                return Number.isNaN(d.getTime()) ? null : d;
+              };
+
+              const formatStamp = (raw: any): string | null => {
+                const d = parseDate(raw);
+                if (!d) return null;
+                const rawText = typeof raw === 'string' ? raw : '';
+                const hasTime = /T\d{2}:\d{2}/.test(rawText) || /\d{2}:\d{2}/.test(rawText);
+                const date = formatRelativeDay(d);
+                if (!hasTime) return date;
+                const time = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+                return `${date} ${time}`;
+              };
+
+              const formatDiff = (fromRaw: any, toRaw: any): string | null => {
+                const from = parseDate(fromRaw);
+                const to = parseDate(toRaw);
+                if (!from || !to) return null;
+                const diffMs = Math.abs(to.getTime() - from.getTime());
+                const mins = Math.floor(diffMs / 60000);
+                if (mins < 60) return `${mins}m`;
+                const hrs = Math.floor(mins / 60);
+                if (hrs < 24) {
+                  const remMins = mins % 60;
+                  return remMins > 0 ? `${hrs}h ${remMins}m` : `${hrs}h`;
+                }
+                const days = Math.floor(hrs / 24);
+                const remHrs = hrs % 24;
+                return remHrs > 0 ? `${days}d ${remHrs}h` : `${days}d`;
+              };
+
+              const instructedStamp = formatStamp(instructedRaw);
+              const paymentStamp = formatStamp(paymentTimelineRaw);
+              const elapsed = formatDiff(instructedRaw, paymentTimelineRaw);
+              const showTimeline = Boolean(instructedStamp || paymentStamp);
+
+              if (!showTimeline) return null;
+
+              return (
+                <div style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+                  padding: flatEmbedMode ? '0 0 2px' : '0 14px 2px', minHeight: 36,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+                    {instructedStamp && (
+                      <div style={{
+                        display: 'flex', alignItems: 'center', gap: 5,
+                        padding: '5px 10px', borderRadius: 0,
+                        background: isDarkMode ? 'rgba(160, 160, 160, 0.08)' : 'rgba(0, 0, 0, 0.03)',
+                        border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(0, 0, 0, 0.08)'}`,
+                        flexShrink: 0,
+                      }}>
+                        <FaClock size={10} style={{ color: isDarkMode ? colours.subtleGrey : colours.greyText }} />
+                        <span style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+                          Instructed
+                          <span style={{ color: isDarkMode ? 'rgba(160, 160, 160, 0.85)' : 'rgba(107, 107, 107, 0.9)', fontWeight: 500 }}> · {instructedStamp}</span>
+                        </span>
+                      </div>
+                    )}
+
+                    {(instructedStamp && paymentStamp) && (
+                      <div style={{
+                        display: 'flex', alignItems: 'center', width: elapsed ? 'auto' : 60,
+                        margin: '0 2px',
+                      }}>
+                        <div style={{
+                          flex: 1, height: 1, minWidth: 12,
+                          background: isDarkMode ? `${colours.dark.border}60` : '#e2e8f0',
+                        }} />
+                        {elapsed && (
+                          <span style={{
+                            fontSize: 9,
+                            fontWeight: isDarkMode ? 700 : 600,
+                            color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                            opacity: isDarkMode ? 1 : 0.72,
+                            padding: '1px 5px', whiteSpace: 'nowrap',
+                          }}>
+                            {elapsed}
+                          </span>
+                        )}
+                        <div style={{
+                          flex: 1, height: 1, minWidth: 12,
+                          background: isDarkMode ? `${colours.dark.border}60` : '#e2e8f0',
+                        }} />
+                      </div>
+                    )}
+
+                    {paymentStamp && (
+                      <div style={{
+                        display: 'flex', alignItems: 'center', gap: 5,
+                        padding: '5px 10px', borderRadius: 0,
+                        background: hasSuccessfulPayment
+                          ? (isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.08)')
+                          : hasFailedPayment
+                            ? (isDarkMode ? 'rgba(214, 85, 65, 0.12)' : 'rgba(214, 85, 65, 0.08)')
+                            : (isDarkMode ? 'rgba(255, 140, 0, 0.12)' : 'rgba(255, 140, 0, 0.08)'),
+                        border: `1px solid ${hasSuccessfulPayment
+                          ? (isDarkMode ? 'rgba(32, 178, 108, 0.25)' : 'rgba(32, 178, 108, 0.16)')
+                          : hasFailedPayment
+                            ? (isDarkMode ? 'rgba(214, 85, 65, 0.25)' : 'rgba(214, 85, 65, 0.16)')
+                            : (isDarkMode ? 'rgba(255, 140, 0, 0.25)' : 'rgba(255, 140, 0, 0.16)')}`,
+                        flexShrink: 0,
+                      }}>
+                        {hasSuccessfulPayment ? <FaCheckCircle size={10} style={{ color: colours.green }} /> : hasFailedPayment ? <FaExclamationTriangle size={10} style={{ color: colours.cta }} /> : <FaClock size={10} style={{ color: colours.orange }} />}
+                        <span style={{ fontSize: 10, fontWeight: 600, color: hasSuccessfulPayment ? colours.green : hasFailedPayment ? colours.cta : colours.orange }}>
+                          {hasSuccessfulBankPayment ? 'Confirmed' : hasSuccessfulCardPayment ? 'Paid' : hasSuccessfulPayment ? 'Paid' : hasFailedPayment ? 'Failed' : 'Pending'}
+                          <span style={{ color: hasSuccessfulPayment ? (isDarkMode ? 'rgba(32, 178, 108, 0.8)' : 'rgba(32, 178, 108, 0.9)') : hasFailedPayment ? (isDarkMode ? 'rgba(214, 85, 65, 0.82)' : 'rgba(214, 85, 65, 0.9)') : (isDarkMode ? 'rgba(255, 140, 0, 0.82)' : 'rgba(255, 140, 0, 0.9)'), fontWeight: 500 }}> · {paymentStamp}</span>
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
             <PaymentTabContent 
               payments={payments}
               deal={deal}
@@ -5076,129 +7751,18 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         {activeTab === 'documents' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {renderStatusBanner(
-              documentStatus === 'complete' ? 'Docs on file' : 'Docs pending',
-              documentStatus,
-              documentStatus === 'complete' ? 'Review uploaded files and confirm completeness.' : 'Request ID, proof of address, or supporting documents.',
+              documentBannerStatus === 'complete' ? 'Docs on file' : 'Docs pending',
+              documentBannerStatus,
+              documentBannerStatus === 'complete' ? 'Review uploaded files and confirm completeness.' : 'Upload ID, proof of address, or supporting documents.',
               <FaFileAlt size={12} />,
             )}
-            {documents.length === 0 ? (
-              <div style={{ 
-                textAlign: 'center',
-                padding: '24px 0',
-                color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)',
-              }}>
-                <FaFileAlt size={24} style={{ marginBottom: 8, opacity: 0.4 }} />
-                <div style={{ fontSize: 11 }}>No documents uploaded</div>
-              </div>
-            ) : (
-              <>
-                {/* Documents Table */}
-                <div style={{
-                  background: isDarkMode ? 'rgba(15, 23, 42, 0.4)' : 'rgba(255, 255, 255, 0.6)',
-                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
-                  borderRadius: 6,
-                  overflow: 'hidden',
-                }}>
-                  {/* Table Header */}
-                  <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: '1fr 100px 90px 80px',
-                    gap: 8,
-                    padding: '8px 12px',
-                    background: isDarkMode ? 'rgba(148, 163, 184, 0.05)' : 'rgba(0, 0, 0, 0.02)',
-                    borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
-                  }}>
-                    <span style={{ fontSize: 8, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.6)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Document</span>
-                    <span style={{ fontSize: 8, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.6)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Type</span>
-                    <span style={{ fontSize: 8, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.6)', textTransform: 'uppercase', letterSpacing: '0.5px', textAlign: 'right' }}>Date</span>
-                    <span style={{ fontSize: 8, fontWeight: 700, color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.6)', textTransform: 'uppercase', letterSpacing: '0.5px', textAlign: 'center' }}>Action</span>
-                  </div>
-
-                  {/* Document Rows */}
-                  {documents.slice(0, 8).map((doc: any, idx: number) => {
-                    const docName = doc.FileName || doc.DocumentName || doc.name || 'Document';
-                    const docType = doc.DocumentType || doc.type || doc.Category || 'File';
-                    const docDate = doc.UploadDate || doc.created_at || doc.date;
-                    const formattedDate = docDate 
-                      ? new Date(docDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
-                      : '—';
-                    
-                    return (
-                      <div
-                        key={doc.id || doc.DocumentId || idx}
-                        style={{
-                          display: 'grid',
-                          gridTemplateColumns: '1fr 100px 90px 80px',
-                          gap: 8,
-                          padding: '10px 12px',
-                          borderBottom: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.05)' : 'rgba(0, 0, 0, 0.02)'}`,
-                          transition: 'background 0.15s ease',
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <FaFileAlt size={12} color={colours.highlight} style={{ flexShrink: 0 }} />
-                          <span style={{ 
-                            fontSize: 11, 
-                            color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)',
-                            fontWeight: 500,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}>
-                            {docName}
-                          </span>
-                        </div>
-                        <span style={{ 
-                          fontSize: 10, 
-                          color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)',
-                        }}>
-                          {docType}
-                        </span>
-                        <span style={{ 
-                          fontSize: 10, 
-                          color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)',
-                          textAlign: 'right',
-                        }}>
-                          {formattedDate}
-                        </span>
-                        <div style={{ display: 'flex', justifyContent: 'center' }}>
-                          {onDocumentPreview && (
-                            <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); onDocumentPreview(doc); }}
-                              style={{
-                                padding: '4px 10px',
-                                background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)',
-                                color: colours.highlight,
-                                border: 'none',
-                                borderRadius: 4,
-                                fontSize: 9,
-                                fontWeight: 600,
-                                cursor: 'pointer',
-                              }}
-                            >
-                              View
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* Footer with count */}
-                {documents.length > 8 && (
-                  <div style={{ 
-                    fontSize: 10, 
-                    color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)',
-                    textAlign: 'center',
-                    paddingTop: 4,
-                  }}>
-                    +{documents.length - 8} more documents
-                  </div>
-                )}
-              </>
-            )}
+            <DocumentUploadZone
+              instructionRef={instructionRef}
+              isDarkMode={isDarkMode}
+              documents={documents}
+              onDocumentsChanged={fetchDocuments}
+              onDocumentPreview={onDocumentPreview}
+            />
           </div>
         )}
 
@@ -5206,466 +7770,1047 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         {activeTab === 'risk' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {renderStatusBanner(
-              riskStatus === 'complete' ? 'Risk completed' : riskStatus === 'review' ? 'Risk requires review' : 'Risk pending',
-              riskStatus,
-              riskStatus === 'complete'
+              riskBannerStatus === 'complete' ? 'Risk completed' : riskBannerStatus === 'review' ? 'Risk requires review' : 'Risk pending',
+              riskBannerStatus,
+              riskBannerStatus === 'complete'
                 ? 'Risk assessed and recorded.'
-                : riskStatus === 'review'
+                : riskBannerStatus === 'review'
                   ? 'High risk flagged. Review assessment and approvals.'
                   : 'Complete AML risk assessment before proceeding.',
               <FaShieldAlt size={12} />,
             )}
-            {!riskComplete ? (
-              <div style={{ 
-                textAlign: 'center',
-                padding: '24px 0',
-                color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)',
-              }}>
-                <FaShieldAlt size={24} style={{ marginBottom: 8, opacity: 0.4 }} />
-                <div style={{ fontSize: 11, marginBottom: 12 }}>Risk assessment not completed</div>
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); setShowLocalRiskModal(true); }}
-                  style={{
-                    padding: '8px 16px',
-                    background: colours.highlight,
-                    color: '#FFFFFF',
-                    border: 'none',
-                    borderRadius: 4,
-                    fontSize: 11,
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                  }}
-                >
-                  <FaShieldAlt size={11} />
-                  Complete Assessment
-                </button>
-              </div>
-            ) : (
-              <>
-                {/* Risk Content Card - matches enquiry/pitch design */}
+
+            {(() => {
+              const instructedRaw = inst?.SubmissionDate || inst?.InstructionDate || inst?.DateCreated || inst?.CreatedAt || submissionDateRaw || null;
+              const riskTimelineRaw = risk?.ComplianceDate || risk?.UpdatedAt || null;
+
+              const parseDate = (raw: any): Date | null => {
+                if (!raw) return null;
+                const d = new Date(raw);
+                return Number.isNaN(d.getTime()) ? null : d;
+              };
+
+              const formatStamp = (raw: any): string | null => {
+                const d = parseDate(raw);
+                if (!d) return null;
+                const rawText = typeof raw === 'string' ? raw : '';
+                const hasTime = /T\d{2}:\d{2}/.test(rawText) || /\d{2}:\d{2}/.test(rawText);
+                const date = formatRelativeDay(d);
+                if (!hasTime) return date;
+                const time = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+                return `${date} ${time}`;
+              };
+
+              const formatDiff = (fromRaw: any, toRaw: any): string | null => {
+                const from = parseDate(fromRaw);
+                const to = parseDate(toRaw);
+                if (!from || !to) return null;
+                const diffMs = Math.abs(to.getTime() - from.getTime());
+                const mins = Math.floor(diffMs / 60000);
+                if (mins < 60) return `${mins}m`;
+                const hrs = Math.floor(mins / 60);
+                if (hrs < 24) {
+                  const remMins = mins % 60;
+                  return remMins > 0 ? `${hrs}h ${remMins}m` : `${hrs}h`;
+                }
+                const days = Math.floor(hrs / 24);
+                const remHrs = hrs % 24;
+                return remHrs > 0 ? `${days}d ${remHrs}h` : `${days}d`;
+              };
+
+              const instructedStamp = formatStamp(instructedRaw);
+              const riskStamp = formatStamp(riskTimelineRaw);
+              const elapsed = formatDiff(instructedRaw, riskTimelineRaw);
+              const showTimeline = Boolean(instructedStamp || riskStamp || riskComplete);
+
+              if (!showTimeline) return null;
+
+              const riskColor = isHighRisk ? colours.cta : isMediumRisk ? colours.orange : colours.green;
+
+              return (
                 <div style={{
-                  background: isDarkMode ? 'rgba(15, 23, 42, 0.45)' : 'rgba(255, 255, 255, 0.7)',
-                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
-                  borderRadius: 0,
-                  padding: '12px 14px',
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+                  padding: flatEmbedMode ? '0 0 2px' : '0 14px 2px', minHeight: 36,
                 }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+                    {instructedStamp && (
+                      <div style={{
+                        display: 'flex', alignItems: 'center', gap: 5,
+                        padding: '5px 10px', borderRadius: 0,
+                        background: isDarkMode ? 'rgba(160, 160, 160, 0.08)' : 'rgba(0, 0, 0, 0.03)',
+                        border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(0, 0, 0, 0.08)'}`,
+                        flexShrink: 0,
+                      }}>
+                        <FaClock size={10} style={{ color: isDarkMode ? colours.subtleGrey : colours.greyText }} />
+                        <span style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+                          Instructed
+                          <span style={{ color: isDarkMode ? 'rgba(160, 160, 160, 0.85)' : 'rgba(107, 107, 107, 0.9)', fontWeight: 500 }}> · {instructedStamp}</span>
+                        </span>
+                      </div>
+                    )}
+
+                    {(instructedStamp && (riskStamp || riskComplete)) && (
+                      <div style={{
+                        display: 'flex', alignItems: 'center', width: elapsed ? 'auto' : 60,
+                        margin: '0 2px',
+                      }}>
+                        <div style={{
+                          flex: 1, height: 1, minWidth: 12,
+                          background: isDarkMode ? `${colours.dark.border}60` : '#e2e8f0',
+                        }} />
+                        {elapsed && (
+                          <span style={{
+                            fontSize: 9,
+                            fontWeight: isDarkMode ? 700 : 600,
+                            color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                            opacity: isDarkMode ? 1 : 0.72,
+                            padding: '1px 5px', whiteSpace: 'nowrap',
+                          }}>
+                            {elapsed}
+                          </span>
+                        )}
+                        <div style={{
+                          flex: 1, height: 1, minWidth: 12,
+                          background: isDarkMode ? `${colours.dark.border}60` : '#e2e8f0',
+                        }} />
+                      </div>
+                    )}
+
+                    {(riskStamp || riskComplete) && (
+                      <div style={{
+                        display: 'flex', alignItems: 'center', gap: 5,
+                        padding: '5px 10px', borderRadius: 0,
+                        background: riskComplete
+                          ? (isHighRisk
+                            ? (isDarkMode ? 'rgba(214, 85, 65, 0.12)' : 'rgba(214, 85, 65, 0.08)')
+                            : isMediumRisk
+                              ? (isDarkMode ? 'rgba(255, 140, 0, 0.12)' : 'rgba(255, 140, 0, 0.08)')
+                              : (isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.08)'))
+                          : (isDarkMode ? 'rgba(255, 140, 0, 0.12)' : 'rgba(255, 140, 0, 0.08)'),
+                        border: `1px solid ${riskComplete
+                          ? (isHighRisk
+                            ? (isDarkMode ? 'rgba(214, 85, 65, 0.25)' : 'rgba(214, 85, 65, 0.16)')
+                            : isMediumRisk
+                              ? (isDarkMode ? 'rgba(255, 140, 0, 0.25)' : 'rgba(255, 140, 0, 0.16)')
+                              : (isDarkMode ? 'rgba(32, 178, 108, 0.25)' : 'rgba(32, 178, 108, 0.16)'))
+                          : (isDarkMode ? 'rgba(255, 140, 0, 0.25)' : 'rgba(255, 140, 0, 0.16)')}`,
+                        flexShrink: 0,
+                      }}>
+                        {riskComplete ? <FaShieldAlt size={10} style={{ color: riskColor }} /> : <FaClock size={10} style={{ color: colours.orange }} />}
+                        <span style={{ fontSize: 10, fontWeight: 600, color: riskComplete ? riskColor : colours.orange }}>
+                          {riskComplete ? `${riskResult}${riskScore != null ? ` · ${riskScore}` : ''}` : 'Pending'}
+                          {riskStamp && <span style={{ color: riskComplete ? (isDarkMode ? `${riskColor}CC` : riskColor) : (isDarkMode ? 'rgba(255, 140, 0, 0.82)' : 'rgba(255, 140, 0, 0.9)'), fontWeight: 500 }}> · {riskStamp}</span>}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Summary strip — shown when risk IS completed and NOT in edit mode */}
+            {riskComplete && !riskEditMode && (
+              <div style={{
+                background: isDarkMode ? 'rgba(6, 23, 51, 0.35)' : 'rgba(255, 255, 255, 0.7)',
+                border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
+                borderRadius: 0,
+                padding: '10px 12px',
+              }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {/* Row 2: Compliance Confirmations */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+                      I have considered:
+                    </span>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {[
+                      { label: 'Client Risk', ok: !!clientRiskConsidered, docUrl: 'https://drive.google.com/file/d/1_7dX2qSlvuNmOiirQCxQb8NDs6iUSAhT/view?usp=sharing' },
+                      { label: 'Transaction Risk', ok: !!transactionRiskConsidered, docUrl: 'https://drive.google.com/file/d/1sTRII8MFU3JLpMiUcz-Y6KBQ1pP1nKgT/view?usp=sharing' },
+                      { label: 'Sanctions', ok: !!firmWideSanctionsConsidered, docUrl: 'https://drive.google.com/file/d/1y7fTLI_Dody00y9v42ohltQU-hnnYJ9P/view?usp=sharing' },
+                      { label: 'AML Policy', ok: !!firmWideAMLConsidered, docUrl: 'https://drive.google.com/file/d/1opiC3TbEsdEH4ExDjckIhQzzsI3_wYYB/view?usp=sharing' },
+                    ].map((item, idx) => (
+                      <a
+                        key={idx}
+                        href={item.docUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title={`${item.label} — ${item.ok ? 'Considered' : 'Not confirmed'}. Click to view policy.`}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 5,
+                          padding: '4px 10px', borderRadius: 0,
+                          background: item.ok
+                            ? (isDarkMode ? 'rgba(32, 178, 108, 0.08)' : 'rgba(32, 178, 108, 0.05)')
+                            : (isDarkMode ? 'rgba(160, 160, 160, 0.04)' : 'rgba(0,0,0,0.02)'),
+                          border: `1px solid ${item.ok
+                            ? (isDarkMode ? 'rgba(32, 178, 108, 0.2)' : 'rgba(32, 178, 108, 0.12)')
+                            : (isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0,0,0,0.04)')}`,
+                          textDecoration: 'none',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {item.ok
+                          ? <FaCheckCircle size={9} style={{ color: colours.green, opacity: 0.8 }} />
+                          : <FaTimesCircle size={9} style={{ color: isDarkMode ? colours.subtleGrey : colours.greyText, opacity: 0.5 }} />}
+                        <span style={{ fontSize: 10, fontWeight: 600, color: item.ok ? (isDarkMode ? '#d1d5db' : '#374151') : (isDarkMode ? colours.subtleGrey : colours.greyText) }}>
+                          {item.label}
+                        </span>
+                      </a>
+                    ))}
+                    </div>
+                  </div>
+
+                  {/* Row 3: Assessment Q&A + Edit button */}
+                  <div style={{
+                    padding: '10px 12px',
+                    background: isDarkMode ? 'rgba(6, 23, 51, 0.3)' : 'rgba(244, 244, 246, 0.5)',
+                    border: `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.25)' : 'rgba(6, 23, 51, 0.08)'}`,
+                    borderRadius: 0
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                      <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+                        Assessment
+                      </span>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setRiskEditMode(true); }}
+                        style={{
+                          padding: '3px 8px',
+                          background: 'transparent',
+                          color: colours.highlight,
+                          border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.25)'}`,
+                          borderRadius: 0,
+                          fontSize: 10,
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4,
+                        }}
+                      >
+                        <FaEdit size={9} />
+                        Edit
+                      </button>
+                    </div>
                     
-                    {/* Row 1: Status Chips + Timestamp */}
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                        {/* Assessed DateTime Chip - styled like Pitched chip */}
-                        {complianceDateTime && (
-                          <div
-                            title="Assessment completed"
-                            style={{ 
-                              display: 'flex', alignItems: 'center', gap: 6,
-                              padding: '5px 10px', borderRadius: 4,
-                              background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
-                              border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.15)'}`,
-                            }}
-                          >
-                            <FaShieldAlt size={10} style={{ color: colours.highlight }} />
-                            <span style={{ fontSize: 10, fontWeight: 600, color: colours.highlight }}>Assessed {complianceDateTime}</span>
-                          </div>
-                        )}
-                        
-                        {/* Result Badge */}
-                        <div
-                          title={`Risk: ${riskResult}`}
-                          style={{ 
-                            display: 'flex', alignItems: 'center', gap: 6,
-                            padding: '5px 10px', borderRadius: 4,
-                            background: isHighRisk 
-                              ? (isDarkMode ? 'rgba(214, 85, 65, 0.12)' : 'rgba(214, 85, 65, 0.08)')
-                              : (isDarkMode ? 'rgba(115, 171, 96, 0.12)' : 'rgba(115, 171, 96, 0.08)'),
-                            border: `1px solid ${isHighRisk 
-                              ? (isDarkMode ? 'rgba(214, 85, 65, 0.25)' : 'rgba(214, 85, 65, 0.15)')
-                              : (isDarkMode ? 'rgba(115, 171, 96, 0.25)' : 'rgba(115, 171, 96, 0.15)')}`,
-                          }}
-                        >
-                          <span style={{ fontSize: 10, fontWeight: 600, color: isHighRisk ? colours.cta : colours.green }}>{riskResult}</span>
-                        </div>
-                        
-                        {/* Score Badge */}
-                        {riskScore !== undefined && riskScore !== null && (
-                          <div
-                            title={`Risk Score: ${riskScore}`}
-                            style={{ 
-                              display: 'flex', alignItems: 'center', gap: 5,
-                              padding: '5px 10px', borderRadius: 4,
-                              background: isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(0,0,0,0.02)',
-                              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0,0,0,0.04)'}`,
-                            }}
-                          >
-                            <Icon iconName="NumberSymbol" styles={{ root: { fontSize: 10, color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : '#64748b' } }} />
-                            <span style={{ fontSize: 10, fontWeight: 600, fontFamily: 'monospace', color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b' }}>{riskScore}</span>
-                          </div>
-                        )}
-                        
-                        {/* Assessor Badge */}
-                        <div
-                          title={`Assessed by: ${riskAssessor}`}
-                          style={{ 
-                            display: 'flex', alignItems: 'center', gap: 5,
-                            padding: '5px 10px', borderRadius: 4,
-                            background: isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(0,0,0,0.02)',
-                            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0,0,0,0.04)'}`,
-                          }}
-                        >
-                          <FaUser size={9} style={{ color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : '#64748b' }} />
-                          <span style={{ fontSize: 10, fontWeight: 500, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b' }}>{riskAssessor}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Row 2: Compliance Confirmations Data Bar */}
-                    <div style={{ 
-                      display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 0, 
-                      padding: '10px 0',
-                      background: isDarkMode ? 'rgba(2, 6, 23, 0.4)' : '#f8fafc',
-                      borderRadius: 6,
-                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : '#e2e8f0'}`
-                    }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
                       {[
-                        { label: 'Client Risk', value: clientRiskConsidered ? 'Considered' : null, docUrl: 'https://drive.google.com/file/d/1_7dX2qSlvuNmOiirQCxQb8NDs6iUSAhT/view?usp=sharing' },
-                        { label: 'Transaction Risk', value: transactionRiskConsidered ? 'Considered' : null, docUrl: 'https://drive.google.com/file/d/1sTRII8MFU3JLpMiUcz-Y6KBQ1pP1nKgT/view?usp=sharing' },
-                        { label: 'Sanctions', value: firmWideSanctionsConsidered ? 'Considered' : null, docUrl: 'https://drive.google.com/file/d/1y7fTLI_Dody00y9v42ohltQU-hnnYJ9P/view?usp=sharing' },
-                        { label: 'AML Policy', value: firmWideAMLConsidered ? 'Considered' : null, docUrl: 'https://drive.google.com/file/d/1opiC3TbEsdEH4ExDjckIhQzzsI3_wYYB/view?usp=sharing' },
-                      ].map((item, idx, arr) => (
-                        <React.Fragment key={idx}>
-                          <div style={{ display: 'flex', alignItems: 'stretch', gap: 8, padding: '0 14px' }}>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1 }}>
-                              <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>
-                                {item.label}
-                              </span>
-                              <span style={{ 
-                                fontSize: 12, 
-                                fontWeight: item.value ? 500 : 400, 
-                                color: item.value 
-                                  ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b')
-                                  : (isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8'),
-                              }}>
-                                {item.value || '—'}
-                              </span>
-                            </div>
-                            <a 
-                              href={item.docUrl} 
-                              target="_blank" 
-                              rel="noopener noreferrer"
-                              title={`View ${item.label} policy`}
-                              style={{ 
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                padding: '0 6px',
-                                color: isDarkMode ? 'rgba(148, 163, 184, 0.4)' : '#94a3b8',
-                                textDecoration: 'none',
-                                borderRadius: 4,
-                                transition: 'all 0.15s ease',
-                              }}
-                              onMouseEnter={(e) => { 
-                                e.currentTarget.style.color = colours.highlight; 
-                                e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.05)';
-                              }}
-                              onMouseLeave={(e) => { 
-                                e.currentTarget.style.color = isDarkMode ? 'rgba(148, 163, 184, 0.4)' : '#94a3b8'; 
-                                e.currentTarget.style.background = 'transparent';
-                              }}
-                            >
-                              <FaChevronRight size={10} />
-                            </a>
-                          </div>
-                          {idx < arr.length - 1 && (
-                            <div style={{ width: 1, height: 28, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
-                          )}
-                        </React.Fragment>
-                      ))}
-                    </div>
-
-                    {/* Row 3: Assessment Questions & Answers Chip */}
-                    <div style={{
-                      padding: '12px 14px',
-                      background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : '#f8fafc',
-                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : '#e2e8f0'}`,
-                      borderRadius: 6
-                    }}>
-                      {/* Header with Edit button */}
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                        <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>
-                          <FaShieldAlt size={10} style={{ opacity: 0.6 }} />
-                          Assessment Answers
-                        </div>
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); setShowLocalRiskModal(true); }}
-                          style={{
-                            padding: '4px 10px',
-                            background: 'transparent',
-                            color: colours.highlight,
-                            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.25)'}`,
-                            borderRadius: 4,
-                            fontSize: 10,
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                            display: 'flex',
+                        { question: 'Client Type', answer: riskClientType },
+                        { question: 'How Introduced', answer: howIntroduced },
+                        { question: 'Jurisdiction', answer: jurisdiction },
+                        { question: 'Source of Funds', answer: sourceOfFunds },
+                        { question: 'Source of Wealth', answer: sourceOfWealth },
+                        { question: 'Destination of Funds', answer: destinationOfFunds },
+                        { question: 'Funds Type', answer: fundsType },
+                        { question: 'Value of Instruction', answer: valueOfInstruction },
+                        { question: 'Limitation Period', answer: limitationPeriod },
+                        { question: 'Transaction Risk', answer: riskLevel },
+                      ].filter(item => item.answer && item.answer !== '—').map((item, idx) => (
+                        <div 
+                          key={idx} 
+                          style={{ 
+                            display: 'flex', 
+                            justifyContent: 'space-between', 
                             alignItems: 'center',
-                            gap: 5,
-                            transition: 'all 0.15s ease',
+                            padding: '5px 8px',
+                            background: idx % 2 === 0 
+                              ? (isDarkMode ? 'rgba(6, 23, 51, 0.3)' : 'rgba(0,0,0,0.018)')
+                              : 'transparent',
                           }}
                         >
-                          <FaEdit size={9} />
-                          Edit Assessment
-                        </button>
-                      </div>
-                      
-                      {/* Q&A Grid - alternating rows for visual clarity */}
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-                        {[
-                          { question: 'Client Type', answer: riskClientType },
-                          { question: 'How was Client Introduced?', answer: howIntroduced },
-                          { question: 'Source of Funds', answer: sourceOfFunds },
-                          { question: 'Destination of Funds', answer: destinationOfFunds },
-                          { question: 'Funds Type', answer: fundsType },
-                          { question: 'Value of Instruction', answer: valueOfInstruction },
-                          { question: 'Limitation Period', answer: limitationPeriod },
-                          { question: 'Transaction Risk Level', answer: riskLevel },
-                        ].map((item, idx) => (
-                          <div 
-                            key={idx} 
-                            style={{ 
-                              display: 'flex', 
-                              justifyContent: 'space-between', 
-                              alignItems: 'center',
-                              padding: '8px 10px',
-                              background: idx % 2 === 0 
-                                ? (isDarkMode ? 'rgba(148, 163, 184, 0.03)' : 'rgba(0,0,0,0.015)')
-                                : 'transparent',
-                              borderRadius: 4,
-                            }}
-                          >
-                            <span style={{ fontSize: 11, fontWeight: 500, color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : '#64748b' }}>
-                              {item.question}
-                            </span>
-                            <span style={{ 
-                              fontSize: 11, 
-                              fontWeight: 600, 
-                              color: item.answer && item.answer !== '—' 
-                                ? (isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b')
-                                : (isDarkMode ? 'rgba(148, 163, 184, 0.4)' : '#94a3b8'),
-                              textAlign: 'right',
-                            }}>
-                              {item.answer || '—'}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
+                          <span style={{ fontSize: 10, fontWeight: 500, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+                            {item.question}
+                          </span>
+                          <span style={{ 
+                            fontSize: 10, 
+                            fontWeight: 600, 
+                            color: isDarkMode ? '#d1d5db' : '#374151',
+                            textAlign: 'right',
+                            maxWidth: '55%',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}>
+                            {item.answer}
+                          </span>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 </div>
-              </>
+              </div>
             )}
+
+            {/* Inline risk assessment — compact workbench form */}
+            {(!riskComplete || riskEditMode) && (() => {
+              const liveScore = inlineRiskCore.clientTypeValue + inlineRiskCore.destinationOfFundsValue + inlineRiskCore.fundsTypeValue + inlineRiskCore.clientIntroducedValue + inlineRiskCore.limitationValue + inlineRiskCore.sourceOfFundsValue + inlineRiskCore.valueOfInstructionValue;
+              const liveResult = (inlineRiskCore.limitationValue === 3 || liveScore >= 16) ? 'High Risk' : liveScore >= 11 ? 'Medium Risk' : liveScore > 0 ? 'Low Risk' : '';
+              const liveColour = liveResult === 'High Risk' ? colours.cta : liveResult === 'Medium Risk' ? colours.orange : colours.green;
+              const coreQuestions: { label: string; field: string; valueField: string; options: { key: number; text: string; short: string }[] }[] = [
+                { label: 'Client Type', field: 'clientType', valueField: 'clientTypeValue', options: [
+                  { key: 1, text: 'Individual or Company registered in England and Wales with Companies House', short: 'Individual / UK Company' },
+                  { key: 2, text: 'Group Company or Subsidiary, Trust', short: 'Group / Trust' },
+                  { key: 3, text: 'Non UK Company', short: 'Non-UK Company' },
+                ]},
+                { label: 'Destination', field: 'destinationOfFunds', valueField: 'destinationOfFundsValue', options: [
+                  { key: 1, text: 'Client within UK', short: 'UK' },
+                  { key: 2, text: 'Client in EU/3rd party in UK', short: 'EU / 3rd party UK' },
+                  { key: 3, text: 'Outwith UK or Client outwith EU', short: 'Outside UK/EU' },
+                ]},
+                { label: 'Funds Type', field: 'fundsType', valueField: 'fundsTypeValue', options: [
+                  { key: 1, text: 'Personal Cheque, BACS', short: 'Cheque / BACS' },
+                  { key: 2, text: 'Cash payment if less than £1,000', short: 'Cash < £1k' },
+                  { key: 3, text: 'Cash payment above £1,000', short: 'Cash > £1k' },
+                ]},
+                { label: 'Introduction', field: 'clientIntroduced', valueField: 'clientIntroducedValue', options: [
+                  { key: 1, text: 'Existing client introduction, personal introduction', short: 'Existing / personal' },
+                  { key: 2, text: 'Internet Enquiry', short: 'Internet' },
+                  { key: 3, text: 'Other', short: 'Other' },
+                ]},
+                { label: 'Limitation', field: 'limitation', valueField: 'limitationValue', options: [
+                  { key: 1, text: 'There is no applicable limitation period', short: 'N/A' },
+                  { key: 2, text: 'There is greater than 6 months to the expiry of the limitation period', short: '> 6 months' },
+                  { key: 3, text: 'There is less than 6 months to limitation expiry', short: '< 6 months' },
+                ]},
+                { label: 'Source of Funds', field: 'sourceOfFunds', valueField: 'sourceOfFundsValue', options: [
+                  { key: 1, text: "Client's named account", short: 'Client account' },
+                  { key: 2, text: "3rd Party UK or Client's EU account", short: '3rd party / EU' },
+                  { key: 3, text: 'Any other account', short: 'Other' },
+                ]},
+                { label: 'Value', field: 'valueOfInstruction', valueField: 'valueOfInstructionValue', options: [
+                  { key: 1, text: 'Less than £10,000', short: '< £10k' },
+                  { key: 2, text: '£10,000 to £500,000', short: '£10k – £500k' },
+                  { key: 3, text: 'Above £500,000', short: '> £500k' },
+                ]},
+              ];
+              const selectStyle: React.CSSProperties = {
+                flex: 1,
+                minWidth: 0,
+                padding: '4px 6px',
+                fontSize: 10,
+                fontWeight: 600,
+                fontFamily: 'inherit',
+                color: isDarkMode ? colours.dark.text : colours.light.text,
+                background: isDarkMode ? 'rgba(6, 23, 51, 0.5)' : colours.grey,
+                border: `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.25)' : 'rgba(6, 23, 51, 0.08)'}`,
+                borderRadius: 0,
+                cursor: 'pointer',
+                appearance: 'auto' as any,
+              };
+              const complianceItems = [
+                { label: 'Client Risk', question: 'I have considered client risk factors', state: inlineConsideredClientRisk, set: setInlineConsideredClientRisk, docUrl: 'https://drive.google.com/file/d/1_7dX2qSlvuNmOiirQCxQb8NDs6iUSAhT/view?usp=sharing', docLabel: 'Client Risk Assessment' },
+                { label: 'Transaction Risk', question: 'I have considered transaction risk factors', state: inlineConsideredTransactionRisk, set: setInlineConsideredTransactionRisk, docUrl: 'https://drive.google.com/file/d/1sTRII8MFU3JLpMiUcz-Y6KBQ1pP1nKgT/view?usp=sharing', docLabel: 'Transaction Risk Assessment' },
+                { label: 'Sanctions', question: 'I have considered the Firm Wide Sanctions Risk Assessment', state: inlineConsideredFirmWideSanctions, set: setInlineConsideredFirmWideSanctions, docUrl: 'https://drive.google.com/file/d/1y7fTLI_Dody00y9v42ohltQU-hnnYJ9P/view?usp=sharing', docLabel: 'Sanctions Risk Assessment' },
+                { label: 'AML Policy', question: 'I have considered the Firm Wide AML policy', state: inlineConsideredFirmWideAML, set: setInlineConsideredFirmWideAML, docUrl: 'https://drive.google.com/file/d/1opiC3TbEsdEH4ExDjckIhQzzsI3_wYYB/view?usp=sharing', docLabel: 'AML Policy Document' },
+              ];
+
+              return (
+                <div style={{
+                  background: isDarkMode ? 'rgba(6, 23, 51, 0.35)' : 'rgba(255, 255, 255, 0.7)',
+                  border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
+                  borderRadius: 0,
+                  padding: '10px 12px',
+                }}>
+                  {/* Header: title + live score + cancel */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, paddingBottom: 8, borderBottom: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0,0,0,0.05)'}` }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+                        {riskEditMode ? 'Edit Assessment' : 'Risk Assessment'}
+                      </span>
+                      {liveResult && (
+                        <span style={{
+                          padding: '2px 8px', borderRadius: 0, fontSize: 9, fontWeight: 700,
+                          color: liveColour,
+                          background: isDarkMode ? `${liveColour}18` : `${liveColour}12`,
+                          border: `1px solid ${liveColour}30`,
+                        }}>
+                          {liveResult} · {liveScore}
+                        </span>
+                      )}
+                    </div>
+                    {riskEditMode && (
+                      <button
+                        type="button"
+                        onClick={() => setRiskEditMode(false)}
+                        style={{
+                          padding: '2px 7px', background: 'transparent',
+                          color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                          border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.15)' : 'rgba(0,0,0,0.08)'}`,
+                          borderRadius: 0, fontSize: 9, fontWeight: 600, cursor: 'pointer',
+                          display: 'flex', alignItems: 'center', gap: 3,
+                        }}
+                      >
+                        <FaTimes size={8} /> Cancel
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Two-column layout: Scored questions LEFT | Considerations RIGHT */}
+                  <div style={{ display: 'flex', gap: 12, marginBottom: 10 }}>
+                    {/* LEFT COLUMN — Scored questions */}
+                    <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <div style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText, marginBottom: 2 }}>
+                        Scored Questions
+                      </div>
+                      {coreQuestions.map((q) => (
+                        <div key={q.field} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{
+                            width: 80, flexShrink: 0,
+                            fontSize: 10, fontWeight: 600,
+                            color: (inlineRiskCore as any)[q.valueField]
+                              ? (isDarkMode ? '#d1d5db' : colours.light.text)
+                              : (isDarkMode ? colours.subtleGrey : colours.greyText),
+                          }}>
+                            {q.label}
+                          </span>
+                          <select
+                            value={(inlineRiskCore as any)[q.valueField] || ''}
+                            onChange={(e) => {
+                              const key = Number(e.target.value);
+                              const opt = q.options.find(o => o.key === key);
+                              setInlineRiskCore(prev => ({ ...prev, [q.field]: opt?.text || '', [q.valueField]: key || 0 }));
+                            }}
+                            style={selectStyle}
+                          >
+                            <option value="">— Select —</option>
+                            {q.options.map(o => (
+                              <option key={o.key} value={o.key}>{o.short}</option>
+                            ))}
+                          </select>
+                        </div>
+                      ))}
+
+                      {/* Limitation date (conditional) — nested under scored questions */}
+                      {[2, 3].includes(inlineRiskCore.limitationValue) && (
+                        <div style={{
+                          display: 'flex', alignItems: 'center', gap: 8,
+                          marginLeft: 88,
+                          padding: '5px 8px',
+                          background: isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.03)',
+                          borderLeft: `2px solid ${colours.highlight}`,
+                        }}>
+                          <span style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? colours.subtleGrey : colours.greyText, whiteSpace: 'nowrap' }}>Date</span>
+                          <input
+                            type="date"
+                            value={inlineLimitationDate ? inlineLimitationDate.toISOString().split('T')[0] : ''}
+                            onChange={(e) => setInlineLimitationDate(e.target.value ? new Date(e.target.value) : undefined)}
+                            disabled={inlineLimitationDateTbc}
+                            style={{
+                              ...selectStyle,
+                              maxWidth: 120,
+                              opacity: inlineLimitationDateTbc ? 0.4 : 1,
+                            }}
+                          />
+                          <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                            <input
+                              type="checkbox"
+                              checked={inlineLimitationDateTbc}
+                              onChange={(e) => {
+                                setInlineLimitationDateTbc(e.target.checked);
+                                if (e.target.checked) setInlineLimitationDate(undefined);
+                              }}
+                              style={{ margin: 0, accentColor: colours.highlight }}
+                            />
+                            <span style={{ fontSize: 9, fontWeight: 600, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>TBC</span>
+                          </label>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* RIGHT COLUMN — Considerations */}
+                    <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <div style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText, marginBottom: 2 }}>
+                        I have considered:
+                      </div>
+                      {complianceItems.map((item) => (
+                        <div key={item.label} style={{
+                          display: 'flex', alignItems: 'center', gap: 6,
+                          padding: '4px 8px',
+                          background: item.state === true
+                            ? (isDarkMode ? 'rgba(32, 178, 108, 0.06)' : 'rgba(32, 178, 108, 0.03)')
+                            : item.state === false
+                              ? (isDarkMode ? 'rgba(214, 85, 65, 0.04)' : 'rgba(214, 85, 65, 0.02)')
+                              : (isDarkMode ? 'rgba(6, 23, 51, 0.3)' : 'rgba(244, 244, 246, 0.5)'),
+                          borderLeft: `2px solid ${item.state === true ? colours.green : item.state === false ? colours.cta : (isDarkMode ? 'rgba(75, 85, 99, 0.25)' : 'rgba(6, 23, 51, 0.08)')}`,
+                          transition: 'all 0.15s ease',
+                        }}>
+                          {/* Consideration name */}
+                          <span style={{
+                            flex: 1, minWidth: 0,
+                            fontSize: 10, fontWeight: 500,
+                            color: item.state === true ? (isDarkMode ? '#d1d5db' : colours.light.text) : (isDarkMode ? colours.subtleGrey : colours.greyText),
+                            lineHeight: 1.3,
+                          }}>
+                            {item.label}
+                          </span>
+                          {/* Yes / No toggle buttons */}
+                          <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
+                            <button
+                              type="button"
+                              onClick={() => item.set(true)}
+                              style={{
+                                padding: '2px 8px', borderRadius: 0, fontSize: 9, fontWeight: 700, fontFamily: 'inherit',
+                                cursor: 'pointer',
+                                background: item.state === true
+                                  ? (isDarkMode ? 'rgba(32, 178, 108, 0.15)' : 'rgba(32, 178, 108, 0.1)')
+                                  : 'transparent',
+                                border: `1px solid ${item.state === true ? colours.green : (isDarkMode ? 'rgba(75, 85, 99, 0.25)' : 'rgba(6, 23, 51, 0.08)')}`,
+                                color: item.state === true ? colours.green : (isDarkMode ? colours.subtleGrey : colours.greyText),
+                                transition: 'all 0.12s ease',
+                              }}
+                            >
+                              Yes
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => item.set(false)}
+                              style={{
+                                padding: '2px 8px', borderRadius: 0, fontSize: 9, fontWeight: 700, fontFamily: 'inherit',
+                                cursor: 'pointer',
+                                background: item.state === false
+                                  ? (isDarkMode ? 'rgba(214, 85, 65, 0.12)' : 'rgba(214, 85, 65, 0.06)')
+                                  : 'transparent',
+                                border: `1px solid ${item.state === false ? colours.cta : (isDarkMode ? 'rgba(75, 85, 99, 0.25)' : 'rgba(6, 23, 51, 0.08)')}`,
+                                color: item.state === false ? colours.cta : (isDarkMode ? colours.subtleGrey : colours.greyText),
+                                transition: 'all 0.12s ease',
+                              }}
+                            >
+                              No
+                            </button>
+                          </div>
+                          {/* Document link — hidden when Yes confirmed */}
+                          {item.state !== true && (
+                            <a
+                              href={item.docUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title={`View ${item.docLabel}`}
+                              style={{
+                                flexShrink: 0, display: 'flex', alignItems: 'center',
+                                color: isDarkMode ? colours.accent : colours.highlight,
+                                opacity: 0.7,
+                                transition: 'opacity 0.12s ease',
+                              }}
+                              onMouseEnter={(e) => (e.currentTarget.style.opacity = '1')}
+                              onMouseLeave={(e) => (e.currentTarget.style.opacity = '0.7')}
+                            >
+                              <FaExternalLinkAlt size={9} />
+                            </a>
+                          )}
+                        </div>
+                      ))}
+
+                      {/* Warning prompt when any compliance item is explicitly No */}
+                      {complianceItems.some(item => item.state === false) && (
+                        <div style={{
+                          padding: '5px 8px',
+                          background: isDarkMode ? 'rgba(214, 85, 65, 0.06)' : 'rgba(214, 85, 65, 0.03)',
+                          borderLeft: `2px solid ${colours.cta}`,
+                          fontSize: 10, fontWeight: 500, lineHeight: 1.4,
+                          color: isDarkMode ? colours.cta : '#9a2f1f',
+                        }}>
+                          Please review the relevant policy documents before proceeding.
+                          <div style={{ marginTop: 3, display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                            {complianceItems.filter(item => item.state === false).map(item => (
+                              <a
+                                key={item.label}
+                                href={item.docUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{
+                                  fontSize: 9, fontWeight: 700,
+                                  color: isDarkMode ? colours.accent : colours.highlight,
+                                  textDecoration: 'underline',
+                                }}
+                              >
+                                {item.docLabel}
+                              </a>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Transaction risk level — only when transaction risk confirmed */}
+                      {inlineConsideredTransactionRisk && (
+                        <div style={{
+                          display: 'flex', alignItems: 'center', gap: 6,
+                          padding: '5px 8px',
+                          background: isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.03)',
+                          borderLeft: `2px solid ${colours.highlight}`,
+                        }}>
+                          <span style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? colours.subtleGrey : colours.greyText, whiteSpace: 'nowrap' }}>Transaction Level</span>
+                          {['Low Risk', 'Medium Risk', 'High Risk'].map((level) => (
+                            <button
+                              key={level}
+                              type="button"
+                              onClick={() => setInlineTransactionRiskLevel(level)}
+                              style={{
+                                padding: '3px 8px', borderRadius: 0, fontSize: 9, fontWeight: 600, fontFamily: 'inherit',
+                                cursor: 'pointer',
+                                background: inlineTransactionRiskLevel === level
+                                  ? (isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.08)')
+                                  : 'transparent',
+                                border: `1px solid ${inlineTransactionRiskLevel === level ? colours.highlight : (isDarkMode ? 'rgba(75, 85, 99, 0.25)' : 'rgba(6, 23, 51, 0.06)')}`,
+                                color: inlineTransactionRiskLevel === level ? colours.highlight : (isDarkMode ? colours.subtleGrey : colours.greyText),
+                                transition: 'all 0.12s ease',
+                              }}
+                            >
+                              {level.replace(' Risk', '')}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Submit */}
+                  <button
+                    type="button"
+                    onClick={handleInlineRiskSubmit}
+                    disabled={!isInlineRiskComplete() || isRiskSubmitting}
+                    style={{
+                      width: '100%',
+                      padding: '8px 0',
+                      background: isInlineRiskComplete() ? colours.highlight : (isDarkMode ? 'rgba(6, 23, 51, 0.6)' : colours.grey),
+                      border: 'none',
+                      borderRadius: 0,
+                      color: isInlineRiskComplete() ? '#FFFFFF' : (isDarkMode ? colours.subtleGrey : colours.greyText),
+                      fontSize: 11,
+                      fontWeight: 600,
+                      fontFamily: 'inherit',
+                      cursor: isInlineRiskComplete() ? 'pointer' : 'not-allowed',
+                      transition: 'all 0.15s ease',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 6,
+                    }}
+                  >
+                    {isRiskSubmitting ? (
+                      <><FaClock size={10} /> Saving…</>
+                    ) : (
+                      <><FaShieldAlt size={10} /> {riskEditMode ? 'Update Assessment' : 'Submit Assessment'}</>
+                    )}
+                  </button>
+                </div>
+              );
+            })()}
           </div>
         )}
 
         {/* Matter Tab */}
         {activeTab === 'matter' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {(() => { console.log('[MATTER-DEBUG] Matter tab rendering. activeTab =', activeTab, ', hasMatter =', hasMatter, ', inst =', !!inst, ', showLocalMatterModal =', showLocalMatterModal); return null; })()}
             {renderStatusBanner(
-              matterStageStatus === 'complete' ? 'Matter opened' : 'Matter pending',
-              matterStageStatus,
-              matterStageStatus === 'complete' ? 'Matter link ready. Open in Clio or sync details.' : 'Open matter to generate Display Number and link client.',
-              <FaFolder size={12} />,
+              matterBannerStatus === 'complete' ? 'Matter opened' : 'Matter pending',
+              matterBannerStatus,
+              matterBannerStatus === 'complete' ? 'Matter link ready. Open in Clio or sync details.' : 'Open matter to generate Display Number and link client.',
+              <FaFolderOpen size={12} />,
             )}
             {!hasMatter ? (
-              <div style={{ 
-                textAlign: 'center',
-                padding: '24px 0',
-                color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)',
-              }}>
-                <FaFolder size={24} style={{ marginBottom: 8, opacity: 0.4 }} />
-                <div style={{ fontSize: 11, marginBottom: 12 }}>Matter not yet opened</div>
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); console.log('[MATTER-DEBUG] Open Matter button clicked. inst =', !!inst, 'inst.InstructionRef =', inst?.InstructionRef, 'hasMatter =', hasMatter); setShowLocalMatterModal(true); }}
-                  style={{
-                    padding: '8px 16px',
-                    background: colours.highlight,
-                    color: '#FFFFFF',
-                    border: 'none',
-                    borderRadius: 4,
-                    fontSize: 11,
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                  }}
-                >
-                  <FaFolder size={11} />
-                  Open Matter
-                </button>
-              </div>
+              <CompactMatterWizard
+                inst={inst}
+                deal={deal}
+                eid={eid}
+                risk={risk}
+                payments={payments}
+                documents={documents}
+                poidData={localPoidData}
+                teamData={teamData ?? null}
+                currentUser={currentUser ?? null}
+                isDarkMode={isDarkMode}
+                feeEarner={feeEarner}
+                areaOfWork={areaOfWork}
+                instructionRef={instructionRef}
+                onMatterSuccess={(mId) => {
+                  if (onRefreshData) onRefreshData(instructionRef);
+                  showToast({
+                    type: 'success',
+                    title: 'Matter Opened',
+                    message: `Matter ${mId} created successfully`,
+                  });
+                }}
+                onCancel={() => setShowLocalMatterModal(true)}
+                showToast={showToast}
+                hideToast={hideToast}
+                demoModeEnabled={demoModeEnabled}
+              />
             ) : (
               <>
-                {/* Matter Content Card - matches pitch tab design */}
+                {/* Matter Content Card - expanded to match pipeline chip sections */}
                 <div style={{
-                  background: isDarkMode ? 'rgba(15, 23, 42, 0.45)' : 'rgba(255, 255, 255, 0.7)',
-                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
+                  background: isDarkMode ? 'rgba(6, 23, 51, 0.45)' : 'rgba(255, 255, 255, 0.7)',
+                  border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
                   borderRadius: 0,
                   padding: '12px 14px',
                 }}>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                     
-                    {/* Row 1: Chips + Date - matches pitch layout */}
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        {/* Opened DateTime Chip - blue highlight like "Pitched" chip */}
+                    {/* Row 1: Primary chips */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                         {matterOpenDate && matterOpenDate !== '—' && (
                           <div
                             title="Matter opened"
                             style={{ 
                               display: 'flex', alignItems: 'center', gap: 6,
-                              padding: '5px 10px', borderRadius: 4,
+                              padding: '5px 10px', borderRadius: 0,
                               background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
                               border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.15)'}`,
+                              borderLeft: `3px solid ${colours.highlight}`,
                             }}
                           >
-                            <FaFolder size={10} style={{ color: colours.highlight }} />
                             <span style={{ fontSize: 10, fontWeight: 600, color: colours.highlight }}>Opened {matterOpenDate}</span>
                           </div>
                         )}
                         
-                        {/* Display Number Badge - like passcode chip */}
                         <div
                           title={`Matter: ${matterRef}`}
                           style={{ 
                             display: 'flex', alignItems: 'center', gap: 5,
-                            padding: '5px 10px', borderRadius: 4,
-                            background: isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(0,0,0,0.02)',
-                            border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0,0,0,0.04)'}`,
+                            padding: '5px 10px', borderRadius: 0,
+                            background: isDarkMode ? 'rgba(160, 160, 160, 0.06)' : 'rgba(0,0,0,0.02)',
+                            border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0,0,0,0.04)'}`,
+                            borderLeft: `3px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.65)' : colours.greyText}`,
                           }}
                         >
-                          <FaFolder size={9} style={{ color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : '#64748b' }} />
-                          <span style={{ fontSize: 10, fontWeight: 600, fontFamily: 'monospace', color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b' }}>{matterRef}</span>
+                          <span style={{ fontSize: 10, fontWeight: 600, fontFamily: 'monospace', color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : '#061733' }}>{matterRef}</span>
                         </div>
+
+                        <div
+                          title={`Status: ${matterStatus}`}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 6,
+                            padding: '5px 10px', borderRadius: 0,
+                            background: isMatterClosed
+                              ? (isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.08)')
+                              : (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)'),
+                            border: `1px solid ${isMatterClosed
+                              ? (isDarkMode ? 'rgba(32, 178, 108, 0.25)' : 'rgba(32, 178, 108, 0.16)')
+                              : (isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.15)')}`,
+                            borderLeft: `3px solid ${isMatterClosed ? colours.green : colours.highlight}`,
+                          }}
+                        >
+                          <span style={{ fontSize: 10, fontWeight: 600, color: isMatterClosed ? colours.green : colours.highlight }}>{matterStatus !== '—' ? matterStatus : 'Active'}</span>
+                        </div>
+
+                        {matterPracticeArea && matterPracticeArea !== '—' && (
+                          <div
+                            title={`Practice area: ${matterPracticeArea}`}
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: 6,
+                              padding: '5px 10px', borderRadius: 0,
+                              background: isDarkMode ? 'rgba(160, 160, 160, 0.06)' : 'rgba(0,0,0,0.02)',
+                              border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0,0,0,0.04)'}`,
+                              borderLeft: `3px solid ${isDarkMode ? colours.accent : colours.highlight}`,
+                            }}
+                          >
+                            <span style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : '#061733' }}>{matterPracticeArea}</span>
+                          </div>
+                        )}
                       </div>
                       
-                      {/* Clio Matter ID badge - right side like timestamp */}
-                      {matter?.MatterID && (
-                        <div style={{ 
-                          display: 'flex', alignItems: 'center', gap: 6, 
-                          fontSize: 11, 
-                          color: isDarkMode ? 'rgba(226, 232, 240, 0.85)' : '#475569',
-                          background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0,0,0,0.03)',
-                          padding: '4px 10px',
-                          borderRadius: 4,
-                        }}>
-                          <FaLink size={9} style={{ opacity: 0.6 }} />
-                          <span style={{ fontWeight: 600, fontFamily: 'monospace' }}>{matter.MatterID}</span>
-                        </div>
-                      )}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        {matterClioId && matterClioId !== '—' && (
+                          <div style={{ 
+                            display: 'flex', alignItems: 'center', gap: 6, 
+                            fontSize: 11, 
+                            color: isDarkMode ? 'rgba(243, 244, 246, 0.85)' : '#475569',
+                            background: isDarkMode ? 'rgba(160, 160, 160, 0.08)' : 'rgba(0,0,0,0.03)',
+                            padding: '4px 10px',
+                            borderRadius: 0,
+                            border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0,0,0,0.04)'}`,
+                            borderLeft: `3px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.65)' : colours.greyText}`,
+                          }}>
+                            <span style={{ fontWeight: 600, fontFamily: 'monospace' }}>{matterClioId}</span>
+                          </div>
+                        )}
+
+                        {matterInstructionRef && matterInstructionRef !== '—' && (
+                          <div style={{ 
+                            display: 'flex', alignItems: 'center', gap: 6, 
+                            fontSize: 10, 
+                            color: isDarkMode ? 'rgba(243, 244, 246, 0.85)' : '#475569',
+                            background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.04)',
+                            padding: '4px 10px',
+                            borderRadius: 0,
+                            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.12)'}`,
+                            borderLeft: `3px solid ${colours.highlight}`,
+                          }}>
+                            <span style={{ fontWeight: 700, letterSpacing: '0.4px', fontSize: 8, textTransform: 'uppercase', opacity: 0.8 }}>Instruction</span>
+                            <span style={{ fontWeight: 600, fontFamily: 'monospace' }}>{matterInstructionRef}</span>
+                          </div>
+                        )}
+                      </div>
                     </div>
 
-                    {/* Row 2: Data Bar - matches pitch layout */}
+                    {/* Matter Portal row (passcode uses Clio Client ID) */}
+                    {(() => {
+                      return matterPortalPasscode ? (
+                        <a
+                          href={`https://instruct.helix-law.com/${matterPortalPasscode}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            padding: '5px 10px',
+                            borderRadius: 0,
+                            background: isDarkMode ? 'rgba(32, 178, 108, 0.08)' : 'rgba(32, 178, 108, 0.05)',
+                            border: `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.2)' : 'rgba(32, 178, 108, 0.15)'}`,
+                            textDecoration: 'none',
+                            color: colours.green,
+                            fontSize: 10,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease',
+                          }}
+                          title={`Open Matter Portal: instruct.helix-law.com/${matterPortalPasscode}`}
+                        >
+                          <img
+                            src={clioLogo}
+                            alt="Clio"
+                            style={{ width: 12, height: 12, objectFit: 'contain', opacity: 0.9 }}
+                          />
+                          <span>Matter Portal</span>
+                          <span style={{ fontFamily: 'monospace', opacity: 0.9 }}>{matterPortalPasscode}</span>
+                          <span style={{
+                            marginLeft: 2,
+                            fontSize: 9,
+                            fontWeight: 700,
+                            color: matterPortalOpened ? colours.green : colours.cta,
+                            opacity: 0.9,
+                          }}>
+                            {matterPortalOpened ? 'Opened' : 'Pending'}
+                          </span>
+                        </a>
+                      ) : null;
+                    })()}
+
+                    {/* ND workspace placeholder (intentional stub this session) */}
+                    <div style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '6px 10px',
+                      borderRadius: 0,
+                      background: isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.03)',
+                      border: `1px dashed ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.18)'}`,
+                      color: isDarkMode ? 'rgba(243, 244, 246, 0.85)' : '#475569',
+                      fontSize: 10,
+                    }}>
+                      <Icon iconName="Cloud" style={{ fontSize: 10, color: colours.highlight }} />
+                      <span style={{ fontWeight: 700 }}>ND Workspace</span>
+                      <span style={{ opacity: 0.8 }}>Detection placeholder (not patched in this session)</span>
+                    </div>
+
+                    {/* Row 2: Assignment data bar */}
                     <div style={{ 
                       display: 'flex', flexWrap: 'wrap', gap: 0, 
                       padding: '10px 0',
-                      background: isDarkMode ? 'rgba(2, 6, 23, 0.4)' : '#f8fafc',
-                      borderRadius: 6,
-                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : '#e2e8f0'}`
+                      background: isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(244, 244, 246, 0.25)',
+                      borderRadius: 0,
+                      border: `1px solid ${isDarkMode ? `${colours.dark.border}40` : (colours.highlightNeutral || 'rgba(0,0,0,0.06)')}`
                     }}>
                       {[
                         { label: 'Responsible', value: matterResponsibleSolicitor !== '—' ? matterResponsibleSolicitor : feeEarner !== '—' ? feeEarner : null },
+                        { label: 'Responsible Email', value: feeEarnerEmail || null },
                         { label: 'Practice Area', value: matterPracticeArea !== '—' ? matterPracticeArea : areaOfWork !== '—' ? areaOfWork : null },
                         { label: 'Status', value: matterStatus !== '—' ? matterStatus : null },
                         { label: 'Value', value: matterValue !== '—' ? matterValue : null },
-                        { label: 'Supervising', value: matter?.SupervisingPartner || null },
+                        { label: 'Supervising', value: matterSupervisingPartner !== '—' ? matterSupervisingPartner : null },
                         { label: 'Originating', value: matterOriginatingSolicitor !== '—' && matterOriginatingSolicitor !== matterResponsibleSolicitor ? matterOriginatingSolicitor : null },
                       ].filter(item => item.value).map((item, idx, arr) => (
                         <React.Fragment key={idx}>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
-                            <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>
+                            <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
                               {item.label}
                             </span>
                             <span style={{ 
                               fontSize: 12, 
                               fontWeight: 500, 
                               lineHeight: '18px',
-                              color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b',
+                              color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : '#061733',
                             }}>
                               {item.value}
                             </span>
                           </div>
                           {idx < arr.length - 1 && (
-                            <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', margin: '4px 0' }} />
+                            <div style={{ width: 1, background: isDarkMode ? `${colours.dark.border}40` : (colours.highlightNeutral || 'rgba(0,0,0,0.06)'), margin: '4px 0' }} />
                           )}
                         </React.Fragment>
                       ))}
                       {/* Empty state if no data bar items */}
-                      {![matterResponsibleSolicitor, matterPracticeArea, matterStatus, matterValue, matter?.SupervisingPartner].some(v => v && v !== '—') && (
-                        <div style={{ padding: '0 14px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8', fontSize: 11 }}>
+                      {![matterResponsibleSolicitor, matterPracticeArea, matterStatus, matterValue, matterSupervisingPartner, feeEarnerEmail].some(v => v && v !== '—') && (
+                        <div style={{ padding: '0 14px', color: isDarkMode ? 'rgba(160, 160, 160, 0.5)' : '#A0A0A0', fontSize: 11 }}>
                           Matter details pending sync
                         </div>
                       )}
                     </div>
 
-                    {/* Row 3: Client + Value section - like Amount/Service */}
+                    {/* Row 3: Client + Description section */}
                     {(matterClientName !== '—' || matterValue !== '—') && (
                       <div style={{ 
                         display: 'flex', alignItems: 'stretch', gap: 10,
                         padding: '10px 14px',
-                        background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : '#f8fafc',
-                        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : '#e2e8f0'}`,
-                        borderRadius: 6,
+                        background: isDarkMode ? colours.dark.sectionBackground : colours.grey,
+                        border: `1px solid ${isDarkMode ? `${colours.dark.border}40` : (colours.highlightNeutral || 'rgba(0,0,0,0.06)')}`,
+                        borderRadius: 0,
                       }}>
                         {matterClientName !== '—' && (
                           <>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flexShrink: 0 }}>
-                              <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Client</span>
+                              <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Client</span>
                               <span style={{ fontSize: 12, fontWeight: 600, color: colours.highlight }}>{matterClientName}</span>
                             </div>
                             {matterDescription !== '—' && (
-                              <div style={{ width: 1, background: isDarkMode ? 'rgba(148, 163, 184, 0.12)' : '#e2e8f0', alignSelf: 'stretch' }} />
+                              <div style={{ width: 1, background: isDarkMode ? `${colours.dark.border}40` : (colours.highlightNeutral || 'rgba(0,0,0,0.06)'), alignSelf: 'stretch' }} />
                             )}
                           </>
                         )}
                         {matterDescription !== '—' && (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1, minWidth: 0 }}>
-                            <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : '#94a3b8' }}>Description</span>
-                            <span style={{ fontSize: 12, fontWeight: 500, lineHeight: 1.5, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b' }}>{matterDescription}</span>
+                            <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Description</span>
+                            <span style={{ fontSize: 12, fontWeight: 500, lineHeight: 1.5, color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : '#061733' }}>{matterDescription}</span>
                           </div>
+                        )}
+                        {matterValue !== '—' && (
+                          <>
+                            <div style={{ width: 1, background: isDarkMode ? `${colours.dark.border}40` : (colours.highlightNeutral || 'rgba(0,0,0,0.06)'), alignSelf: 'stretch' }} />
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flexShrink: 0 }}>
+                              <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Value</span>
+                              <span style={{ fontSize: 12, fontWeight: 600, color: isDarkMode ? 'rgba(243, 244, 246, 0.95)' : '#061733' }}>{matterValue}</span>
+                            </div>
+                          </>
                         )}
                       </div>
                     )}
 
-                    {/* Row 4: Source info if available - like pitch content preview */}
-                    {(matter?.Source || matter?.Referrer) && (
+                    {/* Row 4: Lifecycle + Origin */}
+                    {([
+                      matterOpenDate,
+                      matterCloseDate,
+                      matterSourceDisplay,
+                      matterReferrer,
+                    ].some(v => v && v !== '—')) && (
                       <div style={{
                         padding: '12px 14px',
-                        background: isDarkMode ? 'rgba(148, 163, 184, 0.04)' : '#f8fafc',
-                        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : '#e2e8f0'}`,
-                        borderRadius: 6,
+                        background: isDarkMode ? colours.dark.sectionBackground : colours.grey,
+                        border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : '#e1e1e1'}`,
+                        borderRadius: 0,
                         fontSize: 12,
                         lineHeight: 1.65,
-                        color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : '#1e293b',
+                        color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : '#061733',
                       }}>
                         <div style={{ fontWeight: 600, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
                           <FaLink size={10} style={{ opacity: 0.6 }} />
-                          Origin
+                          Matter Lifecycle & Origin
                         </div>
                         <div style={{ opacity: 0.85, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-                          {matter.Source && (
-                            <span><strong style={{ color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : '#64748b' }}>Source:</strong> {matter.Source}</span>
+                          {matterOpenDate && matterOpenDate !== '—' && (
+                            <span><strong style={{ color: isDarkMode ? 'rgba(160, 160, 160, 0.6)' : '#6B6B6B' }}>Opened:</strong> {matterOpenDate}</span>
                           )}
-                          {matter.Referrer && (
-                            <span><strong style={{ color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : '#64748b' }}>Referrer:</strong> {matter.Referrer}</span>
+                          {matterCloseDate && matterCloseDate !== '—' && (
+                            <span><strong style={{ color: isDarkMode ? 'rgba(160, 160, 160, 0.6)' : '#6B6B6B' }}>Closed:</strong> {matterCloseDate}</span>
                           )}
+                          {matterSourceDisplay && matterSourceDisplay !== '—' && (
+                            <span><strong style={{ color: isDarkMode ? 'rgba(160, 160, 160, 0.6)' : '#6B6B6B' }}>Source:</strong> {matterSourceDisplay}</span>
+                          )}
+                          {matterReferrer && matterReferrer !== '—' && (
+                            <span><strong style={{ color: isDarkMode ? 'rgba(160, 160, 160, 0.6)' : '#6B6B6B' }}>Referrer:</strong> {matterReferrer}</span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Row 5: Opening trail */}
+                    {matterOpenTrail.length > 0 && (
+                      <div style={{
+                        padding: '10px 0',
+                        background: isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(244, 244, 246, 0.25)',
+                        border: `1px solid ${isDarkMode ? `${colours.dark.border}40` : (colours.highlightNeutral || 'rgba(0,0,0,0.06)')}`,
+                        borderRadius: 0,
+                      }}>
+                        <div style={{
+                          fontSize: 9,
+                          fontWeight: 700,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px',
+                          color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                          marginBottom: 8,
+                          padding: '0 14px',
+                        }}>
+                          Opening Trail
+                        </div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 0 }}>
+                          {matterOpenTrail.map((item, idx, arr) => (
+                            <React.Fragment key={item.label}>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
+                                <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>{item.label}</span>
+                                <span style={{ fontSize: 12, fontWeight: 500, lineHeight: '18px', color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : '#061733' }}>{item.value}</span>
+                              </div>
+                              {idx < arr.length - 1 && (
+                                <div style={{ width: 1, background: isDarkMode ? `${colours.dark.border}40` : (colours.highlightNeutral || 'rgba(0,0,0,0.06)'), margin: '4px 0' }} />
+                              )}
+                            </React.Fragment>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Row 6: Collected matter/client fields */}
+                    {([
+                      matterClientName,
+                      matterClientId,
+                      matterClientType,
+                      matterClientEmail,
+                      matterClientPhone,
+                      matterClientCompany,
+                      matterDescription,
+                      matterInstructionRef,
+                      matterClioId,
+                      matterOpenTimestampRaw,
+                    ].some(v => v && v !== '—')) && (
+                      <div style={{
+                        padding: '10px 0',
+                        background: isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(244, 244, 246, 0.25)',
+                        border: `1px solid ${isDarkMode ? `${colours.dark.border}40` : (colours.highlightNeutral || 'rgba(0,0,0,0.06)')}`,
+                        borderRadius: 0,
+                      }}>
+                        <div style={{
+                          fontSize: 9,
+                          fontWeight: 700,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px',
+                          color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                          marginBottom: 8,
+                          padding: '0 14px',
+                        }}>
+                          Matter Collected Fields
+                        </div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 0 }}>
+                          {[
+                            { label: 'Client Name', value: matterClientName !== '—' ? matterClientName : null },
+                            { label: 'Clio Client ID', value: matterClientId !== '—' ? matterClientId : null },
+                            { label: 'Client Type', value: matterClientType !== '—' ? matterClientType : null },
+                            { label: 'Client Email', value: matterClientEmail !== '—' ? matterClientEmail : null },
+                            { label: 'Client Phone', value: matterClientPhone !== '—' ? matterClientPhone : null },
+                            { label: 'Company', value: matterClientCompany !== '—' ? matterClientCompany : null },
+                            { label: 'Matter Description', value: matterDescription !== '—' ? matterDescription : null },
+                            { label: 'Instruction Ref', value: matterInstructionRef !== '—' ? matterInstructionRef : null },
+                            { label: 'Matter ID', value: matterClioId !== '—' ? matterClioId : null },
+                            { label: 'Opened Raw', value: matterOpenTimestampRaw ? String(matterOpenTimestampRaw) : null },
+                          ].filter(item => item.value).map((item, idx, arr) => (
+                            <React.Fragment key={item.label}>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
+                                <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>{item.label}</span>
+                                <span style={{ fontSize: 12, fontWeight: 500, lineHeight: '18px', color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : '#061733' }}>{item.value}</span>
+                              </div>
+                              {idx < arr.length - 1 && (
+                                <div style={{ width: 1, background: isDarkMode ? `${colours.dark.border}40` : (colours.highlightNeutral || 'rgba(0,0,0,0.06)'), margin: '4px 0' }} />
+                              )}
+                            </React.Fragment>
+                          ))}
                         </div>
                       </div>
                     )}
@@ -5705,8 +8850,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         >
           <div
             style={{
-              background: isDarkMode ? 'rgba(30, 41, 59, 0.98)' : 'rgba(255, 255, 255, 0.98)',
-              border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
+              background: isDarkMode ? 'rgba(8, 28, 48, 0.98)' : 'rgba(255, 255, 255, 0.98)',
+              border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
               borderRadius: 0,
               padding: 24,
               width: 400,
@@ -5732,7 +8877,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                 <span style={{
                   fontSize: 14,
                   fontWeight: 700,
-                  color: isDarkMode ? 'rgba(226, 232, 240, 0.95)' : 'rgba(15, 23, 42, 0.9)',
+                  color: isDarkMode ? 'rgba(243, 244, 246, 0.95)' : 'rgba(6, 23, 51, 0.9)',
                 }}>
                   Create client payment link
                 </span>
@@ -5751,7 +8896,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                   border: 'none',
                   cursor: 'pointer',
                   padding: 4,
-                  color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)',
+                  color: isDarkMode ? colours.subtleGrey : colours.greyText,
                 }}
               >
                 <FaTimes size={14} />
@@ -5776,7 +8921,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                   </div>
                   <div style={{
                     fontSize: 11,
-                    color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.65)',
+                    color: isDarkMode ? 'rgba(243, 244, 246, 0.7)' : 'rgba(6, 23, 51, 0.65)',
                     wordBreak: 'break-all',
                     fontFamily: 'monospace',
                     padding: '8px 10px',
@@ -5842,8 +8987,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                   style={{
                     padding: '8px 16px',
                     background: 'transparent',
-                    color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)',
-                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
+                    color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                    border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
                     borderRadius: 0,
                     fontSize: 11,
                     fontWeight: 500,
@@ -5856,7 +9001,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
             ) : (
               /* Form state - enter amount */
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                <div style={{ fontSize: 11, color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)' }}>
+                <div style={{ fontSize: 11, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
                   Generates a one-off Stripe Checkout link for this instruction. Nothing is sent automatically — copy the link and send it to the client.
                 </div>
 
@@ -5866,7 +9011,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                     display: 'block',
                     fontSize: 9,
                     fontWeight: 700,
-                    color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)',
+                    color: isDarkMode ? colours.subtleGrey : colours.greyText,
                     textTransform: 'uppercase',
                     letterSpacing: '0.5px',
                     marginBottom: 6,
@@ -5881,8 +9026,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                       transform: 'translateY(-50%)',
                       fontSize: 14,
                       fontWeight: 600,
-                      color: isDarkMode ? 'rgba(148, 163, 184, 0.5)' : 'rgba(100, 116, 139, 0.5)',
-                    }}>£</span>
+                      color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                    }}>—</span>
                     <input
                       type="number"
                       step="0.01"
@@ -5897,16 +9042,16 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                         fontWeight: 600,
                         fontFamily: 'monospace',
                         background: isDarkMode ? 'rgba(0, 0, 0, 0.2)' : 'rgba(0, 0, 0, 0.04)',
-                        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(0, 0, 0, 0.08)'}`,
+                        border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.15)' : 'rgba(0, 0, 0, 0.08)'}`,
                         borderRadius: 0,
-                        color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)',
+                        color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : 'rgba(6, 23, 51, 0.85)',
                         outline: 'none',
                       }}
                       onFocus={(e) => {
                         e.currentTarget.style.borderColor = colours.highlight;
                       }}
                       onBlur={(e) => {
-                        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(0, 0, 0, 0.08)';
+                        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(160, 160, 160, 0.15)' : 'rgba(0, 0, 0, 0.08)';
                       }}
                     />
                   </div>
@@ -5918,7 +9063,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                     display: 'block',
                     fontSize: 9,
                     fontWeight: 700,
-                    color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)',
+                    color: isDarkMode ? colours.subtleGrey : colours.greyText,
                     textTransform: 'uppercase',
                     letterSpacing: '0.5px',
                     marginBottom: 6,
@@ -5935,16 +9080,16 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                       padding: '10px 12px',
                       fontSize: 11,
                       background: isDarkMode ? 'rgba(0, 0, 0, 0.2)' : 'rgba(0, 0, 0, 0.04)',
-                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(0, 0, 0, 0.08)'}`,
+                      border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.15)' : 'rgba(0, 0, 0, 0.08)'}`,
                       borderRadius: 0,
-                      color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)',
+                      color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : 'rgba(6, 23, 51, 0.85)',
                       outline: 'none',
                     }}
                     onFocus={(e) => {
                       e.currentTarget.style.borderColor = colours.highlight;
                     }}
                     onBlur={(e) => {
-                      e.currentTarget.style.borderColor = isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(0, 0, 0, 0.08)';
+                      e.currentTarget.style.borderColor = isDarkMode ? 'rgba(160, 160, 160, 0.15)' : 'rgba(0, 0, 0, 0.08)';
                     }}
                   />
                 </div>
@@ -5967,7 +9112,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                         background: paymentLinkIncludesVat 
                           ? (isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)')
                           : (isDarkMode ? 'rgba(0, 0, 0, 0.1)' : 'rgba(0, 0, 0, 0.02)'),
-                        border: `1px solid ${paymentLinkIncludesVat ? colours.highlight : (isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(0, 0, 0, 0.08)')}`,
+                        border: `1px solid ${paymentLinkIncludesVat ? colours.highlight : (isDarkMode ? 'rgba(160, 160, 160, 0.15)' : 'rgba(0, 0, 0, 0.08)')}`,
                         borderRadius: 0,
                         cursor: 'pointer',
                         transition: 'all 0.15s ease',
@@ -5977,7 +9122,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                         width: 18,
                         height: 18,
                         borderRadius: 0,
-                        border: `2px solid ${paymentLinkIncludesVat ? colours.green : (isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(0, 0, 0, 0.15)')}`,
+                        border: `2px solid ${paymentLinkIncludesVat ? colours.green : (isDarkMode ? 'rgba(160, 160, 160, 0.3)' : 'rgba(0, 0, 0, 0.15)')}`,
                         background: paymentLinkIncludesVat ? colours.green : 'transparent',
                         display: 'flex',
                         alignItems: 'center',
@@ -5992,13 +9137,13 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                         <div style={{
                           fontSize: 11,
                           fontWeight: 600,
-                          color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)',
+                          color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : 'rgba(6, 23, 51, 0.85)',
                         }}>
                           {paymentLinkIncludesVat ? 'Add VAT (20%)' : 'No VAT'}
                         </div>
                         <div style={{
                           fontSize: 9,
-                          color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)',
+                          color: isDarkMode ? colours.subtleGrey : colours.greyText,
                           marginTop: 4,
                         }}>
                           {paymentLinkIncludesVat 
@@ -6015,16 +9160,16 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                             fontSize: 10,
                           }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                              <span style={{ color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)' }}>Net:</span>
-                              <span style={{ fontFamily: 'monospace', fontWeight: 600, color: isDarkMode ? 'rgba(226, 232, 240, 0.8)' : 'rgba(15, 23, 42, 0.75)' }}>£{netAmount.toFixed(2)}</span>
+                              <span style={{ color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Net:</span>
+                              <span style={{ fontFamily: 'monospace', fontWeight: 600, color: isDarkMode ? 'rgba(243, 244, 246, 0.8)' : 'rgba(6, 23, 51, 0.75)' }}>—{netAmount.toFixed(2)}</span>
                             </div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                              <span style={{ color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)' }}>VAT (20%):</span>
-                              <span style={{ fontFamily: 'monospace', fontWeight: 600, color: isDarkMode ? 'rgba(226, 232, 240, 0.8)' : 'rgba(15, 23, 42, 0.75)' }}>£{vatAmount.toFixed(2)}</span>
+                              <span style={{ color: isDarkMode ? colours.subtleGrey : colours.greyText }}>VAT (20%):</span>
+                              <span style={{ fontFamily: 'monospace', fontWeight: 600, color: isDarkMode ? 'rgba(243, 244, 246, 0.8)' : 'rgba(6, 23, 51, 0.75)' }}>—{vatAmount.toFixed(2)}</span>
                             </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(0, 0, 0, 0.08)'}`, paddingTop: 4 }}>
-                              <span style={{ fontWeight: 600, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)' }}>Total:</span>
-                              <span style={{ fontFamily: 'monospace', fontWeight: 700, color: colours.green }}>£{totalAmount.toFixed(2)}</span>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.15)' : 'rgba(0, 0, 0, 0.08)'}`, paddingTop: 4 }}>
+                              <span style={{ fontWeight: 600, color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : 'rgba(6, 23, 51, 0.85)' }}>Total:</span>
+                              <span style={{ fontFamily: 'monospace', fontWeight: 700, color: colours.green }}>—{totalAmount.toFixed(2)}</span>
                             </div>
                           </div>
                         )}
@@ -6037,8 +9182,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                             fontSize: 10,
                           }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                              <span style={{ fontWeight: 600, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)' }}>Total (no VAT):</span>
-                              <span style={{ fontFamily: 'monospace', fontWeight: 700, color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.85)' }}>£{totalAmount.toFixed(2)}</span>
+                              <span style={{ fontWeight: 600, color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : 'rgba(6, 23, 51, 0.85)' }}>Total (no VAT):</span>
+                              <span style={{ fontFamily: 'monospace', fontWeight: 700, color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : 'rgba(6, 23, 51, 0.85)' }}>—{totalAmount.toFixed(2)}</span>
                             </div>
                           </div>
                         )}
@@ -6053,7 +9198,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                     display: 'block',
                     fontSize: 9,
                     fontWeight: 700,
-                    color: isDarkMode ? 'rgba(148, 163, 184, 0.6)' : 'rgba(100, 116, 139, 0.6)',
+                    color: isDarkMode ? colours.subtleGrey : colours.greyText,
                     textTransform: 'uppercase',
                     letterSpacing: '0.5px',
                     marginBottom: 6,
@@ -6066,7 +9211,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                     fontFamily: 'monospace',
                     fontWeight: 600,
                     background: isDarkMode ? 'rgba(0, 0, 0, 0.1)' : 'rgba(0, 0, 0, 0.02)',
-                    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
+                    border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
                     borderRadius: 0,
                     color: colours.highlight,
                   }}>
@@ -6088,8 +9233,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                       flex: 1,
                       padding: '10px 16px',
                       background: 'transparent',
-                      color: isDarkMode ? 'rgba(148, 163, 184, 0.7)' : 'rgba(100, 116, 139, 0.7)',
-                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
+                      color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                      border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
                       borderRadius: 0,
                       fontSize: 11,
                       fontWeight: 600,
@@ -6138,57 +9283,6 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         </div>
       )}
 
-      {/* Risk Assessment Modal — portalled to body to avoid transform/overflow clipping */}
-      {showLocalRiskModal && inst && createPortal(
-        <div 
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            zIndex: 2000,
-            background: isDarkMode ? 'rgba(0,0,0,0.8)' : 'rgba(0,0,0,0.4)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '20px'
-          }}
-          onClick={(e) => { if (e.target === e.currentTarget) setShowLocalRiskModal(false); }}
-        >
-          <div style={{
-            background: isDarkMode ? colours.dark.background : '#ffffff',
-            borderRadius: '12px',
-            maxWidth: '900px',
-            width: '100%',
-            maxHeight: '90vh',
-            overflow: 'auto',
-            boxShadow: isDarkMode ? '0 20px 60px rgba(0,0,0,0.8)' : '0 20px 60px rgba(0,0,0,0.3)'
-          }}>
-            <RiskAssessmentPage
-              onBack={() => setShowLocalRiskModal(false)}
-              instructionRef={inst.InstructionRef || inst.instructionRef || ''}
-              riskAssessor={currentUser?.FullName || 'Unknown'}
-              existingRisk={risk}
-              onSave={async (savedRisk) => {
-                // Don't close modal here — RiskAssessmentPage shows its own
-                // success toast then calls onBack() after 1200ms to close
-                if (onRiskAssessmentSave) {
-                  try { await onRiskAssessmentSave(savedRisk); } catch { /* silent */ }
-                }
-                // Refresh instruction data so risk tab updates without manual refresh
-                if (onRefreshData) {
-                  try { await onRefreshData(); } catch { /* silent */ }
-                }
-                // Show parent-level toast for confirmation outside the modal
-                showToast({ type: 'success', title: 'Risk Assessment Saved', message: `Result: ${savedRisk?.RiskAssessmentResult || 'Complete'}` });
-              }}
-            />
-          </div>
-        </div>,
-        document.body
-      )}
-
       {/* Matter Opening Modal — portalled to body to avoid transform/overflow clipping */}
       {(() => { if (showLocalMatterModal) console.log('[MATTER-DEBUG] Matter modal guard: showLocalMatterModal =', showLocalMatterModal, ', inst =', !!inst, ', inst?.InstructionRef =', inst?.InstructionRef, ', item?.prospectId =', item?.prospectId); return null; })()}
       {showLocalMatterModal && (inst || item) && createPortal(
@@ -6223,7 +9317,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
               setPoidData={setLocalPoidData}
               teamData={teamData}
               userInitials={(() => {
-                // Derive userInitials from currentUser email → teamData lookup, or feeEarner match
+                // Derive userInitials from currentUser email ? teamData lookup, or feeEarner match
                 if (currentUser?.Email && teamData) {
                   const match = teamData.find(t => t.Email?.toLowerCase() === currentUser.Email!.toLowerCase());
                   if (match?.Initials) return match.Initials.toUpperCase();
@@ -6261,7 +9355,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
               onBack={() => setShowLocalMatterModal(false)}
               onMatterSuccess={(matterId) => {
                 setShowLocalMatterModal(false);
-                if (onRefreshData) onRefreshData();
+                if (onRefreshData) onRefreshData(instructionRef);
                 showToast({
                   type: 'success',
                   title: 'Matter Opened',

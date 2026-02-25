@@ -13,7 +13,14 @@ export const parseVerificationFailures = (rawResponse: any): VerificationFailure
   const failures: VerificationFailure[] = [];
   
   try {
-    const response = typeof rawResponse === 'string' ? JSON.parse(rawResponse) : rawResponse;
+    const parsedResponse = typeof rawResponse === 'string' ? JSON.parse(rawResponse) : rawResponse;
+    const response = Array.isArray(parsedResponse)
+      ? (parsedResponse.find((entry) => entry && typeof entry === 'object') || null)
+      : parsedResponse;
+
+    if (!response || typeof response !== 'object') {
+      return failures;
+    }
     
     // Handle Tiller API response structure
     if (response && response.checkStatuses && Array.isArray(response.checkStatuses)) {

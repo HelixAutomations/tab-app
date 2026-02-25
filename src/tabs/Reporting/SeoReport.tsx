@@ -15,8 +15,19 @@ import {
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';
 import { debugLog, debugWarn } from '../../utils/debug';
-import { reportingPanelBackground, reportingPanelBorder, reportingPanelShadow, reportingShellBackground } from './styles/reportingFoundation';
 import './ManagementDashboard.css';
+
+/* Dashboard-standard surface style */
+function surface(isDark: boolean, overrides: CSSProperties = {}): CSSProperties {
+  return {
+    background: isDark ? colours.darkBlue : '#ffffff',
+    borderRadius: 0,
+    border: `0.5px solid ${isDark ? `${colours.dark.borderColor}66` : 'rgba(6, 23, 51, 0.06)'}`,
+    boxShadow: isDark ? 'none' : '0 2px 4px rgba(0, 0, 0, 0.04)',
+    padding: '12px 16px',
+    ...overrides,
+  };
+}
 
 interface Ga4Row {
   date: string; // YYYYMMDD
@@ -185,16 +196,12 @@ const summaryChipStyle = (isDarkMode: boolean): CSSProperties => ({
   flexDirection: 'column',
   gap: 4,
   padding: '12px 16px',
-  borderRadius: 12,
-  background: isDarkMode 
-    ? 'linear-gradient(135deg, rgba(15, 23, 42, 0.9) 0%, rgba(30, 41, 59, 0.8) 100%)'
-    : 'linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.9) 100%)',
-  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(148, 163, 184, 0.18)'}`,
-  boxShadow: isDarkMode 
-    ? '0 4px 12px rgba(0, 0, 0, 0.25)' 
-    : '0 2px 8px rgba(0, 0, 0, 0.08)',
+  borderRadius: 0,
+  background: isDarkMode ? colours.darkBlue : '#ffffff',
+  border: `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}66` : 'rgba(6, 23, 51, 0.06)'}`,
+  boxShadow: isDarkMode ? 'none' : '0 2px 4px rgba(0, 0, 0, 0.04)',
   fontFamily: 'Raleway, sans-serif',
-  color: isDarkMode ? '#E2E8F0' : colours.missedBlue,
+  color: isDarkMode ? colours.dark.text : colours.light.text,
   minWidth: 120,
   textAlign: 'center',
 });
@@ -464,14 +471,10 @@ const SeoReport: React.FC<SeoReportProps> = ({
   const rangeSummaryLabel = rangeKey === 'all' ? 'All time' : `${formattedFromLabel} → ${formattedToLabel}`;
 
   return (
-    <div style={{ padding: '0', minHeight: '100vh', background: reportingShellBackground(isDarkMode) }}>
+    <div style={{ padding: 0, minHeight: '100vh', background: 'transparent', display: 'flex', flexDirection: 'column', gap: 8, fontFamily: 'Raleway, sans-serif' }}>
       <div style={{
-        marginBottom: 16,
-        borderRadius: 12,
-        padding: '12px 14px',
-        background: reportingPanelBackground(isDarkMode, 'base'),
-        border: `1px solid ${reportingPanelBorder(isDarkMode)}`,
-        boxShadow: reportingPanelShadow(isDarkMode),
+        ...surface(isDarkMode),
+        marginBottom: 0,
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
@@ -733,17 +736,7 @@ const SeoReport: React.FC<SeoReportProps> = ({
         marginBottom: 32 
       }}>
         {/* Traffic Sources */}
-        <div style={{
-          background: isDarkMode 
-            ? 'linear-gradient(135deg, rgba(15, 23, 42, 0.9) 0%, rgba(30, 41, 59, 0.8) 100%)'
-            : 'linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.9) 100%)',
-          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(148, 163, 184, 0.18)'}`,
-          borderRadius: 12,
-          padding: 20,
-          boxShadow: isDarkMode 
-            ? '0 4px 12px rgba(0, 0, 0, 0.25)' 
-            : '0 2px 8px rgba(0, 0, 0, 0.08)',
-        }}>
+        <div style={surface(isDarkMode, { padding: 20 })}>
           <h3 style={{ 
             margin: '0 0 16px 0', 
             fontSize: 16, 
@@ -792,17 +785,7 @@ const SeoReport: React.FC<SeoReportProps> = ({
         </div>
 
         {/* Top Landing Pages */}
-        <div style={{
-          background: isDarkMode 
-            ? 'linear-gradient(135deg, rgba(15, 23, 42, 0.9) 0%, rgba(30, 41, 59, 0.8) 100%)'
-            : 'linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.9) 100%)',
-          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(148, 163, 184, 0.18)'}`,
-          borderRadius: 12,
-          padding: 20,
-          boxShadow: isDarkMode 
-            ? '0 4px 12px rgba(0, 0, 0, 0.25)' 
-            : '0 2px 8px rgba(0, 0, 0, 0.08)',
-        }}>
+        <div style={surface(isDarkMode, { padding: 20 })}>
           <h3 style={{ 
             margin: '0 0 16px 0', 
             fontSize: 16, 
@@ -857,18 +840,7 @@ const SeoReport: React.FC<SeoReportProps> = ({
       </div>
 
       {/* Device Breakdown */}
-      <div style={{
-        background: isDarkMode 
-          ? 'linear-gradient(135deg, rgba(15, 23, 42, 0.9) 0%, rgba(30, 41, 59, 0.8) 100%)'
-          : 'linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.9) 100%)',
-        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(148, 163, 184, 0.18)'}`,
-        borderRadius: 12,
-        padding: 20,
-        boxShadow: isDarkMode 
-          ? '0 4px 12px rgba(0, 0, 0, 0.25)' 
-          : '0 2px 8px rgba(0, 0, 0, 0.08)',
-        marginBottom: 32
-      }}>
+      <div style={{ ...surface(isDarkMode, { padding: 20 }), marginBottom: 32 }}>
         <h3 style={{ 
           margin: '0 0 16px 0', 
           fontSize: 16, 
