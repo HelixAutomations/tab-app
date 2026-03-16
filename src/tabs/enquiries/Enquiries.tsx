@@ -1,5 +1,5 @@
 // Clean admin tools - removed beaker and legacy toggle
-import React, { useState, useMemo, useCallback, useEffect, useRef, useTransition, useDeferredValue, startTransition } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, useTransition, useDeferredValue, startTransition } from 'react';
 import ReactDOM from 'react-dom';
 import { getProxyBaseUrl } from '../../utils/getProxyBaseUrl';
 import {
@@ -60,6 +60,12 @@ import CreateContactModal from './CreateContactModal';
 import PeopleSearchPanel from '../../components/PeopleSearchPanel';
 import TeamsLinkWidget from '../../components/TeamsLinkWidget';
 import { EnquiryEnrichmentData, EnquiryEnrichmentResponse, fetchEnquiryEnrichment } from '../../app/functionality/enquiryEnrichment';
+import {
+  appendDefaultEnquiryProcessingParams,
+  buildEnquiryMutationPayload,
+  enquiryReferencesId,
+  resolveEnquiryProcessingIdentity,
+} from '../../app/functionality/enquiryProcessingModel';
 import { claimEnquiry } from '../../utils/claimEnquiry';
 import { normalizeEnquiry, detectSourceType } from '../../utils/normalizeEnquiry';
 import type { NormalizedEnquiry } from '../../utils/normalizeEnquiry';
@@ -94,6 +100,49 @@ import type {
 
 const DEMO_MODE_STORAGE_KEY = 'helix-hub-demo-enquiry-mode';
 
+const ZERO_WIDTH_CHARACTERS_REGEX = /[\u200B\u200C\u200D\uFEFF]/g;
+const DIACRITIC_CHARACTERS_REGEX = /[\u0300-\u036f]/g;
+
+const normalizeSearchValue = (value?: string | number | null): string => {
+  return String(value ?? '')
+    .normalize('NFKD')
+    .replace(DIACRITIC_CHARACTERS_REGEX, '')
+    .replace(ZERO_WIDTH_CHARACTERS_REGEX, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
+const normalizeSearchEmailArtifacts = (value?: string | number | null): string => {
+  return normalizeSearchValue(value)
+    .replace(/\s*@\s*/g, '@')
+    .replace(/\s*\.\s*/g, '.');
+};
+
+const toDigitSearchValue = (value?: string | number | null): string => {
+  return String(value ?? '').replace(/\D/g, '');
+};
+
+const parseSharedWithEmails = (value: unknown): string[] => {
+  return String(value ?? '')
+    .split(/[;,\n]/)
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean);
+};
+
+const serialiseSharedWithEmails = (value: unknown): string => {
+  return Array.from(new Set(parseSharedWithEmails(value))).join(',');
+};
+
+const isDemoEnquiryId = (value: unknown): boolean => String(value ?? '').toUpperCase().startsWith('DEMO-ENQ-');
+
+const findEnquiryForMutation = (enquiries: Enquiry[], enquiryId: string): Enquiry | undefined => {
+  const normalisedEnquiryId = String(enquiryId ?? '').trim();
+  if (!normalisedEnquiryId) return undefined;
+
+  return enquiries.find((enquiry) => enquiryReferencesId(enquiry, normalisedEnquiryId));
+};
+
 // Synthetic demo enquiry for demos/testing - always available, not from database
 const DEV_PREVIEW_TEST_ENQUIRY: Enquiry = {
   ID: 'DEMO-ENQ-0001',
@@ -118,6 +167,14 @@ const shimmerStyle = `
   0% { background-position: -200% 0; }
   100% { background-position: 200% 0; }
 }
+@keyframes prospect-detail-enter {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes sse-reconnect-pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
 .shimmer {
   background: linear-gradient(90deg, rgba(255,255,255,0.05), rgba(255,255,255,0.15), rgba(255,255,255,0.05));
   background-size: 200% 100%;
@@ -141,7 +198,6 @@ const pipelineCarouselStyle = `
   right: 0;
   top: 0;
   bottom: 0;
-  width: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -156,45 +212,6 @@ const pipelineCarouselStyle = `
 .pipeline-chip {
   transition: filter 0.1s ease;
 }
-.pipeline-chip:hover {
-  filter: brightness(1.15);
-}
-.pipeline-chip-reveal {
-  gap: 0;
-  position: relative;
-  min-height: 22px;
-  align-items: center;
-}
-/* Connector dash between chips */
-.pipeline-connector {
-  position: absolute;
-  left: -9px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 6px;
-  height: 1px;
-  border-radius: 0.5px;
-  background: rgba(107, 107, 107, 0.22);
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  pointer-events: none;
-}
-/* Completed connector - solid green */
-.pipeline-connector.connector-done {
-  background: ${colours.green};
-  opacity: 0.7;
-}
-.pipeline-row-hover-ready .pipeline-connector,
-.pipeline-chip-reveal:hover .pipeline-connector {
-  width: 11px;
-  left: -11px;
-  background: rgba(107, 107, 107, 0.4);
-  box-shadow: 0 0 2px rgba(107, 107, 107, 0.18);
-}
-/* Preserve green for completed connectors on hover */
-.pipeline-row-hover-ready .pipeline-connector.connector-done,
-.pipeline-chip-reveal:hover .pipeline-connector.connector-done {
-  background: ${colours.green};
-}
 .pipeline-chip-box {
   display: inline-flex;
   align-items: center;
@@ -206,7 +223,6 @@ const pipelineCarouselStyle = `
   will-change: gap, padding, border-color;
   overflow: visible;
 }
-/* Chip-box expand on individual chip hover only */
 .pipeline-chip-reveal:hover .pipeline-chip-box {
   gap: 4px;
   padding: 1px 6px 1px 4px;
@@ -220,20 +236,18 @@ const pipelineCarouselStyle = `
   overflow: hidden;
   white-space: nowrap;
   transition: max-width 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease;
-  transition-delay: 0ms; /* Reset delay on leave */
+  transition-delay: 0ms;
   font-size: 10px;
   font-weight: 600;
   line-height: 1.1;
   letter-spacing: 0.2px;
   will-change: max-width, opacity;
 }
-/* Label reveal on individual chip hover only */
 .pipeline-chip-reveal:hover .pipeline-chip-label,
 .pipeline-chip-reveal:focus-visible .pipeline-chip-label {
   max-width: 80px !important;
   opacity: 0.9 !important;
 }
-/* Subtle pulse for next-action chips - gentle opacity breathe effect */
 @keyframes next-action-breathe {
   0%, 100% {
     opacity: 0.5;
@@ -251,12 +265,12 @@ const pipelineCarouselStyle = `
 }
 @keyframes pitch-cta-pulse {
   0%, 100% {
-    border-color: rgba(251, 191, 36, 0.35);
-    background: rgba(251, 191, 36, 0.08);
+    border-color: rgba(255, 140, 0, 0.35);
+    background: rgba(255, 140, 0, 0.08);
   }
   50% {
-    border-color: rgba(251, 191, 36, 0.55);
-    background: rgba(251, 191, 36, 0.14);
+    border-color: rgba(255, 140, 0, 0.55);
+    background: rgba(255, 140, 0, 0.14);
   }
 }
 `;
@@ -527,6 +541,311 @@ if (typeof document !== 'undefined') {
   }
 }
 
+// ─── Inject CSS for filter chip transitions (once) ────────────────────
+if (typeof document !== 'undefined' && !document.head.querySelector('style[data-enq-filter-css]')) {
+  const filterCss = document.createElement('style');
+  filterCss.setAttribute('data-enq-filter-css', 'true');
+  filterCss.textContent = `
+    .enq-chip {
+      display: flex; align-items: center; justify-content: center; gap: 5px;
+      padding: 0 10px; border-radius: 0; cursor: pointer;
+      font-size: 11px; font-weight: 500; font-family: Raleway, sans-serif;
+      letter-spacing: 0.02em; outline: none; white-space: nowrap;
+      transition: background 120ms ease, border-color 120ms ease, color 120ms ease,
+                  box-shadow 120ms ease, opacity 120ms ease;
+      user-select: none;
+    }
+    .enq-chip:hover { background: var(--enq-chip-hover-bg) !important; border-color: var(--enq-chip-hover-border) !important; }
+    .enq-chip:active { transform: scale(0.97); }
+    .enq-scope-chip {
+      display: flex; align-items: center; gap: 4px;
+      padding: 0 8px; border-radius: 0; cursor: pointer;
+      font-size: 11px; font-weight: 600; font-family: Raleway, sans-serif;
+      letter-spacing: 0.03em; outline: none;
+      transition: background 120ms ease, border-color 120ms ease, color 120ms ease,
+                  box-shadow 120ms ease;
+      user-select: none;
+    }
+    .enq-scope-chip:hover { background: var(--enq-chip-hover-bg) !important; border-color: var(--enq-chip-hover-border) !important; }
+    .enq-scope-chip:active { transform: scale(0.97); }
+    [data-theme="dark"] .enq-chip, [data-theme="dark"] .enq-scope-chip {
+      --enq-chip-hover-bg: rgba(255,255,255,0.04);
+      --enq-chip-hover-border: rgba(135,243,243,0.35);
+    }
+    [data-theme="light"] .enq-chip, [data-theme="light"] .enq-scope-chip {
+      --enq-chip-hover-bg: rgba(54,144,206,0.05);
+      --enq-chip-hover-border: rgba(54,144,206,0.3);
+    }
+    /* Active chips keep their own bg/border on hover */
+    .enq-chip[aria-pressed="true"]:hover, .enq-scope-chip[aria-pressed="true"]:hover {
+      background: unset !important; border-color: unset !important;
+    }
+    .enq-action-btn {
+      display: inline-flex; align-items: center; gap: 5px;
+      height: 26px; padding: 0 10px; border-radius: 0;
+      cursor: pointer; font-size: 11px; font-family: Raleway, sans-serif;
+      font-weight: 600; letter-spacing: 0.02em;
+      transition: background 120ms ease, border-color 120ms ease;
+      user-select: none;
+    }
+    .enq-action-btn:active { transform: scale(0.97); }
+    [data-theme="dark"] .enq-action-btn {
+      color: #87F3F3; border: 1px solid rgba(135,243,243,0.25);
+      background: rgba(135,243,243,0.06);
+    }
+    [data-theme="dark"] .enq-action-btn:hover {
+      background: rgba(135,243,243,0.12); border-color: #87F3F3;
+    }
+    [data-theme="light"] .enq-action-btn {
+      color: #3690CE; border: 1px solid rgba(54,144,206,0.25);
+      background: rgba(54,144,206,0.05);
+    }
+    [data-theme="light"] .enq-action-btn:hover {
+      background: rgba(54,144,206,0.10); border-color: #3690CE;
+    }
+    .enq-add-contact-btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 28px; height: 28px; padding: 0;
+      border-radius: 0; cursor: pointer;
+      background: transparent;
+      transition: background 150ms ease, width 200ms ease, border-color 150ms ease;
+      overflow: hidden; white-space: nowrap;
+      font-family: Raleway, sans-serif; font-size: 11px; font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+    [data-theme="dark"] .enq-add-contact-btn { color: #f3f4f6; border: 1px solid #374151; }
+    [data-theme="light"] .enq-add-contact-btn { color: #061733; border: 1px solid rgba(0,0,0,0.12); }
+    .enq-add-contact-btn:hover {
+      width: auto; padding: 0 10px; gap: 5px;
+    }
+    [data-theme="dark"] .enq-add-contact-btn:hover {
+      background: rgba(135,243,243,0.10);
+      border-color: rgba(135,243,243,0.25);
+      color: #87F3F3;
+    }
+    [data-theme="light"] .enq-add-contact-btn:hover {
+      background: rgba(54,144,206,0.08);
+      border-color: rgba(54,144,206,0.25);
+      color: #3690CE;
+    }
+    .enq-add-contact-btn:active { transform: scale(0.97); }
+    .enq-add-contact-label {
+      max-width: 0; overflow: hidden; opacity: 0;
+      transition: max-width 200ms ease, opacity 150ms ease;
+    }
+    .enq-add-contact-btn:hover .enq-add-contact-label {
+      max-width: 100px; opacity: 1;
+    }
+    .enq-badge {
+      padding: 1px 4px; font-size: 9px; font-weight: 600;
+      line-height: 1.2; border-radius: 0;
+      transition: background 120ms ease;
+    }
+    .enq-person-tag {
+      display: inline-flex; align-items: center; gap: 6px;
+      height: 26px; padding: 0 10px; border-radius: 0;
+      font-size: 11px; font-family: Raleway, sans-serif;
+      font-weight: 600; letter-spacing: 0.02em;
+    }
+    .enq-person-close { opacity: 0.7; transition: opacity 120ms ease; cursor: pointer; }
+    .enq-person-close:hover { opacity: 1; }
+  `;
+  document.head.appendChild(filterCss);
+}
+
+// ─── Filter icon helper (pure, no deps → stable module-level) ─────────
+const filterIconSvg = (k: string) => {
+  if (k === 'Claimed') {
+    return (
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+        <path d="M3 8.5L6.5 12L13 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+      </svg>
+    );
+  }
+  if (k === 'Unclaimed') {
+    return (
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+        <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.5" fill="none" />
+        <path d="M8 4V8.5L11 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+      </svg>
+    );
+  }
+  // Triaged
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+      <path d="M2 3h12l-4.5 5.5V13l-3 1.5V8.5L2 3z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+    </svg>
+  );
+};
+
+// ─── Extracted: StatusFilterWithScope ──────────────────────────────────
+// Defined at module level so React keeps a stable component identity across
+// re-renders of the parent useEffect that pushes JSX into NavigatorContext.
+type EnquiriesActiveState = '' | 'Claimed' | 'Claimable' | 'Triaged';
+
+interface StatusFilterWithScopeProps {
+  isDarkMode: boolean;
+  activeState: string;
+  showMineOnly: boolean;
+  scopeCounts: { mineCount: number; allCount: number | null };
+  isAdmin: boolean;
+  onSetActiveState: (key: EnquiriesActiveState) => void;
+  onSetShowMineOnly: (v: boolean) => void;
+}
+
+const StatusFilterWithScope = React.memo<StatusFilterWithScopeProps>(({
+  isDarkMode,
+  activeState,
+  showMineOnly,
+  scopeCounts,
+  isAdmin,
+  onSetActiveState,
+  onSetShowMineOnly,
+}) => {
+  const h = 30;
+  const currentState = activeState === 'Claimable' ? 'Unclaimed' : activeState;
+  const isClaimed = currentState === 'Claimed';
+
+  const chipBg = (active: boolean) =>
+    active
+      ? (isDarkMode ? colours.dark.cardHover : colours.light.cardBackground)
+      : 'transparent';
+
+  const chipBorder = (active: boolean, admin?: boolean) =>
+    active
+      ? `1px solid ${isDarkMode ? colours.accent : colours.highlight}`
+      : admin
+        ? `1px solid ${isDarkMode ? 'rgba(255,140,0,0.25)' : 'rgba(255,140,0,0.15)'}`
+        : `1px solid ${isDarkMode ? 'rgba(55,65,81,0.4)' : 'rgba(13,47,96,0.10)'}`;
+
+  const chipColor = (active: boolean) =>
+    active
+      ? (isDarkMode ? colours.dark.text : colours.darkBlue)
+      : (isDarkMode ? 'rgba(160,160,160,0.8)' : colours.greyText);
+
+  const chipShadow = (active: boolean) =>
+    active
+      ? (isDarkMode ? '0 1px 4px rgba(0,0,0,0.25)' : '0 1px 3px rgba(0,0,0,0.06)')
+      : 'none';
+
+  const scopeColor = (active: boolean) =>
+    active
+      ? (isDarkMode ? colours.accent : colours.highlight)
+      : (isDarkMode ? 'rgba(135,243,243,0.5)' : 'rgba(54,144,206,0.55)');
+
+  const badgeBg = (active: boolean) =>
+    active
+      ? (isDarkMode ? 'rgba(54,144,206,0.20)' : 'rgba(54,144,206,0.12)')
+      : 'transparent';
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        height: h,
+        padding: 0,
+        background: 'transparent',
+        borderRadius: 0,
+        gap: 1,
+        fontFamily: 'Raleway, sans-serif',
+        userSelect: 'none',
+      }}
+    >
+      {/* Claimed compound: Mine | All */}
+      <button
+        type="button"
+        className="enq-scope-chip"
+        aria-pressed={isClaimed && showMineOnly}
+        onClick={() => { onSetActiveState('Claimed'); onSetShowMineOnly(true); }}
+        title={`My claimed (${scopeCounts.mineCount || 0})`}
+        style={{
+          height: h - 4,
+          background: chipBg(isClaimed && showMineOnly),
+          border: chipBorder(isClaimed && showMineOnly),
+          color: scopeColor(isClaimed && showMineOnly),
+          boxShadow: chipShadow(isClaimed && showMineOnly),
+        }}
+      >
+        <span style={{ display: 'flex', alignItems: 'center' }}>{filterIconSvg('Claimed')}</span>
+        <span>MINE</span>
+        <span className="enq-badge" key={`mine-${scopeCounts.mineCount}`} data-animate style={{ background: badgeBg(isClaimed && showMineOnly) }}>{scopeCounts.mineCount}</span>
+      </button>
+
+      <button
+        type="button"
+        className="enq-scope-chip"
+        aria-pressed={isClaimed && !showMineOnly}
+        onClick={() => { onSetActiveState('Claimed'); onSetShowMineOnly(false); }}
+        title={`All claimed${scopeCounts.allCount !== null ? ` (${scopeCounts.allCount})` : ''}`}
+        style={{
+          height: h - 4,
+          background: chipBg(isClaimed && !showMineOnly),
+          border: chipBorder(isClaimed && !showMineOnly),
+          color: scopeColor(isClaimed && !showMineOnly),
+          boxShadow: chipShadow(isClaimed && !showMineOnly),
+        }}
+      >
+        <span>ALL</span>
+        <span className="enq-badge" key={`all-${scopeCounts.allCount}`} data-animate style={{ background: badgeBg(isClaimed && !showMineOnly) }}>
+          {scopeCounts.allCount !== null ? (
+            <span style={{ display: 'inline-block' }}>{scopeCounts.allCount.toLocaleString()}</span>
+          ) : (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, animation: 'badge-breathe 1.6s ease-in-out infinite' }}>
+              <span style={{ width: 3, height: 3, borderRadius: '50%', background: 'currentColor' }} />
+              <span style={{ width: 3, height: 3, borderRadius: '50%', background: 'currentColor' }} />
+            </span>
+          )}
+        </span>
+      </button>
+
+      {/* Divider */}
+      <div style={{ width: 1, height: h - 12, background: isDarkMode ? colours.dark.border : 'rgba(0,0,0,0.08)', margin: '0 3px' }} />
+
+      {/* Unclaimed */}
+      <button
+        type="button"
+        className="enq-chip"
+        aria-pressed={currentState === 'Unclaimed'}
+        onClick={() => onSetActiveState('Claimable')}
+        style={{
+          height: h - 4,
+          fontWeight: currentState === 'Unclaimed' ? 600 : 500,
+          background: chipBg(currentState === 'Unclaimed'),
+          border: chipBorder(currentState === 'Unclaimed'),
+          color: chipColor(currentState === 'Unclaimed'),
+          boxShadow: chipShadow(currentState === 'Unclaimed'),
+        }}
+      >
+        <span style={{ display: 'flex', alignItems: 'center' }}>{filterIconSvg('Unclaimed')}</span>
+        <span>Unclaimed</span>
+      </button>
+
+      {/* Triaged (admin) */}
+      {isAdmin && (
+        <button
+          type="button"
+          className="enq-chip"
+          aria-pressed={currentState === 'Triaged'}
+          onClick={() => onSetActiveState('Triaged')}
+          title="Admin only"
+          style={{
+            height: h - 4,
+            fontWeight: currentState === 'Triaged' ? 600 : 500,
+            background: chipBg(currentState === 'Triaged'),
+            border: chipBorder(currentState === 'Triaged', true),
+            color: chipColor(currentState === 'Triaged'),
+            boxShadow: chipShadow(currentState === 'Triaged'),
+          }}
+        >
+          <span style={{ display: 'flex', alignItems: 'center' }}>{filterIconSvg('Triaged')}</span>
+          <span>Triaged</span>
+        </button>
+      )}
+    </div>
+  );
+});
+
 const Enquiries: React.FC<EnquiriesProps> = ({
   context,
   enquiries,
@@ -605,12 +924,15 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
   const [demoModeEnabledLocal, setDemoModeEnabledLocal] = useState<boolean>(() => {
     try {
-      return localStorage.getItem(DEMO_MODE_STORAGE_KEY) === 'true';
+      // Check both the legacy Enquiries key AND the global UserBubble key
+      return localStorage.getItem(DEMO_MODE_STORAGE_KEY) === 'true'
+        || localStorage.getItem('demoModeEnabled') === 'true';
     } catch {
       return false;
     }
   });
-  const demoModeEnabled = typeof demoModeEnabledProp === 'boolean' ? demoModeEnabledProp : demoModeEnabledLocal;
+  const demoModeEnabled = (typeof demoModeEnabledProp === 'boolean' ? demoModeEnabledProp : demoModeEnabledLocal)
+    || (() => { try { return localStorage.getItem('demoModeEnabled') === 'true'; } catch { return false; } })();
 
   // Local overrides for instruction data — merged on top of prop-supplied data
   // after inline operations (EID, risk, matter) complete. Keyed by InstructionRef.
@@ -818,6 +1140,21 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       if (wrapperId && (instructions.length > 0 || deals.length > 0)) {
         registerForEnquiryId(wrapperId, instructions[0] ?? null, deals[0] ?? null);
       }
+
+      // Email-based secondary linkage for v2 enquiries that lack ACID.
+      // Instruction.Email → workbench item, keyed as "email:<normalised>".
+      instructions.forEach((inst) => {
+        const instEmail = String(inst?.Email ?? inst?.email ?? '').trim().toLowerCase();
+        if (!instEmail) return;
+        const emailKey = `email:${instEmail}`;
+        if (result.has(emailKey)) return; // don't overwrite a better match
+        const enquiryId = normaliseId(inst?.ProspectId ?? inst?.prospectId)
+          || extractProspectIdFromRef(inst?.InstructionRef ?? inst?.instructionRef);
+        const existing = enquiryId ? result.get(enquiryId) : undefined;
+        if (existing) {
+          result.set(emailKey, existing);
+        }
+      });
     });
 
     if (demoModeEnabled) {
@@ -867,7 +1204,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
           eidStatus: 'complete',
           eidResult: 'Pass',
           internalStatus: 'paid',
-          riskResult: 'Low Risk',
+          riskResult: null,
           hasMatter: true,
           hasPayment: true,
           documents: 3,
@@ -1016,13 +1353,21 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     return key ? String(key) : null;
   }, []);
 
-  // Look up workbench item by enquiry's ACID (maps to deal.ProspectId). Fallback to enquiry ID when ACID missing.
+  // Look up workbench item by enquiry's ACID (maps to deal.ProspectId). Fallback to enquiry ID, then email.
   const getEnquiryWorkbenchItem = useCallback((enquiry: Enquiry): any | undefined => {
     const acid = (enquiry as any).ACID || (enquiry as any).acid || (enquiry as any).Acid;
     const fallbackId = (enquiry as any).ProspectId || (enquiry as any).prospectId || enquiry.ID;
     const key = acid || fallbackId;
-    if (!key) return undefined;
-    return inlineWorkbenchByEnquiryId.get(String(key));
+    if (key) {
+      const byId = inlineWorkbenchByEnquiryId.get(String(key));
+      if (byId) return byId;
+    }
+    // v2 enquiries may lack ACID — fall back to email match
+    const email = String((enquiry as any).Email || (enquiry as any).email || '').trim().toLowerCase();
+    if (email) {
+      return inlineWorkbenchByEnquiryId.get(`email:${email}`);
+    }
+    return undefined;
   }, [inlineWorkbenchByEnquiryId]);
 
   const PROSPECTS_INSTRUCTION_REF_KEY = 'navigateToInstructionRef';
@@ -1066,6 +1411,10 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   }, []);
 
   const workbenchHandlers = useMemo(() => ({
+    onOpenEnquiryRating: (enquiryId: string) => {
+      if (!enquiryId) return;
+      window.dispatchEvent(new CustomEvent('helix:rate-enquiry', { detail: { enquiryId: String(enquiryId) } }));
+    },
     onTriggerEID: async (instructionRef: string) => {
       // Run EID inline — no navigation to Instructions/Clients tab
       if (!instructionRef) return;
@@ -1173,6 +1522,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const [isLoadingAllData, setIsLoadingAllData] = useState<boolean>(false);
   // Track if we've already fetched all data to prevent duplicate calls
   const hasFetchedAllData = useRef<boolean>(false);
+  const hasRetriedEmptyAllData = useRef<boolean>(false);
   // Guard against render-loop fetches when shared IDs need team-wide history
   const hasTriggeredSharedHistoryFetch = useRef<boolean>(false);
 
@@ -1229,7 +1579,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const [pipelineRemeasureKey, setPipelineRemeasureKey] = useState<number>(0);
   // Minimum chip width at each mode (tuned for smoother width recognition)
   const CHIP_MIN_WIDTHS = { icon: 32, short: 84, full: 104 };
-  const ACTIONS_COLUMN_WIDTH_PX = 152;
+  const ACTIONS_COLUMN_WIDTH_PX = 196;
 
   const TABLE_GRID_TEMPLATE_COLUMNS = `32px 90px 56px 90px 1.4fr 2.5fr ${ACTIONS_COLUMN_WIDTH_PX}px`;
   const TABLE_GRID_GAP_PX = 12;
@@ -1719,7 +2069,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   // (declaration moved below, only declare once)
 
   // Function to fetch all enquiries (unfiltered) for "All" mode
-  const fetchAllEnquiries = useCallback(async () => {
+  const fetchAllEnquiries = useCallback(async (options?: { bypassCache?: boolean }) => {
     if (isLoadingAllData) {
       debugLog('🔄 Already loading all data, skipping fetch');
       return;
@@ -1733,7 +2083,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     
     try {
       setIsLoadingAllData(true);
-      hasFetchedAllData.current = true;
   const isLocalDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
       
   // Call unified server-side route for ALL environments to avoid legacy combined route
@@ -1750,6 +2099,10 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     dateFrom,
     dateTo,
   });
+  if (options?.bypassCache) {
+    allDataParams.set('bypassCache', 'true');
+  }
+  appendDefaultEnquiryProcessingParams(allDataParams);
   const allDataUrl = `/api/enquiries-unified?${allDataParams.toString()}`;
   
   // Date range: 12 months ago to today
@@ -1787,6 +2140,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       } else if (Array.isArray(data.enquiries)) {
         rawEnquiries = data.enquiries;
         debugLog('📦 Using data.enquiries array');
+      } else if (Array.isArray((data as any).data)) {
+        rawEnquiries = (data as any).data;
+        debugLog('📦 Using data.data array');
       } else {
         debugWarn('⚠️ Unexpected data structure:', data);
       }
@@ -1804,6 +2160,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       startTransition(() => {
         setTeamWideEnquiries(normalizedEnquiries);
       });
+      hasFetchedAllData.current = true;
+      hasRetriedEmptyAllData.current = false;
       onTeamWideEnquiriesLoaded?.(normalizedEnquiries as Enquiry[]);
       
       console.info('[Enquiries] fetchAllEnquiries:success', {
@@ -1815,6 +2173,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       return normalizedEnquiries;
     } catch (error) {
       console.error('❌ Failed to fetch all enquiries:', error);
+      hasFetchedAllData.current = false;
       console.warn('[Enquiries] fetchAllEnquiries:error', {
         reason: lastTeamWideFetchReasonRef.current || 'unknown',
       });
@@ -1896,7 +2255,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const isVSCodeWebview = (typeof navigator !== 'undefined') && navigator.userAgent.includes('Code');
   // Scope toggle - always default to "Mine" for focused workflow
   const [showMineOnly, setShowMineOnly] = useState<boolean>(true);
-  type EnquiriesActiveState = '' | 'Claimed' | 'Claimable' | 'Triaged';
   const [activeState, setActiveState] = useState<EnquiriesActiveState>('Claimed');
 
   // Use deferred values for smoother filter transitions
@@ -1931,7 +2289,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const [currentRating, setCurrentRating] = useState<string>('');
   const [ratingEnquiryId, setRatingEnquiryId] = useState<string | null>(null);
   const [isSuccessVisible, setIsSuccessVisible] = useState<boolean>(false);
-  const [activeSubTab, setActiveSubTab] = useState<string>('Pitch');
+  const [activeSubTab, setActiveSubTab] = useState<string>('Timeline');
   const [selectedPitchScenario, setSelectedPitchScenario] = useState<string | undefined>(undefined);
   const [showUnclaimedBoard, setShowUnclaimedBoard] = useState<boolean>(false);
   const [isCreateContactModalOpen, setIsCreateContactModalOpen] = useState<boolean>(false);
@@ -1944,6 +2302,12 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [showGroupedView, setShowGroupedView] = useState<boolean>(true);
   const [areActionsEnabled, setAreActionsEnabled] = useState<boolean>(false);
+  const [shareModalEnquiry, setShareModalEnquiry] = useState<Enquiry | null>(null);
+  const [shareModalSelectedEmails, setShareModalSelectedEmails] = useState<string[]>([]);
+  const [shareModalExternalEmails, setShareModalExternalEmails] = useState<string[]>([]);
+  const [shareModalSearch, setShareModalSearch] = useState<string>('');
+  const [isShareModalSaving, setIsShareModalSaving] = useState<boolean>(false);
+  const [demoSharedSimulationById, setDemoSharedSimulationById] = useState<Record<string, string>>({});
   const [documentCounts, setDocumentCounts] = useState<Record<string, number>>({});
   // Local dataset toggle (legacy vs new direct) analogous to Matters (only in localhost UI for now)
   // Deal Capture is always enabled by default now
@@ -1966,6 +2330,16 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const refreshTimerRef = useRef<number | null>(null);
   const esRef = useRef<EventSource | null>(null);
   const lastKnownEnquiryTsRef = useRef<number>(0);
+  const realtimeSyncClearTimerRef = useRef<number | null>(null);
+  const [sseConnected, setSseConnected] = useState(true);
+  const [isRealtimeQueueSyncing, setIsRealtimeQueueSyncing] = useState(false);
+
+  // ─── New-arrival animation tracking ───────────────────────
+  // Stores the set of enquiry IDs from the previous displayedItems render.
+  // When displayedItems changes, any ID not in this set is "newly arrived"
+  // and gets a CSS entrance animation via DOM class injection.
+  const prevDisplayedIdsRef = useRef<Set<string>>(new Set());
+  const initialRenderDoneRef = useRef(false);
 
   useEffect(() => {
     refreshRef.current = onRefreshEnquiries;
@@ -2027,6 +2401,60 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     return true;
   }, []);
 
+  const markRealtimeQueueSyncing = useCallback((active: boolean) => {
+    if (realtimeSyncClearTimerRef.current) {
+      window.clearTimeout(realtimeSyncClearTimerRef.current);
+      realtimeSyncClearTimerRef.current = null;
+    }
+
+    if (active) {
+      setIsRealtimeQueueSyncing(true);
+      return;
+    }
+
+    realtimeSyncClearTimerRef.current = window.setTimeout(() => {
+      setIsRealtimeQueueSyncing(false);
+      realtimeSyncClearTimerRef.current = null;
+    }, 900);
+  }, []);
+
+  const refreshVisibleEnquiriesDataset = useCallback((reason: string) => {
+    const shouldRefreshTeamWide = !showMineOnly || activeState !== 'Claimed' || hasFetchedAllData.current;
+    const isRealtimeReason = reason === 'pulse' || reason.startsWith('stream-');
+
+    if (isRealtimeReason) {
+      markRealtimeQueueSyncing(true);
+    }
+
+    if (shouldRefreshTeamWide) {
+      lastTeamWideFetchReasonRef.current = `realtime:${reason}`;
+      fetchAllEnquiries({ bypassCache: isRealtimeReason })
+        .catch(() => { /* ignore */ })
+        .finally(() => {
+          if (isRealtimeReason) {
+            markRealtimeQueueSyncing(false);
+          }
+        });
+      return;
+    }
+
+    refreshRef.current?.()
+      .catch(() => { /* ignore */ })
+      .finally(() => {
+        if (isRealtimeReason) {
+          markRealtimeQueueSyncing(false);
+        }
+      });
+  }, [showMineOnly, activeState, fetchAllEnquiries, markRealtimeQueueSyncing]);
+
+  useEffect(() => {
+    return () => {
+      if (realtimeSyncClearTimerRef.current) {
+        window.clearTimeout(realtimeSyncClearTimerRef.current);
+      }
+    };
+  }, []);
+
   useEffect(() => {
     // Only stream when Enquiries tab is active and we have a refresh handler.
     if (!isActive || !refreshRef.current) {
@@ -2046,15 +2474,25 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
     console.info('[Enquiries] stream:open', { isActive });
 
-    const scheduleRefresh = (delayMs = 900) => {
-      if (!refreshRef.current) return;
+    es.onopen = () => setSseConnected(true);
+    es.onerror = () => {
+      // readyState 2 = CLOSED (will not reconnect). 0 = CONNECTING (auto-retry).
+      if (es.readyState === EventSource.CLOSED) {
+        setSseConnected(false);
+      } else {
+        setSseConnected(false);
+        // Will flip back on next successful open
+      }
+    };
+
+    const scheduleRefresh = (reason: string, delayMs = 300) => {
       if (refreshTimerRef.current) {
         window.clearTimeout(refreshTimerRef.current);
       }
       refreshTimerRef.current = window.setTimeout(() => {
         refreshTimerRef.current = null;
-        console.info('[Enquiries] stream:refresh', { via: 'enquiries.changed' });
-        refreshRef.current?.().catch(() => { /* ignore */ });
+        console.info('[Enquiries] stream:refresh', { via: reason });
+        refreshVisibleEnquiriesDataset(reason);
       }, delayMs);
     };
 
@@ -2068,8 +2506,23 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         console.info('[Enquiries] stream:event', { type: 'changed' });
       }
 
-      scheduleRefresh();
-      // Let EventSource handle retries; do not spam refresh.
+      const changeType = String(data?.changeType || 'changed');
+      const enquiryId = String(data?.enquiryId || '');
+
+      if (changeType === 'claim' && enquiryId) {
+        const claimedBy = String(data?.claimedBy || '');
+        const claimedAt = typeof data?.claimedAt === 'string' ? data.claimedAt : null;
+        applyRealtimeClaimPatch(enquiryId, claimedBy, claimedAt);
+        scheduleRefresh('stream-claim-reconcile', 1200);
+        return;
+      }
+
+      if (changeType === 'create') {
+        scheduleRefresh('stream-create', 120);
+        return;
+      }
+
+      scheduleRefresh(`stream-${changeType}`, 350);
     };
 
     try {
@@ -2088,7 +2541,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         refreshTimerRef.current = null;
       }
     };
-  }, [isActive, applyRealtimeClaimPatch]);
+  }, [isActive, applyRealtimeClaimPatch, refreshVisibleEnquiriesDataset]);
 
   useEffect(() => {
     if (!isActive || !refreshRef.current) return;
@@ -2107,7 +2560,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         if (latestTs > lastKnownEnquiryTsRef.current + 1000) {
           lastKnownEnquiryTsRef.current = latestTs;
           console.info('[Enquiries] pulse:refresh', { latestIso });
-          refreshRef.current?.().catch(() => { /* ignore */ });
+          refreshVisibleEnquiriesDataset('pulse');
         }
       } catch {
         // non-blocking
@@ -2115,12 +2568,12 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     };
 
     poll();
-    const intervalId = window.setInterval(poll, 20000);
+    const intervalId = window.setInterval(poll, 5000);
     return () => {
       cancelled = true;
       window.clearInterval(intervalId);
     };
-  }, [isActive]);
+  }, [isActive, refreshVisibleEnquiriesDataset]);
   // Admin check (match Matters logic) – be robust to spaced keys and fallbacks
   const userRec: any = (userData && userData[0]) ? userData[0] : {};
   const userRole: string = (userRec.Role || userRec.role || '').toString();
@@ -2164,8 +2617,24 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       teamWideCount: teamWideEnquiries.length,
       allEnquiriesCount: allEnquiries.length,
     });
-    fetchAllEnquiries();
+    fetchAllEnquiries({ bypassCache: reason.startsWith('recover:') });
   }, [showMineOnly, activeState, isLoadingAllData, teamWideEnquiries.length, allEnquiries.length, fetchAllEnquiries]);
+
+  useEffect(() => {
+    if (showMineOnly) return;
+    if (isLoadingAllData) return;
+    if (teamWideEnquiries.length > 0) {
+      hasRetriedEmptyAllData.current = false;
+      return;
+    }
+    if (!hasFetchedAllData.current) return;
+    if (hasRetriedEmptyAllData.current) return;
+
+    hasRetriedEmptyAllData.current = true;
+    hasFetchedAllData.current = false;
+    debugWarn('⚠️ All mode resolved empty team-wide dataset; retrying once with bypass cache');
+    triggerFetchAllEnquiries('recover:empty-all');
+  }, [showMineOnly, isLoadingAllData, teamWideEnquiries.length, triggerFetchAllEnquiries]);
   
   // Track enquiry visibility (for viewport-based enrichment)
   const handleEnquiryVisibilityChange = useCallback((enquiryId: string, isVisible: boolean) => {
@@ -2180,19 +2649,11 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     });
   }, []);
   
-  // Debounced search handler - prevents component re-renders while typing
+  // Search handler — FilterBanner manages its own local typing state (debounceMs),
+  // so this callback only fires after the debounce delay with the final value.
   const handleSearchChange = useCallback((value: string) => {
-    setSearchInputValue(value); // Update input immediately for responsive typing
-    
-    // Clear existing timeout
-    if (searchTimeoutRef.current) {
-      clearTimeout(searchTimeoutRef.current);
-    }
-    
-    // Set new timeout for debounced filter update (300ms)
-    searchTimeoutRef.current = setTimeout(() => {
-      setDebouncedSearchTerm(value);
-    }, 300);
+    setSearchInputValue(value);
+    setDebouncedSearchTerm(value);
   }, []);
 
   const safeCopyToClipboard = useCallback(async (value?: string | number) => {
@@ -2275,10 +2736,15 @@ const Enquiries: React.FC<EnquiriesProps> = ({
             const result = await claimEnquiry(
               options.enquiryId, 
               currentUserEmail, 
-              options.dataSource || 'legacy'
+              options.dataSource || 'new'
             );
             
             if (result.success) {
+              // Toast confirmation
+              setToastMessage('Enquiry claimed');
+              setToastType('success');
+              setToastVisible(true);
+              setTimeout(() => setToastVisible(false), 3000);
               // Background refresh to sync with server (non-blocking)
               if (onRefreshEnquiries) {
                 onRefreshEnquiries().catch(err => console.warn('Background refresh failed:', err));
@@ -2326,9 +2792,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
             boxSizing: 'border-box',
             lineHeight: 1,
             borderRadius: 0,
-            border: `1px solid ${isDarkMode ? 'rgba(245, 158, 11, 0.4)' : 'rgba(217, 119, 6, 0.45)'}`,
-            background: isDarkMode ? 'rgba(245, 158, 11, 0.1)' : 'rgba(245, 158, 11, 0.08)',
-            color: isDarkMode ? 'rgba(251, 191, 36, 0.95)' : 'rgba(180, 83, 9, 0.9)',
+            border: `1px solid ${isDarkMode ? 'rgba(255, 140, 0, 0.4)' : 'rgba(255, 140, 0, 0.35)'}`,
+            background: isDarkMode ? 'rgba(255, 140, 0, 0.10)' : 'rgba(255, 140, 0, 0.08)',
+            color: colours.orange,
             textTransform: 'uppercase',
             fontWeight: 600,
             letterSpacing: '0.3px',
@@ -2343,14 +2809,14 @@ const Enquiries: React.FC<EnquiriesProps> = ({
           }}
           onMouseEnter={(e) => {
             if (!isClaiming) {
-              e.currentTarget.style.background = isDarkMode ? 'rgba(245, 158, 11, 0.18)' : 'rgba(245, 158, 11, 0.14)';
-              e.currentTarget.style.borderColor = isDarkMode ? 'rgba(245, 158, 11, 0.55)' : 'rgba(217, 119, 6, 0.6)';
+              e.currentTarget.style.background = isDarkMode ? 'rgba(255, 140, 0, 0.18)' : 'rgba(255, 140, 0, 0.14)';
+              e.currentTarget.style.borderColor = isDarkMode ? 'rgba(255, 140, 0, 0.55)' : 'rgba(255, 140, 0, 0.5)';
             }
           }}
           onMouseLeave={(e) => {
             if (!isClaiming) {
-              e.currentTarget.style.background = isDarkMode ? 'rgba(245, 158, 11, 0.1)' : 'rgba(245, 158, 11, 0.08)';
-              e.currentTarget.style.borderColor = isDarkMode ? 'rgba(245, 158, 11, 0.4)' : 'rgba(217, 119, 6, 0.45)';
+              e.currentTarget.style.background = isDarkMode ? 'rgba(255, 140, 0, 0.10)' : 'rgba(255, 140, 0, 0.08)';
+              e.currentTarget.style.borderColor = isDarkMode ? 'rgba(255, 140, 0, 0.4)' : 'rgba(255, 140, 0, 0.35)';
             }
           }}
           title={isClaiming ? 'Claiming...' : (options?.enquiryId ? `Claim ${leadLabel}` : 'Open shared inbox channel in Teams')}
@@ -2365,7 +2831,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                 width: '6px',
                 height: '6px',
                 borderRadius: '50%',
-                background: isDarkMode ? 'rgba(251, 191, 36, 0.9)' : 'rgba(217, 119, 6, 0.85)',
+                background: isDarkMode ? 'rgba(255, 140, 0, 0.9)' : 'rgba(255, 140, 0, 0.85)',
                 animation: 'status-breathe 2s ease-in-out infinite',
               }}
             />
@@ -2390,16 +2856,20 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const [userManuallyChangedAreas, setUserManuallyChangedAreas] = useState(false);
   const [selectedPersonInitials, setSelectedPersonInitials] = useState<string | null>(null);
 
-  const hasActiveSearch = useMemo(() => debouncedSearchTerm.trim().length > 0, [debouncedSearchTerm]);
+  const normalizedSearchTerm = useMemo(() => normalizeSearchEmailArtifacts(debouncedSearchTerm), [debouncedSearchTerm]);
+  const searchTokens = useMemo(() => normalizedSearchTerm.split(' ').filter(Boolean), [normalizedSearchTerm]);
+  const numericSearchTerm = useMemo(() => toDigitSearchValue(normalizedSearchTerm), [normalizedSearchTerm]);
+
+  const hasActiveSearch = useMemo(() => normalizedSearchTerm.length > 0, [normalizedSearchTerm]);
 
   const isIdSearch = useMemo(() => {
-    const raw = debouncedSearchTerm.trim().toLowerCase();
+    const raw = normalizedSearchTerm;
     if (!raw) return false;
     if (raw.startsWith('id:')) {
       return /^id:\s*\d+$/.test(raw);
     }
     return /^\d+$/.test(raw);
-  }, [debouncedSearchTerm]);
+  }, [normalizedSearchTerm]);
 
   // Prevent stale person filter from hiding items when toggling scope or tab
   useEffect(() => {
@@ -2477,13 +2947,51 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     });
     const newCount = normalised.filter(r => r.__sourceType === 'new').length;
     const legacyCount = normalised.length - newCount;
+
+    // If demo mode is active, preserve existing demo entries so they aren't lost on prop refresh
+    if (demoModeEnabled) {
+      const demoIds = new Set(['DEMO-ENQ-0001', 'DEMO-ENQ-0002', 'DEMO-ENQ-0003']);
+      const hasDemo = normalised.some(e => demoIds.has(String(e.ID)));
+      if (!hasDemo) {
+        setAllEnquiries(prev => {
+          const existingDemo = prev.filter(e => demoIds.has(String(e.ID)));
+          if (existingDemo.length === 0) return normalised;
+          const normWithoutDemo = normalised.filter(e => !demoIds.has(String(e.ID)));
+          return [...existingDemo, ...normWithoutDemo];
+        });
+        return;
+      }
+    }
+
     setAllEnquiries(normalised);
-  }, [enquiries, isAdmin, showMineOnly]);
+  }, [enquiries, isAdmin, showMineOnly, demoModeEnabled]);
+
+  const effectiveEnquiryIdentity = useMemo(() => {
+    const rawEmail = String(userData?.[0]?.Email || '').trim().toLowerCase();
+    const rawInitials = String(userData?.[0]?.Initials || '').trim().toUpperCase();
+    const isLocalHost = typeof window !== 'undefined'
+      && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+    if (!isLocalHost || rawInitials !== 'LZ' || !teamData?.length) {
+      return { email: rawEmail, initials: rawInitials };
+    }
+
+    const alex = teamData.find((member) => {
+      const memberInitials = String(member?.Initials || '').trim().toUpperCase();
+      const memberFirst = String((member as any)?.First || '').trim().toLowerCase();
+      return memberInitials === 'AC' || memberFirst === 'alex';
+    });
+
+    return {
+      email: String(alex?.Email || rawEmail).trim().toLowerCase(),
+      initials: String(alex?.Initials || rawInitials).trim().toUpperCase(),
+    };
+  }, [teamData, userData]);
 
   // Calculate counts for Mine/All scope badges
   const scopeCounts = useMemo(() => {
     // Mine count = enquiries claimed by the current user (where Point_of_Contact matches user email)
-    const userEmail = userData?.[0]?.Email?.toLowerCase() || '';
+    const userEmail = effectiveEnquiryIdentity.email;
     const mineCount = userEmail 
       ? allEnquiries.filter(e => {
           const poc = ((e as any).Point_of_Contact || (e as any).poc || '').toLowerCase().trim();
@@ -2492,7 +3000,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       : 0;
     const allCount = hasFetchedAllData.current ? teamWideEnquiries.length : null;
     return { mineCount, allCount };
-  }, [allEnquiries, teamWideEnquiries.length, userData]);
+  }, [allEnquiries, effectiveEnquiryIdentity.email, teamWideEnquiries.length]);
 
   // Map for claimer quick lookup
   const claimerMap = useMemo(() => {
@@ -2503,8 +3011,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
   // Pre-computed POC dropdown options (avoids O(n²) findIndex dedup on every render)
   const pocOptionsMemo = useMemo(() => {
-    const currentUserEmail = userData?.[0]?.Email?.toLowerCase() || '';
-    const currentUserInitials = userData?.[0]?.Initials ||
+    const currentUserEmail = effectiveEnquiryIdentity.email;
+    const currentUserInitials = effectiveEnquiryIdentity.initials ||
       claimerMap[currentUserEmail]?.Initials ||
       currentUserEmail.split('@')[0]?.slice(0, 2).toUpperCase() || 'ME';
     const seen = new Set<string>();
@@ -2524,7 +3032,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       addIfNew(email, label);
     });
     return { options, currentUserEmail, currentUserInitials };
-  }, [userData, teamData, claimerMap]);
+  }, [claimerMap, effectiveEnquiryIdentity.email, effectiveEnquiryIdentity.initials, teamData]);
 
   // Team member options for reassignment dropdown
   const teamMemberOptions = useMemo(() => {
@@ -2546,6 +3054,19 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       }))
       .sort((a, b) => a.text.localeCompare(b.text));
   }, [teamData]);
+
+  const shareMemberOptions = useMemo(() => {
+    return teamMemberOptions.map((member) => {
+      const email = String(member.email || member.value || '').toLowerCase();
+      const displayName = String(member.text || member.email || '').replace(/\s*\([^)]*\)\s*$/, '').trim();
+      const initials = String(member.initials || '').trim() || displayName.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase();
+      return {
+        email,
+        displayName: displayName || email,
+        initials: initials || '??',
+      };
+    });
+  }, [teamMemberOptions]);
 
   // Handle reassignment click - open dropdown
   const handleReassignClick = useCallback((enquiryId: string, event: React.MouseEvent) => {
@@ -2575,6 +3096,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     if (!selectedOption) return;
     
     const enquiryId = reassignmentDropdown.enquiryId;
+    const targetEnquiry = findEnquiryForMutation(allEnquiries, enquiryId);
     const newOwnerName = selectedOption.text.split(' (')[0];
     
     // Close dropdown immediately for snappy feel
@@ -2593,10 +3115,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          ID: enquiryId,
-          Point_of_Contact: selectedEmail
-        })
+        body: JSON.stringify(buildEnquiryMutationPayload(targetEnquiry, {
+          Point_of_Contact: selectedEmail,
+        }))
       });
 
       const result = await response.json();
@@ -2644,7 +3165,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     } finally {
       setIsReassigning(false);
     }
-  }, [reassignmentDropdown, teamMemberOptions, onRefreshEnquiries]);
+  }, [reassignmentDropdown, teamMemberOptions, allEnquiries, onRefreshEnquiries]);
 
   // Close reassignment dropdown
   const closeReassignmentDropdown = useCallback(() => {
@@ -2704,7 +3225,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   // Single select handler (pitch builder path)
 
   // Apply dataset toggle to derive display list without losing the other dataset
-  useEffect(() => {
+  useLayoutEffect(() => {
     debugLog('📊 Display derivation effect:', {
       allEnquiriesLength: allEnquiries.length,
       teamWideLength: teamWideEnquiries.length,
@@ -2713,25 +3234,54 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       hasFetchedAllData: hasFetchedAllData.current
     });
     
-    if (!allEnquiries.length) {
-      debugLog('⚠️ No allEnquiries, clearing display');
+    if (!allEnquiries.length && !teamWideEnquiries.length) {
+      debugLog('⚠️ No enquiry dataset loaded yet, clearing display');
       setDisplayEnquiries([]);
       return;
     }
+
+    const isAwaitingTeamWideQueue = teamWideEnquiries.length === 0
+      && (isLoadingAllData || !hasFetchedAllData.current);
     
-    // CRITICAL FIX: Use teamWideEnquiries for ANY user in All mode who explicitly fetched it
-    // Only use user-filtered allEnquiries when in Mine mode or when unified data not fetched
-    const userEmail = userData?.[0]?.Email?.toLowerCase() || '';
-    if (!showMineOnly && hasFetchedAllData.current && teamWideEnquiries.length > 0) {
+    // In All mode, never fall back to the user-filtered prop dataset.
+    // Show the real team-wide set when ready, otherwise show the loading state only.
+    if (!showMineOnly) {
+      if (teamWideEnquiries.length > 0) {
+        debugLog('🌐 All mode - showing unified data:', teamWideEnquiries.length);
+        setDisplayEnquiries(teamWideEnquiries);
+        return;
+      }
+
+      debugLog('⏳ All mode - team-wide dataset pending, holding display');
+      setDisplayEnquiries([]);
+      return;
+    }
+
+    // Mine + non-Claimed views still depend on the wider team-wide queue.
+    // Do not render the claimed-only prop dataset here; it creates an empty/stale gap
+    // before the real claimable/triaged rows arrive.
+    if (activeState !== 'Claimed' && isAwaitingTeamWideQueue) {
+      debugLog('⏳ Mine queue awaiting team-wide dataset, holding display');
+      setDisplayEnquiries([]);
+      return;
+    }
+
+    // Mine mode continues to use the scoped prop dataset for fastest first render.
+    if (allEnquiries.length > 0) {
+      debugLog('👤 Mine mode - using user-scoped prop data:', allEnquiries.length);
+      setDisplayEnquiries(allEnquiries);
+      return;
+    }
+
+    // Backstop: if Mine mode lands before prop data but team-wide is already warm, use it.
+    if (teamWideEnquiries.length > 0) {
       debugLog('🌐 All mode - showing unified data:', teamWideEnquiries.length);
       setDisplayEnquiries(teamWideEnquiries);
       return;
     }
-    
-    // For all other cases (Mine mode, or All mode without unified fetch), use allEnquiries
-    debugLog('� Using allEnquiries (user-filtered from props):', allEnquiries.length);
-    setDisplayEnquiries(allEnquiries);
-  }, [allEnquiries, teamWideEnquiries, isAdmin, showMineOnly, userData]);
+
+    setDisplayEnquiries([]);
+  }, [allEnquiries, teamWideEnquiries, showMineOnly, activeState, isLoadingAllData]);
 
   // Initialize selected areas with user's areas + Other/Unsure
   useEffect(() => {
@@ -2780,7 +3330,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   useEffect(() => {
     // Only auto-adjust in Mine/Claimed mode, and only if user hasn't manually changed areas
     if (showMineOnly && activeState === 'Claimed' && !userManuallyChangedAreas) {
-      const userEmail = userData?.[0]?.Email?.toLowerCase() || '';
+      const userEmail = effectiveEnquiryIdentity.email;
       if (!userEmail) return;
 
       // Use the UNFILTERED dataset (allEnquiries) to find what areas user actually has claimed
@@ -2826,7 +3376,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         }
       }
     }
-  }, [showMineOnly, activeState, allEnquiries, userData, userManuallyChangedAreas, selectedAreas]);
+  }, [showMineOnly, activeState, allEnquiries, effectiveEnquiryIdentity.email, userManuallyChangedAreas, selectedAreas]);
 
   // Auto-enable all area filters for admin users
   useEffect(() => {
@@ -3300,13 +3850,13 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     if (hasFetchedAllData.current || isLoadingAllData) return;
     if (allEnquiries.length === 0) return; // Wait for prop data to load first
     
-    // Delay background fetch to avoid competing with initial render
+    // Warm the team-wide dataset on the next tick so All/Claimable/Triaged can switch without lag.
     const timer = setTimeout(() => {
       if (!hasFetchedAllData.current && !isLoadingAllData) {
-        debugLog('🔄 Background prefetch: lazy-loading team-wide data');
+        debugLog('🔄 Background prefetch: warming team-wide data');
         triggerFetchAllEnquiries('background-prefetch');
       }
-    }, 3000); // 3s after props loaded — user sees their data instantly, full dataset loads silently
+    }, 0);
     
     return () => clearTimeout(timer);
   }, [allEnquiries.length, showMineOnly, activeState, isLoadingAllData, triggerFetchAllEnquiries]);
@@ -3319,10 +3869,20 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const loader = useRef<HTMLDivElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const loadMoreRafPendingRef = useRef(false);
+  const queueRevealTimerRef = useRef<number | null>(null);
+  const queueWasPendingRef = useRef(false);
+  const [isQueueRevealActive, setIsQueueRevealActive] = useState(false);
   const previousMainTab = useRef<EnquiriesActiveState>('Claimed');
   const previousActiveStateRef = useRef<EnquiriesActiveState>(activeState);
   const [manualFilterTransitioning, setManualFilterTransitioning] = useState(false);
   const manualFilterTransitionTimeoutRef = useRef<number | null>(null);
+
+  const clearQueueRevealTimer = useCallback(() => {
+    if (queueRevealTimerRef.current !== null) {
+      window.clearTimeout(queueRevealTimerRef.current);
+      queueRevealTimerRef.current = null;
+    }
+  }, []);
 
   const toggleDashboard = useCallback(() => {
     if (activeState === '') {
@@ -3498,7 +4058,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       return 'id' in e || 'datetime' in e || 'stage' in e || 'claim' in e;
     };
 
-    const currentUserEmail = (userData?.[0]?.Email || '').toLowerCase();
+    const currentUserEmail = effectiveEnquiryIdentity.email;
     const pickBetter = (a: any, b: any): any => {
       // If we're in Mine view, bias towards the record assigned to the current user
       if (showMineOnly && currentUserEmail) {
@@ -3608,7 +4168,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     }
     
     return Array.from(map.values()) as NormalizedEnquiry[];
-  }, [displayEnquiries, showMineOnly, userData, activeState]);
+  }, [displayEnquiries, showMineOnly, effectiveEnquiryIdentity.email, activeState]);
 
   // Build a suppression index: if a claimed record exists for the same contact on the same day, suppress unclaimed copies
   // IMPORTANT: Use teamWideEnquiries (includes all team members' claims), not allEnquiries (may be filtered to current user)
@@ -3764,7 +4324,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const [workbenchInitialTab, setWorkbenchInitialTab] = useState<string | undefined>(undefined);
 
   const openEnquiryWorkbench = useCallback((enquiry: Enquiry, tab: 'Pitch' | 'Timeline', options?: { filter?: 'pitch'; workbenchTab?: string }) => {
-    console.log('[MATTER-DEBUG] openEnquiryWorkbench called', { enquiryId: enquiry?.ID, tab, options, workbenchTab: options?.workbenchTab });
     setSelectedEnquiry(enquiry);
     setActiveSubTab(tab);
     setTimelineInitialFilter(options?.filter ?? null);
@@ -3772,16 +4331,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   }, []);
 
   const handleSelectEnquiry = useCallback((enquiry: Enquiry) => {
-    const promotion = getPromotionStatusSimple(enquiry);
-    const enrichmentPitch = enquiry.ID
-      ? enrichmentMap.get(String(enquiry.ID))?.pitchData
-      : null;
-    const defaultTab = (promotion || enquiry.pitchEnquiryId || enrichmentPitch) ? 'Timeline' : 'Pitch';
-    openEnquiryWorkbench(enquiry, defaultTab);
-  }, [enrichmentMap, getPromotionStatusSimple, openEnquiryWorkbench]);
-
-  const handleSelectEnquiryToPitch = useCallback((enquiry: Enquiry) => {
-    openEnquiryWorkbench(enquiry, 'Pitch');
+    openEnquiryWorkbench(enquiry, 'Timeline');
   }, [openEnquiryWorkbench]);
 
   const handleSelectEnquiryForTimeline = useCallback((enquiry: Enquiry) => {
@@ -3826,19 +4376,25 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       localStorage.removeItem('navigateToEnquiryId');
       const navTimelineItem = localStorage.getItem('navigateToTimelineItem');
       localStorage.removeItem('navigateToTimelineItem');
+      const navSubTab = localStorage.getItem('navigateToEnquirySubTab');
+      localStorage.removeItem('navigateToEnquirySubTab');
       
       const found = displayEnquiries.find(e => String(e.ID) === navEnquiryId);
       if (found) {
         // Select the enquiry
         setSelectedEnquiry(found);
+        if (navSubTab === 'Pitch') {
+          setActiveSubTab('Pitch');
+          return;
+        }
         // If we need to navigate to a timeline item, go to Timeline sub-tab
         if (navTimelineItem) {
           setActiveSubTab('Timeline');
           // Store for EnquiryTimeline to pick up and scroll to specific item
           sessionStorage.setItem('scrollToTimelineItem', navTimelineItem);
         } else {
-          // Default behavior: go to Pitch sub-tab
-          setActiveSubTab('Pitch');
+          // Default behavior: go to Timeline (Overview) sub-tab
+          setActiveSubTab('Timeline');
         }
       }
     }
@@ -3848,9 +4404,13 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     const currentUserEmail = userData && userData[0] && userData[0].Email
       ? userData[0].Email
       : 'lz@helix-law.com';
+    const alternateDemoOwnerEmail = currentUserEmail.toLowerCase() === 'cb@helix-law.com'
+      ? 'lz@helix-law.com'
+      : 'cb@helix-law.com';
 
     try {
       localStorage.setItem(DEMO_MODE_STORAGE_KEY, 'true');
+      localStorage.setItem('demoModeEnabled', 'true');
     } catch {
       // ignore storage errors
     }
@@ -3866,6 +4426,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         ...DEV_PREVIEW_TEST_ENQUIRY,
         ID: 'DEMO-ENQ-0001',
         Point_of_Contact: currentUserEmail,
+        shared_with: demoSharedSimulationById['DEMO-ENQ-0001'] || '',
+        Shared_With: demoSharedSimulationById['DEMO-ENQ-0001'] || '',
         Touchpoint_Date: currentTouchpoint,
         Date_Created: currentTouchpoint,
         __sourceType: 'legacy',
@@ -3875,7 +4437,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         ID: 'DEMO-ENQ-0002',
         First_Name: 'Demo',
         Last_Name: 'Prospect',
-        Point_of_Contact: currentUserEmail,
+        Point_of_Contact: alternateDemoOwnerEmail,
+        shared_with: demoSharedSimulationById['DEMO-ENQ-0002'] || '',
+        Shared_With: demoSharedSimulationById['DEMO-ENQ-0002'] || '',
         Touchpoint_Date: priorTouchpoint,
         Date_Created: priorTouchpoint,
         Area_of_Work: 'Property',
@@ -3893,6 +4457,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         First_Name: 'Demo',
         Last_Name: 'Complete',
         Point_of_Contact: currentUserEmail,
+        shared_with: demoSharedSimulationById['DEMO-ENQ-0003'] || '',
+        Shared_With: demoSharedSimulationById['DEMO-ENQ-0003'] || '',
         Touchpoint_Date: priorTouchpoint,
         Date_Created: priorTouchpoint,
         Area_of_Work: 'Employment',
@@ -4048,7 +4614,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       }
       return newMap;
     });
-  }, [userData]);
+  }, [userData, demoSharedSimulationById]);
 
   // Listen for demo mode event (from UserBubble menu)
   useEffect(() => {
@@ -4086,11 +4652,12 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
     const missingInAll = allEnquiries.length > 0 && !hasDemo(allEnquiries);
     const missingInTeamWide = teamWideEnquiries.length > 0 && !hasDemo(teamWideEnquiries);
+    const missingInDisplay = displayEnquiries.length > 0 && !hasDemo(displayEnquiries);
 
-    if (missingInAll || missingInTeamWide) {
+    if (missingInAll || missingInTeamWide || missingInDisplay) {
       ensureDemoEnquiryPresent();
     }
-  }, [demoModeEnabled, allEnquiries, teamWideEnquiries, ensureDemoEnquiryPresent]);
+  }, [demoModeEnabled, allEnquiries, teamWideEnquiries, displayEnquiries, ensureDemoEnquiryPresent]);
 
   // Auto-refresh functionality
   const handleManualRefresh = useCallback(async () => {
@@ -4184,6 +4751,20 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     setIsRateModalOpen(true);
   }, []);
 
+  useEffect(() => {
+    const handleWorkbenchRate = (event: Event) => {
+      const customEvent = event as CustomEvent<{ enquiryId?: string }>;
+      const enquiryId = String(customEvent?.detail?.enquiryId || '').trim();
+      if (!enquiryId) return;
+      handleRate(enquiryId);
+    };
+
+    window.addEventListener('helix:rate-enquiry', handleWorkbenchRate as EventListener);
+    return () => {
+      window.removeEventListener('helix:rate-enquiry', handleWorkbenchRate as EventListener);
+    };
+  }, [handleRate]);
+
   const closeRateModal = useCallback(() => {
     setIsRateModalOpen(false);
     setRatingEnquiryId(null);
@@ -4240,6 +4821,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
   const handleAreaChange = useCallback(async (enquiryId: string, newArea: string) => {
     try {
+      const targetEnquiry = findEnquiryForMutation(allEnquiries, enquiryId);
       // Track this update to prevent it from being overwritten by stale prop data
       recentUpdatesRef.current.set(enquiryId, {
         field: 'Area_of_Work',
@@ -4250,7 +4832,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       const response = await fetch('/api/enquiries-unified/update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ID: enquiryId, Area_of_Work: newArea }),
+        body: JSON.stringify(buildEnquiryMutationPayload(targetEnquiry, { Area_of_Work: newArea })),
       });
 
       if (!response.ok) {
@@ -4304,10 +4886,11 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
   const handleSaveEnquiry = useCallback(async (enquiryId: string, updates: Partial<Enquiry>) => {
     try {
+      const targetEnquiry = findEnquiryForMutation(allEnquiries, enquiryId);
       const response = await fetch('/api/enquiries-unified/update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ID: enquiryId, ...updates }),
+        body: JSON.stringify(buildEnquiryMutationPayload(targetEnquiry, updates as Record<string, unknown>)),
       });
 
       if (!response.ok) {
@@ -4335,6 +4918,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
   const handleRatingChange = useCallback(async (enquiryId: string, newRating: string) => {
     try {
+      const targetEnquiry = findEnquiryForMutation(allEnquiries, enquiryId);
       // Track this update to prevent it from being overwritten by stale prop data
       recentUpdatesRef.current.set(enquiryId, {
         field: 'Rating',
@@ -4345,7 +4929,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       const response = await fetch('/api/enquiries-unified/update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ID: enquiryId, Rating: newRating }),
+        body: JSON.stringify(buildEnquiryMutationPayload(targetEnquiry, { Rating: newRating })),
       });
 
       if (!response.ok) {
@@ -4414,7 +4998,13 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   // Delete enquiry function
   const handleDeleteEnquiry = useCallback(async (enquiryId: string, enquiryName: string) => {
     try {
-      const response = await fetch(`/api/enquiries-unified/${enquiryId}`, {
+      const targetEnquiry = findEnquiryForMutation(allEnquiries, enquiryId);
+      const { enquiryId: processingEnquiryId, source: processingSource } = resolveEnquiryProcessingIdentity(targetEnquiry);
+      const deleteUrl = new URL(`/api/enquiries-unified/${encodeURIComponent(enquiryId)}`, window.location.origin);
+      if (processingEnquiryId) deleteUrl.searchParams.set('processingEnquiryId', processingEnquiryId);
+      if (processingSource) deleteUrl.searchParams.set('processingSource', processingSource);
+
+      const response = await fetch(deleteUrl.toString(), {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
@@ -4428,10 +5018,22 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
       const result = await response.json();
 
+      const deletedIds = new Set<string>([
+        enquiryId,
+        String(result?.deletedIds?.legacyId || ''),
+        String(result?.deletedIds?.instructionsId || ''),
+        String(processingEnquiryId || ''),
+      ].filter(Boolean));
+
+      const shouldRemoveEnquiry = (enquiry: Enquiry): boolean => {
+        if (deletedIds.has(String(enquiry.ID || '').trim())) return true;
+        return Array.from(deletedIds).some((candidateId) => enquiryReferencesId(enquiry, candidateId));
+      };
+
       // Remove from local state immediately for responsive UI
-      setAllEnquiries(prevEnquiries => prevEnquiries.filter(e => e.ID !== enquiryId));
-      setDisplayEnquiries(prevDisplay => prevDisplay.filter(e => e.ID !== enquiryId));
-      setTeamWideEnquiries(prevTeamWide => prevTeamWide.filter(e => e.ID !== enquiryId));
+      setAllEnquiries(prevEnquiries => prevEnquiries.filter(e => !shouldRemoveEnquiry(e)));
+      setDisplayEnquiries(prevDisplay => prevDisplay.filter(e => !shouldRemoveEnquiry(e)));
+      setTeamWideEnquiries(prevTeamWide => prevTeamWide.filter(e => !shouldRemoveEnquiry(e)));
 
       // Show success toast
       setToastMessage(`Enquiry deleted`);
@@ -4450,7 +5052,167 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       setTimeout(() => setToastVisible(false), 5000);
       throw error;
     }
+  }, [allEnquiries]);
+
+  const handleShareEnquiry = useCallback(async (enquiry: Enquiry) => {
+    const currentShared = parseSharedWithEmails((enquiry as any).shared_with ?? (enquiry as any).Shared_With ?? '');
+    const teamEmailSet = new Set(shareMemberOptions.map((option) => option.email));
+    const selected = currentShared.filter((email) => teamEmailSet.has(email));
+    const external = currentShared.filter((email) => !teamEmailSet.has(email));
+    setShareModalEnquiry(enquiry);
+    setShareModalSelectedEmails(selected);
+    setShareModalExternalEmails(external);
+    setShareModalSearch('');
+  }, [shareMemberOptions]);
+
+  const toggleShareMemberEmail = useCallback((email: string) => {
+    setShareModalSelectedEmails((prev) => {
+      const normalised = String(email || '').toLowerCase();
+      if (!normalised) return prev;
+      if (prev.includes(normalised)) return prev.filter((entry) => entry !== normalised);
+      return [...prev, normalised];
+    });
   }, []);
+
+  const removeShareExternalEmail = useCallback((email: string) => {
+    const normalised = String(email || '').toLowerCase();
+    setShareModalExternalEmails((prev) => prev.filter((entry) => entry !== normalised));
+  }, []);
+
+  const submitShareModal = useCallback(async () => {
+    if (!shareModalEnquiry) return;
+    const enquiry = shareModalEnquiry;
+    const enquiryId = String(enquiry.ID || (enquiry as any).id || '').trim();
+    if (!enquiryId) return;
+
+    const ownerEmail = String((enquiry as any).Point_of_Contact || (enquiry as any).poc || '').trim().toLowerCase();
+    const currentUserEmail = String(userData?.[0]?.Email || '').trim().toLowerCase();
+    const requestedSharedEmails = parseSharedWithEmails([
+      ...shareModalSelectedEmails,
+      ...shareModalExternalEmails,
+    ]);
+    const nextShared = serialiseSharedWithEmails([...shareModalSelectedEmails, ...shareModalExternalEmails])
+      .split(',')
+      .filter((email) => email && email !== ownerEmail)
+      .join(',');
+
+    setIsShareModalSaving(true);
+
+    try {
+      const candidateIds = new Set<string>([
+        enquiryId,
+        String((enquiry as any).pitchEnquiryId || ''),
+      ].filter(Boolean));
+
+      const applySharedUpdate = (record: NormalizedEnquiry): NormalizedEnquiry => {
+        if (!candidateIds.has(String(record.ID || (record as any).id || ''))) return record;
+        return { ...record, shared_with: nextShared, Shared_With: nextShared };
+      };
+
+      if (demoModeEnabled && isDemoEnquiryId(enquiryId)) {
+        const counterpartDemoId = enquiryId === 'DEMO-ENQ-0001'
+          ? 'DEMO-ENQ-0002'
+          : (enquiryId === 'DEMO-ENQ-0002' ? 'DEMO-ENQ-0001' : null);
+
+        const nextDemoSimulation = { ...demoSharedSimulationById };
+        if (nextShared) nextDemoSimulation[enquiryId] = nextShared;
+        else delete nextDemoSimulation[enquiryId];
+
+        if (counterpartDemoId && currentUserEmail) {
+          const counterpartShared = parseSharedWithEmails(nextDemoSimulation[counterpartDemoId] || '');
+          const requestedIncludesCurrentUser = requestedSharedEmails.includes(currentUserEmail);
+
+          if (requestedIncludesCurrentUser) {
+            const merged = serialiseSharedWithEmails([...counterpartShared, currentUserEmail]);
+            if (merged) nextDemoSimulation[counterpartDemoId] = merged;
+          } else if (!nextShared) {
+            const withoutCurrentUser = counterpartShared.filter((email) => email !== currentUserEmail);
+            const serialised = serialiseSharedWithEmails(withoutCurrentUser);
+            if (serialised) nextDemoSimulation[counterpartDemoId] = serialised;
+            else delete nextDemoSimulation[counterpartDemoId];
+          }
+        }
+
+        setDemoSharedSimulationById(nextDemoSimulation);
+
+        const demoIdsToRefresh = new Set<string>([
+          enquiryId,
+          String((enquiry as any).pitchEnquiryId || ''),
+          counterpartDemoId || '',
+        ].filter(Boolean));
+
+        const applyDemoSharedUpdate = (record: NormalizedEnquiry): NormalizedEnquiry => {
+          const recordId = String(record.ID || (record as any).id || '');
+          if (!demoIdsToRefresh.has(recordId)) return record;
+          const sharedValue = nextDemoSimulation[recordId] || '';
+          return { ...record, shared_with: sharedValue, Shared_With: sharedValue };
+        };
+
+        setAllEnquiries((prev) => prev.map(applyDemoSharedUpdate));
+        setDisplayEnquiries((prev) => prev.map(applyDemoSharedUpdate));
+        setTeamWideEnquiries((prev) => prev.map(applyDemoSharedUpdate));
+
+        setToastMessage('Demo sharing simulated');
+        setToastDetails(nextShared
+          ? 'Shared demo prospect visible for this session (including counterpart)'
+          : 'Demo shared access cleared for this session');
+        setToastType('success');
+        setToastVisible(true);
+        setTimeout(() => setToastVisible(false), 3000);
+        setShareModalEnquiry(null);
+        setShareModalSelectedEmails([]);
+        setShareModalExternalEmails([]);
+        setShareModalSearch('');
+        return;
+      }
+
+      const response = await fetch('/api/enquiries-unified/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildEnquiryMutationPayload(enquiry, { Shared_With: nextShared })),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || `HTTP ${response.status}`);
+      }
+
+      const result = await response.json();
+      const responseCandidateIds = new Set<string>([
+        enquiryId,
+        String(result?.updatedIds?.legacyId || ''),
+        String(result?.updatedIds?.instructionsId || ''),
+        String((enquiry as any).pitchEnquiryId || ''),
+      ].filter(Boolean));
+
+      const applyResponseSharedUpdate = (record: NormalizedEnquiry): NormalizedEnquiry => {
+        if (!responseCandidateIds.has(String(record.ID || (record as any).id || ''))) return record;
+        return { ...record, shared_with: nextShared, Shared_With: nextShared };
+      };
+
+      setAllEnquiries((prev) => prev.map(applyResponseSharedUpdate));
+      setDisplayEnquiries((prev) => prev.map(applyResponseSharedUpdate));
+      setTeamWideEnquiries((prev) => prev.map(applyResponseSharedUpdate));
+
+      setToastMessage('Sharing updated');
+      setToastDetails(nextShared ? `Shared with: ${nextShared}` : 'Removed all shared access');
+      setToastType('success');
+      setToastVisible(true);
+      setTimeout(() => setToastVisible(false), 3000);
+      setShareModalEnquiry(null);
+      setShareModalSelectedEmails([]);
+      setShareModalExternalEmails([]);
+      setShareModalSearch('');
+    } catch (error) {
+      setToastMessage('Failed to update sharing');
+      setToastDetails(error instanceof Error ? error.message : 'Unknown error');
+      setToastType('error');
+      setToastVisible(true);
+      setTimeout(() => setToastVisible(false), 5000);
+    } finally {
+      setIsShareModalSaving(false);
+    }
+  }, [shareModalEnquiry, shareModalSelectedEmails, shareModalExternalEmails, demoModeEnabled, demoSharedSimulationById, userData]);
 
   // Handler to filter by person initials
   const handleFilterByPerson = useCallback((initials: string) => {
@@ -4460,9 +5222,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const filteredEnquiries = useMemo(() => {
     let filtered = dedupedEnquiries; // Use deduped full dataset, not slider range
 
-    const userEmail = userData && userData[0] && userData[0].Email
-      ? userData[0].Email.toLowerCase()
-      : '';
+    const userEmail = effectiveEnquiryIdentity.email;
 
     const effectiveUserEmail = userEmail;
 
@@ -4483,7 +5243,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         const preFilter = filtered;
         filtered = preFilter.filter(enquiry => {
           const poc = norm((enquiry as any).Point_of_Contact || (enquiry as any).poc || '');
-          const matches = userEmailNorm ? poc === userEmailNorm : false;
+          const sharedWith = parseSharedWithEmails((enquiry as any).shared_with ?? (enquiry as any).Shared_With ?? '');
+          const isShared = userEmailNorm ? sharedWith.includes(userEmailNorm) : false;
+          const matches = userEmailNorm ? (poc === userEmailNorm || isShared) : false;
           if (matches) {
             mineItems.push(enquiry);
           }
@@ -4602,18 +5364,42 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     }
 
     // Apply search term filter using debounced value
-    if (debouncedSearchTerm.trim()) {
-      const term = debouncedSearchTerm.toLowerCase();
+    if (normalizedSearchTerm) {
+      const term = normalizedSearchTerm;
       filtered = filtered.filter(enquiry => {
         try {
-          return (
-            (enquiry.First_Name && enquiry.First_Name.toLowerCase().includes(term)) ||
-            (enquiry.Last_Name && enquiry.Last_Name.toLowerCase().includes(term)) ||
-            (enquiry.Email && enquiry.Email.toLowerCase().includes(term)) ||
-            (enquiry.Company && enquiry.Company.toLowerCase().includes(term)) ||
-            (enquiry.Type_of_Work && enquiry.Type_of_Work.toLowerCase().includes(term)) ||
-            (enquiry.ID && String(enquiry.ID).toLowerCase().includes(term))
-          );
+          const firstName = normalizeSearchValue(enquiry.First_Name);
+          const lastName = normalizeSearchValue(enquiry.Last_Name);
+          const fullName = normalizeSearchValue(`${enquiry.First_Name || ''} ${enquiry.Last_Name || ''}`);
+          const email = normalizeSearchEmailArtifacts(enquiry.Email);
+          const company = normalizeSearchValue(enquiry.Company);
+          const typeOfWork = normalizeSearchValue(enquiry.Type_of_Work);
+          const enquiryId = normalizeSearchValue(enquiry.ID);
+          const phoneDigits = toDigitSearchValue(enquiry.Phone_Number);
+
+          const searchableValues = [
+            firstName,
+            lastName,
+            fullName,
+            email,
+            company,
+            typeOfWork,
+            enquiryId,
+          ].filter(Boolean);
+
+          if (email && email === term) {
+            return true;
+          }
+
+          if (numericSearchTerm.length >= 6 && phoneDigits.includes(numericSearchTerm)) {
+            return true;
+          }
+
+          if (searchTokens.length > 1) {
+            return searchTokens.every(token => searchableValues.some(value => value.includes(token)));
+          }
+
+          return searchableValues.some(value => value.includes(term));
         } catch (e) {
           // Safety fallback if any field throws
           return false;
@@ -4696,7 +5482,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     userData,
     activeState,
     selectedAreas,
-    debouncedSearchTerm, // Use debounced value to prevent excessive re-renders
+    normalizedSearchTerm,
+    searchTokens,
+    numericSearchTerm,
     showMineOnly,
     isUnclaimedPoc,
     selectedPersonInitials,
@@ -4785,6 +5573,72 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
     return mutated ? augmented : filteredEnquiries;
   }, [filteredEnquiries, sharedProspectHistoryMap]);
+
+  const isQueueFetchPending = !showMineOnly
+    ? teamWideEnquiries.length === 0 && (isLoadingAllData || !hasFetchedAllData.current)
+    : activeState !== 'Claimed' && teamWideEnquiries.length === 0 && (isLoadingAllData || !hasFetchedAllData.current);
+
+  useEffect(() => {
+    if (showGroupedView || showUnclaimedBoard) {
+      setIsQueueRevealActive(false);
+      clearQueueRevealTimer();
+      return;
+    }
+
+    if (isQueueFetchPending) {
+      queueWasPendingRef.current = true;
+      setIsQueueRevealActive(false);
+      clearQueueRevealTimer();
+      return;
+    }
+
+    if (!queueWasPendingRef.current || filteredEnquiries.length === 0) {
+      return;
+    }
+
+    queueWasPendingRef.current = false;
+    clearQueueRevealTimer();
+
+    const initialLandingCount = Math.min(filteredEnquiries.length, 6);
+    const quickRevealCeiling = Math.min(filteredEnquiries.length, 60);
+
+    setItemsToShow(initialLandingCount);
+
+    if (quickRevealCeiling <= initialLandingCount) {
+      setIsQueueRevealActive(false);
+      return;
+    }
+
+    setIsQueueRevealActive(true);
+
+    const revealNextChunk = () => {
+      setItemsToShow((prev) => {
+        const increment = prev < 18 ? 6 : 12;
+        const next = Math.min(prev + increment, quickRevealCeiling);
+
+        if (next >= quickRevealCeiling) {
+          setIsQueueRevealActive(false);
+          queueRevealTimerRef.current = null;
+        } else {
+          queueRevealTimerRef.current = window.setTimeout(revealNextChunk, 85);
+        }
+
+        return next;
+      });
+    };
+
+    queueRevealTimerRef.current = window.setTimeout(revealNextChunk, 110);
+
+    return clearQueueRevealTimer;
+  }, [
+    activeState,
+    clearQueueRevealTimer,
+    filteredEnquiries.length,
+    isQueueFetchPending,
+    showGroupedView,
+    showUnclaimedBoard,
+    teamWideEnquiries.length,
+  ]);
 
   // Removed pagination logic
   // const indexOfLastEnquiry = currentPage * enquiriesPerPage;
@@ -4929,6 +5783,52 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     return counts;
   }, [displayedItems, viewMode]);
 
+  // ─── New-arrival animation ──────────────────────────────────
+  // After each render with updated displayedItems, detect IDs that
+  // weren't in the previous set and apply a CSS entrance animation
+  // via the DOM.  On the very first render we seed the ref (no animation).
+  useEffect(() => {
+    const currentIds = new Set<string>();
+    for (const item of displayedItems) {
+      if (isGroupedEnquiry(item)) {
+        // Use the group's clientKey as its identity
+        currentIds.add(`group-${item.clientKey}`);
+      } else if ((item as any).ID) {
+        currentIds.add(String((item as any).ID));
+      }
+    }
+
+    if (!initialRenderDoneRef.current) {
+      // First render — seed the ref, no animation
+      prevDisplayedIdsRef.current = currentIds;
+      initialRenderDoneRef.current = true;
+      return;
+    }
+
+    const prev = prevDisplayedIdsRef.current;
+    const newIds: string[] = [];
+    currentIds.forEach(id => {
+      if (!prev.has(id)) newIds.push(id);
+    });
+
+    if (newIds.length > 0 && newIds.length <= 12) {
+      // Apply animation class to newly-arrived rows via DOM
+      // (capped at 12 to avoid mass-animation on filter changes / initial loads)
+      for (const id of newIds) {
+        const el = document.querySelector(`[data-enquiry-id="${CSS.escape(id)}"]`) as HTMLElement | null;
+        if (el) {
+          el.classList.add('prospect-row--new-arrival');
+          el.addEventListener('animationend', () => {
+            el.classList.remove('prospect-row--new-arrival');
+          }, { once: true });
+        }
+      }
+      console.info('[Enquiries] new-arrival animation:', newIds.length, 'items');
+    }
+
+    prevDisplayedIdsRef.current = currentIds;
+  }, [displayedItems]);
+
   const handleLoadMore = useCallback(() => {
     setItemsToShow((prev) => Math.min(prev + 20, filteredEnquiries.length));
   }, [filteredEnquiries.length]);
@@ -4965,8 +5865,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         return; // All visible items already enriched
       }
       
-      // **CRITICAL**: Prefer speed over load; larger batches for faster enrichment
-      const BATCH_LIMIT = 30;
+      // Keep first paint responsive: enrich a smaller visible batch, then let later passes fill in.
+      const BATCH_LIMIT = 12;
       const batchToEnrich = displayedEnquiriesSnapshot.slice(0, BATCH_LIMIT);
       
       // Update UI feedback
@@ -5089,9 +5989,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       }
     };
 
-    // Use longer debounce for large datasets to prevent spam
-    const datasetSize = dedupedEnquiries.length;
-    const debounceTime = 0; // Prioritise speed: enrich immediately
+    const debounceTime = visibleEnquiryIds.size > 8 ? 120 : 80;
     
     const timeoutId = setTimeout(fetchProgressiveEnrichment, debounceTime);
     return () => clearTimeout(timeoutId);
@@ -5104,77 +6002,87 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     enquiryPipelineFilters.size,
   ]); // Removed unstable deps: displayedItems, filteredEnquiries.length, etc.
 
-  // EAGER PRE-FETCH: Immediately enrich the first batch of items on initial data load
-  // This ensures hover data is ready before user even scrolls
+  // EAGER PRE-FETCH: warm a small first slice after first paint so hover data appears quickly
+  // without competing with the initial list render.
   const eagerPrefetchDoneRef = useRef<boolean>(false);
   useEffect(() => {
     // Only run once per data load
     if (eagerPrefetchDoneRef.current || selectedEnquiry || displayedItems.length === 0) return;
     
     const eagerPrefetch = async () => {
-      // Get first 60 items (typical viewport + buffer)
+      // Warm only the first viewport-sized slice.
       const firstBatch = displayedItems
-        .slice(0, 60)
+        .slice(0, 16)
         .filter((item): item is NormalizedEnquiry => 
           'ID' in item && Boolean(item.ID) && !enrichmentMap.has(String(item.ID))
         );
       
       if (firstBatch.length === 0) return;
       
-      // Mark as done immediately to prevent duplicate calls
       eagerPrefetchDoneRef.current = true;
-      
-      // Split into 3 parallel micro-batches for faster response
-      const batchSize = Math.ceil(firstBatch.length / 3);
-      const microBatches = [
-        firstBatch.slice(0, batchSize),
-        firstBatch.slice(batchSize, batchSize * 2),
-        firstBatch.slice(batchSize * 2),
-      ].filter(b => b.length > 0);
-      
-      // Fire all batches in parallel
-      await Promise.all(microBatches.map(async (batch) => {
-        const v2Ids = batch
-          .filter(e => e.__sourceType === 'new' || (e as any).source === 'instructions')
-          .map(e => String(e.ID))
-          .filter(Boolean);
-        
-        const emails = batch
-          .map(e => e.Email)
-          .filter((email): email is string => Boolean(email) && email.toLowerCase() !== 'team@helix-law.com');
-        
-        if (v2Ids.length === 0 && emails.length === 0) return;
-        
-        try {
-          const result = await fetchEnquiryEnrichment(v2Ids, emails);
-          
-          setEnrichmentMap(prev => {
-            const next = new Map(prev);
-            result.enquiryData.forEach((data: EnquiryEnrichmentData) => {
-              next.set(String(data.enquiryId), data);
-            });
-            batch.forEach(e => {
-              if (e.Email && e.ID) {
-                const pitchData = result.pitchByEmail[e.Email.toLowerCase()];
-                if (pitchData) {
-                  const key = String(e.ID);
-                  next.set(key, { ...next.get(key) || { enquiryId: key }, pitchData });
-                }
-              }
-              // Create empty record if no data (stops spinners)
-              const key = String(e.ID);
-              if (!next.has(key)) next.set(key, { enquiryId: key });
-            });
-            return next;
+
+      const v2Ids = firstBatch
+        .filter(e => e.__sourceType === 'new' || (e as any).source === 'instructions')
+        .map(e => String(e.ID))
+        .filter(Boolean);
+
+      const emails = firstBatch
+        .map(e => e.Email)
+        .filter((email): email is string => Boolean(email) && email.toLowerCase() !== 'team@helix-law.com');
+
+      if (v2Ids.length === 0 && emails.length === 0) return;
+
+      try {
+        const result = await fetchEnquiryEnrichment(v2Ids, emails);
+
+        setEnrichmentMap(prev => {
+          const next = new Map(prev);
+          result.enquiryData.forEach((data: EnquiryEnrichmentData) => {
+            next.set(String(data.enquiryId), data);
           });
-        } catch (err) {
-          console.error('[Eager Prefetch] Batch failed:', err);
-        }
-      }));
+          firstBatch.forEach(e => {
+            if (e.Email && e.ID) {
+              const pitchData = result.pitchByEmail[e.Email.toLowerCase()];
+              if (pitchData) {
+                const key = String(e.ID);
+                next.set(key, { ...next.get(key) || { enquiryId: key }, pitchData });
+              }
+            }
+            const key = String(e.ID);
+            if (!next.has(key)) next.set(key, { enquiryId: key });
+          });
+          return next;
+        });
+      } catch (err) {
+        console.error('[Eager Prefetch] Batch failed:', err);
+      }
     };
-    
-    // Fire immediately, no delay
-    eagerPrefetch();
+
+    let timeoutId: ReturnType<typeof globalThis.setTimeout> | null = null;
+    let idleId: number | null = null;
+
+    if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+      idleId = (window as typeof window & {
+        requestIdleCallback: (cb: IdleRequestCallback, options?: IdleRequestOptions) => number;
+      }).requestIdleCallback(() => {
+        eagerPrefetch().catch(() => { /* ignore */ });
+      }, { timeout: 900 });
+    } else {
+      timeoutId = globalThis.setTimeout(() => {
+        eagerPrefetch().catch(() => { /* ignore */ });
+      }, 180);
+    }
+
+    return () => {
+      if (timeoutId !== null) {
+        globalThis.clearTimeout(timeoutId);
+      }
+      if (idleId !== null && typeof window !== 'undefined' && 'cancelIdleCallback' in window) {
+        (window as typeof window & {
+          cancelIdleCallback: (id: number) => void;
+        }).cancelIdleCallback(idleId);
+      }
+    };
   }, [displayedItems.length > 0]); // Only trigger when items first appear
 
   // Reset eager prefetch when filters/view changes significantly
@@ -5186,7 +6094,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   useEffect(() => {
     const observerOptions = {
       root: null, // viewport
-      rootMargin: '800px', // Start enriching much earlier to reduce visible lag
+      rootMargin: '240px',
       threshold: 0.01, // Trigger as soon as 1% is visible
     };
 
@@ -5386,13 +6294,18 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         previousMainTab.current = key;
       }
       setActiveState(key);
-      setActiveSubTab('Pitch');
+      setActiveSubTab('Timeline');
+      // Show initial batch immediately; requestAnimationFrame loads more
+      // without blocking the paint so the tab switch feels instant.
+      // Use a fixed ceiling (not filteredLengthRef) because when toggling
+      // Mine→All the ref still holds the old (small) count until the async
+      // team-wide fetch completes — capping against it would freeze
+      // itemsToShow at the Mine count and the scroll-based loader would
+      // never fire (no overflow).  slice(0, 60) on a smaller array is safe.
       setItemsToShow(20);
-      setTimeout(() => {
-        setItemsToShow((prev) =>
-          Math.min(prev + 40, filteredLengthRef.current)
-        );
-      }, 200);
+      requestAnimationFrame(() => {
+        setItemsToShow(60);
+      });
     },
     []
   );
@@ -5549,6 +6462,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
             featureToggles={featureToggles}
             demoModeEnabled={demoModeEnabled}
             workbenchHandlers={workbenchHandlers}
+            onRequestShareEnquiry={handleShareEnquiry}
             allEnquiries={teamWideEnquiries.length > 0 ? teamWideEnquiries : allEnquiries}
             onSelectEnquiry={handleSelectEnquiryForTimeline}
             onOpenPitchBuilder={(scenarioId) => {
@@ -5670,9 +6584,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       case 'employment':
         return colours.yellow;
       case 'other/unsure':
-        return '#E53935';
+        return colours.greyText;
       default:
-        return colours.cta;
+        return colours.greyText;
     }
   }
 
@@ -5864,7 +6778,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       setManualFilterTransitioning(true);
       manualFilterTransitionTimeoutRef.current = window.setTimeout(() => {
         setManualFilterTransitioning(false);
-      }, 650);
+      }, 350);
     }
   }, [activeState, showMineOnly]);
 
@@ -5904,177 +6818,22 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     if (!selectedEnquiry) {
       debugLog('🔄 Setting new FilterBanner content for Enquiries');
       
-      // Build filter options - admins get Triaged option
-      const baseFilterOptions = ['Claimed', 'Unclaimed'];
-      const filterOptions = isAdmin ? [...baseFilterOptions, 'Triaged'] : baseFilterOptions;
-      
-      const getFilterIcon = (k: string) => {
-        if (k === 'Claimed') {
-          return (
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-              <path d="M3 8.5L6.5 12L13 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-            </svg>
-          );
-        } else if (k === 'Unclaimed') {
-          return (
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-              <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.5" fill="none" />
-              <path d="M8 4V8.5L11 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-            </svg>
-          );
-        } else {
-          // Triaged - filter/funnel icon
-          return (
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-              <path d="M2 3h12l-4.5 5.5V13l-3 1.5V8.5L2 3z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-            </svg>
-          );
-        }
-      };
-
-      // Custom status filter — Claimed is compound (Mine|All), then Unclaimed, then Triaged (admin)
-      // Helix brand: borderRadius 0, brand navy surfaces, accent/highlight active borders
-      const StatusFilterWithScope = () => {
-        const h = 30;
-        const currentState = activeState === 'Claimable' ? 'Unclaimed' : activeState;
-        const isClaimed = currentState === 'Claimed';
-
-        // Shared chip style for Unclaimed / Triaged
-        const chipStyle = (active: boolean, isAdminChip?: boolean): React.CSSProperties => ({
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 5,
-          height: h - 4,
-          padding: '0 10px',
-          background: active
-            ? (isDarkMode ? colours.dark.cardBackground : '#fff')
-            : (isDarkMode ? 'rgba(6,23,51,0.5)' : 'rgba(13,47,96,0.03)'),
-          border: active
-            ? `1px solid ${isDarkMode ? colours.accent : colours.highlight}`
-            : isAdminChip
-              ? `1px solid ${isDarkMode ? 'rgba(255,140,0,0.25)' : 'rgba(255,140,0,0.15)'}`
-              : `1px solid ${isDarkMode ? 'rgba(55,65,81,0.3)' : 'rgba(13,47,96,0.08)'}`,
-          borderRadius: 0,
-          cursor: 'pointer',
-          fontSize: 11,
-          fontWeight: active ? 600 : 500,
-          fontFamily: 'Raleway, sans-serif',
-          letterSpacing: '0.02em',
-          color: active
-            ? (isDarkMode ? '#f3f4f6' : colours.dark.text)
-            : (isDarkMode ? 'rgba(160,160,160,0.7)' : 'rgba(107,107,107,0.7)'),
-          transition: 'all 180ms ease',
-          outline: 'none',
-          whiteSpace: 'nowrap',
-          boxShadow: active
-            ? (isDarkMode ? '0 1px 4px rgba(0,0,0,0.25)' : '0 1px 3px rgba(0,0,0,0.06)')
-            : 'none',
-        });
-
-        // Mine/All style inside Claimed compound chip
-        const scopeStyle = (active: boolean): React.CSSProperties => ({
-          display: 'flex',
-          alignItems: 'center',
-          gap: 4,
-          height: h - 4,
-          padding: '0 8px',
-          background: active
-            ? (isDarkMode ? colours.dark.cardBackground : '#fff')
-            : (isDarkMode ? 'rgba(6,23,51,0.5)' : 'rgba(13,47,96,0.03)'),
-          border: active
-            ? `1px solid ${isDarkMode ? colours.accent : colours.highlight}`
-            : `1px solid ${isDarkMode ? 'rgba(55,65,81,0.3)' : 'rgba(13,47,96,0.08)'}`,
-          borderRadius: 0,
-          cursor: 'pointer',
-          fontSize: 10,
-          fontWeight: 600,
-          fontFamily: 'Raleway, sans-serif',
-          letterSpacing: '0.03em',
-          color: active
-            ? (isDarkMode ? colours.accent : colours.highlight)
-            : (isDarkMode ? 'rgba(135,243,243,0.3)' : 'rgba(54,144,206,0.35)'),
-          transition: 'all 150ms ease',
-          outline: 'none',
-          boxShadow: active
-            ? (isDarkMode ? '0 1px 4px rgba(0,0,0,0.25)' : '0 1px 3px rgba(0,0,0,0.06)')
-            : 'none',
-        });
-
-        // Count badge
-        const badge = (active: boolean): React.CSSProperties => ({
-          padding: '1px 4px',
-          fontSize: 9,
-          fontWeight: 600,
-          lineHeight: 1.2,
-          borderRadius: 0,
-          background: active
-            ? (isDarkMode ? 'rgba(135,243,243,0.12)' : 'rgba(54,144,206,0.10)')
-            : (isDarkMode ? 'rgba(6,23,51,0.6)' : 'rgba(13,47,96,0.05)'),
-        });
-
-        return (
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              height: h,
-              padding: 2,
-              background: isDarkMode ? colours.dark.sectionBackground : 'rgba(0,0,0,0.03)',
-              borderRadius: 0,
-              gap: 1,
-              fontFamily: 'Raleway, sans-serif',
-              userSelect: 'none',
-            }}
-          >
-            {/* Claimed compound: Mine | All — clicking either sets Claimed + scope */}
-            <button type="button" aria-pressed={isClaimed && showMineOnly} onClick={() => { handleSetActiveState('Claimed'); setShowMineOnly(true); }} title={`My claimed (${scopeCounts.mineCount || 0})`} style={scopeStyle(isClaimed && showMineOnly)}>
-              <span style={{ display: 'flex', alignItems: 'center' }}>{getFilterIcon('Claimed')}</span>
-              <span>MINE</span>
-              <span style={badge(isClaimed && showMineOnly)}>{scopeCounts.mineCount}</span>
-            </button>
-            <button type="button" aria-pressed={isClaimed && !showMineOnly} onClick={() => { handleSetActiveState('Claimed'); setShowMineOnly(false); }} title={`All claimed${scopeCounts.allCount !== null ? ` (${scopeCounts.allCount})` : ''}`} style={scopeStyle(isClaimed && !showMineOnly)}>
-              <span>ALL</span>
-              <span style={badge(isClaimed && !showMineOnly)}>
-                {scopeCounts.allCount !== null ? (
-                  <span style={{ display: 'inline-block' }}>
-                    {scopeCounts.allCount.toLocaleString()}
-                  </span>
-                ) : (
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, animation: 'badge-breathe 1.6s ease-in-out infinite' }}>
-                    <span style={{ width: 3, height: 3, borderRadius: '50%', background: 'currentColor' }} />
-                    <span style={{ width: 3, height: 3, borderRadius: '50%', background: 'currentColor' }} />
-                  </span>
-                )}
-              </span>
-            </button>
-
-            {/* Divider */}
-            <div style={{ width: 1, height: h - 12, background: isDarkMode ? colours.dark.border : 'rgba(0,0,0,0.08)', margin: '0 3px' }} />
-
-            {/* Unclaimed */}
-            <button type="button" aria-pressed={currentState === 'Unclaimed'} onClick={() => handleSetActiveState('Claimable')} style={chipStyle(currentState === 'Unclaimed')}>
-              <span style={{ display: 'flex', alignItems: 'center' }}>{getFilterIcon('Unclaimed')}</span>
-              <span>Unclaimed</span>
-            </button>
-
-            {/* Triaged (admin) */}
-            {isAdmin && (
-              <button type="button" aria-pressed={currentState === 'Triaged'} onClick={() => handleSetActiveState('Triaged')} title="Admin only" style={chipStyle(currentState === 'Triaged', true)}>
-                <span style={{ display: 'flex', alignItems: 'center' }}>{getFilterIcon('Triaged')}</span>
-                <span>Triaged</span>
-              </button>
-            )}
-          </div>
-        );
-      };
-      
       setContent(
         <FilterBanner
           dense
           collapsibleSearch
           sticky={false}
-          primaryFilter={<StatusFilterWithScope />}
+          primaryFilter={
+            <StatusFilterWithScope
+              isDarkMode={isDarkMode}
+              activeState={activeState}
+              showMineOnly={showMineOnly}
+              scopeCounts={scopeCounts}
+              isAdmin={isAdmin}
+              onSetActiveState={handleSetActiveState}
+              onSetShowMineOnly={setShowMineOnly}
+            />
+          }
           secondaryFilter={(
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               {userData && userData[0]?.AOW && (
@@ -6085,107 +6844,57 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                   ariaLabel="Filter enquiries by area of work"
                 />
               )}
-              {/* People Search button */}
-              <button
-                type="button"
-                title="Search people across all records"
-                aria-label="Search people"
-                onClick={() => setIsPeopleSearchOpen(true)}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 5,
-                  height: 26,
-                  padding: '0 10px',
-                  borderRadius: 0,
-                  border: `1px solid ${isDarkMode ? 'rgba(135,243,243,0.25)' : 'rgba(54,144,206,0.25)'}`,
-                  background: isDarkMode ? 'rgba(135,243,243,0.06)' : 'rgba(54,144,206,0.05)',
-                  cursor: 'pointer',
-                  fontSize: 11,
-                  fontFamily: 'Raleway, sans-serif',
-                  color: isDarkMode ? colours.accent : colours.highlight,
-                  fontWeight: 600,
-                  letterSpacing: '0.02em',
-                  transition: 'all 180ms ease',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = isDarkMode ? 'rgba(135,243,243,0.12)' : 'rgba(54,144,206,0.10)';
-                  e.currentTarget.style.borderColor = isDarkMode ? colours.accent : colours.highlight;
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = isDarkMode ? 'rgba(135,243,243,0.06)' : 'rgba(54,144,206,0.05)';
-                  e.currentTarget.style.borderColor = isDarkMode ? 'rgba(135,243,243,0.25)' : 'rgba(54,144,206,0.25)';
-                }}
-              >
-                <Icon iconName="Search" style={{ fontSize: 12 }} />
-                <span>Find Person</span>
-              </button>
-              {/* Add Contact button */}
-              <button
-                type="button"
-                title="Add new contact/enquiry"
-                aria-label="Add new contact"
-                onClick={() => setIsCreateContactModalOpen(true)}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 5,
-                  height: 26,
-                  padding: '0 10px',
-                  borderRadius: 0,
-                  border: `1px solid ${isDarkMode ? 'rgba(135,243,243,0.25)' : 'rgba(54,144,206,0.25)'}`,
-                  background: isDarkMode ? 'rgba(135,243,243,0.06)' : 'rgba(54,144,206,0.05)',
-                  cursor: 'pointer',
-                  fontSize: 11,
-                  fontFamily: 'Raleway, sans-serif',
-                  color: isDarkMode ? colours.accent : colours.highlight,
-                  fontWeight: 600,
-                  letterSpacing: '0.02em',
-                  transition: 'all 180ms ease',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = isDarkMode ? 'rgba(135,243,243,0.12)' : 'rgba(54,144,206,0.10)';
-                  e.currentTarget.style.borderColor = isDarkMode ? colours.accent : colours.highlight;
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = isDarkMode ? 'rgba(135,243,243,0.06)' : 'rgba(54,144,206,0.05)';
-                  e.currentTarget.style.borderColor = isDarkMode ? 'rgba(135,243,243,0.25)' : 'rgba(54,144,206,0.25)';
-                }}
-              >
-                <Icon iconName="AddFriend" style={{ fontSize: 12 }} />
-                <span>Add Contact</span>
-              </button>
+              {/* People Search button (local dev only — not ready for production) */}
+              {isLocalhost && (
+                <button
+                  type="button"
+                  className="enq-action-btn"
+                  title="Search people across all records"
+                  aria-label="Search people"
+                  onClick={() => setIsPeopleSearchOpen(true)}
+                >
+                  <Icon iconName="Search" style={{ fontSize: 12 }} />
+                  <span>Find Person</span>
+                </button>
+              )}
             </div>
           )}
           search={{
-            value: searchInputValue,
+            value: debouncedSearchTerm,
             onChange: handleSearchChange,
-            placeholder: "Search (name, email, company, type, ID)"
+            placeholder: "Search (name, email, company, type, ID)",
+            debounceMs: 250,
           }}
           middleActions={undefined}
+          rightActions={
+            <button
+              type="button"
+              className="enq-add-contact-btn"
+              title="Add new contact/enquiry"
+              aria-label="Add new contact"
+              onClick={() => setIsCreateContactModalOpen(true)}
+            >
+              <Icon iconName="AddFriend" style={{ fontSize: 14 }} />
+              <span className="enq-add-contact-label">Add Contact</span>
+            </button>
+          }
           refresh={{
             onRefresh: handleManualRefresh,
-            isLoading: isRefreshing,
-            nextUpdateTime: nextRefreshIn ? formatTimeRemaining(nextRefreshIn) : undefined,
-            progressPercentage: (nextRefreshIn / (5 * 60)) * 100, // 0-100% remaining
+            isLoading: isRefreshing || isRealtimeQueueSyncing,
+            statusLabel: !isRefreshing && !isRealtimeQueueSyncing
+              ? (sseConnected ? 'Live' : 'Reconnecting')
+              : undefined,
+            nextUpdateTime: undefined,
+            progressPercentage: undefined,
           }}
         >
           {selectedPersonInitials && (
             <div
+              className="enq-person-tag"
               style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                height: 26,
-                padding: '0 10px',
-                borderRadius: 0,
                 border: `1px solid ${isDarkMode ? 'rgba(135,243,243,0.3)' : colours.highlight + '40'}`,
                 background: isDarkMode ? 'rgba(135,243,243,0.08)' : 'rgba(54,144,206,0.08)',
-                fontSize: 11,
-                fontFamily: 'Raleway, sans-serif',
                 color: isDarkMode ? colours.accent : colours.highlight,
-                fontWeight: 600,
-                letterSpacing: '0.02em',
               }}
             >
               <Icon iconName="Contact" style={{ fontSize: 14 }} />
@@ -6193,22 +6902,12 @@ const Enquiries: React.FC<EnquiriesProps> = ({
               <button
                 onClick={() => setSelectedPersonInitials(null)}
                 title="Clear person filter"
+                className="enq-person-close"
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  width: 16,
-                  height: 16,
-                  border: 'none',
-                  background: 'transparent',
-                  cursor: 'pointer',
-                  padding: 0,
-                  color: colours.highlight,
-                  opacity: 0.7,
-                  transition: 'opacity 0.2s',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  width: 16, height: 16, border: 'none', background: 'transparent',
+                  padding: 0, color: colours.highlight, cursor: 'pointer',
                 }}
-                onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.7'; }}
               >
                 <Icon iconName="Cancel" style={{ fontSize: 12 }} />
               </button>
@@ -6238,20 +6937,21 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     selectedEnquiry,
     activeState,
     selectedAreas,
-    searchInputValue,
+    scopeCounts,
+    debouncedSearchTerm,
     userData,
     isAdmin,
-    isLocalhost,
     showMineOnly,
-    twoColumn,
     activeSubTab,
-    showDealCapture,
-    handleSubTabChange,
     handleBackToList,
+    handleSetActiveState,
+    handleManualAreaChange,
+    isLocalhost,
     isRefreshing,
     nextRefreshIn,
     formatTimeRemaining,
     handleManualRefresh,
+    selectedPersonInitials,
   ]);
 
   // ─── Prop bundles for <ProspectTableRow /> ──────────────────
@@ -6268,9 +6968,10 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     getScenarioColor,
   };
   const rowActionHandlers: RowActionHandlers = {
-    handleSelectEnquiryToPitch,
+    handleSelectEnquiry,
     handleRate,
     handleDeleteEnquiry,
+    handleShareEnquiry,
     handleCopyName,
     setEditingEnquiry,
     setShowEditModal,
@@ -6306,6 +7007,137 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     combineDateAndTime,
   };
 
+  const shouldShowBlockingProspectsOverlay = enquiries === null;
+  const isAwaitingQueueDataset = (
+    !showMineOnly || activeState !== 'Claimed'
+  )
+    && teamWideEnquiries.length === 0
+    && (isLoadingAllData || !hasFetchedAllData.current);
+  const hasActiveUserFilters = enquiryPipelineFilters.size > 0
+    || Boolean(selectedPocFilter)
+    || Boolean(debouncedSearchTerm)
+    || Boolean(selectedPersonInitials)
+    || (selectedAreas.length > 0 && userManuallyChangedAreas);
+  const prospectsLoadingLabel = enquiries === null
+    ? 'Loading prospects…'
+    : isRealtimeQueueSyncing
+      ? 'Pulling latest enquiries…'
+      : isAwaitingQueueDataset
+        ? (showMineOnly && activeState !== 'Claimed' ? 'Loading your live queue…' : 'Loading all prospects…')
+        : isLoadingAllData
+          ? 'Loading all prospects…'
+          : 'Updating view...';
+
+  const renderQueueLoadingSkeleton = (variant: 'blocking' | 'inline') => {
+    const rowCount = variant === 'blocking' ? 6 : 5;
+    const containerWidth = variant === 'blocking' ? 'min(1080px, calc(100vw - 48px))' : '100%';
+
+    return (
+      <div style={{
+        width: containerWidth,
+        maxWidth: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 10,
+        padding: variant === 'blocking' ? '18px 18px 16px' : '0',
+        border: variant === 'blocking'
+          ? `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.55)' : 'rgba(54, 144, 206, 0.12)'}`
+          : 'none',
+        background: variant === 'blocking'
+          ? (isDarkMode ? 'rgba(8, 28, 48, 0.96)' : 'rgba(255, 255, 255, 0.9)')
+          : 'transparent',
+        boxShadow: variant === 'blocking'
+          ? (isDarkMode ? '0 18px 36px rgba(0, 0, 0, 0.45)' : '0 18px 36px rgba(6, 23, 51, 0.12)')
+          : 'none',
+        backdropFilter: variant === 'blocking' ? 'blur(12px)' : 'none',
+      }}>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+          padding: variant === 'blocking' ? '0 2px 4px' : '0 0 6px',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{
+              width: 8,
+              height: 8,
+              borderRadius: '50%',
+              background: isDarkMode ? colours.accent : colours.highlight,
+              boxShadow: `0 0 0 4px ${isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(54, 144, 206, 0.12)'}`,
+              animation: 'pipeline-action-pulse 1s ease-in-out infinite',
+            }} />
+            <div style={{
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+              color: isDarkMode ? colours.accent : colours.highlight,
+            }}>
+              Live Queue
+            </div>
+          </div>
+          <div style={{
+            fontSize: 11,
+            color: isDarkMode ? '#d1d5db' : '#374151',
+            fontWeight: 500,
+          }}>
+            Rows land as they arrive
+          </div>
+        </div>
+
+        {Array.from({ length: rowCount }, (_, idx) => {
+          const isLeadingRow = idx === 0;
+          const rowOpacity = isLeadingRow ? 1 : 0.72 - (idx * 0.08);
+          const animationDelay = `${idx * 0.07}s`;
+
+          return (
+            <div
+              key={`${variant}-queue-skeleton-${idx}`}
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '84px 88px minmax(0, 1.2fr) minmax(0, 1fr) 110px',
+                gap: 12,
+                alignItems: 'center',
+                minHeight: 62,
+                padding: '12px 14px',
+                border: `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.38)' : 'rgba(54, 144, 206, 0.10)'}`,
+                background: isDarkMode ? 'rgba(10, 28, 50, 0.95)' : 'rgba(244, 244, 246, 0.7)',
+                opacity: Math.max(0.28, rowOpacity),
+                animation: 'fadeIn 0.24s ease both',
+                animationDelay,
+              }}
+            >
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div style={{ height: 10, width: isLeadingRow ? 60 : 52, background: isDarkMode ? 'rgba(255,255,255,0.14)' : 'rgba(6,23,51,0.08)' }} />
+                <div style={{ height: 8, width: isLeadingRow ? 44 : 36, background: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(6,23,51,0.05)' }} />
+              </div>
+              <div style={{ height: 22, width: isLeadingRow ? 72 : 66, background: isDarkMode ? 'rgba(135,243,243,0.12)' : 'rgba(54,144,206,0.10)', border: `1px solid ${isDarkMode ? 'rgba(135,243,243,0.22)' : 'rgba(54,144,206,0.16)'}` }} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 7, minWidth: 0 }}>
+                <div style={{ height: 11, width: isLeadingRow ? '62%' : '54%', background: isDarkMode ? 'rgba(255,255,255,0.16)' : 'rgba(6,23,51,0.10)' }} />
+                <div style={{ height: 8, width: isLeadingRow ? '40%' : '32%', background: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(6,23,51,0.05)' }} />
+              </div>
+              <div style={{ display: 'flex', gap: 6, minWidth: 0 }}>
+                {Array.from({ length: 4 }, (_, chipIdx) => (
+                  <div key={chipIdx} style={{
+                    flex: chipIdx === 0 ? '0 0 54px' : '0 0 34px',
+                    height: 18,
+                    background: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(6,23,51,0.05)',
+                    border: `1px solid ${isDarkMode ? 'rgba(160,160,160,0.16)' : 'rgba(160,160,160,0.12)'}`,
+                  }} />
+                ))}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                <div style={{ width: 56, height: 22, background: isDarkMode ? 'rgba(32,178,108,0.10)' : 'rgba(32,178,108,0.08)', border: `1px solid ${isDarkMode ? 'rgba(32,178,108,0.18)' : 'rgba(32,178,108,0.14)'}` }} />
+                <div style={{ width: 28, height: 22, background: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(6,23,51,0.05)' }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
   return (
     <div className={containerStyle(isDarkMode)}>
       {/* Toast Notification - Using OperationStatusToast for real-time feedback */}
@@ -6317,6 +7149,39 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         icon={toastType === 'success' ? 'CheckMark' : undefined}
       />
 
+      {/* SSE disconnect indicator */}
+      {!sseConnected && (
+        <div style={{
+          position: 'absolute',
+          top: 8,
+          right: 12,
+          zIndex: 100,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          padding: '4px 10px',
+          borderRadius: 999,
+          fontSize: 11,
+          fontFamily: 'Raleway, sans-serif',
+          fontWeight: 600,
+          letterSpacing: '0.3px',
+          color: isDarkMode ? colours.orange : '#6B6B6B',
+          background: isDarkMode ? 'rgba(255,140,0,0.10)' : 'rgba(255,140,0,0.08)',
+          border: `1px solid ${isDarkMode ? 'rgba(255,140,0,0.25)' : 'rgba(255,140,0,0.20)'}`,
+          pointerEvents: 'none',
+          animation: 'sse-reconnect-pulse 2s ease-in-out infinite',
+        }}>
+          <span style={{
+            width: 6,
+            height: 6,
+            borderRadius: '50%',
+            background: colours.orange,
+            display: 'inline-block',
+          }} />
+          Reconnecting…
+        </div>
+      )}
+
       {demoOverlayVisible && (
         <div style={{
           position: 'absolute',
@@ -6324,8 +7189,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
           left: 0,
           right: 0,
           bottom: 0,
-          backgroundColor: isDarkMode ? 'rgba(2, 6, 23, 0.35)' : 'rgba(255, 255, 255, 0.35)',
-          backdropFilter: 'blur(1px)',
+          backgroundColor: isDarkMode ? 'rgba(0, 3, 25, 0.6)' : 'rgba(255, 255, 255, 0.45)',
+          backdropFilter: 'blur(2px)',
           zIndex: 120,
           display: 'flex',
           alignItems: 'center',
@@ -6337,16 +7202,16 @@ const Enquiries: React.FC<EnquiriesProps> = ({
             flexDirection: 'column',
             gap: 6,
             padding: '14px 22px',
-            borderRadius: 8,
-            background: isDarkMode ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
-            boxShadow: isDarkMode ? '0 4px 20px rgba(0, 0, 0, 0.4)' : '0 4px 20px rgba(0, 0, 0, 0.15)',
-            border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'}`,
+            borderRadius: 0,
+            background: isDarkMode ? colours.darkBlue : colours.light.cardBackground,
+            boxShadow: isDarkMode ? '0 4px 20px rgba(0, 0, 0, 0.5)' : '0 4px 20px rgba(0, 0, 0, 0.12)',
+            border: `1px solid ${isDarkMode ? colours.dark.border : 'rgba(0, 0, 0, 0.08)'}`,
             maxWidth: 420,
           }}>
             <div style={{
               fontSize: 13,
               fontWeight: 600,
-              color: isDarkMode ? 'rgba(255, 255, 255, 0.85)' : 'rgba(0, 0, 0, 0.7)',
+              color: isDarkMode ? colours.dark.text : colours.darkBlue,
               fontFamily: 'Raleway, sans-serif',
             }}>
               {demoOverlayMessage}
@@ -6354,7 +7219,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
             {demoOverlayDetails && (
               <div style={{
                 fontSize: 11,
-                color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.6)',
+                color: isDarkMode ? colours.subtleGrey : colours.greyText,
                 fontFamily: 'Raleway, sans-serif',
               }}>
                 {demoOverlayDetails}
@@ -6364,50 +7229,23 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         </div>
       )}
 
-      {/* Processing overlay when transitioning between filter states, loading all data, or initial load */}
-      {/* Don't show loading overlay during background prefetch (user already has prop data visible) */}
-      {(isFilterTransitioning || manualFilterTransitioning || (isLoadingAllData && displayEnquiries.length === 0) || enquiries === null) && (
+      {/* Blocking overlay only for first load; later transitions should stay interactive. */}
+      {shouldShowBlockingProspectsOverlay && (
         <div style={{
           position: 'fixed',
           top: 0,
           left: 0,
           right: 0,
           bottom: 0,
-          backgroundColor: isDarkMode ? 'rgba(2, 6, 23, 0.4)' : 'rgba(255, 255, 255, 0.4)',
-          backdropFilter: 'blur(1px)',
+          backgroundColor: isDarkMode ? 'rgba(0, 3, 25, 0.6)' : 'rgba(255, 255, 255, 0.45)',
+          backdropFilter: 'blur(2px)',
           zIndex: 100,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           pointerEvents: 'none',
         }}>
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            padding: '12px 20px',
-            borderRadius: 8,
-            background: isDarkMode ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
-            boxShadow: isDarkMode ? '0 4px 20px rgba(0, 0, 0, 0.4)' : '0 4px 20px rgba(0, 0, 0, 0.15)',
-            border: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'}`,
-          }}>
-            <div style={{
-              width: 16,
-              height: 16,
-              border: `2px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(54, 144, 206, 0.2)'}`,
-              borderTopColor: colours.highlight,
-              borderRadius: '50%',
-              animation: 'spin 0.7s linear infinite',
-            }} />
-            <span style={{
-              fontSize: 13,
-              fontWeight: 500,
-              color: isDarkMode ? 'rgba(255, 255, 255, 0.85)' : 'rgba(0, 0, 0, 0.7)',
-              fontFamily: 'Raleway, sans-serif',
-            }}>
-              {enquiries === null ? 'Loading prospects…' : (isLoadingAllData && displayEnquiries.length === 0) ? 'Loading prospects…' : 'Updating view...'}
-            </span>
-          </div>
+          {renderQueueLoadingSkeleton('blocking')}
         </div>
       )}
 
@@ -6450,14 +7288,21 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         })}
       >
         {selectedEnquiry ? (
-          renderDetailView(selectedEnquiry)
+          <div
+            key={`detail-${selectedEnquiry.ID}`}
+            style={{
+              animation: 'prospect-detail-enter 0.2s ease-out both',
+            }}
+          >
+            {renderDetailView(selectedEnquiry)}
+          </div>
         ) : (
           <>
                   {/* Show loading state for triaged enquiries when data is being fetched */}
                   {activeState === 'Triaged' && !triagedDataLoaded ? (
                     <LoadingState
-                      message="Loading triage data"
-                      subMessage="Fetching pitch information from across all enquiries..."
+                      message="Preparing your triage queue"
+                      subMessage="Getting everything ready — this will only take a moment."
                       size="md"
                       icon={
                         <svg width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -6465,10 +7310,12 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                         </svg>
                       }
                     />
+                  ) : isAwaitingQueueDataset ? (
+                    renderQueueLoadingSkeleton('inline')
                   ) :filteredEnquiries.length === 0 ? (
                     <EmptyState
                       title={
-                        enquiryPipelineFilters.size > 0 || selectedPocFilter || debouncedSearchTerm || selectedAreas.length > 0 || selectedPersonInitials
+                        hasActiveUserFilters
                           ? 'No matching enquiries'
                           : activeState === 'Claimed' && showMineOnly
                           ? 'No claimed enquiries yet'
@@ -6479,7 +7326,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                           : 'No enquiries found'
                       }
                       description={
-                        enquiryPipelineFilters.size > 0 || selectedPocFilter || debouncedSearchTerm || selectedAreas.length > 0 || selectedPersonInitials
+                        hasActiveUserFilters
                           ? 'No enquiries match your current filters. Try adjusting or clearing your filters to see more results.'
                           : activeState === 'Claimed' && showMineOnly
                           ? 'You haven\'t claimed any enquiries yet. Check the claimable section to get started.'
@@ -6490,13 +7337,13 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                           : 'Try adjusting your date range or filters.'
                       }
                       illustration={
-                        enquiryPipelineFilters.size > 0 || selectedPocFilter || debouncedSearchTerm || selectedAreas.length > 0 || selectedPersonInitials
+                        hasActiveUserFilters
                           ? 'filter'
                           : activeState === 'Triaged' ? 'filter' : 'search'
                       }
                       size="md"
                       action={
-                        (enquiryPipelineFilters.size > 0 || selectedPocFilter || debouncedSearchTerm || selectedAreas.length > 0 || selectedPersonInitials)
+                        hasActiveUserFilters
                           ? {
                               label: 'Clear All Filters',
                               onClick: () => {
@@ -6600,7 +7447,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                         fontFamily: 'Raleway, "Segoe UI", sans-serif',
                         fontSize: '11px',
                         fontWeight: 600,
-                        color: isDarkMode ? colours.grey : colours.highlight,
+                        color: isDarkMode ? colours.dark.text : colours.highlight,
                         textTransform: 'uppercase',
                         letterSpacing: '0.5px',
                         boxShadow: isDarkMode 
@@ -6622,7 +7469,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                           styles={{
                             root: {
                               fontSize: 12,
-                              color: isDarkMode ? colours.grey : colours.highlight,
+                              color: isDarkMode ? colours.accent : colours.highlight,
                               opacity: 0.7,
                             },
                           }}
@@ -6823,7 +7670,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                         <span style={{ 
                                           fontSize: 10, 
                                           fontWeight: 600, 
-                                          color: isDarkMode ? colours.grey : colours.highlight, 
+                                          color: isDarkMode ? colours.accent : colours.highlight, 
                                           textTransform: 'uppercase',
                                           whiteSpace: 'nowrap',
                                           overflow: 'hidden',
@@ -6831,7 +7678,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                         }}>
                                           {pipelineChipLabelMode === 'icon' ? 'POC' : 'CLAIMER'}
                                         </span>
-                                        <Icon iconName="ChevronDown" styles={{ root: { fontSize: 8, color: isDarkMode ? colours.grey : colours.highlight, opacity: 0.5, flexShrink: 0 } }} />
+                                        <Icon iconName="ChevronDown" styles={{ root: { fontSize: 8, color: isDarkMode ? colours.accent : colours.highlight, opacity: 0.5, flexShrink: 0 } }} />
                                 </div>
                               ) : (
                               (() => {
@@ -6846,7 +7693,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                   return teamMember?.Initials || selectedPocFilter.split('@')[0]?.slice(0, 2).toUpperCase() || 'POC';
                                 };
 
-                                const filterColor = isDarkMode ? colours.grey : colours.highlight;
+                                const filterColor = isDarkMode ? colours.accent : colours.highlight;
 
                                 if (!showMineOnly) {
                                   const pocOptions = pocOptionsMemo.options;
@@ -6984,7 +7831,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                   const mineIsFiltered = isFilteredToMe;
                                   const mineFilterColor = mineIsFiltered
                                     ? colours.highlight
-                                    : (isDarkMode ? colours.grey : colours.highlight);
+                                    : (isDarkMode ? colours.accent : colours.highlight);
 
                                   return (
                                     <button
@@ -7035,9 +7882,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               const filterState = getEnquiryStageFilterState('pitched');
                               const hasFilter = filterState !== null;
                               const getFilterColor = () => {
-                                if (!filterState) return isDarkMode ? colours.grey : colours.highlight;
-                                if (filterState === 'yes') return '#20b26c';
-                                if (filterState === 'no') return '#D65541';
+                                if (!filterState) return isDarkMode ? colours.accent : colours.highlight;
+                                if (filterState === 'yes') return colours.green;
+                                if (filterState === 'no') return colours.cta;
                                 return colours.highlight;
                               };
                               const filterColor = getFilterColor();
@@ -7101,8 +7948,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               const filterState = getEnquiryStageFilterState(stage);
                               const hasFilter = filterState !== null;
                               const filterColor = !filterState
-                                ? (isDarkMode ? colours.grey : colours.highlight)
-                                : (filterState === 'yes' ? '#20b26c' : '#D65541');
+                                ? (isDarkMode ? colours.accent : colours.highlight)
+                                : (filterState === 'yes' ? colours.green : colours.cta);
                               const stateLabel = filterState === 'yes' ? `Has ${label.toLowerCase()}` : filterState === 'no' ? `No ${label.toLowerCase()}` : null;
                               const nextState = !filterState ? 'has' : filterState === 'yes' ? 'missing' : 'clear filter';
 
@@ -7294,7 +8141,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                       </div>
                     </div>
 
-                    {/* Data Rows - mapped directly in same container */}
+                    {/* Data Rows - keyed wrapper for crossfade on filter change */}
+                    <div key={`rows-${activeState}-${showMineOnly}`} className="prospect-content-fade">
                     {displayedItems.map((item, idx) => {
                       const isLast = idx === displayedItems.length - 1;
                       
@@ -7303,7 +8151,22 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                         // For grouped enquiries, show summary info only
                         const latestEnquiry = item.enquiries[0]; // Most recent enquiry in the group
                         
-                        const contactName = item.clientName;
+                        // Enrich group name from instruction data when enquiry surname is missing
+                        const contactName = (() => {
+                          const raw = item.clientName;
+                          // If surname appears absent, try enriching from instruction data
+                          const parts = raw.split(/\s+/);
+                          if (parts.length <= 1) {
+                            // Look for any instruction in the group's enquiries
+                            for (const enq of item.enquiries) {
+                              const wb = getEnquiryWorkbenchItem(enq);
+                              const instFirst = (wb?.instruction?.FirstName || '').trim();
+                              const instLast = (wb?.instruction?.LastName || '').trim();
+                              if (instFirst && instLast) return `${instFirst} ${instLast}`;
+                            }
+                          }
+                          return raw;
+                        })();
                         const dateReceived = item.latestDate;
 
                         const claimerSummary = item.enquiries.reduce<Record<string, { count: number; label: string; fullName: string }>>((acc, enq) => {
@@ -7359,6 +8222,11 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                           }
                         }
                         const groupIsLastInDay = !groupNextItem || groupToDayKey(groupNextDateStr) !== thisDayKey;
+                        // Check if any enquiry in this group has been converted / matter opened
+                        const groupHasConverted = item.enquiries.some((enq: any) => {
+                          const wb = getEnquiryWorkbenchItem(enq);
+                          return Boolean(wb?.instruction?.MatterId || (wb?.matters && wb.matters.length > 0));
+                        });
                         return (
                           <React.Fragment key={item.clientKey}>
                           {/* Day separator with timeline dot */}
@@ -7429,6 +8297,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                           {/* Skip row if day is collapsed */}
                           {!isDayCollapsed && (
                           <div
+                            data-enquiry-id={`group-${item.clientKey}`}
                             data-row-parity={idx % 2 === 0 ? 'even' : 'odd'}
                             style={{
                               gridTemplateColumns: TABLE_GRID_TEMPLATE_COLUMNS,
@@ -7436,7 +8305,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                 ? `1px solid ${isDarkMode ? 'rgba(55, 65, 81, 0.28)' : 'rgba(0, 0, 0, 0.06)'}`
                                 : 'none',
                             }}
-                            className="prospect-row"
+                            className={`prospect-row${groupHasConverted ? ' prospect-row--converted' : ''}`}
                             onClick={(e) => {
                               // Toggle group expansion
                               const groupKey = item.clientKey;
@@ -7505,8 +8374,11 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                 }}>
                                   Prospect
                                 </div>
-                                <div style={{ fontWeight: 600, fontSize: '13px', color: isDarkMode ? '#f3f4f6' : '#061733' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, fontSize: '13px', color: groupHasConverted ? colours.green : (isDarkMode ? '#f3f4f6' : '#061733') }}>
                                   {contactName}
+                                  {groupHasConverted && (
+                                    <Icon iconName="CompletedSolid" styles={{ root: { fontSize: 9, color: colours.green, opacity: 0.7 } }} />
+                                  )}
                                 </div>
                                 {latestEnquiry.Company && (
                                   <div style={{ 
@@ -7554,8 +8426,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                           {!isDayCollapsed && expandedGroupsInTable.has(item.clientKey) && item.enquiries.map((childEnquiry: Enquiry, childIdx: number) => {
                             const childAOW = childEnquiry.Area_of_Work || 'Unspecified';
                             const childValue = childEnquiry.Value || '';
-                            const childContactName = `${childEnquiry.First_Name || ''} ${childEnquiry.Last_Name || ''}`.trim() || 'Unknown';
-                            const childCompanyName = childEnquiry.Company || '';
                             const childIsV2 = (childEnquiry as any).__sourceType === 'new' || (childEnquiry as any).source === 'instructions';
                             const childEnrichmentData = enrichmentMap.get(String(childEnquiry.ID));
                             const childTeamsLink = (childEnrichmentData?.teamsData as any)?.teamsLink as string | undefined;
@@ -7564,6 +8434,26 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                             const childNotesExpanded = expandedNotesInTable.has(childNoteKey);
                             const childInlineWorkbenchItem = getEnquiryWorkbenchItem(childEnquiry);
                             const childHasInlineWorkbench = Boolean(childInlineWorkbenchItem);
+                            // Detect converted / matter-opened child enquiry
+                            const childIsConverted = Boolean(
+                              childInlineWorkbenchItem?.instruction?.MatterId ||
+                              (childInlineWorkbenchItem?.matters && childInlineWorkbenchItem.matters.length > 0)
+                            );
+
+                            // Enrich name from instruction data when the enquiry source is incomplete
+                            const rawFirst = (childEnquiry.First_Name || '').trim();
+                            const rawLast = (childEnquiry.Last_Name || '').trim();
+                            const instFirst = (childInlineWorkbenchItem?.instruction?.FirstName || '').trim();
+                            const instLast = (childInlineWorkbenchItem?.instruction?.LastName || '').trim();
+                            const childContactName = (() => {
+                              // Prefer instruction name when enquiry surname is missing but instruction has it
+                              if (!rawLast && instFirst && instLast) {
+                                return `${instFirst} ${instLast}`;
+                              }
+                              return `${rawFirst} ${rawLast}`.trim() || 'Unknown';
+                            })();
+                            const childDisplayId = (childEnquiry as any).acid || childEnquiry.ID;
+                            const childCompanyName = childEnquiry.Company || '';
                             const childPocIdentifier = childEnquiry.Point_of_Contact || (childEnquiry as any).poc || '';
                             const childPocEmail = childPocIdentifier.toLowerCase();
                             const childIsTeamInboxPoc = isUnclaimedPoc(childPocEmail);
@@ -7590,9 +8480,12 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               <React.Fragment key={`${childEnquiry.ID}-${childEnquiry.First_Name || ''}-${childEnquiry.Last_Name || ''}-${childEnquiry.Touchpoint_Date || ''}-${childEnquiry.Point_of_Contact || ''}`}>
                               <div
                                 key={`item-${childEnquiry.ID}-${childEnquiry.First_Name || ''}-${childEnquiry.Last_Name || ''}-${childEnquiry.Touchpoint_Date || ''}-${childEnquiry.Point_of_Contact || ''}`}
-                                className={(hoveredRowKey === childRowHoverKey || hoveredDayKey === thisDayKey)
-                                  ? `pipeline-row-hover${(hoveredRowKeyReady === childRowHoverKey || hoveredDayKeyReady === thisDayKey) ? ' pipeline-row-hover-ready' : ''}`
-                                  : undefined}
+                                className={[
+                                  childIsConverted ? 'prospect-row--converted' : '',
+                                  (hoveredRowKey === childRowHoverKey || hoveredDayKey === thisDayKey)
+                                    ? `pipeline-row-hover${(hoveredRowKeyReady === childRowHoverKey || hoveredDayKeyReady === thisDayKey) ? ' pipeline-row-hover-ready' : ''}`
+                                    : '',
+                                ].filter(Boolean).join(' ') || undefined}
                                 style={{
                                   display: 'grid',
                                   gridTemplateColumns: TABLE_GRID_TEMPLATE_COLUMNS,
@@ -7713,7 +8606,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                     transform: childShowDetails ? 'translateY(-4px)' : 'translateY(0)',
                                     transition: 'transform 160ms ease',
                                   }}>
-                                    {childEnquiry.ID}
+                                    {childDisplayId}
                                   </div>
                                   {(() => {
                                     const numValue = typeof childValue === 'string' ? parseFloat(childValue.replace(/[^0-9.]/g, '')) : (typeof childValue === 'number' ? childValue : 0);
@@ -7782,10 +8675,13 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                     <span style={{
                                       fontWeight: 500,
                                       fontSize: '13px',
-                                      color: isDarkMode ? '#f3f4f6' : '#061733',
+                                      color: childIsConverted ? colours.green : (isDarkMode ? '#f3f4f6' : '#061733'),
                                     }}>
                                       {childContactName}
                                     </span>
+                                    {childIsConverted && (
+                                      <Icon iconName="CompletedSolid" styles={{ root: { fontSize: 9, color: colours.green, opacity: 0.7 } }} />
+                                    )}
                                     <button
                                       type="button"
                                       onClick={(e) => {
@@ -8116,14 +9012,15 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                             }
                                             
                                             if (isUnclaimed) {
+                                              const processingIdentity = resolveEnquiryProcessingIdentity(childEnquiry as any);
                                               // Unclaimed - show subtle claim prompt
                                               return renderClaimPromptChip({
                                                 size: 'compact',
                                                 teamsLink: childTeamsLink,
                                                 leadName: childContactName,
                                                 areaOfWork: childEnquiry['Area_of_Work'],
-                                                enquiryId: childEnquiry.ID,
-                                                dataSource: childIsV2 ? 'new' : 'legacy',
+                                                enquiryId: processingIdentity.enquiryId,
+                                                dataSource: processingIdentity.source,
                                                 iconOnly: true,
                                               });
                                             }
@@ -8768,6 +9665,46 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                     }} 
                                   />
                                 </div>
+                                {(areActionsEnabled || String(childEnquiry.ID || (childEnquiry as any).id || '').toUpperCase().startsWith('DEMO-ENQ-')) && (
+                                  <div
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      void handleShareEnquiry(childEnquiry);
+                                    }}
+                                    style={{
+                                      width: 22,
+                                      height: 22,
+                                      borderRadius: 0,
+                                      background: childMutedBackground,
+                                      border: `1px solid ${childMutedBorder}`,
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      cursor: 'pointer',
+                                      transition: 'all 0.2s ease',
+                                    }}
+                                    onMouseEnter={(e) => {
+                                      e.currentTarget.style.background = childMutedBackgroundHover;
+                                      e.currentTarget.style.transform = 'scale(1.05)';
+                                    }}
+                                    onMouseLeave={(e) => {
+                                      e.currentTarget.style.background = childMutedBackground;
+                                      e.currentTarget.style.transform = 'scale(1)';
+                                    }}
+                                    title="Share enquiry access"
+                                  >
+                                    <Icon
+                                      iconName="PeopleAdd"
+                                      styles={{
+                                        root: {
+                                          fontSize: '10px',
+                                          color: childMutedColorStrong,
+                                        },
+                                      }}
+                                    />
+                                  </div>
+                                )}
+
                                 {areActionsEnabled && (
                                   <>
                                     {/* Edit Button */}
@@ -8814,7 +9751,13 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                     <div
                                       onClick={(e) => {
                                         e.stopPropagation();
-                                        const passcode = prompt('Enter passcode to delete this enquiry:');
+                                        let passcode: string | null = null;
+                                        try {
+                                          passcode = window.prompt('Enter passcode to delete this enquiry:');
+                                        } catch {
+                                          alert('Passcode input is not supported in this client.');
+                                          return;
+                                        }
                                         if (passcode === '2011') {
                                           const enquiryName = `${childEnquiry.First_Name || ''} ${childEnquiry.Last_Name || ''}`.trim() || 'Unnamed enquiry';
                                           const confirmMessage = `Are you sure you want to permanently delete "${enquiryName}"?\n\nThis action cannot be undone.`;
@@ -8920,6 +9863,34 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                         }} 
                       />
                     )}
+                    {isQueueRevealActive && displayedItems.length > 0 && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 16px 18px' }}>
+                        {Array.from({ length: 3 }, (_, idx) => (
+                          <div
+                            key={`queue-reveal-tail-${idx}`}
+                            style={{
+                              display: 'grid',
+                              gridTemplateColumns: TABLE_GRID_TEMPLATE_COLUMNS,
+                              gap: `${TABLE_GRID_GAP_PX}px`,
+                              minHeight: 56,
+                              alignItems: 'center',
+                              padding: '0 2px',
+                              opacity: 0.5 - (idx * 0.08),
+                            }}
+                          >
+                            <div style={{ height: 12, background: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(6,23,51,0.04)' }} />
+                            <div style={{ height: 10, background: isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(6,23,51,0.06)' }} />
+                            <div style={{ height: 22, background: isDarkMode ? 'rgba(135,243,243,0.08)' : 'rgba(54,144,206,0.08)' }} />
+                            <div style={{ height: 10, background: isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(6,23,51,0.06)' }} />
+                            <div style={{ height: 10, background: isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(6,23,51,0.06)' }} />
+                            <div style={{ height: 18, background: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(6,23,51,0.04)' }} />
+                            <div style={{ height: 10, background: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(6,23,51,0.04)' }} />
+                            <div style={{ height: 22, background: isDarkMode ? 'rgba(32,178,108,0.08)' : 'rgba(32,178,108,0.06)' }} />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    </div>
                   </div>
               </>
             )}
@@ -8987,6 +9958,259 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         teamMemberOptions={teamMemberOptions}
         handleReassignmentSelect={handleReassignmentSelect}
       />
+
+      <Modal
+        isOpen={Boolean(shareModalEnquiry)}
+        onDismiss={() => {
+          if (isShareModalSaving) return;
+          setShareModalEnquiry(null);
+          setShareModalSelectedEmails([]);
+          setShareModalExternalEmails([]);
+          setShareModalSearch('');
+        }}
+        isBlocking={isShareModalSaving}
+        styles={{
+          main: {
+            background: isDarkMode ? colours.darkBlue : colours.light.cardBackground,
+            borderRadius: 0,
+            border: `1px solid ${isDarkMode ? `${colours.accent}66` : `${colours.highlight}66`}`,
+            boxShadow: '0 8px 24px rgba(0,0,0,0.28)',
+            width: 700,
+            maxWidth: '92vw',
+          },
+        }}
+      >
+        <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12, fontFamily: 'Raleway, Segoe UI, sans-serif' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text }}>
+              Share enquiry access
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                if (isShareModalSaving) return;
+                setShareModalSelectedEmails([]);
+                setShareModalExternalEmails([]);
+              }}
+              disabled={isShareModalSaving}
+              style={{
+                border: `1px solid ${isDarkMode ? `${colours.cta}66` : `${colours.cta}59`}`,
+                background: isDarkMode ? `${colours.cta}14` : `${colours.cta}0d`,
+                color: colours.cta,
+                borderRadius: 0,
+                padding: '4px 8px',
+                fontSize: 10,
+                fontWeight: 700,
+                cursor: isShareModalSaving ? 'default' : 'pointer',
+                opacity: isShareModalSaving ? 0.5 : 1,
+              }}
+            >
+              Clear all
+            </button>
+          </div>
+
+          <div style={{ fontSize: 11, color: isDarkMode ? colours.subtleGrey : colours.greyText, lineHeight: 1.45 }}>
+            Pick team members to grant access.
+          </div>
+
+          <div style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 6,
+            minHeight: 28,
+            padding: '6px 0',
+            borderTop: `1px solid ${isDarkMode ? `${colours.accent}3d` : `${colours.highlight}33`}`,
+            borderBottom: `1px solid ${isDarkMode ? `${colours.accent}3d` : `${colours.highlight}33`}`,
+          }}>
+            {[...shareModalSelectedEmails, ...shareModalExternalEmails].length === 0 && (
+              <span style={{ fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>No one selected</span>
+            )}
+            {shareModalSelectedEmails.map((email) => {
+              const option = shareMemberOptions.find((member) => member.email === email);
+              return (
+                <button
+                  key={`selected-${email}`}
+                  type="button"
+                  onClick={() => toggleShareMemberEmail(email)}
+                  disabled={isShareModalSaving}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    border: `1px solid ${isDarkMode ? colours.accent : colours.highlight}`,
+                    background: isDarkMode ? `${colours.accent}1f` : `${colours.highlight}14`,
+                    color: isDarkMode ? colours.dark.text : colours.light.text,
+                    borderRadius: 0,
+                    padding: '4px 8px',
+                    fontSize: 10,
+                    fontWeight: 700,
+                    cursor: isShareModalSaving ? 'default' : 'pointer',
+                    opacity: isShareModalSaving ? 0.6 : 1,
+                  }}
+                >
+                  <span>{option?.displayName || email}</span>
+                  <span style={{ color: isDarkMode ? colours.accent : colours.highlight }}>×</span>
+                </button>
+              );
+            })}
+            {shareModalExternalEmails.map((email) => (
+              <button
+                key={`external-${email}`}
+                type="button"
+                onClick={() => removeShareExternalEmail(email)}
+                disabled={isShareModalSaving}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  border: `1px solid ${isDarkMode ? `${colours.cta}4d` : `${colours.cta}40`}`,
+                  background: isDarkMode ? `${colours.cta}14` : `${colours.cta}0d`,
+                  color: colours.cta,
+                  borderRadius: 0,
+                  padding: '4px 8px',
+                  fontSize: 10,
+                  fontWeight: 600,
+                  cursor: isShareModalSaving ? 'default' : 'pointer',
+                  opacity: isShareModalSaving ? 0.6 : 1,
+                }}
+                title="Remove external share"
+              >
+                <span>{email}</span>
+                <span>×</span>
+              </button>
+            ))}
+          </div>
+
+          <input
+            value={shareModalSearch}
+            onChange={(e) => setShareModalSearch(e.target.value)}
+            disabled={isShareModalSaving}
+            placeholder="Find team member"
+            style={{
+              width: '100%',
+              borderRadius: 0,
+              border: `1px solid ${isDarkMode ? `${colours.accent}59` : `${colours.highlight}59`}`,
+              background: isDarkMode ? colours.websiteBlue : colours.light.inputBackground,
+              color: isDarkMode ? colours.dark.text : colours.light.text,
+              fontFamily: 'inherit',
+              fontSize: 12,
+              padding: '8px 10px',
+            }}
+          />
+
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+            gap: 8,
+            maxHeight: 280,
+            overflowY: 'auto',
+            paddingRight: 2,
+          }}>
+            {shareMemberOptions
+              .filter((member) => {
+                const q = shareModalSearch.trim().toLowerCase();
+                if (!q) return true;
+                return member.displayName.toLowerCase().includes(q) || member.email.includes(q) || member.initials.toLowerCase().includes(q);
+              })
+              .map((member) => {
+                const isSelected = shareModalSelectedEmails.includes(member.email);
+                return (
+                  <button
+                    key={member.email}
+                    type="button"
+                    onClick={() => toggleShareMemberEmail(member.email)}
+                    disabled={isShareModalSaving}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      width: '100%',
+                      borderRadius: 0,
+                      border: `1px solid ${isSelected ? (isDarkMode ? colours.accent : colours.highlight) : (isDarkMode ? `${colours.accent}40` : `${colours.highlight}40`)}`,
+                      background: isSelected
+                        ? (isDarkMode ? `${colours.accent}14` : `${colours.highlight}12`)
+                        : (isDarkMode ? colours.websiteBlue : colours.light.sectionBackground),
+                      color: isDarkMode ? colours.dark.text : colours.light.text,
+                      padding: '8px 10px',
+                      textAlign: 'left',
+                      cursor: isShareModalSaving ? 'default' : 'pointer',
+                      opacity: isShareModalSaving ? 0.6 : 1,
+                      transition: 'all 0.12s ease',
+                    }}
+                  >
+                    <span style={{
+                      width: 20,
+                      height: 20,
+                      minWidth: 20,
+                      borderRadius: '50%',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: 9,
+                      fontWeight: 700,
+                      background: isSelected
+                        ? (isDarkMode ? colours.accent : colours.highlight)
+                        : (isDarkMode ? colours.darkBlue : colours.highlightBlue),
+                      color: isSelected
+                        ? (isDarkMode ? colours.websiteBlue : colours.light.cardBackground)
+                        : (isDarkMode ? colours.dark.text : colours.light.text),
+                    }}>{member.initials}</span>
+                    <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0, gap: 1 }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{member.displayName}</span>
+                      <span style={{ fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{member.email}</span>
+                    </span>
+                  </button>
+                );
+              })}
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            <button
+              type="button"
+              disabled={isShareModalSaving}
+              onClick={() => {
+                setShareModalEnquiry(null);
+                setShareModalSelectedEmails([]);
+                setShareModalExternalEmails([]);
+                setShareModalSearch('');
+              }}
+              style={{
+                border: `1px solid ${isDarkMode ? `${colours.accent}52` : `${colours.highlight}52`}`,
+                background: isDarkMode ? `${colours.accent}0f` : `${colours.highlight}0a`,
+                color: isDarkMode ? colours.accent : colours.highlight,
+                borderRadius: 0,
+                padding: '6px 10px',
+                fontSize: 11,
+                fontWeight: 700,
+                cursor: isShareModalSaving ? 'default' : 'pointer',
+                opacity: isShareModalSaving ? 0.5 : 1,
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={isShareModalSaving}
+              onClick={() => {
+                void submitShareModal();
+              }}
+              style={{
+                border: `1px solid ${isDarkMode ? colours.accent : colours.highlight}`,
+                background: isDarkMode ? `${colours.accent}1f` : `${colours.highlight}14`,
+                color: isDarkMode ? colours.accent : colours.highlight,
+                borderRadius: 0,
+                padding: '6px 12px',
+                fontSize: 11,
+                fontWeight: 700,
+                cursor: isShareModalSaving ? 'default' : 'pointer',
+                opacity: isShareModalSaving ? 0.7 : 1,
+              }}
+            >
+              {isShareModalSaving ? 'Saving…' : 'Save access'}
+            </button>
+          </div>
+        </div>
+      </Modal>
       
       </Stack>
     </div>

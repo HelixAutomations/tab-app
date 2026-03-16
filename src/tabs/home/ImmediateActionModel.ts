@@ -92,6 +92,17 @@ const buildMetaForTitle = (title: string): ImmediateActionMeta => {
     };
   }
 
+  if (normalized.includes('review ccl')) {
+    return {
+      actionId: toActionId(title),
+      source: 'ccl-pipeline',
+      persistence: 'database',
+      realtime: 'manual-refresh',
+      writeTarget: 'CclContent / CclDrafts',
+      notes: 'Navigates to matter view with CCL editor open. Approval persisted via CCL endpoints.',
+    };
+  }
+
   return {
     actionId: toActionId(title),
     source: 'derived',

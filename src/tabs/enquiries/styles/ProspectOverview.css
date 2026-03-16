@@ -12,7 +12,6 @@
   padding: 20px 12px 8px;
   gap: 0;
   overflow-x: auto;
-  scrollbar-width: none;
   -ms-overflow-style: none;
 }
 
@@ -182,37 +181,104 @@
 /* ─── Timeline Section ───────────────────────────────────── */
 
 .prospect-timeline-section {
-  background: var(--surface-page);
-  border: 1px solid var(--border-base);
+  background: var(--surface-section);
+  border-left: 1px solid var(--border-base);
+  border-right: 1px solid var(--border-base);
+  border-bottom: 1px solid var(--border-base);
+  border-top: 1px solid var(--border-base);
   border-radius: 0;
-  padding: 16px 20px;
+  margin-top: 10px;
+  padding: 10px 16px 14px;
   transition: padding 0.2s ease;
+}
+
+[data-theme="dark"] .prospect-timeline-section {
+  background: var(--helix-website-blue);
+  border-top-color: var(--border-strong);
+  border-left-color: var(--border-strong);
+  border-right-color: var(--border-strong);
+  border-bottom-color: var(--border-strong);
+}
+
+.prospect-timeline-controls {
+  display: block;
+  margin-bottom: 10px;
+}
+
+.prospect-timeline-topbar {
+  display: flex;
+  align-items: stretch;
+  flex-direction: column;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid rgba(var(--subtle-grey-rgb), 0.16);
+  background: rgba(var(--subtle-grey-rgb), 0.04);
+}
+
+[data-theme="dark"] .prospect-timeline-topbar {
+  background: rgba(6, 23, 51, 0.62);
+  border-color: rgba(var(--subtle-grey-rgb), 0.24);
 }
 
 .prospect-timeline-header {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
   align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-bottom: 12px;
+  gap: 8px;
+  flex-wrap: nowrap;
+  margin-bottom: 0;
+  width: 100%;
+}
+
+.prospect-timeline-heading {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding-right: 8px;
+  margin-right: 2px;
+  border-right: 1px solid rgba(var(--subtle-grey-rgb), 0.18);
+}
+
+.prospect-timeline-heading-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-primary);
+  opacity: 0.9;
+  flex-shrink: 0;
+}
+
+.prospect-timeline-heading-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: var(--text-primary);
+  opacity: 0.9;
+}
+
+.prospect-timeline-tools {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  width: 100%;
 }
 
 .prospect-timeline-title {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
   color: var(--text-primary);
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .prospect-timeline-count {
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 2px;
-  background: transparent;
-  border: 1px solid var(--border-base);
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 0;
+  background: rgba(var(--subtle-grey-rgb), 0.06);
+  border: 1px solid rgba(var(--subtle-grey-rgb), 0.18);
   color: var(--text-muted);
   font-weight: 500;
 }
@@ -236,11 +302,11 @@
   display: flex;
   align-items: center;
   gap: 0;
-  height: 32px;
-  padding: 3px;
-  background: var(--surface-page);
-  border: 1px solid var(--border-base);
-  border-radius: 2px;
+  height: 26px;
+  padding: 1px;
+  background: rgba(var(--subtle-grey-rgb), 0.04);
+  border: 1px solid rgba(var(--subtle-grey-rgb), 0.16);
+  border-radius: 0;
 }
 
 .prospect-view-toggle-btn {
@@ -248,22 +314,21 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  height: 26px;
-  padding: 0 12px;
+  height: 24px;
+  padding: 0 10px;
   background: transparent;
-  border: 1px solid transparent;
-  border-radius: 2px;
+  border: none;
+  border-radius: 0;
   cursor: pointer;
   transition: all 200ms ease;
   font-family: var(--font-primary);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--text-muted);
 }
 
 .prospect-view-toggle-btn[data-active="true"] {
-  background: transparent;
-  border-color: var(--border-strong);
+  background: rgba(var(--highlight-rgb), 0.12);
   color: var(--text-primary);
 }
 
@@ -341,45 +406,530 @@
 .prospect-filter-bar {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
+  flex-wrap: nowrap;
+  padding: 0;
+  background: transparent;
+  border-radius: 0;
+  border: none;
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+}
+
+.prospect-filter-main {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   flex-wrap: wrap;
-  padding: 10px 14px;
-  background: var(--surface-page);
-  border-radius: 2px;
-  border: 1px solid var(--border-base);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.prospect-filter-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.25px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  opacity: 0.78;
+  margin-right: 3px;
 }
 
 .prospect-filter-chip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  border-radius: 2px;
-  border: 1px solid var(--border-base);
-  background: transparent;
+  gap: 5px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 0;
+  border: 1px solid rgba(var(--subtle-grey-rgb), 0.12);
+  background: rgba(var(--subtle-grey-rgb), 0.03);
   font-family: var(--font-primary);
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 10px;
+  font-weight: 500;
   cursor: pointer;
   transition: all 0.15s ease;
   color: var(--text-secondary);
+  white-space: nowrap;
 }
 
 .prospect-filter-chip:hover {
+  background: rgba(var(--highlight-rgb), 0.08);
+  border-color: rgba(var(--highlight-rgb), 0.22);
+  color: var(--text-primary);
+}
+
+.prospect-filter-chip[data-active="true"] {
+  border-color: rgba(var(--accent-rgb), 0.34);
+  color: var(--text-accent);
+  background: rgba(var(--accent-rgb), 0.1);
+}
+
+.prospect-filter-chip[data-active="true"]:hover {
+  background: rgba(var(--accent-rgb), 0.13);
+}
+
+.prospect-filter-chip:disabled {
+  opacity: 0.35;
+  cursor: default;
+  pointer-events: none;
+}
+
+.prospect-filter-chip .prospect-filter-chip-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 0;
+  border: none;
+  background: transparent;
+  font-size: 8px;
+  line-height: 1;
+  flex-shrink: 0;
+  opacity: 0.78;
+}
+
+.prospect-filter-chip[data-active="true"] .prospect-filter-chip-icon {
+  opacity: 1;
+}
+
+.prospect-filter-chip-count {
+  font-size: 9px;
+  font-weight: 600;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  min-width: 0;
+  text-align: center;
+  opacity: 0.8;
+}
+
+.prospect-filter-chip[data-active="true"] .prospect-filter-chip-count {
+  color: var(--text-accent);
+  opacity: 0.92;
+}
+
+/* ─── Ledger Table ────────────────────────────────────────── */
+
+.prospect-ledger {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-family: var(--font-primary);
+}
+
+.prospect-ledger thead tr {
+  background: var(--surface-card);
+  border-bottom: 1px solid var(--border-strong);
+  color: var(--text-muted);
+}
+
+[data-theme="dark"] .prospect-ledger thead tr {
+  background: var(--helix-navy);
+  border-bottom-color: rgba(var(--highlight-rgb), 0.24);
+}
+
+.prospect-ledger th {
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.prospect-ledger-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: inherit;
+  text-transform: uppercase;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  cursor: pointer;
+  font-family: var(--font-primary);
+  transition: color 0.15s ease;
+}
+
+.prospect-ledger-sort:hover {
+  color: var(--text-accent);
+}
+
+.prospect-ledger-day td {
+  padding: 5px 12px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--text-muted);
+  background: transparent;
+  border-top: 1px solid var(--border-base);
+  border-bottom: 1px solid var(--border-base);
+}
+
+[data-theme="dark"] .prospect-ledger-day td {
+  background: rgba(var(--highlight-rgb), 0.04);
+  border-top-color: rgba(var(--highlight-rgb), 0.16);
+  border-bottom-color: rgba(var(--highlight-rgb), 0.16);
+  color: rgba(243, 244, 246, 0.62);
+}
+
+.prospect-ledger tbody tr {
+  border-bottom: 1px solid rgba(var(--subtle-grey-rgb), 0.1);
+}
+
+.prospect-ledger tbody tr:not(.prospect-ledger-day) {
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.prospect-ledger tbody tr:not(.prospect-ledger-day):hover {
+  background: rgba(var(--highlight-rgb), 0.06);
+}
+
+.prospect-ledger tbody tr[data-parity="even"]:not(:hover):not([data-expanded="true"]) {
+  background: rgba(var(--highlight-rgb), 0.022);
+}
+
+.prospect-ledger tbody tr[data-expanded="true"] {
   background: var(--surface-card-hover);
   border-color: var(--border-strong);
 }
 
-.prospect-filter-chip[data-active="true"] {
-  border-color: var(--text-accent);
+[data-theme="dark"] .prospect-ledger tbody tr[data-expanded="true"] {
+  background: var(--helix-navy);
+  border-color: rgba(var(--highlight-rgb), 0.22);
+}
+
+.prospect-ledger td {
+  padding: 8px 12px;
+  vertical-align: top;
+}
+
+.prospect-ledger tr[data-direction="inbound"] {
+  border-left: none;
+}
+
+.prospect-ledger tr[data-direction="outbound"] {
+  border-left: none;
+}
+
+.prospect-ledger tbody tr[data-direction="inbound"]:not(.prospect-ledger-day) td:first-child {
+  box-shadow: inset 3px 0 0 rgba(var(--green-rgb), 0.55);
+}
+
+.prospect-ledger tbody tr[data-direction="outbound"]:not(.prospect-ledger-day) td:first-child {
+  box-shadow: inset 3px 0 0 rgba(var(--highlight-rgb), 0.55);
+}
+
+/* Direction pill */
+.prospect-direction-pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 9px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 0;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+.prospect-direction-pill[data-dir="inbound"] {
+  background: rgba(var(--green-rgb), 0.12);
+  color: var(--helix-green);
+}
+
+.prospect-direction-pill[data-dir="outbound"] {
+  background: rgba(var(--highlight-rgb), 0.12);
+  color: var(--helix-highlight);
+}
+
+/* Expanded content */
+.prospect-ledger-expand {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-body);
+  white-space: pre-wrap;
+  padding: 8px 10px;
+  margin-top: 8px;
+  background: var(--surface-card);
+  border: 1px solid var(--border-strong);
+  border-radius: 0;
+}
+
+[data-theme="dark"] .prospect-ledger-expand {
+  background: var(--helix-website-blue);
+  border-color: rgba(var(--highlight-rgb), 0.22);
+  box-shadow: inset 0 0 0 1px rgba(var(--highlight-rgb), 0.05);
+}
+
+/* Ledger meta (author / time) */
+.prospect-ledger-meta {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-body);
+}
+
+.prospect-ledger-item-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.prospect-ledger-item-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.prospect-ledger-item-type {
+  flex-shrink: 0;
+}
+
+.prospect-ledger-item-by {
+  flex-shrink: 0;
+  max-width: 130px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.prospect-ledger-item-subject {
+  min-width: 0;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+  color: rgba(6, 23, 51, 0.85);
+}
+
+[data-theme="dark"] .prospect-ledger-item-subject {
+  color: rgba(243, 244, 246, 0.9);
+}
+
+.prospect-ledger-item-aux {
+  flex-shrink: 0;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: rgba(107, 107, 107, 0.68);
+}
+
+[data-theme="dark"] .prospect-ledger-item-aux {
+  color: rgba(160, 160, 160, 0.7);
+}
+
+.prospect-ledger-expand-cue {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: var(--text-muted);
+  transition: transform 0.15s ease, color 0.15s ease;
+  flex-shrink: 0;
+}
+
+.prospect-ledger-expand-cue[data-expanded="true"] {
+  transform: rotate(180deg);
   color: var(--text-accent);
 }
 
-.prospect-filter-chip-count {
+/* Filter bar utility classes */
+.prospect-filter-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 0;
+  flex-shrink: 0;
+}
+
+.prospect-filter-summary-text {
   font-size: 10px;
-  font-weight: 700;
-  padding: 1px 6px;
-  border-radius: 2px;
-  background: var(--surface-card);
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+
+.prospect-filter-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 10px;
+  font-size: 10px;
+  font-weight: 600;
+  background: transparent;
+  border: 1px solid rgba(var(--subtle-grey-rgb), 0.16);
+  border-radius: 0;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: var(--font-primary);
+}
+
+.prospect-filter-action:hover {
+  border-color: var(--text-accent);
+  color: var(--text-accent);
+  background: rgba(var(--accent-rgb), 0.06);
+}
+
+/* ─── Card Timeline: Collapsed Day Summary ──────────────── */
+
+.prospect-collapsed-day {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 8px 12px;
+  margin-left: -8px;
+  background: transparent;
+  border: 1px dashed var(--border-base);
+  border-radius: 0;
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--font-primary);
+  transition: background 0.15s ease;
+}
+
+.prospect-collapsed-day:hover {
+  background: rgba(var(--highlight-rgb), 0.04);
+}
+
+.prospect-collapsed-day-label {
+  font-size: 11px;
+  font-weight: 600;
   color: var(--text-body);
+  opacity: 0.7;
+}
+
+.prospect-collapsed-day-expand {
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--text-accent);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+/* ─── Card Timeline: Forward / Action Links ─────────────── */
+
+.prospect-card-link {
+  padding: 0;
+  font-size: 10px;
+  font-weight: 600;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color 0.15s ease;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-family: var(--font-primary);
+}
+
+.prospect-card-link:hover {
+  color: var(--text-accent);
+}
+
+/* ─── Card Timeline: Hide Button ────────────────────────── */
+
+.prospect-hide-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.prospect-hide-btn:hover {
+  color: var(--text-primary);
+  background: rgba(var(--highlight-rgb), 0.08);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Entrance cascade — coordinated fade-in for overview tiers
+   Matches OperationsDashboard cadence (0.35s, cubic-bezier)
+   ═══════════════════════════════════════════════════════════ */
+
+@keyframes prospectFadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Tier 1 — Hero banner (first in, no delay) */
+.prospect-entrance-hero {
+  animation: prospectFadeInUp 0.35s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+/* Tier 2 — Pipeline rail */
+.prospect-entrance-pipeline {
+  animation: prospectFadeInUp 0.35s cubic-bezier(0.4, 0, 0.2, 1) 0.06s both;
+}
+
+/* Pipeline node stagger — each pill fades in left-to-right */
+@keyframes prospectPillIn {
+  from {
+    opacity: 0;
+    transform: translateX(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.prospect-pipeline-node {
+  animation: prospectPillIn 0.22s cubic-bezier(0.4, 0, 0.2, 1) both;
+  animation-delay: calc(var(--pill-index, 0) * 25ms + 80ms);
+}
+
+/* Pipeline connector stagger (matches pill timing) */
+.prospect-pipeline-connector {
+  animation: prospectPillIn 0.18s cubic-bezier(0.4, 0, 0.2, 1) both;
+  animation-delay: calc(var(--pill-index, 0) * 25ms + 90ms);
+}
+
+/* Tier 3 — Workbench shell */
+.prospect-entrance-workbench {
+  animation: prospectFadeInUp 0.35s cubic-bezier(0.4, 0, 0.2, 1) 0.12s both;
+}
+
+/* Tier 4 — Timeline section */
+.prospect-entrance-timeline {
+  animation: prospectFadeInUp 0.35s cubic-bezier(0.4, 0, 0.2, 1) 0.18s both;
+}
+
+/* Reduced motion — disable all entrance animations */
+@media (prefers-reduced-motion: reduce) {
+  .prospect-entrance-hero,
+  .prospect-entrance-pipeline,
+  .prospect-entrance-workbench,
+  .prospect-entrance-timeline,
+  .prospect-pipeline-node,
+  .prospect-pipeline-connector {
+    animation: none !important;
+  }
 }

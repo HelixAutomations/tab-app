@@ -199,13 +199,21 @@ export const requestVerificationDocuments = async (instructionRef: string) => {
 /**
  * Drafts the document request email to the fee earner (server-side)
  */
-export const draftVerificationDocumentRequest = async (instructionRef: string) => {
+export const draftVerificationDocumentRequest = async (
+  instructionRef: string,
+  toEmail?: string,
+  ccEmail?: string
+) => {
   try {
     const response = await fetch(`/api/verify-id/${instructionRef}/draft-request`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
-      }
+      },
+      body: JSON.stringify({
+        ...(toEmail ? { toEmail } : {}),
+        ...(ccEmail ? { ccEmail } : {})
+      })
     });
 
     if (!response.ok) {

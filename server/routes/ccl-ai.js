@@ -11,13 +11,40 @@
 const express = require('express');
 const path = require('path');
 const sql = require('mssql');
-const { chatCompletion, DEPLOYMENT } = require('../utils/aiClient');
+const { chatCompletion, chatCompletionStream, DEPLOYMENT } = require('../utils/aiClient');
 const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
 const { getPool } = require('../utils/db');
 const { saveCclAiTrace } = require('../utils/cclPersistence');
 const { resolveRequestActor } = require('../utils/requestActor');
 
 const router = express.Router();
+const CCL_PROMPT_VERSION = 'ccl-ai-v2';
+const DEFAULT_CHAT_OPTIONS = {
+    temperature: 0.2,
+};
+
+const ORIGINAL_CHARGES_PARAGRAPH = `I estimate the cost of the Initial Scope will be £{{figure}} plus VAT.
+
+or
+
+{{we_cannot_give_an_estimate_of_our_overall_charges_in_this_matter_because_reason_why_estimate_is_not_possible}}. The next stage in your matter is {{next_stage}} and we estimate that our charges up to the completion of that stage will be in the region of £{{figure_or_range}}.]`;
+
+const ORIGINAL_DISBURSEMENTS_PARAGRAPH = `[Based on the information you have provided, we expect to incur the following disbursements:
+
+Description | Amount | VAT chargeable
+[Describe disbursement] | £[Insert estimated amount of disbursement] | [Yes OR No]
+[Describe disbursement] | £[Insert estimated amount of disbursement] | [Yes OR No]
+[Describe disbursement] | £[Insert estimated amount of disbursement] | [Yes OR No]
+
+OR
+
+We cannot give an exact figure for your disbursements, but this is likely to be in the region of £{{estimate}} {{in_total_including_vat_or_for_the_next_steps_in_your_matter}} including {{give_examples_of_what_your_estimate_includes_eg_accountants_report_and_court_fees}}.]`;
+
+const ORIGINAL_COSTS_OTHER_PARTY_PARAGRAPH = `We do not expect that you will have to pay another party's costs. This only tends to arise in litigation and is therefore not relevant to your matter.
+
+OR
+
+There is a risk that you may have to pay {{identify_the_other_party_eg_your_opponents}} costs in this matter. This is explained in section 5, Funding and billing below.`;
 
 // ─── Practice area defaults (fallback if AI fails) ─────────────────────────
 const PRACTICE_AREA_DEFAULTS = {
@@ -26,8 +53,9 @@ const PRACTICE_AREA_DEFAULTS = {
         next_steps: 'review the documents you have provided and advise on the merits of your position',
         realistic_timescale: '4-6 weeks for initial advice',
         next_stage: 'document review and initial advice',
-        charges_estimate_paragraph: 'I estimate the cost of the Initial Scope will be in the region of £2,500 to £5,000 plus VAT, depending on the complexity of the documentation involved.',
-        disbursements_paragraph: 'We do not anticipate significant disbursements at this stage.',
+        charges_estimate_paragraph: ORIGINAL_CHARGES_PARAGRAPH,
+        disbursements_paragraph: ORIGINAL_DISBURSEMENTS_PARAGRAPH,
+        costs_other_party_paragraph: ORIGINAL_COSTS_OTHER_PARTY_PARAGRAPH,
         figure: '2,500',
         figure_or_range: '2,500 - 5,000',
         estimate: '£2,500 to £5,000 plus VAT',
@@ -45,8 +73,9 @@ const PRACTICE_AREA_DEFAULTS = {
         next_steps: 'review the title documentation and raise any necessary enquiries',
         realistic_timescale: '8-12 weeks to completion',
         next_stage: 'title review and pre-contract enquiries',
-        charges_estimate_paragraph: 'I estimate our charges for this transaction will be in the region of £1,500 to £3,000 plus VAT, depending on the complexity of the title and any issues that arise.',
-        disbursements_paragraph: 'Disbursements are likely to include Land Registry fees, search fees, and any Stamp Duty Land Tax payable. We estimate these at approximately £500 to £1,500.',
+        charges_estimate_paragraph: ORIGINAL_CHARGES_PARAGRAPH,
+        disbursements_paragraph: ORIGINAL_DISBURSEMENTS_PARAGRAPH,
+        costs_other_party_paragraph: ORIGINAL_COSTS_OTHER_PARTY_PARAGRAPH,
         figure: '1,500',
         figure_or_range: '1,500 - 3,000',
         estimate: '£1,500 to £3,000 plus VAT',
@@ -64,8 +93,9 @@ const PRACTICE_AREA_DEFAULTS = {
         next_steps: 'review the documents you have provided and advise on your position and options',
         realistic_timescale: '2-4 weeks for initial advice',
         next_stage: 'document review and initial advice on merits',
-        charges_estimate_paragraph: 'I estimate the cost of the Initial Scope will be in the region of £1,500 to £3,000 plus VAT.',
-        disbursements_paragraph: 'We do not anticipate significant disbursements at this stage.',
+        charges_estimate_paragraph: ORIGINAL_CHARGES_PARAGRAPH,
+        disbursements_paragraph: ORIGINAL_DISBURSEMENTS_PARAGRAPH,
+        costs_other_party_paragraph: ORIGINAL_COSTS_OTHER_PARTY_PARAGRAPH,
         figure: '1,500',
         figure_or_range: '1,500 - 3,000',
         estimate: '£1,500 to £3,000 plus VAT',
@@ -83,8 +113,9 @@ const PRACTICE_AREA_DEFAULTS = {
         next_steps: 'review the contract and associated documents, and advise on the merits of your position',
         realistic_timescale: '4-8 weeks for initial advice',
         next_stage: 'contract review and initial advice',
-        charges_estimate_paragraph: 'I estimate the cost of the Initial Scope will be in the region of £3,000 to £7,500 plus VAT, reflecting the technical complexity of construction matters.',
-        disbursements_paragraph: 'Disbursements may include expert surveyor or engineer fees if required. We will discuss these with you before incurring them.',
+        charges_estimate_paragraph: ORIGINAL_CHARGES_PARAGRAPH,
+        disbursements_paragraph: ORIGINAL_DISBURSEMENTS_PARAGRAPH,
+        costs_other_party_paragraph: ORIGINAL_COSTS_OTHER_PARTY_PARAGRAPH,
         figure: '3,000',
         figure_or_range: '3,000 - 7,500',
         estimate: '£3,000 to £7,500 plus VAT',
@@ -102,8 +133,9 @@ const PRACTICE_AREA_DEFAULTS = {
         next_steps: 'review the documents you have provided and advise on the strengths of your position',
         realistic_timescale: '4-6 weeks for initial advice',
         next_stage: 'document review and merits assessment',
-        charges_estimate_paragraph: 'I estimate the cost of the Initial Scope will be in the region of £2,000 to £5,000 plus VAT.',
-        disbursements_paragraph: 'Disbursements at this stage are likely to be minimal. Should court proceedings be necessary, court fees and barrister fees will be discussed with you in advance.',
+        charges_estimate_paragraph: ORIGINAL_CHARGES_PARAGRAPH,
+        disbursements_paragraph: ORIGINAL_DISBURSEMENTS_PARAGRAPH,
+        costs_other_party_paragraph: ORIGINAL_COSTS_OTHER_PARTY_PARAGRAPH,
         figure: '2,000',
         figure_or_range: '2,000 - 5,000',
         estimate: '£2,000 to £5,000 plus VAT',
@@ -143,19 +175,27 @@ Section 4.1 — Charges:
 → Number only (already auto-filled, but if missing use the rate given in context).
 
 "{{charges_estimate_paragraph}}"
-→ 1-3 complete sentences estimating fees for the Initial Scope. Include a £ range plus VAT. Base this on the deal amount, pitch email amount, or practice area norms. Must be realistic.
+→ Use one of these two alternatives VERBATIM (do not rephrase):
+  IF an estimate IS possible: "I estimate the cost of the Initial Scope will be in the region of £[amount or range] plus VAT." (replace [amount or range] with real figures).
+  IF an estimate is NOT possible: "[We cannot give an estimate of our overall charges in this matter because [reason]]. The next stage in your matter is [next stage] and we estimate that our charges up to the completion of that stage will be in the region of £[figure or range]." (fill in the bracketed parts).
+→ SOURCING RULE: If Deal Amount exists, build the estimate around it (e.g. if deal is £3,000, write "in the region of £3,000 plus VAT"). If Pitch Email quoted a range, use that range verbatim. Only fall back to practice area norms if no financial data exists.
 
 Section 4.2 — Disbursements:
 "{{disbursements_paragraph}}"
-→ 1-2 complete sentences about likely disbursements for this matter type.
+→ Use one of these two alternatives VERBATIM (do not rephrase):
+  IF specific disbursements are known: "Based on the information you have provided, we expect to incur the following disbursements: [list the disbursements with estimated amounts and whether VAT is chargeable]."
+  IF exact figures are not possible: "We cannot give an exact figure for your disbursements, but this is likely to be in the region of £[estimate] [in total, including VAT / for the next steps in your matter] including [give examples, e.g. court fees and barrister fees]." (fill in the bracketed parts based on the matter type).
 
 Section 4.3 — Costs other party:
 "{{costs_other_party_paragraph}}"
-→ 1-2 sentences. If there is an opponent: note the risk. If no opponent/not litigation: "We do not expect that you will have to pay another party's costs."
+→ Use one of these two alternatives VERBATIM (do not rephrase):
+  IF NOT litigation / no opponent: "We do not expect that you will have to pay another party's costs. This only tends to arise in litigation and is therefore not relevant to your matter."
+  IF litigation / opponent exists: "There is a risk that you may have to pay [opponent name]'s costs in this matter. This is explained in section 5, Funding and billing below." (replace [opponent name] with the actual opponent).
 
 Section 6 — Payment on account:
 "Please provide us with £{{figure}} on account of costs."
-→ Number only, no £ sign, e.g. "2,500". Usually 50-100% of the low end of the estimate range.
+→ Number only, no £ sign, e.g. "2,500".
+→ SOURCING RULE: If a Deal Amount is provided, use it directly as the payment on account (the deal amount IS the agreed fee). If a Pitch Amount is provided but no Deal Amount, use the pitch amount. If NEITHER exists, use the low end of a conservative practice-area estimate. NEVER invent a figure that contradicts an agreed amount.
 
 Section 7 — Costs updates:
 "We have agreed to provide you with an update on the amount of costs when appropriate as the matter progresses{{and_or_intervals_eg_every_three_months}}."
@@ -172,7 +212,7 @@ Section 18 — Action points:
 
 "☐ Provide a payment on account of costs and disbursements of £{{state_amount}} | If we do not receive a payment on account... {{insert_consequence}}"
 → state_amount: Same as figure.
-→ insert_consequence: What happens if they don't pay, e.g. "we may not be able to start work on your matter"
+→ insert_consequence: What happens if they don't pay. Default wording: "there may be a delay in starting work on your behalf"
 
 "{{describe_first_document_or_information_you_need_from_your_client}}"
 "{{describe_second_document_or_information_you_need_from_your_client}}"
@@ -189,10 +229,11 @@ NOT IN TEMPLATE (metadata fields):
 - "simple_disbursements_estimate": Estimated disbursements (number only, e.g. "500")
 
 COST ACCURACY RULES:
-1. If a Deal Amount is provided, the costs estimate MUST be consistent with it. The payment on account (figure) should be 50-100% of the deal amount.
-2. If a Pitch Email is provided, match its quoted figures exactly — the client has already seen these numbers.
-3. If neither is available, use practice area norms for a UK specialist litigation firm.
-4. Never invent costs figures that are wildly different from the deal/pitch context.
+1. If a Deal Amount is provided, it IS the agreed fee — the payment on account (figure) should equal it. The charges_estimate_paragraph must be consistent with the deal amount. Do NOT apply arbitrary percentages (no "50-100% of the low end").
+2. If a Pitch Email is provided, the client has already seen those numbers — match them exactly for charges_estimate_paragraph and figure.
+3. If NEITHER deal amount NOR pitch amount exists, the costs fields are LOW CONFIDENCE — use practice area norms but mark clearly that these are estimates pending fee earner confirmation.
+4. Never invent costs figures that contradict agreed amounts. If the deal says £3,000 and you output £1,500, that is wrong.
+5. state_amount MUST always equal figure — they are the same value shown in different template locations.
 
 Respond with ONLY a JSON object containing these fields. No markdown, no explanation, just the JSON object.`;
 
@@ -350,6 +391,8 @@ async function gatherFullContext(matterId, instructionRef) {
                 context.instructionStage = row.Stage || '';
                 context.clientType = row.ClientType || '';
                 context.companyName = row.CompanyName || '';
+                context.prospectEmail = row.Email || '';
+                context.feeEarnerEmail = row.HelixContact || '';
                 if (row.Gender) context.clientGender = row.Gender;
             }
 
@@ -514,6 +557,9 @@ async function gatherFullContext(matterId, instructionRef) {
         }
     }
 
+    // Expose contact details so pressure test can fetch emails/calls
+    if (phone) context.phone = phone;
+
     return context;
 }
 
@@ -604,6 +650,276 @@ function summariseContextSources(dbContext) {
     return sources;
 }
 
+async function buildCclContextPackage({
+    matterId,
+    instructionRef,
+    practiceArea,
+    description,
+    clientName,
+    opponent,
+    enquiryNotes,
+    handlerName,
+    handlerRole,
+    handlerRate,
+}) {
+    const dbContext = await gatherFullContext(matterId, instructionRef);
+    const fullContext = {
+        practiceArea: practiceArea || dbContext.areaOfWork || '',
+        typeOfWork: dbContext.typeOfWork || '',
+        description,
+        clientName,
+        opponent,
+        handlerName,
+        handlerRole,
+        handlerRate,
+        clientType: dbContext.clientType || '',
+        clientGender: dbContext.clientGender || '',
+        company: dbContext.company || '',
+        source: dbContext.source || '',
+        enquiryValue: dbContext.enquiryValue || '',
+        instructionStage: dbContext.instructionStage || '',
+        initialCallNotes: dbContext.initialCallNotes || '',
+        enquiryNotes: enquiryNotes || dbContext.enquiryNotes || '',
+        instructionNotes: dbContext.instructionNotes || '',
+        dealServiceDescription: dbContext.dealServiceDescription || '',
+        dealAmount: dbContext.dealAmount || '',
+        dealPitchedBy: dbContext.dealPitchedBy || '',
+        pitchEmailBody: dbContext.pitchEmailBody || '',
+        pitchServiceDescription: dbContext.pitchServiceDescription || '',
+        pitchAmount: dbContext.pitchAmount || '',
+        pitchNotes: dbContext.pitchNotes || '',
+        callTranscripts: dbContext.callTranscripts || '',
+    };
+
+    const userPrompt = buildUserPrompt(fullContext);
+    const contextSources = summariseContextSources(dbContext);
+    const debugContext = buildDebugContext(fullContext, contextSources);
+
+    return {
+        dbContext,
+        fullContext,
+        userPrompt,
+        contextSources,
+        debugContext,
+        systemPrompt: SYSTEM_PROMPT,
+        systemPromptLength: SYSTEM_PROMPT.length,
+        promptVersion: CCL_PROMPT_VERSION,
+    };
+}
+
+async function previewCclContext(input) {
+    const contextPackage = await buildCclContextPackage(input);
+    return {
+        ok: true,
+        dataSources: contextPackage.contextSources,
+        contextFields: contextPackage.debugContext.contextFields,
+        snippets: contextPackage.debugContext.snippets,
+        userPrompt: contextPackage.userPrompt,
+        userPromptLength: contextPackage.userPrompt.length,
+        systemPromptLength: contextPackage.systemPromptLength,
+        promptVersion: contextPackage.promptVersion,
+    };
+}
+
+async function runCclAiFill(input, actor = 'system') {
+    const {
+        matterId,
+        practiceArea,
+        clientName,
+        opponent,
+    } = input || {};
+
+    const trackingId = Math.random().toString(36).slice(2, 10);
+    const startMs = Date.now();
+    const chatOptions = { ...DEFAULT_CHAT_OPTIONS };
+
+    trackEvent('CCL.AiFill.Started', {
+        trackingId,
+        matterId: String(matterId),
+        practiceArea: practiceArea || 'unknown',
+        deployment: DEPLOYMENT,
+    });
+
+    try {
+        const contextPackage = await buildCclContextPackage(input);
+        const aiFields = await chatCompletion(SYSTEM_PROMPT, contextPackage.userPrompt, chatOptions);
+        const durationMs = Date.now() - startMs;
+
+        const expectedKeys = [
+            'insert_current_position_and_scope_of_retainer',
+            'next_steps',
+            'charges_estimate_paragraph',
+        ];
+        const hasCore = expectedKeys.every(k => aiFields[k] && aiFields[k].length > 10);
+
+        if (!hasCore || aiFields._parseError) {
+            const paKey = normalisePracticeArea(practiceArea);
+            const defaults = PRACTICE_AREA_DEFAULTS[paKey] || PRACTICE_AREA_DEFAULTS['commercial'];
+            const merged = { ...defaults, ...stripEmpty(aiFields) };
+
+            trackEvent('CCL.AiFill.PartialFallback', {
+                trackingId, matterId: String(matterId), practiceArea: paKey, durationMs: String(durationMs),
+            });
+
+            let aiTraceId = null;
+            try {
+                aiTraceId = await saveCclAiTrace({
+                    matterId, trackingId, aiStatus: 'partial', model: DEPLOYMENT, durationMs,
+                    temperature: chatOptions.temperature,
+                    systemPrompt: SYSTEM_PROMPT, userPrompt: contextPackage.userPrompt, userPromptLength: contextPackage.userPrompt.length,
+                    aiOutputJson: stripEmpty(aiFields), generatedFieldCount: Object.keys(stripEmpty(aiFields)).length,
+                    confidence: 'partial', dataSourcesJson: contextPackage.contextSources,
+                    contextFieldsJson: contextPackage.debugContext.contextFields, contextSnippetsJson: contextPackage.debugContext.snippets,
+                    fallbackReason: 'AI response was incomplete or unparsable; merged with defaults.',
+                    createdBy: actor,
+                });
+            } catch (err) {
+                console.warn('[CCL-AI] Trace persist failed:', err.message);
+            }
+
+            return {
+                ok: true,
+                fields: merged,
+                confidence: 'partial',
+                model: DEPLOYMENT,
+                durationMs,
+                source: 'ai+defaults',
+                dataSources: contextPackage.contextSources,
+                contextSummary: `Used ${contextPackage.contextSources.length} data source(s): ${contextPackage.contextSources.join(', ')}`,
+                userPrompt: contextPackage.userPrompt,
+                systemPrompt: SYSTEM_PROMPT,
+                fallbackReason: 'AI response was incomplete or unparsable; merged with defaults.',
+                promptVersion: contextPackage.promptVersion,
+                aiTraceId,
+                debug: {
+                    trackingId,
+                    deployment: DEPLOYMENT,
+                    aiStatus: 'partial',
+                    options: chatOptions,
+                    userPromptLength: contextPackage.userPrompt.length,
+                    generatedFieldCount: Object.keys(stripEmpty(aiFields)).length,
+                    context: contextPackage.debugContext,
+                },
+            };
+        }
+
+        trackEvent('CCL.AiFill.Completed', {
+            trackingId,
+            matterId: String(matterId),
+            practiceArea: practiceArea || 'unknown',
+            durationMs: String(durationMs),
+            fieldCount: String(Object.keys(aiFields).length),
+            filledFieldCount: String(Object.keys(stripEmpty(aiFields)).length),
+        });
+        trackMetric('CCL.AiFill.Duration', durationMs, { practiceArea: practiceArea || 'unknown' });
+        trackMetric('CCL.AiFill.FieldCount', Object.keys(stripEmpty(aiFields)).length, { practiceArea: practiceArea || 'unknown' });
+        trackMetric('CCL.AiFill.ContextSources', contextPackage.contextSources ? contextPackage.contextSources.length : 0, { practiceArea: practiceArea || 'unknown' });
+
+        let aiTraceId = null;
+        try {
+            aiTraceId = await saveCclAiTrace({
+                matterId, trackingId, aiStatus: 'complete', model: DEPLOYMENT, durationMs,
+                temperature: chatOptions.temperature,
+                systemPrompt: SYSTEM_PROMPT, userPrompt: contextPackage.userPrompt, userPromptLength: contextPackage.userPrompt.length,
+                aiOutputJson: aiFields, generatedFieldCount: Object.keys(stripEmpty(aiFields)).length,
+                confidence: 'full', dataSourcesJson: contextPackage.contextSources,
+                contextFieldsJson: contextPackage.debugContext.contextFields, contextSnippetsJson: contextPackage.debugContext.snippets,
+                createdBy: actor,
+            });
+        } catch (err) {
+            console.warn('[CCL-AI] Trace persist failed:', err.message);
+        }
+
+        return {
+            ok: true,
+            fields: aiFields,
+            confidence: 'full',
+            model: DEPLOYMENT,
+            durationMs,
+            source: 'ai',
+            dataSources: contextPackage.contextSources,
+            contextSummary: `Used ${contextPackage.contextSources.length} data source(s): ${contextPackage.contextSources.join(', ')}`,
+            userPrompt: contextPackage.userPrompt,
+            systemPrompt: SYSTEM_PROMPT,
+            promptVersion: contextPackage.promptVersion,
+            aiTraceId,
+            debug: {
+                trackingId,
+                deployment: DEPLOYMENT,
+                aiStatus: 'complete',
+                options: chatOptions,
+                userPromptLength: contextPackage.userPrompt.length,
+                generatedFieldCount: Object.keys(stripEmpty(aiFields)).length,
+                context: contextPackage.debugContext,
+            },
+        };
+    } catch (err) {
+        const durationMs = Date.now() - startMs;
+        console.error(`[CCL-AI] Fill failed (trackingId: ${trackingId}):`, err.message);
+        trackException(err, {
+            operation: 'CCL.AiFill',
+            trackingId,
+            matterId: String(matterId),
+            practiceArea: practiceArea || 'unknown',
+        });
+        trackEvent('CCL.AiFill.Failed', {
+            trackingId, matterId: String(matterId), error: err.message, durationMs: String(durationMs),
+        });
+
+        const paKey = normalisePracticeArea(practiceArea);
+        const defaults = PRACTICE_AREA_DEFAULTS[paKey] || PRACTICE_AREA_DEFAULTS['commercial'];
+        const fallbackReason = formatFallbackReason(err.message);
+
+        let aiTraceId = null;
+        try {
+            aiTraceId = await saveCclAiTrace({
+                matterId, trackingId, aiStatus: 'fallback', model: 'none', durationMs,
+                temperature: chatOptions.temperature,
+                systemPrompt: SYSTEM_PROMPT, confidence: 'fallback',
+                fallbackReason, errorMessage: err.message,
+                createdBy: actor,
+            });
+        } catch (err2) {
+            console.warn('[CCL-AI] Trace persist failed:', err2.message);
+        }
+
+        return {
+            ok: true,
+            fields: defaults,
+            confidence: 'fallback',
+            model: 'none',
+            durationMs,
+            source: 'defaults',
+            fallbackReason,
+            dataSources: [],
+            contextSummary: 'AI unavailable — using practice area defaults only',
+            userPrompt: '',
+            systemPrompt: SYSTEM_PROMPT,
+            promptVersion: CCL_PROMPT_VERSION,
+            aiTraceId,
+            debug: {
+                trackingId,
+                deployment: DEPLOYMENT,
+                aiStatus: 'fallback',
+                options: chatOptions,
+                userPromptLength: 0,
+                generatedFieldCount: 0,
+                error: fallbackReason,
+                context: {
+                    sourceCount: 0,
+                    sources: [],
+                    snippets: {},
+                    contextFields: {
+                        practiceArea: practiceArea || '',
+                        clientName: clientName || '',
+                        opponent: opponent || '',
+                    },
+                },
+            },
+        };
+    }
+}
+
 // ─── POST /api/ccl-ai/fill ─────────────────────────────────────────────────
 router.post('/fill', async (req, res) => {
     const {
@@ -615,26 +931,68 @@ router.post('/fill', async (req, res) => {
         return res.status(400).json({ error: 'matterId is required' });
     }
 
+    const actor = resolveRequestActor(req);
+    try {
+        const result = await runCclAiFill({
+            matterId,
+            instructionRef,
+            practiceArea,
+            description,
+            clientName,
+            opponent,
+            enquiryNotes,
+            handlerName,
+            handlerRole,
+            handlerRate,
+        }, actor);
+        return res.json(result);
+    } catch (err) {
+        console.error('[CCL-AI] Fill route failed:', err.message);
+        trackException(err, { operation: 'CCL.AiFill.Route', matterId: String(matterId) });
+        return res.status(500).json({ error: 'Failed to generate AI fields' });
+    }
+});
+
+// ─── POST /api/ccl-ai/fill-stream (SSE) ────────────────────────────────────
+// Streams AI-generated CCL fields in real-time via Server-Sent Events.
+// Events: phase, field, complete, error
+router.post('/fill-stream', async (req, res) => {
+    const {
+        matterId, instructionRef, practiceArea, description, clientName,
+        opponent, enquiryNotes, handlerName, handlerRole, handlerRate,
+    } = req.body || {};
+
+    if (!matterId) {
+        return res.status(400).json({ error: 'matterId is required' });
+    }
+
+    // SSE headers
+    res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no',
+    });
+
+    const send = (event, data) => {
+        res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+
     const trackingId = Math.random().toString(36).slice(2, 10);
     const startMs = Date.now();
     const actor = resolveRequestActor(req);
-    // Aligned with enquiry-processing-v2: no max_tokens — let the model decide.
-    const chatOptions = {
-        temperature: 0.2,
-    };
+    const chatOptions = { temperature: 0.2 };
 
-    trackEvent('CCL.AiFill.Started', {
-        trackingId,
-        matterId: String(matterId),
-        practiceArea: practiceArea || 'unknown',
-        deployment: DEPLOYMENT,
+    trackEvent('CCL.AiFillStream.Started', {
+        trackingId, matterId: String(matterId), practiceArea: practiceArea || 'unknown', deployment: DEPLOYMENT,
     });
 
     try {
-        // 1. Gather full workbench context from all sources
+        // Phase 1: Gather context
+        send('phase', { phase: 'gathering-context', message: 'Gathering matter context…' });
+
         const dbContext = await gatherFullContext(matterId, instructionRef);
 
-        // 2. Merge all context
         const fullContext = {
             practiceArea: practiceArea || dbContext.areaOfWork || '',
             typeOfWork: dbContext.typeOfWork || '',
@@ -663,98 +1021,112 @@ router.post('/fill', async (req, res) => {
             callTranscripts: dbContext.callTranscripts || '',
         };
 
-        // 3. Build prompt and call AI
         const userPrompt = buildUserPrompt(fullContext);
         const contextSources = summariseContextSources(dbContext);
         const debugContext = buildDebugContext(fullContext, contextSources);
-        const aiFields = await chatCompletion(SYSTEM_PROMPT, userPrompt, chatOptions);
 
-        const durationMs = Date.now() - startMs;
+        send('phase', {
+            phase: 'calling-ai',
+            message: `Generating fields from ${contextSources.length} source(s)…`,
+            dataSources: contextSources,
+        });
 
-        // 4. Validate — ensure we got real fields back
-        const expectedKeys = [
-            'insert_current_position_and_scope_of_retainer',
-            'next_steps',
-            'charges_estimate_paragraph',
-        ];
-        const hasCore = expectedKeys.every(k => aiFields[k] && aiFields[k].length > 10);
+        // Phase 2: Stream AI tokens and emit parsed fields incrementally
+        let jsonBuffer = '';
+        const emittedKeys = new Set();
+        let fieldCount = 0;
 
-        if (!hasCore || aiFields._parseError) {
-            // Partial AI response — merge with practice area defaults
-            const paKey = normalisePracticeArea(practiceArea);
-            const defaults = PRACTICE_AREA_DEFAULTS[paKey] || PRACTICE_AREA_DEFAULTS['commercial'];
-            const merged = { ...defaults, ...stripEmpty(aiFields) };
+        const stream = chatCompletionStream(SYSTEM_PROMPT, userPrompt, chatOptions);
 
-            trackEvent('CCL.AiFill.PartialFallback', {
-                trackingId, matterId: String(matterId), practiceArea: paKey, durationMs: String(durationMs),
-            });
+        for await (const chunk of await stream) {
+            jsonBuffer += chunk;
 
-            // Persist AI trace (non-blocking)
-            saveCclAiTrace({
-                matterId, trackingId, aiStatus: 'partial', model: DEPLOYMENT, durationMs,
-                temperature: chatOptions.temperature,
-                systemPrompt: SYSTEM_PROMPT, userPrompt, userPromptLength: userPrompt.length,
-                aiOutputJson: stripEmpty(aiFields), generatedFieldCount: Object.keys(stripEmpty(aiFields)).length,
-                confidence: 'partial', dataSourcesJson: contextSources,
-                contextFieldsJson: debugContext.contextFields, contextSnippetsJson: debugContext.snippets,
-                fallbackReason: 'AI response was incomplete or unparsable; merged with defaults.',
-                createdBy: actor,
-            }).catch(err => console.warn('[CCL-AI] Trace persist failed:', err.message));
+            // Try to extract newly completed fields from the accumulating JSON
+            try {
+                const tryParse = jsonBuffer.replace(/,\s*$/, '');
+                const closedJson = tryParse.endsWith('}') ? tryParse : tryParse + '}';
+                const partial = JSON.parse(closedJson);
 
-            return res.json({
-                ok: true,
-                fields: merged,
-                confidence: 'partial',
-                model: DEPLOYMENT,
-                durationMs,
-                source: 'ai+defaults',
-                dataSources: contextSources,
-                contextSummary: `Used ${contextSources.length} data source(s): ${contextSources.join(', ')}`,
-                userPrompt,
-                systemPrompt: SYSTEM_PROMPT,
-                fallbackReason: 'AI response was incomplete or unparsable; merged with defaults.',
-                debug: {
-                    trackingId,
-                    deployment: DEPLOYMENT,
-                    aiStatus: 'partial',
-                    options: chatOptions,
-                    userPromptLength: userPrompt.length,
-                    generatedFieldCount: Object.keys(stripEmpty(aiFields)).length,
-                    context: debugContext,
-                },
-            });
+                for (const [key, value] of Object.entries(partial)) {
+                    if (key.startsWith('_')) continue;
+                    if (typeof value === 'string' && value.length > 0 && !emittedKeys.has(key)) {
+                        emittedKeys.add(key);
+                        fieldCount++;
+                        send('field', { key, value, index: fieldCount });
+                    }
+                }
+            } catch {
+                // Buffer not yet parseable — continue accumulating
+            }
         }
 
-        trackEvent('CCL.AiFill.Completed', {
-            trackingId,
-            matterId: String(matterId),
-            practiceArea: practiceArea || 'unknown',
-            durationMs: String(durationMs),
-            fieldCount: String(Object.keys(aiFields).length),
-            filledFieldCount: String(Object.keys(stripEmpty(aiFields)).length),
-        });
-        trackMetric('CCL.AiFill.Duration', durationMs, { practiceArea: practiceArea || 'unknown' });
-        trackMetric('CCL.AiFill.FieldCount', Object.keys(stripEmpty(aiFields)).length, { practiceArea: practiceArea || 'unknown' });
-        trackMetric('CCL.AiFill.ContextSources', contextSources ? contextSources.length : 0, { practiceArea: practiceArea || 'unknown' });
+        // Final parse of complete JSON
+        let aiFields = {};
+        try {
+            aiFields = JSON.parse(jsonBuffer);
+        } catch {
+            aiFields = {};
+            // Emit any fields we may have missed
+            try {
+                const cleaned = jsonBuffer.replace(/,\s*$/, '');
+                aiFields = JSON.parse(cleaned.endsWith('}') ? cleaned : cleaned + '}');
+            } catch {
+                aiFields = { _parseError: true };
+            }
+        }
 
-        // Persist AI trace — full success (non-blocking)
+        // Emit any remaining fields not yet sent
+        for (const [key, value] of Object.entries(aiFields)) {
+            if (key.startsWith('_')) continue;
+            if (typeof value === 'string' && value.length > 0 && !emittedKeys.has(key)) {
+                emittedKeys.add(key);
+                fieldCount++;
+                send('field', { key, value, index: fieldCount });
+            }
+        }
+
+        const durationMs = Date.now() - startMs;
+        const strippedFields = stripEmpty(aiFields);
+
+        // Validate core fields
+        const expectedKeys = ['insert_current_position_and_scope_of_retainer', 'next_steps', 'charges_estimate_paragraph'];
+        const hasCore = expectedKeys.every(k => strippedFields[k] && strippedFields[k].length > 10);
+        const confidence = hasCore ? 'full' : (Object.keys(strippedFields).length > 0 ? 'partial' : 'fallback');
+
+        // If partial, merge with defaults
+        let finalFields = strippedFields;
+        if (confidence !== 'full') {
+            const paKey = normalisePracticeArea(practiceArea);
+            const defaults = PRACTICE_AREA_DEFAULTS[paKey] || PRACTICE_AREA_DEFAULTS['commercial'];
+            finalFields = { ...defaults, ...strippedFields };
+        }
+
+        // Telemetry
+        trackEvent('CCL.AiFillStream.Completed', {
+            trackingId, matterId: String(matterId), durationMs: String(durationMs),
+            fieldCount: String(fieldCount), confidence,
+        });
+        trackMetric('CCL.AiFillStream.Duration', durationMs, { practiceArea: practiceArea || 'unknown' });
+
+        // Persist trace (non-blocking)
         saveCclAiTrace({
-            matterId, trackingId, aiStatus: 'complete', model: DEPLOYMENT, durationMs,
+            matterId, trackingId, aiStatus: confidence, model: DEPLOYMENT, durationMs,
             temperature: chatOptions.temperature,
             systemPrompt: SYSTEM_PROMPT, userPrompt, userPromptLength: userPrompt.length,
-            aiOutputJson: aiFields, generatedFieldCount: Object.keys(stripEmpty(aiFields)).length,
-            confidence: 'full', dataSourcesJson: contextSources,
+            aiOutputJson: strippedFields, generatedFieldCount: fieldCount,
+            confidence, dataSourcesJson: contextSources,
             contextFieldsJson: debugContext.contextFields, contextSnippetsJson: debugContext.snippets,
             createdBy: actor,
-        }).catch(err => console.warn('[CCL-AI] Trace persist failed:', err.message));
+        }).catch(err => console.warn('[CCL-AI] Stream trace persist failed:', err.message));
 
-        return res.json({
+        // Send completion event with full metadata
+        send('complete', {
             ok: true,
-            fields: aiFields,
-            confidence: 'full',
+            fields: finalFields,
+            confidence,
             model: DEPLOYMENT,
             durationMs,
-            source: 'ai',
+            source: confidence === 'full' ? 'ai' : (confidence === 'partial' ? 'ai+defaults' : 'defaults'),
             dataSources: contextSources,
             contextSummary: `Used ${contextSources.length} data source(s): ${contextSources.join(', ')}`,
             userPrompt,
@@ -762,74 +1134,31 @@ router.post('/fill', async (req, res) => {
             debug: {
                 trackingId,
                 deployment: DEPLOYMENT,
-                aiStatus: 'complete',
+                aiStatus: confidence,
                 options: chatOptions,
                 userPromptLength: userPrompt.length,
-                generatedFieldCount: Object.keys(stripEmpty(aiFields)).length,
+                generatedFieldCount: fieldCount,
                 context: debugContext,
             },
         });
 
+        res.end();
+
     } catch (err) {
         const durationMs = Date.now() - startMs;
-        console.error(`[CCL-AI] Fill failed (trackingId: ${trackingId}):`, err.message);
-        trackException(err, {
-            operation: 'CCL.AiFill',
-            trackingId,
-            matterId: String(matterId),
-            practiceArea: practiceArea || 'unknown',
-        });
-        trackEvent('CCL.AiFill.Failed', {
+        console.error(`[CCL-AI] Stream fill failed (trackingId: ${trackingId}):`, err.message);
+        trackException(err, { operation: 'CCL.AiFillStream', trackingId, matterId: String(matterId) });
+        trackEvent('CCL.AiFillStream.Failed', {
             trackingId, matterId: String(matterId), error: err.message, durationMs: String(durationMs),
         });
 
         // Fall back to practice area defaults
         const paKey = normalisePracticeArea(practiceArea);
         const defaults = PRACTICE_AREA_DEFAULTS[paKey] || PRACTICE_AREA_DEFAULTS['commercial'];
-
         const fallbackReason = formatFallbackReason(err.message);
 
-        // Persist AI trace — fallback (non-blocking)
-        saveCclAiTrace({
-            matterId, trackingId, aiStatus: 'fallback', model: 'none', durationMs,
-            temperature: chatOptions.temperature,
-            systemPrompt: SYSTEM_PROMPT, confidence: 'fallback',
-            fallbackReason, errorMessage: err.message,
-            createdBy: actor,
-        }).catch(err2 => console.warn('[CCL-AI] Trace persist failed:', err2.message));
-
-        return res.json({
-            ok: true,
-            fields: defaults,
-            confidence: 'fallback',
-            model: 'none',
-            durationMs,
-            source: 'defaults',
-            fallbackReason,
-            dataSources: [],
-            contextSummary: 'AI unavailable — using practice area defaults only',
-            userPrompt: '',
-            systemPrompt: SYSTEM_PROMPT,
-            debug: {
-                trackingId,
-                deployment: DEPLOYMENT,
-                aiStatus: 'fallback',
-                options: chatOptions,
-                userPromptLength: 0,
-                generatedFieldCount: 0,
-                error: fallbackReason,
-                context: {
-                    sourceCount: 0,
-                    sources: [],
-                    snippets: {},
-                    contextFields: {
-                        practiceArea: practiceArea || '',
-                        clientName: clientName || '',
-                        opponent: opponent || '',
-                    },
-                },
-            },
-        });
+        send('error', { message: fallbackReason, fields: defaults, confidence: 'fallback' });
+        res.end();
     }
 });
 
@@ -891,49 +1220,20 @@ router.post('/context-preview', async (req, res) => {
     }
 
     try {
-        const dbContext = await gatherFullContext(matterId, instructionRef);
-
-        const fullContext = {
-            practiceArea: practiceArea || dbContext.areaOfWork || '',
-            typeOfWork: dbContext.typeOfWork || '',
+        const preview = await previewCclContext({
+            matterId,
+            instructionRef,
+            practiceArea,
             description,
             clientName,
             opponent,
+            enquiryNotes,
             handlerName,
             handlerRole,
             handlerRate,
-            clientType: dbContext.clientType || '',
-            clientGender: dbContext.clientGender || '',
-            company: dbContext.company || '',
-            source: dbContext.source || '',
-            enquiryValue: dbContext.enquiryValue || '',
-            instructionStage: dbContext.instructionStage || '',
-            initialCallNotes: dbContext.initialCallNotes || '',
-            enquiryNotes: enquiryNotes || dbContext.enquiryNotes || '',
-            instructionNotes: dbContext.instructionNotes || '',
-            dealServiceDescription: dbContext.dealServiceDescription || '',
-            dealAmount: dbContext.dealAmount || '',
-            dealPitchedBy: dbContext.dealPitchedBy || '',
-            pitchEmailBody: dbContext.pitchEmailBody || '',
-            pitchServiceDescription: dbContext.pitchServiceDescription || '',
-            pitchAmount: dbContext.pitchAmount || '',
-            pitchNotes: dbContext.pitchNotes || '',
-            callTranscripts: dbContext.callTranscripts || '',
-        };
-
-        const userPrompt = buildUserPrompt(fullContext);
-        const contextSources = summariseContextSources(dbContext);
-        const debugContext = buildDebugContext(fullContext, contextSources);
-
-        return res.json({
-            ok: true,
-            dataSources: contextSources,
-            contextFields: debugContext.contextFields,
-            snippets: debugContext.snippets,
-            userPrompt,
-            userPromptLength: userPrompt.length,
-            systemPromptLength: SYSTEM_PROMPT.length,
         });
+
+        return res.json(preview);
     } catch (err) {
         console.error('[CCL-AI] Context preview failed:', err.message);
         trackException(err, { operation: 'CCL.AiFill.ContextPreview', matterId: String(matterId) });
@@ -966,5 +1266,360 @@ function stripEmpty(obj) {
     }
     return result;
 }
+
+// ─── POST /api/ccl-ai/pressure-test ─────────────────────────────────────────
+// After AI generation completes, the frontend calls this to verify output
+// confidence. Gathers extended evidence (emails, transcripts, documents,
+// pitch content) and asks a second AI pass to score each generated field
+// on a 0-10 confidence scale. Fields ≤7 are flagged for Fee Earner review.
+
+const PRESSURE_TEST_SYSTEM_PROMPT = `You are a senior legal quality assurance reviewer at Helix Law, a UK law firm.
+
+You have been given:
+1. A set of AI-generated Client Care Letter (CCL) intake fields
+2. All available source data: pitch emails, inbound/outbound client emails, call transcripts, document listings, deal data, enquiry notes, and instruction notes
+
+Your task is to VERIFY each generated field against the source data and score your confidence that the field is ACCURATE and APPROPRIATE for this specific matter.
+
+SCORING RULES:
+- Score 0-10 for each field
+- 10 = perfectly matches source data, no doubt
+- 8-9 = strongly supported by evidence, minor wording preference only
+- 7 = mostly correct but some aspect is uncertain or could be wrong
+- 6 = plausible but weak evidence; may be generic rather than specific to this matter
+- 5 or below = likely hallucinated, contradicts evidence, or no supporting data found
+- If a field references a specific £ amount, check it matches deal/pitch amounts EXACTLY
+- If a field describes the client's situation, check it matches call notes/emails
+- If a field names a document the client needs, check it's relevant to the practice area
+
+For each field, provide:
+- "score": integer 0-10
+- "reason": 1-2 sentences explaining what evidence supports or contradicts the value
+- "flag": boolean — true if score ≤ 7 (Fee Earner must check)
+
+Respond with ONLY a JSON object where each key matches the field name, containing {score, reason, flag}. No markdown, no preamble.`;
+
+function buildPressureTestUserPrompt(generatedFields, evidencePackage) {
+    const parts = [];
+
+    parts.push('=== GENERATED CCL FIELDS (to verify) ===');
+    for (const [key, value] of Object.entries(generatedFields)) {
+        if (key.startsWith('_')) continue;
+        parts.push(`${key}: ${value}`);
+    }
+
+    parts.push('\n=== SOURCE EVIDENCE ===');
+
+    if (evidencePackage.pitchContent) {
+        parts.push('\n--- PITCH EMAIL BODY ---');
+        parts.push(evidencePackage.pitchContent.substring(0, 3000));
+    }
+    if (evidencePackage.pitchServiceDescription) {
+        parts.push(`\nPitch Service Description: ${evidencePackage.pitchServiceDescription}`);
+    }
+    if (evidencePackage.pitchAmount) {
+        parts.push(`Pitch Amount: £${evidencePackage.pitchAmount}`);
+    }
+    if (evidencePackage.dealAmount) {
+        parts.push(`Deal Amount: £${evidencePackage.dealAmount}`);
+    }
+    if (evidencePackage.dealServiceDescription) {
+        parts.push(`Deal Service Description: ${evidencePackage.dealServiceDescription}`);
+    }
+
+    if (evidencePackage.initialCallNotes) {
+        parts.push('\n--- INITIAL CALL NOTES ---');
+        parts.push(evidencePackage.initialCallNotes.substring(0, 3000));
+    }
+    if (evidencePackage.enquiryNotes) {
+        parts.push('\n--- ENQUIRY NOTES ---');
+        parts.push(evidencePackage.enquiryNotes.substring(0, 2000));
+    }
+    if (evidencePackage.instructionNotes) {
+        parts.push('\n--- INSTRUCTION NOTES ---');
+        parts.push(evidencePackage.instructionNotes.substring(0, 2000));
+    }
+
+    if (evidencePackage.emailsIn && evidencePackage.emailsIn.length > 0) {
+        parts.push('\n--- INBOUND EMAILS (from client) ---');
+        for (const email of evidencePackage.emailsIn.slice(0, 5)) {
+            parts.push(`[${email.date}] Subject: ${email.subject}`);
+            parts.push(email.body.substring(0, 1500));
+            parts.push('---');
+        }
+    }
+
+    if (evidencePackage.emailsOut && evidencePackage.emailsOut.length > 0) {
+        parts.push('\n--- OUTBOUND EMAILS (to client) ---');
+        for (const email of evidencePackage.emailsOut.slice(0, 5)) {
+            parts.push(`[${email.date}] Subject: ${email.subject}`);
+            parts.push(email.body.substring(0, 1500));
+            parts.push('---');
+        }
+    }
+
+    if (evidencePackage.callTranscripts && evidencePackage.callTranscripts.length > 0) {
+        parts.push('\n--- CALL TRANSCRIPTS ---');
+        for (const call of evidencePackage.callTranscripts.slice(0, 5)) {
+            parts.push(`[${call.date}] ${call.direction || ''} ${call.duration || ''}`);
+            if (call.note) parts.push(`Notes: ${call.note}`);
+            if (call.transcription) parts.push(`Transcript: ${call.transcription.substring(0, 1500)}`);
+            parts.push('---');
+        }
+    }
+
+    if (evidencePackage.documents && evidencePackage.documents.length > 0) {
+        parts.push('\n--- DOCUMENTS ON FILE ---');
+        for (const doc of evidencePackage.documents.slice(0, 20)) {
+            parts.push(`- ${doc.name} (${doc.type || 'unknown type'}, ${doc.date || 'no date'})`);
+        }
+    }
+
+    if (evidencePackage.practiceArea) {
+        parts.push(`\nPractice Area: ${evidencePackage.practiceArea}`);
+    }
+    if (evidencePackage.clientName) {
+        parts.push(`Client Name: ${evidencePackage.clientName}`);
+    }
+
+    parts.push('\n=== INSTRUCTIONS ===');
+    parts.push('Score every generated field above. Flag any field scoring 7 or below. Pay special attention to:');
+    parts.push('- £ amounts matching deal/pitch data exactly');
+    parts.push('- Scope of retainer matching what was actually discussed');
+    parts.push('- Document requests being specific to this matter, not generic');
+    parts.push('- Timescales being realistic for this practice area and complexity');
+
+    return parts.join('\n');
+}
+
+async function gatherVerificationEvidence(matterId, instructionRef, feeEarnerEmail, prospectEmail, phone) {
+    const base = getInternalBase();
+    const evidence = {};
+
+    // Gather emails (inbound + outbound, up to 10 total split by direction)
+    if (feeEarnerEmail && prospectEmail) {
+        try {
+            const resp = await fetch(`${base}/api/searchInbox`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ feeEarnerEmail, prospectEmail, maxResults: 20 }),
+            });
+            if (resp.ok) {
+                const data = await resp.json();
+                const emails = data.emails || [];
+                const emailsIn = [];
+                const emailsOut = [];
+                for (const e of emails) {
+                    const fromAddr = (e.from || '').toLowerCase();
+                    const prospectLower = prospectEmail.toLowerCase();
+                    const entry = {
+                        date: e.receivedDateTime ? new Date(e.receivedDateTime).toLocaleDateString('en-GB') : '',
+                        subject: e.subject || '',
+                        body: e.bodyText || stripHtmlForVerification(e.bodyHtml) || e.bodyPreview || '',
+                    };
+                    if (fromAddr === prospectLower) {
+                        if (emailsIn.length < 5) emailsIn.push(entry);
+                    } else {
+                        if (emailsOut.length < 5) emailsOut.push(entry);
+                    }
+                }
+                evidence.emailsIn = emailsIn;
+                evidence.emailsOut = emailsOut;
+            }
+        } catch (err) {
+            console.warn('[CCL-AI] Pressure test email fetch failed:', err.message);
+        }
+    }
+
+    // Gather call transcripts (up to 5)
+    if (phone) {
+        try {
+            const resp = await fetch(`${base}/api/callrailCalls`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ phoneNumber: phone, maxResults: 5 }),
+            });
+            if (resp.ok) {
+                const data = await resp.json();
+                const calls = Array.isArray(data) ? data : data.calls || [];
+                evidence.callTranscripts = calls.filter(c => c.transcription || c.note).slice(0, 5).map(c => ({
+                    date: c.startTime ? new Date(c.startTime).toLocaleDateString('en-GB') : '',
+                    direction: c.direction || '',
+                    duration: c.duration ? `${Math.round(c.duration / 60)}min` : '',
+                    note: c.note || '',
+                    transcription: c.transcription || '',
+                }));
+            }
+        } catch (err) {
+            console.warn('[CCL-AI] Pressure test CallRail fetch failed:', err.message);
+        }
+    }
+
+    // Gather document list (if we have an instructionRef)
+    if (instructionRef) {
+        try {
+            const resp = await fetch(`${base}/api/documents/${encodeURIComponent(instructionRef)}`);
+            if (resp.ok) {
+                const data = await resp.json();
+                const docs = Array.isArray(data) ? data : data.documents || [];
+                evidence.documents = docs.slice(0, 20).map(d => ({
+                    name: d.name || d.fileName || d.originalName || 'Unknown',
+                    type: d.contentType || d.type || '',
+                    date: d.uploadedAt || d.createdAt || '',
+                }));
+            }
+        } catch (err) {
+            console.warn('[CCL-AI] Pressure test document listing failed:', err.message);
+        }
+    }
+
+    return evidence;
+}
+
+function stripHtmlForVerification(html) {
+    if (!html) return '';
+    return html
+        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&amp;/gi, '&')
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .replace(/&quot;/gi, '"')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+router.post('/pressure-test', async (req, res) => {
+    const {
+        matterId, instructionRef, generatedFields, practiceArea, clientName,
+        feeEarnerEmail, prospectEmail,
+    } = req.body || {};
+
+    if (!matterId || !generatedFields || typeof generatedFields !== 'object') {
+        return res.status(400).json({ error: 'matterId and generatedFields are required' });
+    }
+
+    const trackingId = Math.random().toString(36).slice(2, 10);
+    const startMs = Date.now();
+    const actor = resolveRequestActor(req);
+
+    trackEvent('CCL.PressureTest.Started', {
+        trackingId, matterId: String(matterId), fieldCount: String(Object.keys(generatedFields).length),
+    });
+
+    try {
+        // Phase 1: Gather the original context (reuse gatherFullContext)
+        const dbContext = await gatherFullContext(matterId, instructionRef);
+
+        // Phase 2: Gather extended verification evidence (emails, transcripts, documents)
+        const resolvedFeeEarnerEmail = feeEarnerEmail || dbContext.feeEarnerEmail || '';
+        const resolvedProspectEmail = prospectEmail || dbContext.prospectEmail || '';
+        const resolvedPhone = dbContext.phone || '';
+
+        const externalEvidence = await gatherVerificationEvidence(
+            matterId, instructionRef, resolvedFeeEarnerEmail, resolvedProspectEmail, resolvedPhone,
+        );
+
+        // Phase 3: Build the verification evidence package
+        const evidencePackage = {
+            // From original context
+            pitchContent: dbContext.pitchEmailBody || '',
+            pitchServiceDescription: dbContext.pitchServiceDescription || '',
+            pitchAmount: dbContext.pitchAmount || '',
+            dealAmount: dbContext.dealAmount || '',
+            dealServiceDescription: dbContext.dealServiceDescription || '',
+            initialCallNotes: dbContext.initialCallNotes || '',
+            enquiryNotes: dbContext.enquiryNotes || '',
+            instructionNotes: dbContext.instructionNotes || '',
+            practiceArea: practiceArea || dbContext.areaOfWork || '',
+            clientName: clientName || '',
+            // From extended evidence
+            ...externalEvidence,
+        };
+
+        const dataSources = [];
+        if (evidencePackage.pitchContent) dataSources.push('Pitch email');
+        if (evidencePackage.dealAmount) dataSources.push('Deal data');
+        if (evidencePackage.initialCallNotes) dataSources.push('Initial call notes');
+        if (evidencePackage.enquiryNotes) dataSources.push('Enquiry notes');
+        if (evidencePackage.instructionNotes) dataSources.push('Instruction notes');
+        if (externalEvidence.emailsIn?.length) dataSources.push(`${externalEvidence.emailsIn.length} inbound emails`);
+        if (externalEvidence.emailsOut?.length) dataSources.push(`${externalEvidence.emailsOut.length} outbound emails`);
+        if (externalEvidence.callTranscripts?.length) dataSources.push(`${externalEvidence.callTranscripts.length} call transcripts`);
+        if (externalEvidence.documents?.length) dataSources.push(`${externalEvidence.documents.length} documents`);
+
+        // Phase 4: Call AI for verification scoring
+        const userPrompt = buildPressureTestUserPrompt(generatedFields, evidencePackage);
+
+        const verificationResult = await chatCompletion(
+            PRESSURE_TEST_SYSTEM_PROMPT,
+            userPrompt,
+            { temperature: 0.1 },
+        );
+
+        const durationMs = Date.now() - startMs;
+
+        // Normalise the result — ensure every field has score/reason/flag
+        const fieldScores = {};
+        let flaggedCount = 0;
+        for (const [key, value] of Object.entries(generatedFields)) {
+            if (key.startsWith('_')) continue;
+            const aiScore = verificationResult[key];
+            if (aiScore && typeof aiScore === 'object') {
+                const score = typeof aiScore.score === 'number' ? aiScore.score : 5;
+                const flag = score <= 7;
+                fieldScores[key] = {
+                    score,
+                    reason: String(aiScore.reason || 'No reason provided'),
+                    flag,
+                };
+                if (flag) flaggedCount++;
+            } else {
+                // AI didn't score this field — flag it by default
+                fieldScores[key] = {
+                    score: 5,
+                    reason: 'Verification AI did not return a score for this field — requires manual review',
+                    flag: true,
+                };
+                flaggedCount++;
+            }
+        }
+
+        trackEvent('CCL.PressureTest.Completed', {
+            trackingId, matterId: String(matterId), durationMs: String(durationMs),
+            fieldCount: String(Object.keys(fieldScores).length),
+            flaggedCount: String(flaggedCount),
+            dataSourceCount: String(dataSources.length),
+        });
+        trackMetric('CCL.PressureTest.Duration', durationMs, { matterId: String(matterId) });
+
+        return res.json({
+            ok: true,
+            fieldScores,
+            flaggedCount,
+            totalFields: Object.keys(fieldScores).length,
+            dataSources,
+            durationMs,
+            trackingId,
+        });
+
+    } catch (err) {
+        const durationMs = Date.now() - startMs;
+        console.error(`[CCL-AI] Pressure test failed (trackingId: ${trackingId}):`, err.message);
+        trackException(err, { operation: 'CCL.PressureTest', trackingId, matterId: String(matterId) });
+        trackEvent('CCL.PressureTest.Failed', {
+            trackingId, matterId: String(matterId), error: err.message, durationMs: String(durationMs),
+        });
+
+        return res.status(500).json({ error: 'Pressure test failed', message: err.message });
+    }
+});
+
+router.buildCclContextPackage = buildCclContextPackage;
+router.previewCclContext = previewCclContext;
+router.runCclAiFill = runCclAiFill;
+router.CCL_PROMPT_VERSION = CCL_PROMPT_VERSION;
 
 module.exports = router;

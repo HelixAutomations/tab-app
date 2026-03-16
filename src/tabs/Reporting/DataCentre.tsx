@@ -48,6 +48,33 @@ type OperationLogEntry = {
   message?: string;
 };
 
+/**
+ * Translate raw server/Clio error messages into plain-English summaries.
+ * The raw message is still available via tooltip for debugging.
+ */
+function humaniseMessage(raw?: string): string {
+  if (!raw) return '';
+  const m = raw.toLowerCase();
+  if (m.includes('429')) return 'Temporarily rate-limited by Clio — will retry automatically';
+  if (m.includes('401') || m.includes('invalid_token') || m.includes('expired')) return 'Clio access token expired — refreshing automatically';
+  if (m.includes('clio returned 0 activities') || m.includes('clio returned no data') || m.includes('clio report empty'))
+    return 'No new data from Clio for this period';
+  if (m.includes('econnrefused') || m.includes('enotfound') || m.includes('network'))
+    return 'Network error reaching Clio — will retry on next cycle';
+  if (m.includes('timed out') || m.includes('timeout'))
+    return 'Request timed out — will retry on next cycle';
+  if (m.includes('cancelled by user')) return 'Cancelled by user';
+  if (m.includes('sanity guard') || m.includes('rolled back'))
+    return 'Safety check failed — existing data preserved (no data lost)';
+  if (m.includes('sql') && m.includes('connection'))
+    return 'Database connection issue — will retry on next cycle';
+  // Shorten date-range messages: "Syncing 2026-03-01 → 2026-03-02 (replace)" → keep as-is
+  if (m.includes('syncing ') && m.includes('→')) return raw;
+  if (m.includes('requesting report')) return raw;
+  // For anything else unknown, return the original but cap length
+  return raw.length > 120 ? raw.slice(0, 117) + '…' : raw;
+}
+
 type MonthAuditEntry = {
   key: string;
   label: string;
@@ -1199,24 +1226,24 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
     const isMidWindow = monthAge > 2 && monthAge <= 5;
 
     if (!lastSyncTs) {
-      if (isRecentWindow) return { label: 'Needs sync', color: '#ef4444', tint: 'rgba(239,68,68,0.12)' };
-      if (isMidWindow) return { label: 'Check cadence', color: '#f59e0b', tint: 'rgba(245,158,11,0.10)' };
+      if (isRecentWindow) return { label: 'Needs sync', color: colours.cta, tint: `${colours.cta}1F` };
+      if (isMidWindow) return { label: 'Check cadence', color: colours.orange, tint: `${colours.orange}1A` };
       return { label: 'Monitor', color: colours.greyText, tint: `${colours.greyText}1A` };
     }
 
     const syncMs = typeof lastSyncTs === 'string' ? new Date(lastSyncTs).getTime() : lastSyncTs;
     const daysSince = Math.floor((Date.now() - syncMs) / 86400000);
     if (daysSince <= Math.floor(expectedDays * 0.7)) {
-      return { label: 'Fresh', color: '#22c55e', tint: 'rgba(34,197,94,0.12)' };
+      return { label: 'Fresh', color: colours.green, tint: `${colours.green}1F` };
     }
     if (daysSince <= expectedDays) {
-      return { label: 'Monitor', color: '#f59e0b', tint: 'rgba(245,158,11,0.10)' };
+      return { label: 'Monitor', color: colours.orange, tint: `${colours.orange}1A` };
     }
     if (isRecentWindow) {
-      return { label: 'Overdue', color: '#ef4444', tint: 'rgba(239,68,68,0.12)' };
+      return { label: 'Overdue', color: colours.cta, tint: `${colours.cta}1F` };
     }
     if (isMidWindow) {
-      return { label: 'Stale', color: '#f59e0b', tint: 'rgba(245,158,11,0.10)' };
+      return { label: 'Stale', color: colours.orange, tint: `${colours.orange}1A` };
     }
     return { label: 'Monitor', color: colours.greyText, tint: `${colours.greyText}1A` };
   }, [getMonthAge]);
@@ -1646,7 +1673,16 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
                       <span style={{ fontSize: 9, fontWeight: 500, color: colours.orange }}>⏳ syncing</span>
                     )}
                     {isError && (
-                      <span style={{ fontSize: 9, fontWeight: 500, color: colours.cta }}>error</span>
+                      <span
+                        title={m.lastSync?.message || 'Last sync encountered an error'}
+                        style={{ fontSize: 9, fontWeight: 500, color: colours.cta }}
+                      >
+                        {(m.lastSync?.message || '').toLowerCase().includes('429')
+                          ? 'rate-limited — retrying'
+                          : (m.lastSync?.message || '').toLowerCase().includes('401')
+                            ? 'token refreshing'
+                            : 'sync error — retrying'}
+                      </span>
                     )}
 
                     {/* Inline sync info */}
@@ -1798,8 +1834,11 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
                             }}>
                               {isAuto ? 'SYSTEM' : 'USER'}
                             </span>
-                            <span style={{ color: isDarkMode ? colours.dark.text : colours.light.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 9 }}>
-                              {entry.message || entry.operation}
+                            <span
+                              title={entry.message || entry.operation}
+                              style={{ color: isDarkMode ? colours.dark.text : colours.light.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 9 }}
+                            >
+                              {humaniseMessage(entry.message) || entry.operation}
                             </span>
                             <span style={{ marginLeft: 'auto', color: isDarkMode ? colours.greyText : colours.subtleGrey }}>
                               {new Date(entry.ts).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}

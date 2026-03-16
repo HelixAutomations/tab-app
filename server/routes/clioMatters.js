@@ -283,6 +283,64 @@ router.post('/', async (req, res) => {
         if (!mr.ok) throw new Error(await mr.text());
         const matter = (await mr.json()).data;
 
+        // 7. Link related contacts that aren't the primary matter client
+        //    For Company matters: person contacts become related contacts on the matter.
+        //    For Multiple Individuals: contactIds[1..n] become related contacts.
+        if (Array.isArray(contactIds) && contactIds.length > 0) {
+            const relatedIds = contactIds.filter(id => String(id) !== String(pid));
+            // For Company type, also include person contacts even though company is the client
+            if (client_type === 'Company' && companyId) {
+                // All contactIds are person contacts; none of them is pid (which is the companyId)
+                for (const cid of contactIds) {
+                    if (String(cid) === String(pid)) continue; // skip if somehow the company itself is in contactIds
+                    try {
+                        const relPayload = {
+                            data: {
+                                contact: { id: Number(cid) },
+                                matter: { id: matter.id },
+                                description: 'Company Contact'
+                            }
+                        };
+                        const relResp = await fetch('https://eu.app.clio.com/api/v4/relationships.json', {
+                            method: 'POST', headers, body: JSON.stringify(relPayload)
+                        });
+                        if (relResp.ok) {
+                            console.log(`[Clio:Relationships] Linked contact ${cid} to matter ${matter.id} as Company Contact`);
+                        } else {
+                            const relErr = await relResp.text();
+                            console.warn(`[Clio:Relationships] Failed to link contact ${cid}: ${relErr}`);
+                        }
+                    } catch (relError) {
+                        console.warn(`[Clio:Relationships] Error linking contact ${cid}:`, relError.message);
+                    }
+                }
+            } else if (relatedIds.length > 0) {
+                // Multiple Individuals: link additional people
+                for (const cid of relatedIds) {
+                    try {
+                        const relPayload = {
+                            data: {
+                                contact: { id: Number(cid) },
+                                matter: { id: matter.id },
+                                description: 'Joint Client'
+                            }
+                        };
+                        const relResp = await fetch('https://eu.app.clio.com/api/v4/relationships.json', {
+                            method: 'POST', headers, body: JSON.stringify(relPayload)
+                        });
+                        if (relResp.ok) {
+                            console.log(`[Clio:Relationships] Linked contact ${cid} to matter ${matter.id} as Joint Client`);
+                        } else {
+                            const relErr = await relResp.text();
+                            console.warn(`[Clio:Relationships] Failed to link contact ${cid}: ${relErr}`);
+                        }
+                    } catch (relError) {
+                        console.warn(`[Clio:Relationships] Error linking contact ${cid}:`, relError.message);
+                    }
+                }
+            }
+        }
+
                 // Attempt to send a confirmation email (non-blocking failure)
                 try {
                         const mdSafe = formData?.matter_details || {};
@@ -298,10 +356,10 @@ router.post('/', async (req, res) => {
                         const supervisingPartner = teamSafe.supervising_partner || '';
                         
                         // Extract verification/compliance data - prefer instruction_summary, fall back to client data
-                        const eidCheckId = instSummary.eid_check_id || verification.check_id || client.check_id || '';
-                        const eidResult = instSummary.eid_overall_result || verification.check_result || client.check_result || '';
-                        const pepResult = instSummary.pep_sanctions_result || verification.pep_sanctions_result || '';
-                        const addressResult = instSummary.address_verification_result || verification.address_verification_result || '';
+                        const eidCheckId = instSummary.eid_check_id || instSummary.eidCheckId || instSummary.eid_reference || verification.check_id || verification.checkId || verification.eid_check_id || client.check_id || client.checkId || client.EIDCheckId || '';
+                        const eidResult = instSummary.eid_overall_result || instSummary.eidOverallResult || instSummary.eid_status || verification.check_result || verification.checkResult || verification.eid_overall_result || client.check_result || client.checkResult || client.EIDOverallResult || '';
+                        const pepResult = instSummary.pep_sanctions_result || instSummary.pepSanctionsResult || verification.pep_sanctions_result || verification.pepSanctionsResult || client.pep_sanctions_result || client.pepSanctionsResult || '';
+                        const addressResult = instSummary.address_verification_result || instSummary.addressVerificationResult || verification.address_verification_result || verification.addressVerificationResult || client.address_verification_result || client.addressVerificationResult || '';
                         
                         // Risk assessment data
                         const riskData = instSummary.risk_assessment || {};
@@ -372,7 +430,7 @@ router.post('/', async (req, res) => {
                                 return new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(amount);
                         };
 
-                        const subject = `New Matter Opened: ${displayNumber}`;
+                        const subject = `Matter Opened · ${displayNumber}`;
                         const logoUrl = 'https://helix-law.co.uk/wp-content/uploads/2025/01/50px-logo.png';
                         const bodyHtml = `
 <!DOCTYPE html>
@@ -381,22 +439,22 @@ router.post('/', async (req, res) => {
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 </head>
-<body style="margin: 0; padding: 0; background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f1f5f9; padding: 32px 16px;">
+<body style="margin: 0; padding: 0; background-color: #000319; font-family: Raleway, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #000319; padding: 32px 16px;">
         <tr>
             <td align="center">
-                <table role="presentation" width="580" cellspacing="0" cellpadding="0" style="background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); overflow: hidden;">
+                <table role="presentation" width="580" cellspacing="0" cellpadding="0" style="background-color: #ffffff; border-radius: 0; border: 1px solid #d6e8ff; overflow: hidden;">
                     <!-- Header with Logo + Title -->
                     <tr>
-                        <td style="background-color: #f1f5f9; padding: 20px 32px; border-bottom: 1px solid #e2e8f0;">
+                        <td style="background-color: #061733; padding: 20px 32px; border-bottom: 1px solid #0D2F60;">
                             <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
                                 <tr>
                                     <td style="vertical-align: middle;" width="120">
                                         <img src="${logoUrl}" alt="Helix Law" style="height: 32px; display: block;" />
                                     </td>
                                     <td align="right" style="vertical-align: middle;">
-                                        <p style="margin: 0; color: #0f172a; font-size: 18px; font-weight: 700;">Matter Opened</p>
-                                        <p style="margin: 4px 0 0 0; color: #64748b; font-size: 12px;">${new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
+                                        <p style="margin: 0; color: #f4f4f6; font-size: 18px; font-weight: 700;">Matter Opened</p>
+                                        <p style="margin: 4px 0 0 0; color: #87F3F3; font-size: 12px;">${new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
                                     </td>
                                 </tr>
                             </table>
@@ -414,7 +472,7 @@ router.post('/', async (req, res) => {
                                         <p style="margin: 6px 0 0 0; color: #94a3b8; font-size: 11px;">Instruction: ${instructionRef || '—'}${dealId ? ` · Deal: ${dealId}` : ''}</p>
                                     </td>
                                     <td align="right" style="vertical-align: middle;">
-                                        <a href="${clioLink}" style="display: inline-block; background: #3b82f6; color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 6px; font-size: 14px; font-weight: 600;">Open in Clio</a>
+                                        <a href="${clioLink}" style="display: inline-block; background: #3690CE; color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 0; font-size: 14px; font-weight: 700;">Open in Clio</a>
                                     </td>
                                 </tr>
                             </table>
@@ -490,7 +548,7 @@ router.post('/', async (req, res) => {
                             <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background: #f8fafc; border-radius: 8px;">
                                 <tr>
                                     <td style="padding: 16px;">
-                                        <p style="margin: 0 0 12px 0; color: #475569; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;">Compliance & Onboarding Status</p>
+                                        <p style="margin: 0 0 12px 0; color: #061733; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;">Compliance & Onboarding Status</p>
                                         <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
                                             <tr>
                                                 <!-- eID Check -->
@@ -570,7 +628,7 @@ router.post('/', async (req, res) => {
                     <!-- Footer with IDs -->
                     <tr>
                         <td style="padding: 16px 32px; background-color: #f1f5f9; border-top: 1px solid #e2e8f0;">
-                            <p style="margin: 0; color: #94a3b8; font-size: 11px; text-align: center;">Clio Matter ID: ${matter.id}</p>
+                            <p style="margin: 0; color: #64748b; font-size: 11px; text-align: center;">Helix Operations Notice · Clio Matter ID: ${matter.id}</p>
                         </td>
                     </tr>
                 </table>

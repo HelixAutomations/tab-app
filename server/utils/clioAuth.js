@@ -117,6 +117,18 @@ async function getClioAccessToken(initials) {
     throw new Error('No access token returned from Clio.');
   }
 
+  // Persist rotated refresh token back to Key Vault so it survives restarts.
+  // Clio rotates refresh tokens on each use — the old one eventually becomes invalid.
+  if (tokenData.refresh_token && tokenData.refresh_token !== refreshToken) {
+    try {
+      await secretClient.setSecret(secretNames.refreshToken, tokenData.refresh_token);
+      console.log(`[ClioAuth] Persisted rotated refresh token for '${cacheKey}' to Key Vault`);
+    } catch (kvWriteErr) {
+      // Non-fatal: token works for this session, but next restart will need manual re-auth
+      console.warn(`[ClioAuth] Failed to persist rotated refresh token for '${cacheKey}':`, kvWriteErr.message);
+    }
+  }
+
   tokenCaches.set(cacheKey, { token: accessToken, exp: now + (tokenData.expires_in || 3600) });
   return accessToken;
 }

@@ -370,7 +370,7 @@ async function fetchClioActivities(accessToken, clioId, startDate, endDate) {
   const activities = [];
   let offset = 0;
   const limit = 200;
-  const fields = 'id,date,quantity_in_hours,total,price,type';
+  const fields = 'id,date,quantity_in_hours,total,price,type,note,matter{display_number,description},activity_description{name}';
   const baseUrl = 'https://eu.app.clio.com/api/v4/activities.json';
 
   const formatDate = (d) => d.toISOString().replace(/\.\d{3}Z$/, 'Z');
@@ -434,7 +434,7 @@ function aggregateDailyTotals(activities, rangeStart, rangeEnd) {
   while (cursor <= rangeEnd) {
     const key = formatDayKey(cursor);
     // Use field names that match what the client expects
-    daily[key] = { total_hours: 0, total_amount: 0 };
+    daily[key] = { total_hours: 0, total_amount: 0, entries: [] };
     cursor.setDate(cursor.getDate() + 1);
   }
 
@@ -453,6 +453,17 @@ function aggregateDailyTotals(activities, rangeStart, rangeEnd) {
 
     daily[key].total_hours += hours;
     daily[key].total_amount += value;
+
+    // Carry per-entry detail for the client
+    daily[key].entries.push({
+      hours,
+      value,
+      type: act.type || undefined,
+      note: act.note || undefined,
+      matter: act.matter?.display_number || undefined,
+      matterDesc: act.matter?.description || undefined,
+      activity: act.activity_description?.name || undefined,
+    });
   }
 
   // Round final values

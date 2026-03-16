@@ -33,6 +33,11 @@ const HEADING_STYLE: React.CSSProperties = {
     fontWeight: 'bold'
 };
 
+const getInlineInputWidth = (value: string | undefined, fallback: string, minWidth: number, maxWidth = 320, extra = 15): string => {
+    const content = value || fallback;
+    return `${Math.min(maxWidth, Math.max(minWidth, content.length * 8 + extra))}px`;
+};
+
 const MESSAGE_TEMPLATES = {
     ccl: DEFAULT_CCL_TEMPLATE,
     custom: ''
@@ -1305,7 +1310,7 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                                 {/* Only show the selected text, no label */}
                                 {chargesChoice === 'hourly_rate' ? (
                                     <div style={{ fontSize: '14px', lineHeight: '1.4' }}>
-                                        Our fees are calculated on the basis of an hourly rate. My rate is £475 per hour. Other Senior Partners are charged at £475, Partners at £425, Associate solicitors at £350, Solicitors at £310 and trainees and paralegals are charged at £210. All hourly rates will be subject to the addition of VAT.<br /><br />
+                                        Our fees are calculated on the basis of an hourly rate. My rate is £475 per hour. Directors are charged at £475, partners and senior solicitors at £425, associate solicitors at £350, solicitors at £310 and trainees and paralegals are charged at £210. All hourly rates are excluding VAT, and this will be added at the prevailing rate.<br /><br />
                                         Short incoming and outgoing letters, messages, emails and routine phone calls are charged at 1/10 of an hour. All other work is timed in six minute units and charged at the relevant hourly rate. Please note that lots of small emails or telephone calls may unnecessarily increase the costs to you.<br /><br />
                                         I estimate the cost of the Initial Scope with be £
                                         <input
@@ -1325,7 +1330,9 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                                                 backgroundColor: '#fff',
                                                 outline: 'none',
                                                 minWidth: '60px',
-                                                width: `${Math.max(60, (templateFields.figure || 'amount').length * 8 + 15)}px`,
+                                                width: getInlineInputWidth(templateFields.figure, 'amount', 60, 180),
+                                                maxWidth: '100%',
+                                                boxSizing: 'border-box',
                                                 transition: 'width 0.2s ease',
                                                 margin: '0 2px',
                                                 verticalAlign: 'baseline'
@@ -1352,7 +1359,9 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                                                 backgroundColor: '#fff',
                                                 outline: 'none',
                                                 minWidth: '200px',
-                                                width: `${Math.max(200, (templateFields.we_cannot_give_an_estimate_of_our_overall_charges_in_this_matter_because_reason_why_estimate_is_not_possible || 'reason why estimate is not possible').length * 8 + 15)}px`,
+                                                width: getInlineInputWidth(templateFields.we_cannot_give_an_estimate_of_our_overall_charges_in_this_matter_because_reason_why_estimate_is_not_possible, 'reason why estimate is not possible', 200, 360),
+                                                maxWidth: '100%',
+                                                boxSizing: 'border-box',
                                                 transition: 'width 0.2s ease',
                                                 margin: '0 2px',
                                                 verticalAlign: 'baseline'
@@ -1375,7 +1384,9 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                                                 backgroundColor: '#fff',
                                                 outline: 'none',
                                                 minWidth: '100px',
-                                                width: `${Math.max(100, (templateFields.next_stage || 'next stage').length * 8 + 15)}px`,
+                                                width: getInlineInputWidth(templateFields.next_stage, 'next stage', 100, 220),
+                                                maxWidth: '100%',
+                                                boxSizing: 'border-box',
                                                 transition: 'width 0.2s ease',
                                                 margin: '0 2px',
                                                 verticalAlign: 'baseline'
@@ -1398,7 +1409,9 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                                                 backgroundColor: '#fff',
                                                 outline: 'none',
                                                 minWidth: '80px',
-                                                width: `${Math.max(80, (templateFields.figure_or_range || 'figure or range').length * 8 + 15)}px`,
+                                                width: getInlineInputWidth(templateFields.figure_or_range, 'figure or range', 80, 220),
+                                                maxWidth: '100%',
+                                                boxSizing: 'border-box',
                                                 transition: 'width 0.2s ease',
                                                 margin: '0 2px',
                                                 verticalAlign: 'baseline'
@@ -1528,7 +1541,9 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                                                 backgroundColor: '#fff',
                                                 outline: 'none',
                                                 minWidth: '100px',
-                                                width: `${Math.max(100, (templateFields.identify_the_other_party_eg_your_opponents || 'other party').length * 8 + 15)}px`,
+                                                width: getInlineInputWidth(templateFields.identify_the_other_party_eg_your_opponents, 'other party', 100, 240),
+                                                maxWidth: '100%',
+                                                boxSizing: 'border-box',
                                                 transition: 'width 0.2s ease',
                                                 margin: '0 2px',
                                                 verticalAlign: 'baseline'
@@ -1826,7 +1841,9 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                                                 backgroundColor: '#fff',
                                                 outline: 'none',
                                                 minWidth: '80px',
-                                                width: `${Math.max(80, (templateFields.simple_disbursements_estimate || 'estimate amount').length * 8 + 15)}px`,
+                                                width: getInlineInputWidth(templateFields.simple_disbursements_estimate, 'estimate amount', 80, 220),
+                                                maxWidth: '100%',
+                                                boxSizing: 'border-box',
                                                 transition: 'width 0.2s ease',
                                                 margin: '0 2px',
                                                 verticalAlign: 'baseline'
@@ -1884,7 +1901,9 @@ const DocumentsV3: React.FC<DocumentsV3Props> = ({
                                                             backgroundColor: '#fff',
                                                             outline: 'none',
                                                             minWidth: '150px',
-                                                            width: `${Math.max(150, (templateFields.give_examples_of_what_your_estimate_includes_eg_accountants_report_and_court_fees || 'examples of what your estimate includes').length * 8 + 35)}px`,
+                                                            width: getInlineInputWidth(templateFields.give_examples_of_what_your_estimate_includes_eg_accountants_report_and_court_fees, 'examples of what your estimate includes', 150, 360, 35),
+                                                            maxWidth: '100%',
+                                                            boxSizing: 'border-box',
                                                             margin: '0 2px',
                                                             verticalAlign: 'baseline',
                                                             cursor: 'text',

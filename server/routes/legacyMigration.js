@@ -18,6 +18,29 @@ const router = express.Router();
 const { withRequest, sql } = require('../utils/db');
 const { trackEvent, trackException } = require('../utils/appInsights');
 
+function splitInstructionRef(ref) {
+  const match = String(ref || '').match(/^HLX-(\d+)-(\d+)$/i);
+  if (!match) return null;
+  return { prospectId: Number(match[1]), passcode: Number(match[2]) };
+}
+
+function parsePositiveInt(value) {
+  const n = Number(value);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+function parseCsvIds(value) {
+  return String(value || '')
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function mergeCsvIds(...values) {
+  const merged = new Set(values.flatMap(parseCsvIds));
+  return Array.from(merged).join(',');
+}
+
 /* ────────────────────────────────────────────────────────────────────
  *  POST /api/migration/discover
  *  Body: { query: string }
@@ -185,6 +208,28 @@ router.post('/discover', async (req, res) => {
       return [];
     });
 
+    // ── Instructions DB: Payments ──
+    const payments = await withRequest(instrConn, async (request) => {
+      if (instructions.length > 0) {
+        const ref = instructions[0].InstructionRef;
+        if (ref) {
+          request.input('ref', sql.NVarChar, ref);
+          return (await request.query(`SELECT * FROM Payments WHERE instruction_ref = @ref ORDER BY created_at DESC`)).recordset;
+        }
+      }
+      if (isEmail) {
+        request.input('email', sql.NVarChar, q);
+        return (await request.query(`
+          SELECT p.*
+          FROM Payments p
+          INNER JOIN Instructions i ON i.InstructionRef = p.instruction_ref
+          WHERE i.Email = @email
+          ORDER BY p.created_at DESC
+        `)).recordset;
+      }
+      return [];
+    });
+
     const result = {
       query: q,
       searchType: isDisplayNumber ? 'display-number' : isEmail ? 'email' : 'name',
@@ -200,6 +245,7 @@ router.post('/discover', async (req, res) => {
           Deals: { found: deals.length > 0, count: deals.length, data: deals },
           Matters: { found: instrMatters.length > 0, count: instrMatters.length, data: instrMatters },
           IdVerifications: { found: idVerifications.length > 0, count: idVerifications.length, data: idVerifications },
+          Payments: { found: payments.length > 0, count: payments.length, data: payments },
         },
       },
       prefill: buildPrefill(matters, poid, enquiries),
@@ -213,6 +259,7 @@ router.post('/discover', async (req, res) => {
       enquiriesFound: String(enquiries.length),
       instructionsFound: String(instructions.length),
       newSpaceEnquiriesFound: String(newSpaceEnquiries.length),
+      paymentsFound: String(payments.length),
       user: userDisplay,
     });
 
@@ -290,7 +337,7 @@ function buildPrefill(matters, poid, enquiries) {
     value: m['Approx. Value'] || '',
     source: m['Source'] || '',
     poidId: p.poid_id || '',
-    acid: p.acid || '',
+    acid: p.acid || String(e.ID || ''),
     idCheckResult: p.check_result || '',
     idCheckId: p.check_id || '',
     nationality: p.nationality || '',
@@ -331,9 +378,12 @@ router.post('/execute', async (req, res) => {
   const errors = [];
 
   try {
-    const prospectId = Math.floor(10000 + Math.random() * 90000);
-    const passcode = Math.floor(10000 + Math.random() * 90000);
-    const instructionRef = `HLX-${prospectId}-${passcode}`;
+    const discoveredInstructionRef = discovered?.instructions?.data?.[0]?.InstructionRef || '';
+    const splitFromExisting = splitInstructionRef(discoveredInstructionRef);
+    const fallbackProspect = parsePositiveInt(mf('newSpaceEnquiry', 'acid', prefill.acid || prefill.enquiryId || ''));
+    const prospectId = splitFromExisting?.prospectId || fallbackProspect || Math.floor(10000 + Math.random() * 90000);
+    const passcode = splitFromExisting?.passcode || Math.floor(10000 + Math.random() * 90000);
+    const instructionRef = discoveredInstructionRef || `HLX-${prospectId}-${passcode}`;
     const now = new Date();
     const todayDate = now.toISOString().split('T')[0];
     const todayTime = now.toTimeString().split(' ')[0];
@@ -348,8 +398,9 @@ router.post('/execute', async (req, res) => {
      *  Schema: enquiries (ID int, Date_Created, Email, Area_of_Work, ...)
      *  ID is not IDENTITY in Core Data — accepts explicit values (e.g. AC contact IDs)
      */
-    const hasAnyEnquiry = discovered?.enquiries?.found || discovered?.newSpaceEnquiries?.found;
-    if (modules.enquiry && !hasAnyEnquiry) {
+    const hasLegacyEnquiry = !!discovered?.enquiries?.found;
+    const hasNewSpaceEnquiry = !!discovered?.newSpaceEnquiries?.found;
+    if (modules.enquiry && !hasLegacyEnquiry) {
       try {
         await withRequest(coreConn, async (request) => {
           request.input('id', sql.Int, prospectId);
@@ -385,12 +436,60 @@ router.post('/execute', async (req, res) => {
       }
     } else {
       // Either module disabled or enquiry already exists
-      const existingId = hasAnyEnquiry
-        ? (discovered?.newSpaceEnquiries?.found
-          ? String(discovered.newSpaceEnquiries.data?.[0]?.id || discovered.newSpaceEnquiries.data?.[0]?.acid || 'existing-new')
-          : String(discovered.enquiries.data?.[0]?.ID || 'existing-legacy'))
+      const existingId = hasLegacyEnquiry
+        ? String(discovered.enquiries.data?.[0]?.ID || 'existing-legacy')
         : 'skipped';
-      created.push({ type: 'enquiry', id: existingId, existing: hasAnyEnquiry, skipped: !modules.enquiry && !hasAnyEnquiry });
+      created.push({ type: 'enquiry', id: existingId, existing: hasLegacyEnquiry, skipped: !modules.enquiry && !hasLegacyEnquiry });
+    }
+
+    /* ── 1b. Create Enquiry (New Space / Instructions DB) if missing ──
+     *  Important: id is IDENTITY in dbo.enquiries. Never seed with legacy acid.
+     *  Legacy identifier is stored in acid column.
+     */
+    if (modules.newSpaceEnquiry && !hasNewSpaceEnquiry) {
+      try {
+        const acidValue = String(mf('newSpaceEnquiry', 'acid', prefill.acid || prefill.enquiryId || prospectId)).trim();
+        const insertResult = await withRequest(instrConn, async (request) => {
+          request.input('datetime', sql.DateTime, now);
+          request.input('stage', sql.NVarChar, 'instructed');
+          request.input('aow', sql.NVarChar, mf('newSpaceEnquiry', 'areaOfWork', mf('enquiry', 'areaOfWork', intake?.areaOfWork || 'commercial')));
+          request.input('moc', sql.NVarChar, mf('newSpaceEnquiry', 'methodOfContact', prefill.methodOfContact || 'call in'));
+          request.input('poc', sql.NVarChar, mf('newSpaceEnquiry', 'poc', prefill.poc || ''));
+          request.input('rep', sql.NVarChar, mf('newSpaceEnquiry', 'rep', mf('deal', 'feeEarner', intake?.feeEarnerInitials || prefill.feeEarnerInitials || '')));
+          request.input('first', sql.NVarChar, mf('newSpaceEnquiry', 'firstName', prefill.firstName || ''));
+          request.input('last', sql.NVarChar, mf('newSpaceEnquiry', 'lastName', prefill.lastName || ''));
+          request.input('email', sql.NVarChar, mf('newSpaceEnquiry', 'email', prefill.email || ''));
+          request.input('phone', sql.NVarChar, mf('newSpaceEnquiry', 'phone', prefill.phone || ''));
+          request.input('value', sql.NVarChar, mf('newSpaceEnquiry', 'value', prefill.value || 'unsure'));
+          request.input('notes', sql.NVarChar, `Migrated from legacy route. Original matter: ${prefill.displayNumber || 'unknown'}`);
+          request.input('acid', sql.NVarChar, acidValue);
+          request.input('source', sql.NVarChar, mf('newSpaceEnquiry', 'source', prefill.source || 'legacy migration'));
+
+          return (await request.query(`
+            INSERT INTO dbo.enquiries (
+              datetime, stage, aow, moc, poc, rep,
+              first, last, email, phone, value, notes, acid, source
+            )
+            OUTPUT INSERTED.id
+            VALUES (
+              @datetime, @stage, @aow, @moc, @poc, @rep,
+              @first, @last, @email, @phone, @value, @notes, @acid, @source
+            )
+          `)).recordset;
+        });
+        created.push({ type: 'newSpaceEnquiry', id: String(insertResult?.[0]?.id || acidValue) });
+      } catch (err) {
+        errors.push({ type: 'newSpaceEnquiry', error: err.message });
+      }
+    } else {
+      created.push({
+        type: 'newSpaceEnquiry',
+        id: hasNewSpaceEnquiry
+          ? String(discovered?.newSpaceEnquiries?.data?.[0]?.id || discovered?.newSpaceEnquiries?.data?.[0]?.acid || 'existing-new')
+          : 'skipped',
+        existing: hasNewSpaceEnquiry,
+        skipped: !modules.newSpaceEnquiry && !hasNewSpaceEnquiry,
+      });
     }
 
     /* ── 2. Create Deal (Instructions DB) if missing ──
@@ -590,6 +689,142 @@ router.post('/execute', async (req, res) => {
         created.push({ type: 'idVerification', id: prefill.poidId });
       } catch (err) {
         errors.push({ type: 'idVerification', error: err.message });
+      }
+    }
+
+    /* ── 6. Create manual payment row (Instructions DB) if missing ── */
+    if (modules.payment && !discovered?.payments?.found) {
+      try {
+        const paymentAmount = parseFloat(mf('payment', 'amount', mf('deal', 'amount', intake?.dealAmount || '0'))) || 0;
+        const paymentMethod = mf('payment', 'method', 'Bank Transfer');
+        const paymentStatus = mf('payment', 'status', 'succeeded');
+        const paymentRef = `banktransfer_${Date.now()}`;
+
+        await withRequest(instrConn, async (request) => {
+          request.input('id', sql.NVarChar, paymentRef);
+          request.input('paymentIntentId', sql.NVarChar, paymentRef);
+          request.input('amount', sql.Decimal(18, 2), paymentAmount);
+          request.input('amountMinor', sql.Int, Math.round(paymentAmount * 100));
+          request.input('currency', sql.NVarChar, 'GBP');
+          request.input('paymentStatus', sql.NVarChar, paymentStatus);
+          request.input('internalStatus', sql.NVarChar, paymentStatus === 'succeeded' ? 'paid' : 'pending');
+          request.input('metadata', sql.NVarChar(sql.MAX), JSON.stringify({
+            source: 'legacy-migration-modal',
+            method: paymentMethod,
+            status: paymentStatus,
+            notes: 'Manual payment backfill from migration modal',
+          }));
+          request.input('instructionRef', sql.NVarChar, instructionRef);
+          request.input('serviceDescription', sql.NVarChar(sql.MAX), mf('deal', 'serviceDescription', intake?.serviceDescription || prefill.description || ''));
+          request.input('areaOfWork', sql.NVarChar(100), mf('deal', 'areaOfWork', intake?.areaOfWork || prefill.areaOfWork || 'commercial'));
+          request.input('createdAt', sql.DateTime2, now);
+          request.input('updatedAt', sql.DateTime2, now);
+
+          await request.query(`
+            INSERT INTO Payments (
+              id, payment_intent_id, amount, amount_minor, currency,
+              payment_status, internal_status, metadata,
+              instruction_ref, service_description, area_of_work,
+              created_at, updated_at
+            ) VALUES (
+              @id, @paymentIntentId, @amount, @amountMinor, @currency,
+              @paymentStatus, @internalStatus, @metadata,
+              @instructionRef, @serviceDescription, @areaOfWork,
+              @createdAt, @updatedAt
+            )
+          `);
+
+          const instructionColumns = await request.query(`
+            SELECT COLUMN_NAME
+            FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'Instructions'
+          `);
+          const cols = new Set((instructionColumns.recordset || []).map((row) => String(row.COLUMN_NAME || '').trim()));
+
+          const updates = [];
+          if (cols.has('PaymentStatus')) updates.push(`PaymentStatus = '${paymentStatus === 'succeeded' ? 'Paid' : 'Pending'}'`);
+          if (cols.has('payment_status')) updates.push(`payment_status = '${paymentStatus === 'succeeded' ? 'Paid' : 'Pending'}'`);
+          if (cols.has('TotalPaid')) updates.push(`TotalPaid = ${paymentAmount}`);
+          if (cols.has('total_paid')) updates.push(`total_paid = ${paymentAmount}`);
+          if (cols.has('PaymentMethod')) updates.push(`PaymentMethod = '${paymentMethod.replace(/'/g, "''")}'`);
+          if (cols.has('payment_method')) updates.push(`payment_method = '${paymentMethod.replace(/'/g, "''")}'`);
+          if (cols.has('LastUpdated')) updates.push(`LastUpdated = '${now.toISOString()}'`);
+          if (cols.has('updated_at')) updates.push(`updated_at = '${now.toISOString()}'`);
+
+          if (updates.length > 0) {
+            await request.query(`
+              UPDATE Instructions
+              SET ${updates.join(', ')}
+              WHERE InstructionRef = @instructionRef
+            `);
+          }
+        });
+
+        created.push({ type: 'payment', id: paymentRef });
+      } catch (err) {
+        errors.push({ type: 'payment', error: err.message });
+      }
+    }
+
+    /* ── 7. Link to existing instruction matter/client context ── */
+    if (modules.linkage && mf('linkage', 'sourceInstructionRef', '').trim()) {
+      try {
+        const sourceInstructionRef = mf('linkage', 'sourceInstructionRef', '').trim();
+        const manualRelated = mf('linkage', 'relatedClientIds', '').trim();
+        const linkMode = mf('linkage', 'mode', 'full').trim().toLowerCase();
+
+        await withRequest(instrConn, async (request) => {
+          request.input('sourceInstructionRef', sql.NVarChar, sourceInstructionRef);
+          request.input('targetInstructionRef', sql.NVarChar, instructionRef);
+
+          const source = (await request.query(`
+            SELECT TOP 1 ClientId, MatterId, RelatedClientId
+            FROM Instructions
+            WHERE InstructionRef = @sourceInstructionRef
+          `)).recordset?.[0];
+
+          const target = (await request.query(`
+            SELECT TOP 1 ClientId, MatterId, RelatedClientId
+            FROM Instructions
+            WHERE InstructionRef = @targetInstructionRef
+          `)).recordset?.[0];
+
+          if (!source || !target) {
+            throw new Error('Linkage source/target instruction not found');
+          }
+
+          const mergedRelated = mergeCsvIds(
+            target.RelatedClientId,
+            source.RelatedClientId,
+            manualRelated
+          );
+
+          request.input('mergedRelated', sql.NVarChar, mergedRelated);
+
+          if (linkMode === 'related-only') {
+            await request.query(`
+              UPDATE Instructions
+              SET RelatedClientId = @mergedRelated, LastUpdated = '${now.toISOString()}'
+              WHERE InstructionRef = @targetInstructionRef
+            `);
+          } else {
+            request.input('clientId', sql.NVarChar, source.ClientId || target.ClientId || null);
+            request.input('matterId', sql.NVarChar, source.MatterId || target.MatterId || null);
+            await request.query(`
+              UPDATE Instructions
+              SET
+                ClientId = @clientId,
+                MatterId = @matterId,
+                RelatedClientId = @mergedRelated,
+                LastUpdated = '${now.toISOString()}'
+              WHERE InstructionRef = @targetInstructionRef
+            `);
+          }
+        });
+
+        created.push({ type: 'linkage', id: sourceInstructionRef });
+      } catch (err) {
+        errors.push({ type: 'linkage', error: err.message });
       }
     }
 

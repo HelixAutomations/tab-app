@@ -58,6 +58,25 @@ export interface AiFeedbackRequest {
   fieldKey?: string;
 }
 
+function parseJsonText<T>(raw: string): T | null {
+  try {
+    return raw ? JSON.parse(raw) as T : null;
+  } catch {
+    return null;
+  }
+}
+
+async function readJsonResponse<T>(res: Response): Promise<T | null> {
+  const raw = await res.text().catch(() => '');
+  return parseJsonText<T>(raw);
+}
+
+async function readErrorMessage(res: Response, fallback: string): Promise<string> {
+  const raw = await res.text().catch(() => '');
+  const parsed = parseJsonText<{ error?: string; message?: string }>(raw);
+  return parsed?.error || parsed?.message || raw || fallback;
+}
+
 export async function fetchAiFill(request: AiFillRequest): Promise<AiFillResponse> {
   const res = await fetch('/api/ccl-ai/fill', {
     method: 'POST',
@@ -66,17 +85,108 @@ export async function fetchAiFill(request: AiFillRequest): Promise<AiFillRespons
   });
 
   if (!res.ok) {
-    throw new Error(`AI fill request failed: ${res.status} ${res.statusText}`);
+    throw new Error(await readErrorMessage(res, `AI fill request failed: ${res.status} ${res.statusText}`));
   }
 
-  return res.json();
+  const data = await readJsonResponse<AiFillResponse>(res);
+  if (!data) {
+    throw new Error('AI fill returned an invalid response.');
+  }
+  return data;
+}
+
+// ─── Streaming AI fill (SSE) ────────────────────────────────────────────────
+// Fields arrive one-by-one in real-time as the AI generates them.
+
+export interface AiFillStreamCallbacks {
+  onPhase?: (phase: string, message: string, dataSources?: string[]) => void;
+  onField?: (key: string, value: string, index: number) => void;
+  onComplete?: (response: AiFillResponse) => void;
+  onError?: (message: string, fallbackFields?: Record<string, string>) => void;
+}
+
+export async function fetchAiFillStream(
+  request: AiFillRequest,
+  callbacks: AiFillStreamCallbacks,
+): Promise<void> {
+  try {
+    const res = await fetch('/api/ccl-ai/fill-stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    });
+
+    if (!res.ok) {
+      callbacks.onError?.(await readErrorMessage(res, `Stream request failed: ${res.status} ${res.statusText}`));
+      return;
+    }
+
+    const reader = res.body?.getReader();
+    if (!reader) {
+      callbacks.onError?.('Response body not readable');
+      return;
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+
+      const parts = buffer.split('\n\n');
+      buffer = parts.pop() || '';
+
+      for (const part of parts) {
+        if (!part.trim()) continue;
+
+        let eventType = 'message';
+        let dataStr = '';
+
+        for (const line of part.split('\n')) {
+          if (line.startsWith('event: ')) {
+            eventType = line.slice(7).trim();
+          } else if (line.startsWith('data: ')) {
+            dataStr += line.slice(6);
+          }
+        }
+
+        if (!dataStr) continue;
+
+        try {
+          const data = JSON.parse(dataStr);
+
+          switch (eventType) {
+            case 'phase':
+              callbacks.onPhase?.(data.phase, data.message, data.dataSources);
+              break;
+            case 'field':
+              callbacks.onField?.(data.key, data.value, data.index);
+              break;
+            case 'complete':
+              callbacks.onComplete?.(data as AiFillResponse);
+              break;
+            case 'error':
+              callbacks.onError?.(data.message, data.fields);
+              break;
+          }
+        } catch {
+          // Ignore malformed SSE fragments and continue streaming.
+        }
+      }
+    }
+  } catch (err: unknown) {
+    callbacks.onError?.(err instanceof Error ? err.message : 'Stream request failed');
+  }
 }
 
 export async function fetchPracticeAreaDefaults(practiceArea: string): Promise<Record<string, string>> {
   const res = await fetch(`/api/ccl-ai/practice-defaults/${encodeURIComponent(practiceArea)}`);
   if (!res.ok) return {};
-  const data = await res.json();
-  return data.fields || {};
+  const data = await readJsonResponse<{ fields?: Record<string, string> }>(res);
+  return data?.fields || {};
 }
 
 export async function submitAiFeedback(feedback: AiFeedbackRequest): Promise<boolean> {
@@ -112,8 +222,58 @@ export async function fetchContextPreview(request: AiFillRequest): Promise<Conte
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
   });
-  if (!res.ok) throw new Error(`Context preview failed: ${res.status}`);
-  return res.json();
+  if (!res.ok) throw new Error(await readErrorMessage(res, `Context preview failed: ${res.status}`));
+  const data = await readJsonResponse<ContextPreviewResponse>(res);
+  if (!data) throw new Error('Context preview returned an invalid response.');
+  return data;
+}
+
+
+// ─── Pressure Test (post-generation verification) ───────────────────────────
+
+export interface PressureTestFieldScore {
+  score: number;
+  reason: string;
+  flag: boolean;
+}
+
+export interface PressureTestRequest {
+  matterId: string;
+  instructionRef?: string;
+  generatedFields: Record<string, string>;
+  practiceArea?: string;
+  clientName?: string;
+  feeEarnerEmail?: string;
+  prospectEmail?: string;
+}
+
+export interface PressureTestResponse {
+  ok: boolean;
+  fieldScores: Record<string, PressureTestFieldScore>;
+  flaggedCount: number;
+  totalFields: number;
+  dataSources: string[];
+  durationMs: number;
+  trackingId: string;
+}
+
+export async function fetchPressureTest(request: PressureTestRequest): Promise<PressureTestResponse> {
+  const res = await fetch('/api/ccl-ai/pressure-test', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  });
+
+  if (!res.ok) {
+    const data = await readJsonResponse<{ error?: string }>(res);
+    throw new Error(data?.error || `Pressure test failed: ${res.status} ${res.statusText}`);
+  }
+
+  const data = await readJsonResponse<PressureTestResponse>(res);
+  if (!data) {
+    throw new Error('Pressure test returned an invalid response.');
+  }
+  return data;
 }
 
 
@@ -145,8 +305,8 @@ export async function submitCclSupportTicket(ticket: CclSupportTicket): Promise<
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(ticket),
     });
-    const data = await res.json();
-    return { ok: res.ok, message: data.message || data.error || 'Unknown result' };
+    const data = await readJsonResponse<{ message?: string; error?: string }>(res);
+    return { ok: res.ok, message: data?.message || data?.error || 'Unknown result' };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Network error';
     return { ok: false, message: msg };
@@ -187,8 +347,8 @@ export async function checkCclIntegrations(matterId: string): Promise<CclIntegra
   try {
     const res = await fetch(`/api/ccl-ops/integrations?matterId=${encodeURIComponent(matterId)}`);
     if (!res.ok) return fallback;
-    const data = await res.json();
-    return { clio: data.clio || fallback.clio, nd: data.nd || fallback.nd };
+    const data = await readJsonResponse<{ clio?: CclIntegrations['clio']; nd?: CclIntegrations['nd'] }>(res);
+    return { clio: data?.clio || fallback.clio, nd: data?.nd || fallback.nd };
   } catch {
     return fallback;
   }
@@ -207,14 +367,15 @@ export async function uploadToClio(params: {
   initials?: string;
   /** Current field values from the editor — server regenerates docx from these before upload */
   fields?: Record<string, string>;
-}): Promise<{ ok: boolean; error?: string; docxPath?: string }> {
+}): Promise<{ ok: boolean; error?: string; docxPath?: string; unresolvedPlaceholders?: string[]; unresolvedCount?: number }> {
   try {
     const res = await fetch('/api/ccl-ops/upload-clio', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(params),
     });
-    return await res.json();
+    return await readJsonResponse<{ ok: boolean; error?: string; docxPath?: string; unresolvedPlaceholders?: string[]; unresolvedCount?: number }>(res)
+      || { ok: false, error: 'Upload returned an invalid response' };
   } catch {
     return { ok: false, error: 'Network error' };
   }
@@ -232,7 +393,8 @@ export async function uploadToNetDocuments(params: {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(params),
     });
-    return await res.json();
+    return await readJsonResponse<{ ok: boolean; error?: string; docxPath?: string }>(res)
+      || { ok: false, error: 'Upload returned an invalid response' };
   } catch {
     return { ok: false, error: 'Network error' };
   }
@@ -447,7 +609,7 @@ export async function fetchCclAdminStats(): Promise<CclAdminStats | null> {
   try {
     const res = await fetch('/api/ccl-admin/stats');
     if (!res.ok) return null;
-    return await res.json();
+    return await readJsonResponse<CclAdminStats>(res);
   } catch {
     return null;
   }
@@ -457,7 +619,7 @@ export async function fetchCclMatterDetail(matterId: string): Promise<CclMatterD
   try {
     const res = await fetch(`/api/ccl-admin/matters/${encodeURIComponent(matterId)}`);
     if (!res.ok) return null;
-    return await res.json();
+    return await readJsonResponse<CclMatterDetail>(res);
   } catch {
     return null;
   }
@@ -467,8 +629,8 @@ export async function fetchCclAiTraces(matterId: string): Promise<CclAiTraceReco
   try {
     const res = await fetch(`/api/ccl-admin/traces/${encodeURIComponent(matterId)}`);
     if (!res.ok) return [];
-    const data = await res.json();
-    return data.traces || [];
+    const data = await readJsonResponse<{ traces?: CclAiTraceRecord[] }>(res);
+    return data?.traces || [];
   } catch {
     return [];
   }
@@ -478,8 +640,8 @@ export async function fetchCclTraceDetail(trackingId: string): Promise<CclAiTrac
   try {
     const res = await fetch(`/api/ccl-admin/trace/${encodeURIComponent(trackingId)}`);
     if (!res.ok) return null;
-    const data = await res.json();
-    return data.trace || null;
+    const data = await readJsonResponse<{ trace?: CclAiTraceRecord | null }>(res);
+    return data?.trace || null;
   } catch {
     return null;
   }
@@ -495,7 +657,8 @@ export async function submitCclAssessment(payload: CclAssessmentPayload): Promis
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    return await res.json();
+    return await readJsonResponse<{ ok: boolean; assessmentId?: number; error?: string }>(res)
+      || { ok: false, error: 'Assessment endpoint returned an invalid response' };
   } catch {
     return { ok: false, error: 'Network error' };
   }
@@ -505,8 +668,8 @@ export async function fetchCclAssessments(matterId: string): Promise<CclAssessme
   try {
     const res = await fetch(`/api/ccl-admin/assessments/${encodeURIComponent(matterId)}`);
     if (!res.ok) return [];
-    const data = await res.json();
-    return data.assessments || [];
+    const data = await readJsonResponse<{ assessments?: CclAssessmentRecord[] }>(res);
+    return data?.assessments || [];
   } catch {
     return [];
   }
@@ -522,5 +685,38 @@ export async function markAssessmentAsApplied(assessmentId: number, appliedBy: s
     return res.ok;
   } catch {
     return false;
+  }
+}
+
+// ─── CCL Approval API ───────────────────────────────────────────────────────
+
+export interface CclApprovalResponse {
+  ok: boolean;
+  status?: string;
+  version?: number;
+  finalizedAt?: string | null;
+  finalizedBy?: string | null;
+  uploadedToClio?: boolean;
+  error?: string;
+}
+
+/**
+ * Approve a CCL (transitions draft → approved or approved → uploaded).
+ * The Hub is the gatekeeper — this is the only way to advance CCL status.
+ */
+export async function approveCcl(
+  matterId: string,
+  targetStatus: 'approved' | 'uploaded' = 'approved',
+): Promise<CclApprovalResponse> {
+  try {
+    const res = await fetch(`/api/ccl/${encodeURIComponent(matterId)}/approve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targetStatus }),
+    });
+    return await readJsonResponse<CclApprovalResponse>(res)
+      || { ok: false, error: 'Approval endpoint returned an invalid response' };
+  } catch {
+    return { ok: false, error: 'Network error' };
   }
 }

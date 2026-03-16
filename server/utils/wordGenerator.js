@@ -1,14 +1,41 @@
 const path = require('path');
 const { readFileSync, writeFileSync } = require('fs');
-const createReport = require('docx-templates').default;
-const JSZip = require('jszip');
+const {
+    AlignmentType,
+    BorderStyle,
+    Document,
+    HeadingLevel,
+    Packer,
+    Paragraph,
+    ShadingType,
+    Table,
+    TableCell,
+    TableRow,
+    TextRun,
+    VerticalAlign,
+    WidthType,
+} = require('docx');
 
-// Fonts to replace with Raleway in the output .docx
-const FONTS_TO_REPLACE = ['Calibri', 'Times New Roman', 'Arial', 'Cambria', 'Aptos'];
+const HELIX = {
+    websiteBlue: '000319',
+    darkBlue: '061733',
+    helixBlue: '0D2F60',
+    highlight: '3690CE',
+    grey: 'F4F4F6',
+    greyText: '6B6B6B',
+    cta: 'D65541',
+};
 
-// All fields that may appear as {{placeholder}} in the template.
-// Missing fields are defaulted to '' so docx-templates never throws
-// ReferenceError for undefined variables.
+const FONT_FAMILY = 'Raleway';
+const BODY_SIZE = 20; // 10pt in half-points
+const SMALL_SIZE = 18; // 9pt
+const META_SIZE = 19; // 9.5pt
+const HEADING_SIZE = 20; // 10pt bold
+const BRAND_SIZE = 30; // 15pt
+const BODY_LINE = 276; // ~1.15 line spacing
+const BODY_AFTER = 120;
+const PAGE_MARGIN = 1440;
+
 const TEMPLATE_FIELDS = [
     'insert_clients_name', 'client_address', 'client_email', 'letter_date',
     'matter_number', 'matter', 'insert_heading_eg_matter_description',
@@ -34,42 +61,354 @@ const TEMPLATE_FIELDS = [
     'link_to_preference_centre',
 ];
 
-async function generateWordFromJson(json, outPath) {
-    // Ensure every template field has at least an empty-string default
+let cachedCanonicalTemplate = null;
+
+function normalizeTemplateValue(value) {
+    if (value == null) return '';
+    if (typeof value === 'string') return value.replace(/\r\n/g, '\n').trim();
+    if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+    if (Array.isArray(value)) {
+        return value
+            .map((entry) => (entry == null ? '' : String(entry).trim()))
+            .filter(Boolean)
+            .join(', ');
+    }
+    return '';
+}
+
+function getCanonicalTemplate() {
+    if (cachedCanonicalTemplate) return cachedCanonicalTemplate;
+
+    const sourcePath = path.join(process.cwd(), 'src', 'tabs', 'instructions', 'templates', 'cclTemplate.ts');
+    const source = readFileSync(sourcePath, 'utf8');
+    const match = source.match(/export const DEFAULT_CCL_TEMPLATE = `([\s\S]*?)`;\s*$/);
+    if (!match) {
+        throw new Error('Unable to load canonical CCL template text');
+    }
+
+    cachedCanonicalTemplate = match[1].replace(/\r\n/g, '\n');
+    return cachedCanonicalTemplate;
+}
+
+function buildTemplateData(json) {
     const data = {};
     for (const key of TEMPLATE_FIELDS) data[key] = '';
-    Object.assign(data, json);
+    for (const key of Object.keys(data)) {
+        data[key] = normalizeTemplateValue(json?.[key]);
+    }
 
-    const templatePath = path.join(process.cwd(), 'templates', 'cclTemplate.docx');
-    const template = readFileSync(templatePath);
-    const ctx = new Proxy({}, { get: () => () => '' });
-    const buf = await createReport({
-        template,
-        data,
-        cmdDelimiter: ['{{', '}}'],
-        additionalJsContext: ctx
+    if (!data.state_amount && data.figure) data.state_amount = data.figure;
+    if (!data.figure && data.state_amount) data.figure = data.state_amount;
+
+    return data;
+}
+
+function extractPlaceholders(templateText) {
+    return [...new Set(
+        [...templateText.matchAll(/\{\{([^}]+)\}\}/g)]
+            .map((match) => String(match[1] || '').trim())
+            .filter(Boolean)
+    )];
+}
+
+function resolveTemplateText(templateText, data) {
+    return templateText
+        .replace(/\{\{([^}]+)\}\}/g, (_, key) => normalizeTemplateValue(data[key]))
+        .replace(/<<\s*Matter\.Number\s*>>/g, data.matter_number || '')
+        .replace(/<<[^>]+>>/g, '')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+}
+
+function bodyRun(text, options = {}) {
+    return new TextRun({
+        text,
+        font: FONT_FAMILY,
+        size: options.size || BODY_SIZE,
+        bold: !!options.bold,
+        color: options.color || HELIX.darkBlue,
+        italics: !!options.italics,
+        allCaps: !!options.allCaps,
+    });
+}
+
+function paragraph(text, options = {}) {
+    return new Paragraph({
+        children: [bodyRun(text, options)],
+        alignment: options.alignment || AlignmentType.JUSTIFIED,
+        heading: options.heading,
+        spacing: options.spacing || {
+            line: BODY_LINE,
+            after: options.after != null ? options.after : BODY_AFTER,
+            before: options.before != null ? options.before : 0,
+        },
+        border: options.border,
+        indent: options.indent,
+    });
+}
+
+function buildAddressLines(value) {
+    const normalized = normalizeTemplateValue(value);
+    if (!normalized) return [];
+    if (normalized.includes('\n')) {
+        return normalized.split('\n').map((line) => line.trim()).filter(Boolean);
+    }
+    return normalized.split(',').map((line) => line.trim()).filter(Boolean);
+}
+
+function buildHeaderChildren(data) {
+    const clientName = data.insert_clients_name || 'Client';
+    const matterHeading = data.insert_heading_eg_matter_description || 'Client Care Letter';
+    const clientAddressLines = buildAddressLines(data.client_address);
+
+    const children = [
+        new Paragraph({
+            children: [bodyRun('HELIX LAW', { size: BRAND_SIZE, bold: true, color: HELIX.darkBlue, allCaps: true })],
+            spacing: { after: 80 },
+        }),
+        new Paragraph({
+            children: [bodyRun('Second Floor, Britannia House · 21 Station Street · Brighton · BN1 4DE', {
+                size: SMALL_SIZE,
+                color: HELIX.greyText,
+            })],
+            spacing: { after: 180 },
+            border: {
+                bottom: {
+                    color: HELIX.highlight,
+                    style: BorderStyle.SINGLE,
+                    size: 8,
+                    space: 6,
+                },
+            },
+        }),
+        paragraph(`Our Reference ${data.matter_number || ''}`, {
+            alignment: AlignmentType.LEFT,
+            size: META_SIZE,
+            after: 60,
+        }),
+    ];
+
+    for (const line of clientAddressLines.length ? [clientName, ...clientAddressLines] : [clientName]) {
+        children.push(paragraph(line, { alignment: AlignmentType.LEFT, size: META_SIZE, after: 40 }));
+    }
+
+    if (data.client_email) {
+        children.push(paragraph(`BY EMAIL ONLY - ${data.client_email}`, { alignment: AlignmentType.LEFT, size: META_SIZE, after: 40 }));
+    }
+    if (data.fee_earner_email) {
+        children.push(paragraph(`Email ${data.fee_earner_email}`, { alignment: AlignmentType.LEFT, size: META_SIZE, after: 40 }));
+    }
+    if (data.letter_date) {
+        children.push(paragraph(`Date ${data.letter_date}`, { alignment: AlignmentType.LEFT, size: META_SIZE, after: 140 }));
+    }
+
+    children.push(
+        paragraph(`Dear ${clientName}`, {
+            alignment: AlignmentType.LEFT,
+            bold: true,
+            after: 120,
+        }),
+        paragraph(matterHeading, {
+            alignment: AlignmentType.LEFT,
+            bold: true,
+            color: HELIX.helixBlue,
+            after: 180,
+        }),
+    );
+
+    return children;
+}
+
+function buildBulletParagraph(text) {
+    const cleaned = text.replace(/^[—o]\s*/, '').replace(/^☐\s*/, '').trim();
+    return new Paragraph({
+        children: [bodyRun(cleaned)],
+        bullet: { level: 0 },
+        alignment: AlignmentType.JUSTIFIED,
+        spacing: { line: BODY_LINE, after: 80 },
+    });
+}
+
+function buildSectionHeading(text) {
+    return new Paragraph({
+        children: [bodyRun(text, { bold: true, color: HELIX.helixBlue, size: HEADING_SIZE })],
+        heading: HeadingLevel.HEADING_2,
+        spacing: { before: 220, after: 90 },
+        border: {
+            bottom: {
+                color: HELIX.highlight,
+                style: BorderStyle.SINGLE,
+                size: 4,
+                space: 4,
+            },
+        },
+    });
+}
+
+function buildActionTable(rows) {
+    const headerCell = (text) => new TableCell({
+        shading: { fill: HELIX.helixBlue, type: ShadingType.CLEAR, color: 'FFFFFF' },
+        verticalAlign: VerticalAlign.CENTER,
+        margins: { top: 100, bottom: 100, left: 120, right: 120 },
+        children: [
+            new Paragraph({
+                children: [bodyRun(text, { bold: true, color: 'FFFFFF' })],
+                alignment: AlignmentType.LEFT,
+                spacing: { after: 0, before: 0, line: BODY_LINE },
+            }),
+        ],
     });
 
-    // Post-process: replace body fonts with Raleway for Helix house style
-    const zip = await JSZip.loadAsync(buf);
-    const xmlFiles = ['word/document.xml', 'word/styles.xml', 'word/fontTable.xml'];
-    for (const fileName of xmlFiles) {
-        const file = zip.file(fileName);
-        if (file) {
-            let xml = await file.async('string');
-            for (const font of FONTS_TO_REPLACE) {
-                const escaped = font.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                xml = xml.replace(new RegExp(`w:ascii="${escaped}"`, 'g'), 'w:ascii="Raleway"');
-                xml = xml.replace(new RegExp(`w:hAnsi="${escaped}"`, 'g'), 'w:hAnsi="Raleway"');
-                xml = xml.replace(new RegExp(`w:eastAsia="${escaped}"`, 'g'), 'w:eastAsia="Raleway"');
-                // Replace font name declarations in fontTable
-                xml = xml.replace(new RegExp(`w:name="${escaped}"`, 'g'), 'w:name="Raleway"');
+    const bodyCell = (text) => new TableCell({
+        verticalAlign: VerticalAlign.TOP,
+        margins: { top: 100, bottom: 100, left: 120, right: 120 },
+        children: [
+            new Paragraph({
+                children: [bodyRun(text || ' ')],
+                alignment: AlignmentType.JUSTIFIED,
+                spacing: { after: 0, before: 0, line: BODY_LINE },
+            }),
+        ],
+    });
+
+    return new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        borders: {
+            top: { style: BorderStyle.SINGLE, size: 4, color: HELIX.highlight },
+            bottom: { style: BorderStyle.SINGLE, size: 4, color: HELIX.highlight },
+            left: { style: BorderStyle.SINGLE, size: 2, color: HELIX.greyText },
+            right: { style: BorderStyle.SINGLE, size: 2, color: HELIX.greyText },
+            insideHorizontal: { style: BorderStyle.SINGLE, size: 2, color: HELIX.grey },
+            insideVertical: { style: BorderStyle.SINGLE, size: 2, color: HELIX.grey },
+        },
+        rows: [
+            new TableRow({
+                tableHeader: true,
+                children: [
+                    headerCell('Action required by you'),
+                    headerCell('Additional information'),
+                ],
+            }),
+            ...rows.map((row) => new TableRow({
+                children: [
+                    bodyCell(`☐ ${row.action}`),
+                    bodyCell(row.info),
+                ],
+            })),
+        ],
+    });
+}
+
+function buildBodyChildren(bodyText) {
+    const lines = bodyText.split('\n');
+    const children = [];
+
+    for (let index = 0; index < lines.length; index += 1) {
+        const line = lines[index].trim();
+        if (!line) continue;
+
+        if (line === 'Action required by you | Additional information') {
+            const rows = [];
+            index += 1;
+            while (index < lines.length) {
+                const rowLine = lines[index].trim();
+                if (!rowLine) {
+                    index += 1;
+                    continue;
+                }
+                if (!rowLine.startsWith('☐') || !rowLine.includes('|')) {
+                    index -= 1;
+                    break;
+                }
+                const [left, ...rest] = rowLine.split('|');
+                rows.push({
+                    action: left.replace(/^☐\s*/, '').trim(),
+                    info: rest.join('|').trim(),
+                });
+                index += 1;
             }
-            zip.file(fileName, xml);
+            if (rows.length > 0) {
+                children.push(buildActionTable(rows));
+            }
+            continue;
         }
+
+        if (/^\d+(?:\.\d+)?\s+/.test(line)) {
+            children.push(buildSectionHeading(line));
+            continue;
+        }
+
+        if (/^[—o]\s+/.test(line) || line.startsWith('☐ ')) {
+            children.push(buildBulletParagraph(line));
+            continue;
+        }
+
+        children.push(paragraph(line));
     }
-    const output = await zip.generateAsync({ type: 'nodebuffer' });
-    writeFileSync(outPath, output);
+
+    return children;
+}
+
+function buildDocument(data) {
+    const templateText = getCanonicalTemplate();
+    const unresolvedPlaceholders = extractPlaceholders(templateText)
+        .filter((key) => !String(data[key] || '').trim());
+    const resolvedText = resolveTemplateText(templateText, data);
+    const bodyStart = resolvedText.indexOf('Thank you for your instructions');
+    const bodyText = bodyStart >= 0 ? resolvedText.slice(bodyStart).trim() : resolvedText;
+
+    const doc = new Document({
+        creator: 'Helix Hub',
+        title: `Client Care Letter ${data.matter_number || ''}`.trim(),
+        description: 'Helix Law Client Care Letter',
+        styles: {
+            default: {
+                document: {
+                    run: {
+                        font: FONT_FAMILY,
+                        size: BODY_SIZE,
+                        color: HELIX.darkBlue,
+                    },
+                    paragraph: {
+                        spacing: {
+                            line: BODY_LINE,
+                            after: BODY_AFTER,
+                        },
+                    },
+                },
+            },
+        },
+        sections: [{
+            properties: {
+                page: {
+                    margin: {
+                        top: PAGE_MARGIN,
+                        right: PAGE_MARGIN,
+                        bottom: PAGE_MARGIN,
+                        left: PAGE_MARGIN,
+                    },
+                },
+            },
+            children: [
+                ...buildHeaderChildren(data),
+                ...buildBodyChildren(bodyText),
+            ],
+        }],
+    });
+
+    return { doc, unresolvedPlaceholders };
+}
+
+async function generateWordFromJson(json, outPath) {
+    const data = buildTemplateData(json);
+    const { doc, unresolvedPlaceholders } = buildDocument(data);
+    const buffer = await Packer.toBuffer(doc);
+    writeFileSync(outPath, buffer);
+
+    return {
+        unresolvedPlaceholders,
+        unresolvedCount: unresolvedPlaceholders.length,
+    };
 }
 
 module.exports = { generateWordFromJson };

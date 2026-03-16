@@ -16,9 +16,13 @@ import { useNavigatorActions } from '../../../app/functionality/NavigatorContext
 import FilterBanner from '../../../components/filter/FilterBanner';
 import {
     practiceAreasByArea,
+    getPracticeAreaOptions,
     getGroupColor,
+    normalisePracticeArea,
     partnerOptions as defaultPartners,
+    resolveMatterPracticeArea,
 } from './config';
+import { buildMatterOpeningPayload, type MatterOpeningValidationResult, validateMatterOpeningPayload } from './intakeModel';
 import localUserData from '../../../localData/localUserData.json';
 
 import PoidSelectionStep from './PoidSelectionStep';
@@ -55,7 +59,7 @@ function useDraftedState<T>(key: string, initialValue: T): [T, React.Dispatch<Re
         } catch { return initialValue; }
     });
     useEffect(() => {
-        if (DISABLE_DRAFT_PERSISTENCE) return; // no-op when disabled
+        if (DISABLE_DRAFT_PERSISTENCE) return;
         try {
             if (key === 'selectedDate' && state instanceof Date) {
                 localStorage.setItem(storageKey, JSON.stringify(state.toISOString()));
@@ -82,31 +86,11 @@ interface FlatMatterOpeningProps {
     initialClientType?: string;
     preselectedPoidIds?: string[];
     instructionPhone?: string;
-    /**
-     * Preferred source for Select Client cards: pass records directly from the
-     * new Instructions DB (instructions table). When provided, the Select Client
-     * grid will be sourced exclusively from these records (mapped to POID shape),
-     * while legacy POID/idVerification fallback remains available for other flows.
-     */
     instructionRecords?: unknown[];
-    /**
-     * Optional callback triggered when the user chooses to draft the CCL
-     * immediately after opening the matter.
-     */
     onDraftCclNow?: (matterId: string) => void;
-    /**
-     * Optional callback triggered when the user wants to go back/close the matter opening workflow.
-     * Should navigate back to the instructions page instead of using browser history.
-     */
     onBack?: () => void;
-    /**
-     * Optional callback triggered when matter is successfully opened.
-     * Returns the opened matter ID for parent component feedback.
-     */
     onMatterSuccess?: (matterId: string) => void;
-    /** Optional callback to trigger ID verification when pending */
     onRunIdCheck?: () => void;
-    /** Whether the app is in demo mode — enables fake processing outcomes */
     demoModeEnabled?: boolean;
 }
 
@@ -133,32 +117,24 @@ const FlatMatterOpening: React.FC<FlatMatterOpeningProps> = ({
     onRunIdCheck,
     demoModeEnabled = false,
 }) => {
-    // Dark mode support
     const { isDarkMode } = useTheme();
-    
-    // Toast notifications
     const { showToast, hideToast } = useToast();
-    
-    // Navigator context for setting custom header content
     const { setContent } = useNavigatorActions();
-    
-    // Responsive layout system
+
     const idExpiry = useMemo(() => {
         const d = new Date();
         d.setDate(d.getDate() + 30);
         return d.toLocaleDateString('en-GB');
-    }, []); // invisible change // invisible change
+    }, []);
 
     const [clientId, setClientId] = useState<string | null>(initialClientId || null);
     const [matterIdState, setMatterIdState] = useState<string | null>(matterRef || null);
-    // Meta chip expansion state (date/user detail panel)
     const [openMeta, setOpenMeta] = useState<'date' | 'user' | null>(null);
     useEffect(() => {
         registerClientIdCallback(setClientId);
         registerMatterIdCallback((id) => {
             setMatterIdState(id);
             setOpenedMatterId(id);
-            // Notify parent that matter was successfully opened
             if (id && onMatterSuccess) {
                 onMatterSuccess(id);
             }
@@ -626,12 +602,7 @@ const FlatMatterOpening: React.FC<FlatMatterOpeningProps> = ({
     
     // Debug states shared by unified inspector
     const [debugJsonInput, setDebugJsonInput] = useState('');
-    const [debugValidation, setDebugValidation] = useState<{
-        isValid: boolean;
-        suggestions: string[];
-        warnings: string[];
-        predictions: { step: string; willPass: boolean; reason: string }[];
-    } | null>(null);
+    const [debugValidation, setDebugValidation] = useState<MatterOpeningValidationResult | null>(null);
     
     // If preselectedPoidIds is provided AND we have an instructionRef, set the initial activePoid to the first matching POID
     useEffect(() => {
@@ -897,6 +868,13 @@ const FlatMatterOpening: React.FC<FlatMatterOpeningProps> = ({
         setPracticeArea(value);
         resetConfirmationOnEdit();
     };
+
+    useEffect(() => {
+        if (!practiceArea) return;
+        if (!normalisePracticeArea(areaOfWork, practiceArea)) {
+            setPracticeArea('');
+        }
+    }, [areaOfWork, practiceArea]);
 
     const setFolderStructureWithReset = (value: React.SetStateAction<string>) => {
         setFolderStructure(value);
@@ -1527,8 +1505,9 @@ const handleClearAll = () => {
             };
         });
 
-        return {
-            matter_details: {
+        return buildMatterOpeningPayload({
+            entryPoint: 'flat',
+            matterDetails: {
                 instruction_ref: instructionRef || null,
                 client_id: clientId || null,
                 matter_ref: matterIdState || matterRef || null,
@@ -1548,7 +1527,7 @@ const handleClearAll = () => {
                     ? budgetNotifyUsers.split(',').map(u => u.trim()).filter(Boolean)
                     : []
             },
-            team_assignments: {
+            teamAssignments: {
                 fee_earner: teamMember,
                 supervising_partner: supervisingPartner,
                 originating_solicitor: originatingSolicitor,
@@ -1565,12 +1544,20 @@ const handleClearAll = () => {
                 })(),
                 originating_solicitor_initials: teamData ? getInitialsFromName(originatingSolicitor, teamData) : ''
             },
-            client_information: selectedClients,
-            source_details: {
+            clientInformation: selectedClients.map((client, index) => ({
+                ...client,
+                display_name: [client.first_name, client.last_name].filter(Boolean).join(' ').trim() || client.company_details?.name || client.email || null,
+                client_role: clientType === 'Company'
+                    ? (client.company_details?.name ? 'company' : (index === 0 ? 'company_contact' : 'joint_client'))
+                    : (clientType === 'Existing Client' ? (index === 0 ? 'existing_client' : 'joint_client') : (index === 0 ? 'primary_client' : 'joint_client')),
+                participant_source: client.poid_id ? 'poid' : 'external',
+                is_primary: index === 0,
+            })),
+            sourceDetails: {
                 source: source,
                 referrer_name: source === 'referral' ? referrerName : null
             },
-            opponent_details: (
+            opponentDetails: (
                 opponentName ||
                 opponentSolicitorName ||
                 opponentFirst ||
@@ -1642,42 +1629,32 @@ const handleClearAll = () => {
             metadata: {
                 created_by: userInitials,
                 created_at: new Date().toISOString(),
-                form_version: "1.0",
-                processing_status: "pending_review"
+                form_version: '1.0',
+                processing_status: 'pending_review'
             },
-            // Instruction-level summary for fee earner confirmation email
-            instruction_summary: (() => {
-                // Find the instruction record for this instruction ref
-                const inst = Array.isArray(instructionRecords) 
+            instructionSummary: (() => {
+                const inst = Array.isArray(instructionRecords)
                     ? (instructionRecords as any[]).find(r => r?.InstructionRef === instructionRef)
                     : null;
                 if (!inst) return null;
-                
-                // Get the lead client's ID verification (most recent one with IsLeadClient=true, or first one)
+
                 const idVerifications = inst.idVerifications || [];
                 const leadVerif = idVerifications.find((v: any) => v.IsLeadClient) || idVerifications[0] || null;
-                
-                // Get the first risk assessment (sorted by ComplianceDate DESC in DB)
                 const riskAssessments = inst.riskAssessments || [];
                 const latestRisk = riskAssessments[0] || null;
-                
-                // Get payment data from payments array (attached by server)
                 const payments = inst.payments || [];
                 const successfulPayment = payments.find((p: any) => p.payment_status === 'succeeded' || p.internal_status === 'completed') || payments[0] || null;
-                
+
                 return {
-                    // Payment status - check payments array, then InternalStatus, then fallback
-                    payment_result: successfulPayment?.payment_status === 'succeeded' ? 'Paid' 
+                    payment_result: successfulPayment?.payment_status === 'succeeded' ? 'Paid'
                         : (inst.InternalStatus === 'paid' ? 'Paid' : (inst.PaymentResult || null)),
                     payment_amount: successfulPayment?.amount || inst.PaymentAmount || null,
                     payment_timestamp: successfulPayment?.created_at || inst.PaymentTimestamp || null,
-                    // EID verification - pull from idVerifications array
                     eid_overall_result: leadVerif?.EIDOverallResult || inst.EIDOverallResult || null,
                     eid_check_id: leadVerif?.EIDCheckId || inst.EIDCheckId || null,
                     eid_status: leadVerif?.EIDStatus || inst.EIDStatus || null,
                     pep_sanctions_result: leadVerif?.PEPAndSanctionsCheckResult || leadVerif?.PEPResult || inst.PEPAndSanctionsCheckResult || inst.PEPResult || null,
                     address_verification_result: leadVerif?.AddressVerificationResult || leadVerif?.AddressVerification || inst.AddressVerificationResult || inst.AddressVerification || null,
-                    // Risk assessment - pull from riskAssessments array
                     risk_assessment: latestRisk ? {
                         result: latestRisk.RiskAssessmentResult || null,
                         score: latestRisk.RiskScore || null,
@@ -1691,7 +1668,6 @@ const handleClearAll = () => {
                         compliance_date: inst.RiskAssessment.ComplianceDate || null,
                         transaction_risk_level: inst.RiskAssessment.TransactionRiskLevel || null
                     } : null),
-                    // Documents - full array with details for email
                     document_count: Array.isArray(inst.documents) ? inst.documents.length : 0,
                     documents: Array.isArray(inst.documents) ? inst.documents.map((doc: any) => ({
                         file_name: doc.FileName || doc.filename || doc.name || null,
@@ -1699,172 +1675,25 @@ const handleClearAll = () => {
                         document_type: doc.DocumentType || doc.type || null,
                         uploaded_at: doc.UploadedAt || doc.uploadedAt || null
                     })) : [],
-                    // Deal info
                     deal_id: inst.DealId || inst.dealId || null,
                     service_description: inst.ServiceDescription || null
                 };
             })()
-        };
+        });
     };
 
     // JSON Debug Validation Function for failed submission diagnostics
     const validateDebugJson = (jsonString: string) => {
-        const suggestions: string[] = [];
-        const warnings: string[] = [];
-        const predictions: { step: string; willPass: boolean; reason: string }[] = [];
-
         try {
             const data = JSON.parse(jsonString);
-            
-            // Check top-level structure
-            const expectedSections = ['matter_details', 'team_assignments', 'client_information', 'source_details'];
-            const missingSections = expectedSections.filter(section => !data[section]);
-            if (missingSections.length > 0) {
-                suggestions.push(`Missing required sections: ${missingSections.join(', ')}`);
-            }
-
-            // Validate matter_details
-            if (data.matter_details) {
-                const md = data.matter_details;
-                if (!md.client_type) suggestions.push('client_type is required in matter_details');
-                if (!md.area_of_work) suggestions.push('area_of_work is required in matter_details');
-                if (!md.practice_area) suggestions.push('practice_area is required in matter_details');
-                if (!md.description || md.description.trim().length < 10) {
-                    suggestions.push('description should be at least 10 characters long');
-                }
-                
-                // Predict client type selection step
-                predictions.push({
-                    step: 'Client Type Selection',
-                    willPass: !!md.client_type && ['Individual', 'Company', 'Multiple Individuals', 'Existing Client'].includes(md.client_type),
-                    reason: md.client_type ? 'Valid client type provided' : 'Client type missing or invalid'
-                });
-
-                // Predict area of work step
-                predictions.push({
-                    step: 'Area of Work',
-                    willPass: !!md.area_of_work && md.area_of_work.trim().length > 0,
-                    reason: md.area_of_work ? 'Area of work specified' : 'Area of work missing'
-                });
-
-                // Predict practice area step
-                predictions.push({
-                    step: 'Practice Area',
-                    willPass: !!md.practice_area && md.practice_area.trim().length > 0,
-                    reason: md.practice_area ? 'Practice area specified' : 'Practice area missing'
-                });
-            }
-
-            // Validate team_assignments
-            if (data.team_assignments) {
-                const ta = data.team_assignments;
-                if (!ta.fee_earner) suggestions.push('fee_earner is required in team_assignments');
-                if (!ta.supervising_partner) warnings.push('supervising_partner recommended but not required');
-                
-                predictions.push({
-                    step: 'Team Assignment',
-                    willPass: !!ta.fee_earner,
-                    reason: ta.fee_earner ? 'Fee earner assigned' : 'Fee earner required but missing'
-                });
-            }
-
-            // Validate client_information
-            if (data.client_information) {
-                const clients = Array.isArray(data.client_information) ? data.client_information : [];
-                if (clients.length === 0) {
-                    suggestions.push('At least one client must be selected');
-                } else {
-                    clients.forEach((client: any, index: number) => {
-                        if (!client.poid_id) suggestions.push(`Client ${index + 1}: poid_id is required`);
-                        if (!client.first_name) suggestions.push(`Client ${index + 1}: first_name is required`);
-                        if (!client.last_name) suggestions.push(`Client ${index + 1}: last_name is required`);
-                        if (!client.email) warnings.push(`Client ${index + 1}: email is recommended`);
-                        
-                        // Check verification status
-                        if (client.verification) {
-                            const verif = client.verification;
-                            if (verif.check_result !== 'passed') {
-                                warnings.push(`Client ${index + 1}: ID verification not passed (${verif.check_result || 'unknown'})`);
-                            }
-                            if (verif.pep_sanctions_result !== 'passed') {
-                                warnings.push(`Client ${index + 1}: PEP/Sanctions check not passed (${verif.pep_sanctions_result || 'unknown'})`);
-                            }
-                        } else {
-                            warnings.push(`Client ${index + 1}: No verification data found`);
-                        }
-                    });
-                }
-
-                predictions.push({
-                    step: 'Client Selection',
-                    willPass: clients.length > 0 && clients.every((c: any) => c.poid_id && c.first_name && c.last_name),
-                    reason: clients.length === 0 ? 'No clients selected' : 
-                           clients.some((c: any) => !c.poid_id || !c.first_name || !c.last_name) ? 'Some clients missing required fields' :
-                           'All clients have required information'
-                });
-            }
-
-            // Validate source_details
-            if (data.source_details) {
-                const sd = data.source_details;
-                if (!sd.source) suggestions.push('source is required in source_details');
-                if (sd.source === 'referral' && !sd.referrer_name) {
-                    suggestions.push('referrer_name is required when source is "referral"');
-                }
-
-                predictions.push({
-                    step: 'Source Information',
-                    willPass: !!sd.source && (sd.source !== 'referral' || !!sd.referrer_name),
-                    reason: !sd.source ? 'Source missing' : 
-                           sd.source === 'referral' && !sd.referrer_name ? 'Referrer name required for referral source' :
-                           'Source information valid'
-                });
-            }
-
-            // Check opponent_details if present
-            if (data.opponent_details) {
-                const od = data.opponent_details;
-                let hasOpponentInfo = false;
-                let hasSolicitorInfo = false;
-                
-                if (od.individual && (od.individual.first_name || od.individual.last_name || od.individual.email)) {
-                    hasOpponentInfo = true;
-                    if (!od.individual.first_name || !od.individual.last_name) {
-                        warnings.push('Opponent individual missing name information');
-                    }
-                }
-                
-                if (od.solicitor && (od.solicitor.first_name || od.solicitor.last_name || od.solicitor.company_name)) {
-                    hasSolicitorInfo = true;
-                    if (!od.solicitor.company_name) {
-                        warnings.push('Opponent solicitor missing company name');
-                    }
-                }
-
-                predictions.push({
-                    step: 'Opponent Details',
-                    willPass: true, // Optional step
-                    reason: hasOpponentInfo || hasSolicitorInfo ? 'Opponent information provided' : 'No opponent information (optional)'
-                });
-            }
-
-            // Overall validation
-            const hasRequiredSections = ['matter_details', 'team_assignments', 'client_information', 'source_details'].every(section => data[section]);
-            const criticalIssues = suggestions.length > 0;
-
-            return {
-                isValid: hasRequiredSections && !criticalIssues,
-                suggestions,
-                warnings,
-                predictions
-            };
-
+            return validateMatterOpeningPayload(data);
         } catch (error) {
             return {
                 isValid: false,
                 suggestions: ['Invalid JSON format - please check syntax'],
                 warnings: [`Parse error: ${error instanceof Error ? error.message : 'Unknown error'}`],
-                predictions: []
+                predictions: [],
+                canonicalParticipants: [],
             };
         }
     };
@@ -2066,7 +1895,10 @@ const handleClearAll = () => {
                 const cclPayload = {
                     matterId: '3311402',
                     instructionRef: 'HELIX01-01',
-                    practiceArea: formData.matter_details?.practice_area || formData.matter_details?.area_of_work || 'Commercial',
+                    practiceArea: resolveMatterPracticeArea(
+                        formData.matter_details?.area_of_work,
+                        formData.matter_details?.practice_area,
+                    ),
                     description: formData.matter_details?.description || 'Contract Dispute',
                     clientName: (() => {
                         const c = formData.client_information?.[0];
@@ -2077,25 +1909,37 @@ const handleClearAll = () => {
                         : '',
                     handlerName: formData.team_assignments?.fee_earner || '',
                 };
-                const fillResp = await fetch('/api/ccl-ai/fill', {
+                const fillResp = await fetch('/api/ccl-ai/context-preview', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(cclPayload),
                 });
                 if (fillResp.ok) {
-                    setProcessingLogs(prev => [...prev, '[ok] CCL AI Fill: fields populated (real)']);
+                    const fillData = await fillResp.json().catch(() => null);
+                    const sourceCount = Array.isArray(fillData?.dataSources) ? fillData.dataSources.length : 0;
+                    setProcessingLogs(prev => [...prev, `[ok] CCL Context Assembled: ${sourceCount} source${sourceCount === 1 ? '' : 's'} surfaced (real)`]);
                 }
 
-                const genResp = await fetch('/api/ccl', {
+                const genResp = await fetch('/api/ccl/service/run', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ matterId: '3311402', draftJson: formData }),
+                    body: JSON.stringify({
+                        matterId: '3311402',
+                        draftJson: formData,
+                        instructionRef: cclPayload.instructionRef,
+                        practiceArea: cclPayload.practiceArea,
+                        description: cclPayload.description,
+                        clientName: cclPayload.clientName,
+                        opponent: cclPayload.opponent,
+                        handlerName: cclPayload.handlerName,
+                        stage: 'demo-matter-opening',
+                    }),
                 });
                 if (genResp.ok) {
                     const genData = await genResp.json();
                     if (genData.url) {
                         setGeneratedCclUrl(genData.url);
-                        setProcessingLogs(prev => [...prev, `[ok] Draft CCL Generated: ${genData.url} (real)`]);
+                        setProcessingLogs(prev => [...prev, `[ok] Draft CCL Generated: ${genData.url} · ${(genData.preview?.dataSources || []).length} sources (real)`]);
                     }
                 }
             } catch (cclErr) {
@@ -2183,13 +2027,15 @@ const handleClearAll = () => {
 
         // Validate required form fields before processing
         const formSnapshot = generateSampleJson();
-        if (!formSnapshot.matter_details?.practice_area || !formSnapshot.matter_details.practice_area.trim()) {
-            const errorMsg = 'Practice area is required. Please select a practice area before opening a matter.';
+        const formValidation = validateMatterOpeningPayload(formSnapshot);
+        if (!formValidation.isValid) {
+            const errorMsg = formValidation.suggestions[0] || 'Matter entry is incomplete. Please resolve the highlighted issue before opening a matter.';
             setFailureSummary(`Failed at: Pre-validation - ${errorMsg}`);
             setProcessingLogs([`[x] Pre-validation: ${errorMsg}`]);
             setProcessingSteps(prev => prev.map((s, idx) => idx === 0 ? { ...s, status: 'error', message: errorMsg } : s));
             setDebugInspectorOpen(true);
-            reportMatterTelemetry('PreValidation.Failed', { error: errorMsg, phase: 'practiceAreaCheck' });
+            setDebugValidation(formValidation);
+            reportMatterTelemetry('PreValidation.Failed', { error: errorMsg, phase: 'intakeValidation' });
             return { url: '' };
         }
 
@@ -3257,7 +3103,7 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                     appearance: 'none' as const, cursor: 'pointer', outline: 'none', fontFamily: 'inherit',
                                                 }}>
                                                     <option value="" disabled>Select practice area...</option>
-                                                    {(practiceAreasByArea[areaOfWork] || []).filter((pa: string) => pa !== areaOfWork).map((pa: string) => (
+                                                    {getPracticeAreaOptions(areaOfWork).map((pa: string) => (
                                                         <option key={pa} value={pa}>{pa}</option>
                                                     ))}
                                                 </select>

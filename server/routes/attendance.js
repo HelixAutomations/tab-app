@@ -587,6 +587,50 @@ router.post('/updateAttendance', async (req, res) => {
   }
 });
 
+// POST /api/attendance/unconfirmAttendance — clear Confirmed_At so user appears unconfirmed
+router.post('/unconfirmAttendance', async (req, res) => {
+  try {
+    const { initials, weekStart } = req.body;
+    if (!initials || !weekStart) {
+      return res.status(400).json({ success: false, error: 'Missing required fields: initials, weekStart' });
+    }
+
+    const password = await getSqlPassword();
+    if (!password) throw new Error('Could not retrieve database credentials');
+
+    const coreDataConnStr = `Server=tcp:helix-database-server.database.windows.net,1433;Initial Catalog=helix-core-data;Persist Security Info=False;User ID=helix-database-server;Password=${password};MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;`;
+
+    // Set Confirmed_At to NULL and clear Attendance_Days
+    await attendanceQuery(coreDataConnStr, (req, sql) =>
+      req.input('initials', sql.VarChar(10), initials)
+        .input('weekStart', sql.Date, weekStart)
+        .query(`
+          UPDATE Attendance
+          SET Confirmed_At = NULL,
+              Attendance_Days = NULL
+          WHERE Initials = @initials AND Week_Start = @weekStart
+        `)
+    );
+
+    res.json({ success: true, message: 'Attendance unconfirmed', initials, weekStart });
+
+    // Realtime notify
+    try {
+      broadcastAttendanceChanged({
+        changeType: 'unconfirmed',
+        initials: String(initials || '').toUpperCase(),
+        weekStart: String(weekStart || ''),
+      });
+    } catch { /* non-blocking */ }
+
+    // Clear cache
+    try { await deleteCachePattern('attendance:*'); } catch { /* non-critical */ }
+  } catch (error) {
+    console.error('Error unconfirming attendance:', error.message || error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // SSE: attendance realtime change notifications
 attachAttendanceStream(router);
 

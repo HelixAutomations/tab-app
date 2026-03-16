@@ -29,10 +29,10 @@ const EditorStep: React.FC<EditorStepProps> = ({ content, fields, editorRef, isD
         if (value && value.trim()) {
           // Filled from questionnaire — blue underline highlight
           const escaped = value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br/>');
-          return `<span style="background:${isDarkMode ? 'rgba(54,144,206,0.10)' : 'rgba(54,144,206,0.06)'};border-bottom:2px solid ${isDarkMode ? 'rgba(54,144,206,0.5)' : 'rgba(54,144,206,0.35)'};padding:0 2px;border-radius:1px" data-filled-field="${key}" title="Filled from questionnaire: ${label}">${escaped}</span>`;
+          return `<span style="background:${isDarkMode ? 'rgba(54,144,206,0.10)' : 'rgba(54,144,206,0.06)'};border-bottom:2px solid ${isDarkMode ? 'rgba(54,144,206,0.5)' : 'rgba(54,144,206,0.35)'};padding:0 2px;border-radius:1px;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;max-width:100%" data-filled-field="${key}" title="Filled from questionnaire: ${label}">${escaped}</span>`;
         }
         // Unfilled — red highlight
-        return `<span style="background:${isDarkMode ? 'rgba(214,85,65,0.2)' : 'rgba(214,85,65,0.12)'};color:${isDarkMode ? '#f0a090' : '#d65541'};padding:1px 4px;border-radius:2px;font-size:12px;font-weight:600;cursor:pointer" data-placeholder="${key}" contenteditable="false" title="Click to fill: ${label}">{{${label}}}</span>`;
+        return `<span style="background:${isDarkMode ? 'rgba(214,85,65,0.2)' : 'rgba(214,85,65,0.12)'};color:${isDarkMode ? '#f0a090' : '#d65541'};padding:1px 4px;border-radius:2px;font-size:12px;font-weight:600;cursor:pointer;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;max-width:100%" data-placeholder="${key}" contenteditable="false" title="Click to fill: ${label}">{{${label}}}</span>`;
       }
     );
   }, [content, fields, isDarkMode]);

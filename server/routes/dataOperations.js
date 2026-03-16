@@ -307,6 +307,23 @@ async function syncCollectedTime(options = {}) {
       reportRes = await makeReportRequest(accessToken);
     }
 
+    // ── 429 Rate-limit retry with exponential backoff ──
+    if (reportRes.status === 429) {
+      const MAX_429_RETRIES = 3;
+      for (let attempt = 1; attempt <= MAX_429_RETRIES; attempt++) {
+        const retryAfter = parseInt(reportRes.headers?.get?.('Retry-After') || '0', 10);
+        const backoffMs = Math.max((retryAfter || Math.pow(2, attempt) * 15) * 1000, 15000);
+        logProgress(operationKey, `Rate limited (429). Retry ${attempt}/${MAX_429_RETRIES} after ${Math.round(backoffMs / 1000)}s...`);
+        trackEvent('DataOps.CollectedTime.RateLimited', {
+          operation: operationKey, attempt, backoffMs, triggeredBy,
+        });
+        await new Promise(r => setTimeout(r, backoffMs));
+        if (activeJobs.get(operationKey)?.cancelled) throw new Error('Operation cancelled by user');
+        reportRes = await makeReportRequest(accessToken);
+        if (reportRes.status !== 429) break;
+      }
+    }
+
     let downloadData = null;
     let reportId = null;
     let skipPolling = false;
@@ -930,6 +947,23 @@ async function syncWip(options = {}) {
         logProgress(operationKey, 'Access token expired (401). Refreshing...');
         accessToken = await getClioAccessToken(true);
         res = await makeRequest(accessToken);
+      }
+
+      // ── 429 Rate-limit retry with exponential backoff ──
+      if (res.status === 429) {
+        const MAX_429_RETRIES = 3;
+        for (let attempt = 1; attempt <= MAX_429_RETRIES; attempt++) {
+          const retryAfter = parseInt(res.headers?.get?.('Retry-After') || '0', 10);
+          const backoffMs = Math.max((retryAfter || Math.pow(2, attempt) * 15) * 1000, 15000);
+          logProgress(operationKey, `Rate limited (429) at offset ${offset}. Retry ${attempt}/${MAX_429_RETRIES} after ${Math.round(backoffMs / 1000)}s...`);
+          trackEvent('DataOps.Wip.RateLimited', {
+            operation: operationKey, attempt, offset, backoffMs, triggeredBy: options.triggeredBy || 'manual',
+          });
+          await new Promise(r => setTimeout(r, backoffMs));
+          if (activeJobs.get(operationKey)?.cancelled) throw new Error('Operation cancelled by user');
+          res = await makeRequest(accessToken);
+          if (res.status !== 429) break;
+        }
       }
 
       if (!res.ok) {

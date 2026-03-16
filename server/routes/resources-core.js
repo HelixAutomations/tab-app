@@ -118,6 +118,10 @@ async function getNetDocumentsAccessToken() {
   return accessToken;
 }
 
+function clearNetDocumentsTokenCache() {
+  netDocumentsTokenCache = { token: null, exp: 0 };
+}
+
 function normaliseNetDocumentsResults(payload) {
   const candidates = Array.isArray(payload?.results)
     ? payload.results
@@ -313,57 +317,24 @@ router.get('/netdocuments-workspace', async (req, res) => {
   const [clientId, matterKey] = parts;
 
   try {
-    const [baseUrl, cabinet] = await Promise.all([
-      getSecret('nd-baseurl'),
-      getSecret('nd-cabinet')
-    ]);
+    const cabinet = await getSecret('nd-cabinet');
     const accessToken = await getNetDocumentsAccessToken();
 
-    if (!baseUrl) {
-      return res.status(500).json({ ok: false, error: 'NetDocuments base URL missing.' });
-    }
     if (!cabinet) {
       return res.status(500).json({ ok: false, error: 'NetDocuments cabinet ID missing.' });
     }
 
     // /v1/Workspace/{cabinet}/{clientId}/{matterKey}/info
-    const urlObj = new URL(`${baseUrl.replace(/\/$/, '')}/v1/Workspace/${cabinet}/${encodeURIComponent(clientId)}/${encodeURIComponent(matterKey)}/info`);
-
-    // Use native https module for consistency with OAuth
-    const payload = await new Promise((resolve, reject) => {
-      const options = {
-        hostname: urlObj.hostname,
-        path: urlObj.pathname + urlObj.search,
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          Accept: 'application/json'
-        }
-      };
-      const request = https.request(options, (response) => {
-        let data = '';
-        response.on('data', chunk => data += chunk);
-        response.on('end', () => {
-          if (response.statusCode === 404) {
-            reject({ status: 404, message: `Workspace not found: ${clientId}/${matterKey}` });
-          } else if (response.statusCode >= 400) {
-            reject({ status: response.statusCode, message: data || 'NetDocuments lookup failed.' });
-          } else {
-            try {
-              resolve(JSON.parse(data));
-            } catch (e) {
-              reject({ status: 500, message: `Failed to parse response: ${data}` });
-            }
-          }
-        });
-      });
-      request.on('error', (e) => reject({ status: 500, message: e.message }));
-      request.setTimeout(15000, () => {
-        request.destroy();
-        reject({ status: 504, message: 'NetDocuments request timed out' });
-      });
-      request.end();
-    });
+    const wsPath = `/v1/Workspace/${encodeURIComponent(cabinet)}/${encodeURIComponent(clientId)}/${encodeURIComponent(matterKey)}/info`;
+    let payload;
+    try {
+      payload = await ndApiRequest(wsPath, accessToken);
+    } catch (wsErr) {
+      if (wsErr.status === 404) {
+        throw { status: 404, message: `Workspace not found: ${clientId}/${matterKey}` };
+      }
+      throw wsErr;
+    }
 
     // Extract useful info from the response
     const result = {
@@ -390,47 +361,59 @@ router.get('/netdocuments-workspace', async (req, res) => {
   }
 });
 
-// Helper: make NetDocuments API request using native https
+// Helper: make NetDocuments API request using native https (auto-retries once on 401)
 async function ndApiRequest(path, accessToken, method = 'GET', body = null) {
   const baseUrl = await getSecret('nd-baseurl');
   if (!baseUrl) throw { status: 500, message: 'NetDocuments base URL missing.' };
-  
-  const urlObj = new URL(`${baseUrl.replace(/\/$/, '')}${path}`);
-  
-  return new Promise((resolve, reject) => {
-    const options = {
-      hostname: urlObj.hostname,
-      path: urlObj.pathname + urlObj.search,
-      method,
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        Accept: 'application/json',
-        ...(body ? { 'Content-Type': 'application/json' } : {})
-      }
-    };
-    const request = https.request(options, (response) => {
-      let data = '';
-      response.on('data', chunk => data += chunk);
-      response.on('end', () => {
-        if (response.statusCode >= 400) {
-          reject({ status: response.statusCode, message: data || `NetDocuments error ${response.statusCode}` });
-        } else {
-          try {
-            resolve(JSON.parse(data));
-          } catch (e) {
-            reject({ status: 500, message: `Failed to parse response: ${data}` });
-          }
+
+  async function execute(token) {
+    const urlObj = new URL(`${baseUrl.replace(/\/$/, '')}${path}`);
+    return new Promise((resolve, reject) => {
+      const options = {
+        hostname: urlObj.hostname,
+        path: urlObj.pathname + urlObj.search,
+        method,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/json',
+          ...(body ? { 'Content-Type': 'application/json' } : {})
         }
+      };
+      const request = https.request(options, (response) => {
+        let data = '';
+        response.on('data', chunk => data += chunk);
+        response.on('end', () => {
+          if (response.statusCode >= 400) {
+            reject({ status: response.statusCode, message: data || `NetDocuments error ${response.statusCode}` });
+          } else {
+            try {
+              resolve(JSON.parse(data));
+            } catch (e) {
+              reject({ status: 500, message: `Failed to parse response: ${data}` });
+            }
+          }
+        });
       });
+      request.on('error', (e) => reject({ status: 500, message: e.message }));
+      request.setTimeout(15000, () => {
+        request.destroy();
+        reject({ status: 504, message: 'NetDocuments request timed out' });
+      });
+      if (body) request.write(JSON.stringify(body));
+      request.end();
     });
-    request.on('error', (e) => reject({ status: 500, message: e.message }));
-    request.setTimeout(15000, () => {
-      request.destroy();
-      reject({ status: 504, message: 'NetDocuments request timed out' });
-    });
-    if (body) request.write(JSON.stringify(body));
-    request.end();
-  });
+  }
+
+  try {
+    return await execute(accessToken);
+  } catch (err) {
+    if (err.status === 401) {
+      clearNetDocumentsTokenCache();
+      const freshToken = await getNetDocumentsAccessToken();
+      return await execute(freshToken);
+    }
+    throw err;
+  }
 }
 
 // GET /api/resources/core/netdocuments-user
@@ -483,7 +466,7 @@ router.get('/netdocuments-container/:id', async (req, res) => {
 });
 
 // GET /api/resources/core/netdocuments-workspace-contents
-// Returns contents of a workspace using the v1 Workspace API, then enriches with v2 sub for names
+// Returns contents of a workspace using the v1 workspace list, then enriches each item via container info
 // Query params: clientId, matterKey
 router.get('/netdocuments-workspace-contents', async (req, res) => {
   const clientId = String(req.query.clientId || '').trim();
@@ -497,43 +480,46 @@ router.get('/netdocuments-workspace-contents', async (req, res) => {
     const accessToken = await getNetDocumentsAccessToken();
     const cabinet = await getSecret('nd-cabinet');
     if (!cabinet) throw { status: 500, message: 'NetDocuments cabinet ID missing.' };
-    
-    // Use the v1 Workspace API: /v1/Workspace/{cabinet}/{clientId}/{matterKey}
+
     const path = `/v1/Workspace/${encodeURIComponent(cabinet)}/${encodeURIComponent(clientId)}/${encodeURIComponent(matterKey)}`;
     const payload = await ndApiRequest(path, accessToken);
-    
-    // v1 returns { list: [{ envId, type }] } - minimal info
-    // For each folder, we need to fetch info to get the name
     const rawItems = payload.list || [];
-    
-    // Enrich items with names using parallel info calls
+
     const items = await Promise.all(rawItems.map(async (item) => {
-      const isFolder = item.type === 'fld';
-      let name = item.envId;
-      
+      const itemId = item.envId;
+      const itemType = String(item.type || '').trim().toLowerCase();
+
       try {
-        // For folders, try to get info
-        if (isFolder) {
-          const infoPath = `/v2/container/${encodeURIComponent(item.envId)}/info`;
-          const info = await ndApiRequest(infoPath, accessToken);
-          name = info?.standardAttributes?.name || info?.name || item.envId;
-        } else {
-          // For documents, use document info
-          const infoPath = `/v2/document/${encodeURIComponent(item.envId)}/info`;
-          const info = await ndApiRequest(infoPath, accessToken);
-          name = info?.standardAttributes?.name || info?.name || item.envId;
-        }
-      } catch (e) {
-        // Keep envId as name if info fails
+        const info = await ndApiRequest(`/v2/container/${encodeURIComponent(itemId)}/info`, accessToken);
+        const attrs = info?.Attributes || info?.standardAttributes || {};
+        const ext = String(attrs.Ext || attrs.extension || item.type || '').trim();
+        const customTitle = Array.isArray(info?.CustomAttributes)
+          ? info.CustomAttributes.find(attribute => attribute?.Id === 1003)?.Value?.[0]
+          : undefined;
+        const itemName = customTitle || attrs.Name || attrs.name || itemId;
+        const normalizedType = ext.toLowerCase() === 'ndfld' ? 'container' : 'document';
+
+        return {
+          id: info?.EnvId || info?.DocId || itemId,
+          name: itemName,
+          type: normalizedType,
+          extension: normalizedType === 'document' ? ext : undefined,
+          size: attrs.Size || attrs.size,
+          created: attrs.Created || attrs.created,
+          createdBy: attrs.CreatedBy || attrs.createdBy,
+          modified: attrs.Modified || attrs.modified,
+          modifiedBy: attrs.ModifiedBy || attrs.modifiedBy,
+          url: info?.Locations?.Url || attrs.Url || attrs.url || item.url,
+        };
+      } catch (infoError) {
+        return {
+          id: itemId,
+          name: itemId,
+          type: itemType === 'fld' ? 'container' : 'document',
+          extension: itemType === 'fld' ? undefined : item.type,
+          url: item.url,
+        };
       }
-      
-      return {
-        id: item.envId,
-        name,
-        type: isFolder ? 'container' : 'document',
-        extension: !isFolder ? item.type : undefined,
-        url: item.url
-      };
     }));
 
     return res.json({ ok: true, result: { items, total: items.length } });
@@ -545,7 +531,8 @@ router.get('/netdocuments-workspace-contents', async (req, res) => {
 });
 
 // GET /api/resources/core/netdocuments-folder-contents/:id
-// Returns contents of a folder using the v2 container sub endpoint with StandardAttributes
+// Returns contents of a folder. Prefer full container listing (folders + documents),
+// then fall back to sub-containers endpoint if needed.
 router.get('/netdocuments-folder-contents/:id', async (req, res) => {
   const folderId = String(req.params.id || '').trim();
   
@@ -555,28 +542,57 @@ router.get('/netdocuments-folder-contents/:id', async (req, res) => {
 
   try {
     const accessToken = await getNetDocumentsAccessToken();
-    
-    // Use v2 container sub API with StandardAttributes: /v2/container/{id}/sub?select=StandardAttributes
-    const path = `/v2/container/${encodeURIComponent(folderId)}/sub?select=StandardAttributes`;
-    const payload = await ndApiRequest(path, accessToken);
-    
-    // Normalize the response - v2 sub returns { Results: [{ DocId, EnvId, Attributes: { Name, Ext, ... } }] }
-    const items = (payload.Results || []).map(item => {
-      const attrs = item.Attributes || {};
-      const isFolder = attrs.Ext === 'ndfld';
-      return {
-        id: item.EnvId || item.DocId,
-        name: attrs.Name || item.EnvId || item.DocId,
-        type: isFolder ? 'container' : 'document',
-        extension: !isFolder ? attrs.Ext : undefined,
-        size: attrs.Size,
-        created: attrs.Created,
-        createdBy: attrs.CreatedBy,
-        modified: attrs.Modified,
-        modifiedBy: attrs.ModifiedBy,
-        url: item.url
-      };
-    });
+    let payload;
+    try {
+      // Full listing for both folders and files.
+      payload = await ndApiRequest(`/v2/container/${encodeURIComponent(folderId)}`, accessToken);
+    } catch (primaryError) {
+      // Fallback for tenants where full listing is unavailable.
+      payload = await ndApiRequest(`/v2/container/${encodeURIComponent(folderId)}/sub?select=StandardAttributes`, accessToken);
+    }
+
+    const fromStandardList = Array.isArray(payload?.standardList)
+      ? payload.standardList.map((item) => {
+          const ext = String(item.extension || '').trim();
+          const isFolder = ext.toLowerCase() === 'ndfld' || !ext;
+          return {
+            id: item.envId || item.id,
+            name: item.name || item.envId || item.id,
+            type: isFolder ? 'container' : 'document',
+            extension: isFolder ? undefined : ext,
+            size: item.size,
+            created: item.created,
+            createdBy: item.createdBy,
+            modified: item.modified,
+            modifiedBy: item.modifiedBy,
+            version: item.version,
+            locked: item.locked,
+            url: item.url,
+          };
+        })
+      : [];
+
+    const fromResults = Array.isArray(payload?.Results)
+      ? payload.Results.map((item) => {
+          const attrs = item.Attributes || {};
+          const ext = String(attrs.Ext || '').trim();
+          const isFolder = ext.toLowerCase() === 'ndfld';
+          return {
+            id: item.EnvId || item.DocId,
+            name: attrs.Name || item.EnvId || item.DocId,
+            type: isFolder ? 'container' : 'document',
+            extension: isFolder ? undefined : ext,
+            size: attrs.Size,
+            created: attrs.Created,
+            createdBy: attrs.CreatedBy,
+            modified: attrs.Modified,
+            modifiedBy: attrs.ModifiedBy,
+            url: item.url,
+          };
+        })
+      : [];
+
+    const items = (fromStandardList.length > 0 ? fromStandardList : fromResults).filter(Boolean);
 
     return res.json({ ok: true, result: { items, total: items.length } });
   } catch (error) {

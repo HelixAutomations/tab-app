@@ -9,6 +9,10 @@
 #app-level-immediate-actions {
   position: relative;
   z-index: 1000;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   border-radius: 0;
   border: none;
   background: transparent;

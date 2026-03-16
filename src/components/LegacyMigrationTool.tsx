@@ -29,7 +29,7 @@ interface DiscoveryResult {
     searchType: string;
     systems: {
         'Core Data': { matters: SystemRecord; poid: SystemRecord; enquiries: SystemRecord };
-        'Instructions DB': { newSpaceEnquiries: SystemRecord; Instructions: SystemRecord; Deals: SystemRecord; Matters: SystemRecord; IdVerifications: SystemRecord };
+        'Instructions DB': { newSpaceEnquiries: SystemRecord; Instructions: SystemRecord; Deals: SystemRecord; Matters: SystemRecord; IdVerifications: SystemRecord; Payments: SystemRecord };
     };
     prefill: Prefill;
 }
@@ -45,6 +45,7 @@ interface Prefill {
     poidId: string; acid: string; idCheckResult: string; idCheckId: string;
     nationality: string; passportNumber: string; driversLicenseNumber: string; idDocsFolder: string;
     enquiryId: string; poc: string;
+    methodOfContact?: string; clientName?: string;
 }
 
 interface MigrationResult {
@@ -79,6 +80,7 @@ const SYSTEM_ROWS = [
     { key: 'Deals',           system: 'Instructions DB', table: 'Deals',            label: 'Deal',              icon: 'M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5' },
     { key: 'instrMatters',    system: 'Instructions DB', table: 'Matters',          label: 'Pipeline Matters',  icon: 'M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z' },
     { key: 'IdVerifications', system: 'Instructions DB', table: 'IdVerifications',  label: 'ID Verification',   icon: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z' },
+    { key: 'Payments',        system: 'Instructions DB', table: 'Payments',         label: 'Payments',          icon: 'M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H7' },
 ] as const;
 
 function getRecordForRow(row: typeof SYSTEM_ROWS[number], discovery: DiscoveryResult | null): SystemRecord {
@@ -131,6 +133,19 @@ const LegacyMigrationTool: React.FC<LegacyMigrationToolProps> = ({ isOpen, onClo
             { name: 'poc', label: 'Point of Contact' },
             { name: 'source', label: 'Source' },
         ]},
+        { key: 'newSpaceEnquiry', label: 'Enquiry (New Space)', fields: [
+            { name: 'firstName', label: 'First Name', required: true },
+            { name: 'lastName', label: 'Last Name', required: true },
+            { name: 'email', label: 'Email', required: true },
+            { name: 'phone', label: 'Phone' },
+            { name: 'areaOfWork', label: 'Area of Work', required: true, type: 'select', options: ['commercial', 'construction', 'property', 'employment'] },
+            { name: 'methodOfContact', label: 'Method of Contact' },
+            { name: 'poc', label: 'Point of Contact' },
+            { name: 'rep', label: 'Rep (Initials)' },
+            { name: 'value', label: 'Value' },
+            { name: 'acid', label: 'Legacy ACID', required: true },
+            { name: 'source', label: 'Source' },
+        ]},
         { key: 'deal', label: 'Deal', fields: [
             { name: 'serviceDescription', label: 'Service Description', required: true },
             { name: 'amount', label: 'Amount (£)', required: true },
@@ -175,6 +190,16 @@ const LegacyMigrationTool: React.FC<LegacyMigrationToolProps> = ({ isOpen, onClo
             { name: 'eidOverallResult', label: 'EID Result', type: 'select', options: ['Passed', 'Pending', 'Failed'] },
             { name: 'eidProvider', label: 'EID Provider' },
         ]},
+        { key: 'payment', label: 'Payment', fields: [
+            { name: 'amount', label: 'Amount (£)', required: true },
+            { name: 'method', label: 'Method', required: true, type: 'select', options: ['Bank Transfer', 'Card', 'Cash'] },
+            { name: 'status', label: 'Status', required: true, type: 'select', options: ['succeeded', 'pending', 'failed'] },
+        ]},
+        { key: 'linkage', label: 'Link Existing Matter', fields: [
+            { name: 'sourceInstructionRef', label: 'Source Instruction Ref', required: true },
+            { name: 'relatedClientIds', label: 'Additional Related Client IDs (comma-separated)' },
+            { name: 'mode', label: 'Link Mode', required: true, type: 'select', options: ['full', 'related-only'] },
+        ]},
     ];
 
     // Build module defaults from prefill
@@ -183,6 +208,19 @@ const LegacyMigrationTool: React.FC<LegacyMigrationToolProps> = ({ isOpen, onClo
             enquiry: {
                 firstName: p.firstName, lastName: p.lastName, email: p.email, phone: p.phone,
                 company: p.companyName, areaOfWork: p.areaOfWork, poc: p.poc, source: p.source || 'legacy migration',
+            },
+            newSpaceEnquiry: {
+                firstName: p.firstName,
+                lastName: p.lastName,
+                email: p.email,
+                phone: p.phone,
+                areaOfWork: p.areaOfWork,
+                methodOfContact: p.methodOfContact || 'call in',
+                poc: p.poc,
+                rep: p.feeEarnerInitials,
+                value: p.value || 'unsure',
+                acid: p.acid || p.enquiryId,
+                source: p.source || 'legacy migration',
             },
             deal: {
                 serviceDescription: p.description, amount: p.value || '0',
@@ -211,6 +249,16 @@ const LegacyMigrationTool: React.FC<LegacyMigrationToolProps> = ({ isOpen, onClo
                 email: p.email, eidCheckId: p.idCheckId, eidOverallResult: p.idCheckResult || 'Pending',
                 eidProvider: 'Tiller',
             },
+            payment: {
+                amount: p.value || '0',
+                method: 'Bank Transfer',
+                status: 'succeeded',
+            },
+            linkage: {
+                sourceInstructionRef: '',
+                relatedClientIds: '',
+                mode: 'full',
+            },
         };
     }, []);
 
@@ -225,11 +273,13 @@ const LegacyMigrationTool: React.FC<LegacyMigrationToolProps> = ({ isOpen, onClo
         const i = discovery.systems['Instructions DB'];
         const c = discovery.systems['Core Data'];
         switch (key) {
-            case 'enquiry': return !!(c.enquiries?.found || i.newSpaceEnquiries?.found);
+            case 'enquiry': return !!c.enquiries?.found;
+            case 'newSpaceEnquiry': return !!i.newSpaceEnquiries?.found;
             case 'deal': return !!i.Deals?.found;
             case 'instruction': return !!i.Instructions?.found;
             case 'matters': return !!i.Matters?.found;
             case 'idVerification': return !!i.IdVerifications?.found;
+            case 'payment': return !!i.Payments?.found;
             default: return false;
         }
     }, [discovery]);
@@ -285,21 +335,24 @@ const LegacyMigrationTool: React.FC<LegacyMigrationToolProps> = ({ isOpen, onClo
             const i = data.systems['Instructions DB'];
             const c = data.systems['Core Data'];
             setModules({
-                enquiry: !(c.enquiries?.found || i.newSpaceEnquiries?.found),
+                enquiry: !c.enquiries?.found,
+                newSpaceEnquiry: !i.newSpaceEnquiries?.found,
                 deal: !i.Deals?.found,
                 instruction: !i.Instructions?.found,
                 matters: !i.Matters?.found,
                 idVerification: !i.IdVerifications?.found && !!data.prefill?.poidId,
+                payment: false,
+                linkage: false,
             });
             setPhase('review');
 
             const coreFound = [data.systems?.['Core Data']?.matters, data.systems?.['Core Data']?.poid, data.systems?.['Core Data']?.enquiries].filter(s => s?.found).length;
-            const instrFound = [data.systems?.['Instructions DB']?.Instructions, data.systems?.['Instructions DB']?.Deals, data.systems?.['Instructions DB']?.Matters, data.systems?.['Instructions DB']?.IdVerifications, data.systems?.['Instructions DB']?.newSpaceEnquiries].filter(s => s?.found).length;
+            const instrFound = [data.systems?.['Instructions DB']?.Instructions, data.systems?.['Instructions DB']?.Deals, data.systems?.['Instructions DB']?.Matters, data.systems?.['Instructions DB']?.IdVerifications, data.systems?.['Instructions DB']?.newSpaceEnquiries, data.systems?.['Instructions DB']?.Payments].filter(s => s?.found).length;
 
             if (instrFound >= 3) {
                 toast('Already migrated — pipeline chain exists', 'success');
             } else if (coreFound > 0) {
-                toast(`Found ${coreFound} legacy record${coreFound > 1 ? 's' : ''}. ${4 - instrFound} pipeline records missing.`, 'info');
+                toast(`Found ${coreFound} legacy record${coreFound > 1 ? 's' : ''}. ${Math.max(0, 6 - instrFound)} pipeline records missing.`, 'info');
             } else {
                 toast('No records found in any system', 'warning');
             }
@@ -330,6 +383,7 @@ const LegacyMigrationTool: React.FC<LegacyMigrationToolProps> = ({ isOpen, onClo
                         deals: discovery.systems['Instructions DB'].Deals,
                         matters: discovery.systems['Instructions DB'].Matters,
                         idVerifications: discovery.systems['Instructions DB'].IdVerifications,
+                        payments: discovery.systems['Instructions DB'].Payments,
                         coreMatters: discovery.systems['Core Data'].matters,
                     } : {},
                 }),
@@ -712,7 +766,7 @@ const LegacyMigrationTool: React.FC<LegacyMigrationToolProps> = ({ isOpen, onClo
                                 </div>
 
                                 <div style={{ fontSize: 10, color: textMuted, lineHeight: 1.6, marginBottom: 14, padding: '6px 10px', background: `${colours.blue}06`, border: `1px solid ${colours.blue}10` }}>
-                                    This will insert records into the Instructions database and Core Data. Additive only — no existing records will be modified or deleted.
+                                    This will write migration records into Core Data and Instructions DB. If Link Existing Matter is enabled, the target instruction linkage fields are updated to match the source instruction.
                                 </div>
 
                                 <div style={{ display: 'flex', gap: 8 }}>

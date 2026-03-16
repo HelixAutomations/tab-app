@@ -10,6 +10,7 @@ import React, {
 } from 'react';
 import { TeamsContext } from './TeamsContext'; // Ensure this path is correct
 import { getProxyBaseUrl } from '../../utils/getProxyBaseUrl';
+import { appendDefaultEnquiryProcessingParams } from './enquiryProcessingModel';
 
 // Define the structure of an Enquiry
 export interface Enquiry {
@@ -198,6 +199,7 @@ export const FeProvider: React.FC<FeProviderProps> = ({ children }) => {
           limit: '2000',
           includeTeamInbox: 'true'
         });
+        appendDefaultEnquiryProcessingParams(params);
         
         if (dateFrom) params.append('dateFrom', dateFrom);
         if (dateTo) params.append('dateTo', dateTo);

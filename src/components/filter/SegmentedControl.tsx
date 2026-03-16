@@ -105,15 +105,10 @@ const SegmentedControl: React.FC<SegmentedControlProps> = ({
       style={{
         display: 'flex',
         position: 'relative',
-        background: isDarkMode
-          ? 'rgba(255,255,255,0.06)'
-          : 'rgba(0,0,0,0.04)',
-        borderRadius: pill ? height / 2 : 10,
-        padding: 4,
-        height,
+        gap: 4,
+        padding: 0,
         fontFamily: 'Raleway, sans-serif',
         userSelect: 'none',
-        overflow: 'hidden',
         width: fullWidth ? '100%' : 'auto',
         boxShadow: 'none',
         ...style,
@@ -126,19 +121,17 @@ const SegmentedControl: React.FC<SegmentedControlProps> = ({
           style={{
             pointerEvents: 'none',
             position: 'absolute',
-            top: 4,
-            height: Math.max(0, height - 8),
+            top: 0,
+            height: height - 8,
             left: thumbRect.left,
             width: thumbRect.width,
             background: isDarkMode
-              ? 'rgba(255, 255, 255, 0.12)'
-              : 'rgba(255, 255, 255, 0.9)',
-            borderRadius: pill ? (height - 8) / 2 : 8,
+              ? colours.dark.cardHover
+              : colours.light.cardBackground,
+            borderRadius: 0,
             transition:
               'left 250ms cubic-bezier(0.25, 0.46, 0.45, 0.94), width 250ms cubic-bezier(0.25, 0.46, 0.45, 0.94)',
-            boxShadow: isDarkMode
-              ? '0 1px 2px rgba(0,0,0,0.2)'
-              : '0 1px 2px rgba(0,0,0,0.06)',
+            border: `1px solid ${isDarkMode ? colours.accent : colours.highlight}`,
           }}
         />
       )}
@@ -161,22 +154,24 @@ const SegmentedControl: React.FC<SegmentedControlProps> = ({
               justifyContent: 'center',
               gap: 5,
               background: 'transparent',
-              border: 'none',
+              border: `1px solid ${isActive ? 'transparent' : (isDarkMode ? 'rgba(55,65,81,0.4)' : 'rgba(0,0,0,0.10)')}`,
               cursor: opt.disabled ? 'not-allowed' : 'pointer',
               padding: `0 ${paddingX}px`,
+              height: height - 8,
               fontSize,
               fontWeight: 500,
               color: opt.disabled
-                ? (isDarkMode ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.25)')
+                ? (isDarkMode ? colours.subtleGrey : colours.greyText)
                 : isActive
-                ? (isDarkMode ? 'rgba(255,255,255,0.95)' : '#1f2937')
+                ? (isDarkMode ? colours.dark.text : colours.darkBlue)
                 : isDarkMode
-                ? 'rgba(255,255,255,0.70)'
-                : 'rgba(0,0,0,0.55)',
-              transition: 'color 200ms ease',
+                ? 'rgba(160,160,160,0.8)'
+                : colours.greyText,
+              transition: 'all 200ms ease',
               minWidth: 0,
               whiteSpace: 'nowrap',
               outline: 'none',
+              borderRadius: 0,
             }}
             ref={el => { btnRefs.current[idx] = el; }}
             onFocus={(e) => {
@@ -197,12 +192,12 @@ const SegmentedControl: React.FC<SegmentedControlProps> = ({
                 display: 'flex', 
                 alignItems: 'center',
                 color: opt.disabled
-                  ? (isDarkMode ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.25)')
+                  ? (isDarkMode ? colours.subtleGrey : colours.greyText)
                   : isActive
-                  ? (isDarkMode ? 'rgba(255,255,255,0.95)' : '#1f2937')
+                  ? (isDarkMode ? colours.dark.text : colours.darkBlue)
                   : isDarkMode
-                  ? 'rgba(255,255,255,0.70)'
-                  : 'rgba(0,0,0,0.55)',
+                  ? 'rgba(160,160,160,0.8)'
+                  : colours.greyText,
               }}>
                 {opt.icon}
               </span>
@@ -211,14 +206,14 @@ const SegmentedControl: React.FC<SegmentedControlProps> = ({
             {typeof opt.badge !== 'undefined' && (
               <span style={{
                 background: isActive
-                  ? (isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)')
+                  ? (isDarkMode ? 'rgba(135,243,243,0.12)' : 'rgba(54,144,206,0.12)')
                   : (isDarkMode
-                    ? 'rgba(255,255,255,0.15)'
-                    : 'rgba(0,0,0,0.06)'),
+                    ? 'transparent'
+                    : 'rgba(0,0,0,0.04)'),
                 color: isActive
-                  ? (isDarkMode ? 'rgba(255,255,255,0.9)' : '#1f2937')
-                  : (isDarkMode ? 'rgba(255,255,255,0.8)' : 'rgba(0,0,0,0.65)'),
-                borderRadius: 8,
+                  ? (isDarkMode ? colours.dark.text : colours.darkBlue)
+                  : (isDarkMode ? 'rgba(160,160,160,0.8)' : colours.greyText),
+                borderRadius: 0,
                 padding: '2px 6px',
                 fontSize: fontSize - 2,
                 fontWeight: 600,

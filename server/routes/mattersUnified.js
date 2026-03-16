@@ -11,9 +11,12 @@ let unifiedCache = {
 };
 
 const UNIFIED_CACHE_TTL_MS = Number(process.env.UNIFIED_MATTERS_TTL_MS || 2 * 60 * 1000); // 2 minutes default
+// How far past TTL we'll still serve stale memory cache while revalidating in background
+const UNIFIED_STALE_GRACE_MS = 5 * 60 * 1000; // 5 minutes
 
 // Request throttling to prevent database overload
 let activeRequests = 0;
+let backgroundRefreshInFlight = false;
 const MAX_CONCURRENT_REQUESTS = 3; // Allow up to 3 concurrent requests
 
 function normalizeName(name) {
@@ -80,6 +83,24 @@ router.get('/', async (req, res) => {
   if (!bypassCache && unifiedCache.data && (now - unifiedCache.ts) < UNIFIED_CACHE_TTL_MS) {
     console.info('[mattersUnified] hit memory cache', { requestId, ms: Date.now() - startMs });
     return res.json({ ...unifiedCache.data, cached: true, source: 'memory' });
+  }
+
+  // Level 1b: Stale memory cache — serve immediately, refresh in background
+  const memoryAge = now - unifiedCache.ts;
+  if (!bypassCache && unifiedCache.data && memoryAge < UNIFIED_CACHE_TTL_MS + UNIFIED_STALE_GRACE_MS) {
+    console.info('[mattersUnified] serving stale memory cache, revalidating', { requestId, ms: Date.now() - startMs, staleMs: memoryAge - UNIFIED_CACHE_TTL_MS });
+    // Trigger background refresh (non-blocking)
+    if (!backgroundRefreshInFlight) {
+      backgroundRefreshInFlight = true;
+      performMattersUnifiedQuery(req.query)
+        .then((freshData) => {
+          unifiedCache.data = freshData;
+          unifiedCache.ts = Date.now();
+        })
+        .catch((err) => console.warn('[mattersUnified] background refresh failed:', err.message))
+        .finally(() => { backgroundRefreshInFlight = false; });
+    }
+    return res.json({ ...unifiedCache.data, cached: true, source: 'memory-stale' });
   }
 
   // Level 2: Redis cache (if in-memory expired)

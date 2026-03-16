@@ -18,6 +18,7 @@ import { useToast } from '../../components/feedback/ToastProvider';
 import type { AnnualLeaveRecord } from './AnnualLeaveReport';
 import { debugLog, debugWarn } from '../../utils/debug';
 import './ManagementDashboard.css';
+import YearOverYearComparison from './YearOverYearComparison';
 
 interface RecoveredFee {
   payment_date: string;
@@ -3198,6 +3199,13 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({
               <span>{formatDateRange(previousRange.start, previousRange.end)}</span>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Year-over-Year Comparison — LOCAL DEV ONLY */}
+      {typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') && (
+        <div style={{ marginTop: 24 }}>
+          <YearOverYearComparison />
         </div>
       )}
 

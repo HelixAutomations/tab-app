@@ -55,10 +55,10 @@ const spinKeyframes = `
   /* Mobile responsive grids */
   @media (max-width: 640px) {
     .metricsGridThree {
-      grid-template-columns: 1fr !important;
+      grid-template-columns: minmax(0, 1fr) !important;
     }
     .metricsGridTwo {
-      grid-template-columns: 1fr !important;
+      grid-template-columns: minmax(0, 1fr) !important;
     }
     .tmv2-header {
       flex-direction: column !important;
@@ -78,7 +78,16 @@ const spinKeyframes = `
   }
   @media (min-width: 641px) and (max-width: 900px) {
     .metricsGridThree {
-      grid-template-columns: repeat(2, 1fr) !important;
+      grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+    .tmv2-header {
+      flex-wrap: wrap !important;
+      gap: 10px !important;
+    }
+    .tmv2-header-right {
+      flex: 1 1 100% !important;
+      justify-content: flex-start !important;
+      flex-wrap: wrap !important;
     }
   }
   @media (max-width: 420px) {
@@ -1125,10 +1134,12 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
             marginTop: '0',
           }}>
             {/* Time heading with inline refresh/status */}
-            <div style={{
+            <div className="tmv2-header" style={{
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
+              gap: '10px',
+              flexWrap: 'wrap',
               padding: '8px 12px 4px 12px',
             }}>
               <div style={sectionHeaderStyle}>
@@ -1137,7 +1148,7 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
                 {toast && <Toast message={toast.message} type={toast.type} visible={toast.visible} isDarkMode={isDarkMode} />}
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <div className="tmv2-header-right" style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', minWidth: 0 }}>
                 <button
                   type="button"
                   onClick={() => setShowPreviousComparisons(prev => !prev)}
@@ -1317,7 +1328,7 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
             <div style={{ padding: '0 12px 10px 12px' }}>
               {/* Skeleton row 1: 3 across */}
               <div style={sectionRailStyle}>
-              <div className="metricsGridThree" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px' }}>
+              <div className="metricsGridThree" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '4px' }}>
                 {[0,1,2].map(i => (
                   <div key={i} style={{
                     padding: '12px 12px',
@@ -1335,7 +1346,7 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
               </div>
               <div style={{ height: '4px' }} />
               {/* Skeleton row 2: 2 across */}
-              <div className="metricsGridTwo" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '4px' }}>
+              <div className="metricsGridTwo" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '4px' }}>
                 {[0,1].map(i => (
                   <div key={i} style={{
                     padding: '12px 12px',
@@ -1354,7 +1365,7 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
             <div style={{ padding: '0 12px 10px 12px' }}>
               <div style={sectionRailStyle}>
               {/* Row 1: first 3 metrics */}
-              <div className="metricsGridThree" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px' }}>
+              <div className="metricsGridThree" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '4px' }}>
                 {currentMetrics.slice(0, 3).map((metric, index) => {
                   const currentValue = getCurrentValue(metric);
                   const prevValue = getPrevValue(metric);
@@ -1375,6 +1386,7 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
                       className="tmv2-metric-card"
                       key={metric.title}
                       style={{
+                        minWidth: 0,
                         padding: '12px 12px',
                         background: isDarkMode
                           ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.08) 0%, rgba(54, 144, 206, 0.00) 60%), rgba(6, 23, 51, 0.45)'
@@ -1543,7 +1555,7 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
               </div>
 
               {/* Row 2: last 2 metrics */}
-              <div className="metricsGridTwo" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '4px', marginTop: '4px', borderTop: 'none' }}>
+              <div className="metricsGridTwo" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '4px', marginTop: '4px', borderTop: 'none' }}>
                 {currentMetrics.slice(3).map((metric, index) => {
                   const currentValue = getCurrentValue(metric);
                   const prevValue = getPrevValue(metric);
@@ -1565,6 +1577,7 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
                       className="tmv2-metric-card"
                       key={metric.title}
                       style={{
+                        minWidth: 0,
                         padding: '12px 12px',
                         background: isDarkMode
                           ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.08) 0%, rgba(54, 144, 206, 0.00) 60%), rgba(6, 23, 51, 0.45)'

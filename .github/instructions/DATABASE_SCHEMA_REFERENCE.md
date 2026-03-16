@@ -53,23 +53,32 @@ This document describes the key database tables, their relationships, and import
 
 **Legacy (Core Data DB: `helix-core-data`)**
 - Table: `enquiries`
-- Primary key: `ID`
+- Primary key: `ID` (auto-increment) — also served as the ActiveCampaign contact ID bridge
 - Notes field: `Initial_first_call_notes`
 
 **New Space (Instructions DB: `instructions`)**
 - Table: `dbo.enquiries`
-- Primary key: `id`
+- Primary key: `id` (auto-increment) — **internal PK only**, NOT the ActiveCampaign ID
 - Notes field: `notes`
-- **Linkage key**: `acid` = **ProspectId** from `Deals`
+- **`acid`** (ActiveCampaign ID) = ActiveCampaign contact ID = `Deals.ProspectId`
+- The `acid` column also cross-references to legacy `enquiries.ID` for paired records
+
+**ID taxonomy (CRITICAL — do not confuse these)**
+| Field | Database | Meaning |
+|-------|----------|---------|
+| `enquiries.ID` | Core Data (legacy) | Legacy PK — also the AC bridge (`Deals.ProspectId = ID`) |
+| `enquiries.id` | Instructions (new-space) | New-space internal PK (auto-increment) — NOT the AC ID |
+| `enquiries.acid` | Instructions (new-space) | ActiveCampaign contact ID — bridges to `Deals.ProspectId` |
+| `Deals.ProspectId` | Instructions | ActiveCampaign contact ID — the authoritative bridge |
 
 **Linking matters → enquiries (authoritative order)**
 1. Matter → `InstructionRef`
 2. Instruction → Deal (same `InstructionRef`)
-3. Deal → `ProspectId`
+3. Deal → `ProspectId` (= ActiveCampaign contact ID)
 4. New space enquiry: match `dbo.enquiries.acid = Deals.ProspectId`
 5. Legacy enquiry (fallback): match `enquiries.ID = Deals.ProspectId`
 
-**Key rule**: `Deals.ProspectId` is the authoritative bridge to **new-space enquiries** (`acid`).
+**Key rule**: `Deals.ProspectId` is the ActiveCampaign contact ID. For new-space records, this maps to `acid`, NOT `id`.
 
 ---
 

@@ -32,6 +32,7 @@ export interface ActionsCellProps {
   };
   handleRate: (id: string) => void;
   handleDeleteEnquiry: (enquiryId: string, enquiryName: string) => void;
+  handleShareEnquiry: (enquiry: Enquiry) => Promise<void>;
   setEditingEnquiry: (enquiry: Enquiry) => void;
   setShowEditModal: (show: boolean) => void;
   setExpandedNotesInTable: (updater: (prev: Set<string>) => Set<string>) => void;
@@ -52,11 +53,14 @@ const ActionsCell: React.FC<ActionsCellProps> = ({
   getRatingChipMeta,
   handleRate,
   handleDeleteEnquiry,
+  handleShareEnquiry,
   setEditingEnquiry,
   setShowEditModal,
   setExpandedNotesInTable,
 }) => {
   const phone = item.Phone_Number || (item as any).phone;
+  const isDemoProspect = String(item.ID || (item as any).id || '').toUpperCase().startsWith('DEMO-ENQ-');
+  const canShowShareAction = areActionsEnabled || isDemoProspect;
   const neutralBorder = isDarkMode ? `${colours.dark.borderColor}8c` : 'rgba(160, 160, 160, 0.28)';
   const neutralBackground = isDarkMode ? colours.darkBlue : colours.grey;
   const neutralBackgroundHover = isDarkMode ? colours.helixBlue : colours.highlightBlue;
@@ -88,6 +92,9 @@ const ActionsCell: React.FC<ActionsCellProps> = ({
             style={{
               width: 22,
               height: 22,
+              minWidth: 22,
+              minHeight: 22,
+              flexShrink: 0,
               borderRadius: 0,
               border: `1px solid ${neutralBorder}`,
               background: neutralBackground,
@@ -127,6 +134,9 @@ const ActionsCell: React.FC<ActionsCellProps> = ({
               style={{
                 width: 22,
                 height: 22,
+                minWidth: 22,
+                minHeight: 22,
+                flexShrink: 0,
                 borderRadius: 0,
                 border: `1px solid ${neutralBorder}`,
                 background: neutralBackground,
@@ -163,6 +173,9 @@ const ActionsCell: React.FC<ActionsCellProps> = ({
             style={{
               width: 22,
               height: 22,
+              minWidth: 22,
+              minHeight: 22,
+              flexShrink: 0,
               borderRadius: 0,
               border: `1px solid ${getRatingChipMeta(item.Rating, isDarkMode).borderColor}`,
               background: getRatingChipMeta(item.Rating, isDarkMode).background,
@@ -207,6 +220,9 @@ const ActionsCell: React.FC<ActionsCellProps> = ({
         style={{
           width: 22,
           height: 22,
+          minWidth: 22,
+          minHeight: 22,
+          flexShrink: 0,
           borderRadius: 0,
           background: neutralBackground,
           border: `1px solid ${neutralBorder}`,
@@ -242,6 +258,45 @@ const ActionsCell: React.FC<ActionsCellProps> = ({
         />
       </div>
 
+      {/* Share — available for demo rows even when lock is off */}
+      {canShowShareAction && (
+        <div
+          onClick={(e) => {
+            e.stopPropagation();
+            void handleShareEnquiry(item);
+          }}
+          style={{
+            width: 22,
+            height: 22,
+            minWidth: 22,
+            minHeight: 22,
+            flexShrink: 0,
+            borderRadius: 0,
+            background: neutralBackground,
+            border: `1px solid ${neutralBorder}`,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = neutralBackgroundHover;
+            e.currentTarget.style.transform = 'scale(1.05)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = neutralBackground;
+            e.currentTarget.style.transform = 'scale(1)';
+          }}
+          title="Share enquiry access"
+        >
+          <Icon
+            iconName="PeopleAdd"
+            styles={{ root: { fontSize: '10px', color: neutralTextStrong } }}
+          />
+        </div>
+      )}
+
       {/* Edit & Delete — guarded by areActionsEnabled */}
       {areActionsEnabled && (
         <>
@@ -254,6 +309,9 @@ const ActionsCell: React.FC<ActionsCellProps> = ({
             style={{
               width: 22,
               height: 22,
+              minWidth: 22,
+              minHeight: 22,
+              flexShrink: 0,
               borderRadius: 0,
               background: neutralBackground,
               border: `1px solid ${neutralBorder}`,
@@ -282,7 +340,13 @@ const ActionsCell: React.FC<ActionsCellProps> = ({
           <div
             onClick={(e) => {
               e.stopPropagation();
-              const passcode = prompt('Enter passcode to delete this enquiry:');
+              let passcode: string | null = null;
+              try {
+                passcode = window.prompt('Enter passcode to delete this enquiry:');
+              } catch {
+                alert('Passcode input is not supported in this client.');
+                return;
+              }
               if (passcode === '2011') {
                 const enquiryName = `${item.First_Name || ''} ${item.Last_Name || ''}`.trim() || 'Unnamed enquiry';
                 const confirmMessage = `Are you sure you want to permanently delete "${enquiryName}"?\n\nThis action cannot be undone.`;
@@ -296,6 +360,9 @@ const ActionsCell: React.FC<ActionsCellProps> = ({
             style={{
               width: 22,
               height: 22,
+              minWidth: 22,
+              minHeight: 22,
+              flexShrink: 0,
               borderRadius: 0,
               background: isDarkMode ? 'rgba(214, 85, 65, 0.1)' : 'rgba(214, 85, 65, 0.08)',
               border: `1px solid ${isDarkMode ? 'rgba(214, 85, 65, 0.3)' : 'rgba(214, 85, 65, 0.2)'}`,

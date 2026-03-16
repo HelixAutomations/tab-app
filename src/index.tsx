@@ -11,6 +11,7 @@ import { mergeMattersFromSources } from "./utils/matterNormalization";
 import { getCachedData, setCachedData, cleanupOldCache } from "./utils/storageHelpers";
 import { debugLog } from "./utils/debug";
 import { isAdminUser } from "./app/admin";
+import { appendDefaultEnquiryProcessingParams } from "./app/functionality/enquiryProcessingModel";
 
 import "./utils/callLogger";
 import { initializeIcons } from "@fluentui/react";
@@ -244,6 +245,16 @@ async function fetchUserData(objectId: string): Promise<UserData[]> {
   }
 }
 
+// ── In-flight request dedup (prevents Strict Mode / rapid re-render duplicates) ──
+const inflightRequests = new Map<string, Promise<any>>();
+function dedup<T>(key: string, factory: () => Promise<T>): Promise<T> {
+  const existing = inflightRequests.get(key);
+  if (existing) return existing as Promise<T>;
+  const p = factory().finally(() => inflightRequests.delete(key));
+  inflightRequests.set(key, p);
+  return p;
+}
+
 async function fetchEnquiries(
   email: string,
   dateFrom: string,
@@ -256,6 +267,7 @@ async function fetchEnquiries(
   // Re-enable caching for production performance
   const forceNoCaching = false; // was: process.env.NODE_ENV === 'development'
   const cacheKey = `enquiries-${email}-${dateFrom}-${dateTo}-${userAow}`;
+  let unifiedRequestSucceeded = false;
   
   if (!bypassCache && !forceNoCaching) {
     // Try in-memory cache first (for large datasets)
@@ -292,13 +304,28 @@ async function fetchEnquiries(
     } else {
       params.set('limit', '999999'); // No effective cap for personal view
     }
+    appendDefaultEnquiryProcessingParams(params);
     
     const primaryUrl = `/api/enquiries-unified?${params.toString()}`;
-    const resp = await fetch(primaryUrl, { method: 'GET', headers: { 'Content-Type': 'application/json' } });
+    // Dedup: if an identical request is already in-flight, reuse it
+    const resp = await dedup(`enq:${primaryUrl}`, () =>
+      fetch(primaryUrl, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+        cache: bypassCache ? 'no-store' : 'default',
+      })
+    );
     if (resp.ok) {
+      unifiedRequestSucceeded = true;
       const data = await resp.json();
       let raw: any[] = [];
-      if (Array.isArray(data)) raw = data; else if (Array.isArray(data.enquiries)) raw = data.enquiries;
+      if (Array.isArray(data)) {
+        raw = data;
+      } else if (Array.isArray(data.enquiries)) {
+        raw = data.enquiries;
+      } else if (Array.isArray((data as any).data)) {
+        raw = (data as any).data;
+      }
 
       // Server already filtered, just normalize the data
       enquiries = raw.map(enq => ({
@@ -321,6 +348,16 @@ async function fetchEnquiries(
         notes: (enq as any).notes || (enq as any).Notes || (enq as any).Initial_first_call_notes || '',
         ...enq
       })) as Enquiry[];
+    } else if (resp.status === 304 && !bypassCache && !forceNoCaching) {
+      const memCached = getMemoryCachedData<Enquiry[]>(cacheKey);
+      if (memCached) {
+        enquiries = memCached;
+      } else {
+        const cached = getCachedData<Enquiry[]>(cacheKey);
+        if (cached) {
+          enquiries = cached;
+        }
+      }
     }
   } catch {
     // non-blocking; fallback below
@@ -328,7 +365,7 @@ async function fetchEnquiries(
 
   // Fetch LEGACY enquiries as a fallback ONLY if we don't already have results
   try {
-    if (enquiries.length === 0) {
+    if (!unifiedRequestSucceeded && enquiries.length === 0) {
 
     // Use local Express server proxy when developing, otherwise call production proxy
     const legacyBaseUrl = isLocalDev
@@ -630,12 +667,13 @@ async function fetchVNetMatters(fullName?: string): Promise<any[]> {
       }, 10_000);
       const timeoutId = window.setTimeout(() => controller.abort(), 45_000);
 
-      const res = await fetch(url, { signal: controller.signal });
+      const data = await dedup(`mat:${url}`, async () => {
+        const res = await fetch(url, { signal: controller.signal });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      });
       window.clearTimeout(warnId);
       window.clearTimeout(timeoutId);
-
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
       const legacyAll = Array.isArray(data.legacyAll) ? data.legacyAll : [];
       const vnetAll = Array.isArray(data.vnetAll) ? data.vnetAll : [];
 
@@ -687,17 +725,17 @@ async function fetchTeamData(): Promise<TeamData[] | null> {
   }
   try {
     // Use server route instead of decoupled function
-    const response = await fetch(
+    const response = await dedup('team-data', () => fetch(
       `/api/team-data`,
       {
         method: "GET",
         headers: { "Content-Type": "application/json" },
       },
-    );
-    if (!response.ok) {
-      throw new Error(`Failed to fetch team data: ${response.statusText}`);
-    }
-    const data: TeamData[] = await response.json();
+    ).then(r => {
+      if (!r.ok) throw new Error(`Failed to fetch team data: ${r.statusText}`);
+      return r.json();
+    }));
+    const data: TeamData[] = response;
     
     setCachedData(cacheKey, data);
     return data;
@@ -707,13 +745,55 @@ async function fetchTeamData(): Promise<TeamData[] | null> {
   }
 }
 
+function resolveEffectiveDatasetUser(
+  user: UserData | null | undefined,
+  team: TeamData[] | null | undefined,
+): {
+  email: string;
+  initials: string;
+  fullName: string;
+  entraId: string;
+  clioId: string;
+} {
+  const email = String(user?.Email || '').trim();
+  const initials = String(user?.Initials || '').trim().toUpperCase();
+  const fullName = String(user?.FullName || `${user?.First || ''} ${user?.Last || ''}`.trim()).trim();
+  const entraId = String((user as any)?.['Entra ID'] || user?.EntraID || '').trim();
+  const clioId = String((user as any)?.['Clio ID'] || user?.ClioID || '').trim();
+
+  const isLocalHost = typeof window !== 'undefined'
+    && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+  if (!isLocalHost || initials !== 'LZ' || !team?.length) {
+    return { email, initials, fullName, entraId, clioId };
+  }
+
+  const alex = team.find((member: any) => {
+    const memberInitials = String(member?.Initials || '').trim().toUpperCase();
+    const memberFirst = String(member?.First || '').trim().toLowerCase();
+    return memberInitials === 'AC' || memberFirst === 'alex';
+  });
+
+  if (!alex) {
+    return { email, initials, fullName, entraId, clioId };
+  }
+
+  return {
+    email: String(alex.Email || email).trim(),
+    initials: String(alex.Initials || initials).trim().toUpperCase(),
+    fullName: String(alex['Full Name'] || `${alex.First || ''} ${alex.Last || ''}`.trim() || fullName).trim(),
+    entraId: String(alex['Entra ID'] || entraId).trim(),
+    clioId: String(alex['Clio ID'] || clioId).trim(),
+  };
+}
+
 // Main component
 const AppWithContext: React.FC = () => {
   const [teamsContext, setTeamsContext] =
     useState<app.Context | null>(null);
   const [userData, setUserData] = useState<UserData[] | null>(null);
   const [originalAdminUser, setOriginalAdminUser] = useState<UserData | null>(null);
-  const [enquiries, setEnquiries] = useState<Enquiry[] | null>(null);
+  const [enquiries, setEnquiries] = useState<Enquiry[]>([]);
   const [matters, setMatters] = useState<NormalizedMatter[]>([]);
   const [teamData, setTeamData] = useState<TeamData[] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -748,10 +828,11 @@ const AppWithContext: React.FC = () => {
       }
 
       const { dateFrom, dateTo } = getDateRange();
-      const userEmail = userData[0].Email || "";
+      const effectiveUser = resolveEffectiveDatasetUser(userData[0], teamData);
+      const userEmail = effectiveUser.email;
       // Don't apply AOW filtering when admin has switched users - show all enquiries like Management Dashboard
       const userAow = originalAdminUser ? "" : (userData[0].AOW || "");
-      const userInitials = userData[0].Initials || "";
+      const userInitials = effectiveUser.initials;
 
       const enquiriesRes = await fetchEnquiries(userEmail, dateFrom, dateTo, userAow, userInitials, false, true);
       setEnquiries(enquiriesRes);
@@ -805,9 +886,9 @@ const AppWithContext: React.FC = () => {
       });
       toRemove.forEach(k => localStorage.removeItem(k));
 
-      const fullName = (userData[0].FullName || `${userData[0].First || ''} ${userData[0].Last || ''}`.trim());
-      const queryName = isAdminUser(userData[0]) ? '' : fullName;
-      const normalized = await fetchAllMatterSources(fullName, queryName);
+      const effectiveUser = resolveEffectiveDatasetUser(userData[0], teamData);
+      const queryName = isAdminUser(userData[0]) ? '' : effectiveUser.fullName;
+      const normalized = await fetchAllMatterSources(effectiveUser.fullName, queryName);
       setMatters(normalized);
     } catch (err) {
       console.error('❌ Error refreshing matters:', err);
@@ -845,9 +926,11 @@ const AppWithContext: React.FC = () => {
       FullName: newUser.FullName || (newUser as any)["Full Name"],
     };
     setUserData([normalized]);
-    const fullName =
-      normalized.FullName ||
-      `${normalized.First || ''} ${normalized.Last || ''}`.trim();
+    const liveTeam = teamData ?? await fetchTeamData().catch(() => null);
+    if (liveTeam && liveTeam !== teamData) {
+      setTeamData(liveTeam);
+    }
+    const effectiveUser = resolveEffectiveDatasetUser(normalized, liveTeam);
     
 
 
@@ -868,15 +951,15 @@ const AppWithContext: React.FC = () => {
       // Always fetch matters for the selected user.
       // Matters can be user-scoped server-side (queryName), so reusing a previously-loaded
       // matters list will show the wrong "Mine" results after switching user.
-      const queryName = isAdminUser(normalized) ? '' : fullName;
-      const mattersRes = await fetchAllMatterSources(fullName, queryName);
+      const queryName = isAdminUser(normalized) ? '' : effectiveUser.fullName;
+      const mattersRes = await fetchAllMatterSources(effectiveUser.fullName, queryName);
       setMatters(mattersRes);
       
       // Fetch enquiries for new user with extended date range and fresh data
       const { dateFrom, dateTo } = getDateRange();
       // Use actual user's email and initials - no overrides
-      const userInitials = normalized.Initials || "";
-      const enquiriesEmail = normalized.Email || "";
+      const userInitials = effectiveUser.initials;
+      const enquiriesEmail = effectiveUser.email;
       
       // Don't pass AOW to backend - let frontend handle AOW filtering for Claimable state only
       // For Mine/Claimed, users should see ALL their claimed enquiries regardless of DB AOW setting
@@ -946,60 +1029,50 @@ const AppWithContext: React.FC = () => {
 
       // For local development, also test the dual enquiries fetching
       const { dateFrom, dateTo } = getDateRange();
-      const fullName = `${initialUserData[0].First} ${initialUserData[0].Last}`.trim();
+      const effectiveUser = resolveEffectiveDatasetUser(initialUserData[0] as UserData, teamUserData);
 
       try {
-        // Try to fetch enquiries independently first
-        let enquiriesRes: Enquiry[] = [];
-        try {
-          const userInitials = initialUserData[0].Initials || "";
-          const enquiriesEmail = initialUserData[0].Email || "";
+        const gateBoot = performance.now();
+        console.info('[Boot:Gate] Starting parallel data fetch');
+        const userInitials = effectiveUser.initials;
+        const enquiriesEmail = effectiveUser.email;
+        const queryName = isAdminUser(initialUserData[0]) ? '' : effectiveUser.fullName;
 
-          enquiriesRes = await fetchEnquiries(
-            enquiriesEmail,
-            dateFrom,
-            dateTo,
-            initialUserData[0].AOW || "",
-            userInitials,
-          );
-
-        } catch (enquiriesError) {
-          console.warn('⚠️ Enquiries API failed, using fallback:', enquiriesError);
-          const { getLiveLocalEnquiries } = await import('./tabs/home/Home');
-          enquiriesRes = getLiveLocalEnquiries(initialUserData[0].Email) as Enquiry[];
-        }
-
-        // Try to fetch matters separately (don't block enquiries)
-        let normalizedMatters: NormalizedMatter[] = [];
-        try {
-          const queryName = isAdminUser(initialUserData[0]) ? '' : fullName;
-          normalizedMatters = await fetchAllMatterSources(fullName, queryName);
-
-        } catch (mattersError) {
-          console.warn('⚠️ Matters API failed, using fallback:', mattersError);
-          const { default: localMatters } = await import('./localData/localMatters.json');
-          const fallbackMatters = mergeMattersFromSources([], localMatters as unknown as Matter[], [], fullName);
-          normalizedMatters = fallbackMatters;
-        }
+        const [enquiriesRes, liveTeam] = await Promise.all([
+          fetchEnquiries(enquiriesEmail, dateFrom, dateTo, initialUserData[0].AOW || "", userInitials)
+            .catch(err => {
+              console.warn('⚠️ Enquiries API failed, using fallback:', err);
+              return import('./tabs/home/Home').then(m => m.getLiveLocalEnquiries(initialUserData[0].Email) as Enquiry[]);
+            }),
+          fetchTeamData().catch(() => null),
+        ]);
 
         setEnquiries(enquiriesRes);
-        setMatters(normalizedMatters);
-      } catch (err) {
-        console.error('❌ Unexpected error in local dev:', err);
+        setTeamData(liveTeam);
+        console.info(`[Boot:Gate] Core Home data ready in ${Math.round(performance.now() - gateBoot)}ms`);
 
+        fetchAllMatterSources(effectiveUser.fullName, queryName)
+          .then((normalizedMatters) => {
+            setMatters(normalizedMatters);
+            console.info(`[Boot:Gate] Matters hydrated in ${Math.round(performance.now() - gateBoot)}ms (${normalizedMatters.length} rows)`);
+          })
+          .catch(err => {
+            console.warn('⚠️ Matters API failed, using fallback:', err);
+            import('./localData/localMatters.json')
+              .then(m => mergeMattersFromSources([], m.default as unknown as Matter[], [], effectiveUser.fullName))
+              .then(fallbackMatters => {
+                setMatters(fallbackMatters);
+                console.info(`[Boot:Gate] Matters fallback hydrated in ${Math.round(performance.now() - gateBoot)}ms (${fallbackMatters.length} rows)`);
+              });
+          });
+      } catch (err) {
+        console.error('❌ Unexpected error in entry gate:', err);
         const { getLiveLocalEnquiries } = await import('./tabs/home/Home');
         const { default: localMatters } = await import('./localData/localMatters.json');
-        const fallbackEnquiries = getLiveLocalEnquiries(initialUserData[0].Email) as Enquiry[];
-        const fallbackMatters = mergeMattersFromSources([], localMatters as unknown as Matter[], [], fullName);
-
-        setEnquiries(fallbackEnquiries);
-        setMatters(fallbackMatters);
+        setEnquiries(getLiveLocalEnquiries(initialUserData[0].Email) as Enquiry[]);
+        setMatters(mergeMattersFromSources([], localMatters as unknown as Matter[], [], effectiveUser.fullName));
+        setTeamData(null);
       }
-
-      // Team data already fetched at start of handleUserSelected
-      // Set it for downstream use
-      const liveTeam = await fetchTeamData();
-      setTeamData(liveTeam);
 
       setLoading(false);
     } catch (error) {
@@ -1038,6 +1111,8 @@ const AppWithContext: React.FC = () => {
             if (!primaryUser) {
               return;
             }
+            const primeStart = performance.now();
+            console.info('[Boot:Teams] Priming user-dependent data (parallel)');
 
             const fullName =
               `${primaryUser?.First ?? ''} ${primaryUser?.Last ?? ''}`.trim();
@@ -1046,28 +1121,40 @@ const AppWithContext: React.FC = () => {
             const userInitials = primaryUser.Initials || "";
             const enquiriesEmail = primaryUser.Email || "";
 
+            const t0Enq = performance.now();
             fetchEnquiries(
               enquiriesEmail,
               dateFrom,
               dateTo,
               "", // Empty AOW - frontend will apply AOW logic for Claimable state only
               userInitials,
-            ).then(setEnquiries).catch(err => {
-              console.warn('Enquiries load failed, using empty array:', err);
+            ).then(res => {
+              console.info(`[Boot:Teams] Enquiries: ${Math.round(performance.now() - t0Enq)}ms (${res.length} rows)`);
+              setEnquiries(res);
+            }).catch(err => {
+              console.warn(`[Boot:Teams] Enquiries failed (${Math.round(performance.now() - t0Enq)}ms):`, err);
               setEnquiries([]);
             });
 
+            const t0Mat = performance.now();
             fetchAllMatterSources(fullName, isAdminUser(primaryUser) ? '' : fullName)
-              .then(setMatters)
+              .then(res => {
+                console.info(`[Boot:Teams] Matters: ${Math.round(performance.now() - t0Mat)}ms (${res.length} rows)`);
+                setMatters(res);
+              })
               .catch(err => {
-                console.warn('Matters load failed, using empty array:', err);
+                console.warn(`[Boot:Teams] Matters failed (${Math.round(performance.now() - t0Mat)}ms):`, err);
                 setMatters([]);
               });
 
+            const t0Team = performance.now();
             fetchTeamData()
-              .then(setTeamData)
+              .then(res => {
+                console.info(`[Boot:Teams] TeamData: ${Math.round(performance.now() - t0Team)}ms`);
+                setTeamData(res);
+              })
               .catch(err => {
-                console.warn('Team data load failed, using null:', err);
+                console.warn(`[Boot:Teams] TeamData failed (${Math.round(performance.now() - t0Team)}ms):`, err);
                 setTeamData(null);
               });
           };
@@ -1122,58 +1209,71 @@ const AppWithContext: React.FC = () => {
             }];
             setUserData(initialUserData as UserData[]);
 
-            // Fetch enquiries and matters
+            // Resolve the effective local dataset identity first so boot doesn't
+            // fetch the main enquiries dataset as raw LZ and then correct later.
             const { dateFrom, dateTo } = getDateRange();
             const fullName = `${initialUserData[0].First} ${initialUserData[0].Last}`.trim();
+            const bootStart = performance.now();
+            console.info('[Boot] Starting parallel data fetch');
 
             try {
-              // Enquiries
-              let enquiriesRes: Enquiry[] = [];
+              const t0Team = performance.now();
+              let liveTeam: TeamData[] | null = null;
               try {
-                const userInitials = initialUserData[0].Initials || "";
-                const enquiriesEmail = initialUserData[0].Email || "";
-                enquiriesRes = await fetchEnquiries(
-                  enquiriesEmail,
-                  dateFrom,
-                  dateTo,
-                  "", // Empty AOW - frontend will apply AOW logic for Claimable state only
-                  userInitials,
-                  false,  // fetchAll
-                  true    // bypassCache - FORCE FRESH DATA on initial load to avoid stale cache
-                );
-              } catch (enquiriesError) {
-                console.warn('⚠️ Enquiries API failed, using fallback:', enquiriesError);
-                const { getLiveLocalEnquiries } = await import('./tabs/home/Home');
-                enquiriesRes = getLiveLocalEnquiries(initialUserData[0].Email) as Enquiry[];
+                liveTeam = await fetchTeamData();
+                console.info(`[Boot] TeamData: ${Math.round(performance.now() - t0Team)}ms`);
+              } catch (err) {
+                console.warn(`[Boot] TeamData failed (${Math.round(performance.now() - t0Team)}ms):`, err);
               }
 
-              // Matters
-              let normalizedMatters: NormalizedMatter[] = [];
-              try {
-                const queryName = isAdminUser(initialUserData[0]) ? '' : fullName;
-                normalizedMatters = await fetchAllMatterSources(fullName, queryName);
-              } catch (mattersError) {
-                console.warn('⚠️ Matters API failed, using fallback:', mattersError);
-                const { default: localMatters } = await import('./localData/localMatters.json');
-                const fallbackMatters = mergeMattersFromSources([], localMatters as unknown as Matter[], [], fullName);
-                normalizedMatters = fallbackMatters;
-              }
+              const effectiveUser = resolveEffectiveDatasetUser(initialUserData[0] as UserData, liveTeam);
+              const userInitials = effectiveUser.initials || "";
+              const enquiriesEmail = effectiveUser.email || "";
+              const effectiveFullName = effectiveUser.fullName || fullName;
+              const queryName = isAdminUser(initialUserData[0]) ? '' : effectiveFullName;
+
+              const [enquiriesRes, normalizedMatters] = await Promise.all([
+                (async () => {
+                  const t0 = performance.now();
+                  try {
+                    const res = await fetchEnquiries(
+                      enquiriesEmail, dateFrom, dateTo,
+                      "", userInitials, false, false
+                    );
+                    console.info(`[Boot] Enquiries: ${Math.round(performance.now() - t0)}ms (${res.length} rows)`);
+                    return res;
+                  } catch (err) {
+                    console.warn(`[Boot] Enquiries failed (${Math.round(performance.now() - t0)}ms):`, err);
+                    const { getLiveLocalEnquiries } = await import('./tabs/home/Home');
+                    return getLiveLocalEnquiries(enquiriesEmail || initialUserData[0].Email) as Enquiry[];
+                  }
+                })(),
+                (async () => {
+                  const t0 = performance.now();
+                  try {
+                    const res = await fetchAllMatterSources(effectiveFullName, queryName);
+                    console.info(`[Boot] Matters: ${Math.round(performance.now() - t0)}ms (${res.length} rows)`);
+                    return res;
+                  } catch (err) {
+                    console.warn(`[Boot] Matters failed (${Math.round(performance.now() - t0)}ms):`, err);
+                    const { default: localMatters } = await import('./localData/localMatters.json');
+                    return mergeMattersFromSources([], localMatters as unknown as Matter[], [], effectiveFullName);
+                  }
+                })(),
+              ]);
 
               setEnquiries(enquiriesRes);
               setMatters(normalizedMatters);
+              setTeamData(liveTeam);
+              console.info(`[Boot] All data ready in ${Math.round(performance.now() - bootStart)}ms`);
             } catch (err) {
               console.error('❌ Unexpected error in local dev:', err);
               const { getLiveLocalEnquiries } = await import('./tabs/home/Home');
               const { default: localMatters } = await import('./localData/localMatters.json');
-              const fallbackEnquiries = getLiveLocalEnquiries(initialUserData[0].Email) as Enquiry[];
-              const fallbackMatters = mergeMattersFromSources([], localMatters as unknown as Matter[], [], fullName);
-              setEnquiries(fallbackEnquiries);
-              setMatters(fallbackMatters);
+              setEnquiries(getLiveLocalEnquiries(initialUserData[0].Email) as Enquiry[]);
+              setMatters(mergeMattersFromSources([], localMatters as unknown as Matter[], [], fullName));
+              setTeamData(null);
             }
-
-            // Team data from API (no local fallback)
-            const liveTeam = await fetchTeamData();
-            setTeamData(liveTeam);
 
             setLoading(false);
           } catch (e) {

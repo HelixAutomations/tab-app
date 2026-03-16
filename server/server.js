@@ -92,6 +92,8 @@ const telemetryRouter = require('./routes/telemetry');
 const financialTaskRouter = require('./routes/financialTask');
 const { router: dataOperationsRouter } = require('./routes/dataOperations');
 const { startDataOperationsScheduler } = require('./utils/dataOperationsScheduler');
+const yoyComparisonRouter = require('./routes/yoy-comparison');
+const teamsNotifyRouter = require('./routes/teamsNotify');
 
 // Initialize ops log (loads recent entries and ensures log dir)
 try { opLog.init(); } catch { /* best effort */ }
@@ -187,6 +189,7 @@ app.use('/api/marketing-metrics', marketingMetricsRouter);
 app.use('/api/transactions', transactionsRouter);
 app.use('/api/cache-preheater', cachePreheaterRouter);
 app.use('/api/teams-activity-tracking', teamsActivityTrackingRouter);
+app.use('/api/teams-notify', teamsNotifyRouter);
 app.use('/api/pitch-tracking', pitchTrackingRouter);
 app.use('/api/enquiry-enrichment', enquiryEnrichmentRouter);
 // Rate change notification tracking
@@ -214,6 +217,9 @@ app.use('/api/telemetry', telemetryRouter);
 
 // Data operations (collected time, WIP sync) - manual triggers for Data Centre
 app.use('/api/data-operations', dataOperationsRouter);
+
+// Year-over-Year comparison (WIP, Collected, Matters) — Management Dashboard
+app.use('/api/yoy-comparison', yoyComparisonRouter);
 
 // IMPORTANT: Attendance routes must come BEFORE proxy routes to avoid conflicts
 app.use('/api/attendance', attendanceRouter);

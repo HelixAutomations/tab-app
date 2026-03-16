@@ -29,10 +29,29 @@ const memoryCache = new Map();
 const resolveUserOverride = (emailRaw, initialsRaw) => {
   const email = (emailRaw || '').trim().toLowerCase();
   const initials = (initialsRaw || '').trim().toLowerCase().replace(/\./g, '');
-  if (email === 'lz@helix-law.com' || initials === 'lz') {
-    return { email: 'ac@helix-law.com', initials: 'ac', overridden: true };
-  }
   return { email, initials, overridden: false };
+};
+
+const buildInitialsMatchSql = (field) => `LOWER(REPLACE(REPLACE(CASE
+  WHEN CHARINDEX('@', LTRIM(RTRIM(${field}))) > 0
+    THEN LEFT(LTRIM(RTRIM(${field})), CHARINDEX('@', LTRIM(RTRIM(${field}))) - 1)
+  ELSE LTRIM(RTRIM(${field}))
+END, ' ', ''), '.', '')) = @userInitials`;
+
+const dedupeDetailRecords = (records) => {
+  const seen = new Set();
+  return records.filter((record) => {
+    const key = [
+      String(record.date || '').slice(0, 19),
+      String(record.stage || '').toLowerCase(),
+      String(record.name || '').toLowerCase(),
+      String(record.aow || '').toLowerCase(),
+      String(record.poc || '').toLowerCase(),
+    ].join('|');
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 };
 
 /**
@@ -153,8 +172,12 @@ router.get('/details', async (req, res) => {
       queryInstructionsDbRecords(process.env.INSTRUCTIONS_SQL_CONNECTION_STRING, email, initials, ranges.previousStart, ranges.previousEnd, limit),
     ]);
 
-    const current = [...currentMain, ...currentInst].sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, limit);
-    const previous = [...prevMain, ...prevInst].sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, limit);
+    const current = dedupeDetailRecords([...currentMain, ...currentInst])
+      .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+      .slice(0, limit);
+    const previous = dedupeDetailRecords([...prevMain, ...prevInst])
+      .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+      .slice(0, limit);
 
     return res.json({
       period,
@@ -224,125 +247,319 @@ async function fetchEnquiryMetrics(email, initials) {
   const endOfToday = new Date(today);
   endOfToday.setHours(23, 59, 59, 999);
 
-  // Query both databases in parallel
-  const [mainCounts, instCounts, mattersCounts, pitchedCounts] = await Promise.all([
-    queryMainDbCounts(mainConnectionString, email, initials, {
-      today, endOfToday, startOfWeek, startOfMonth,
-      prevToday, prevWeekStart, prevWeekEnd, prevMonthStart, prevMonthEnd,
-      prevFullWeekStart, prevFullWeekEnd, prevFullMonthStart, prevFullMonthEnd
-    }),
-    queryInstructionsDbCounts(instructionsConnectionString, email, initials, {
-      today, endOfToday, startOfWeek, startOfMonth,
-      prevToday, prevWeekStart, prevWeekEnd, prevMonthStart, prevMonthEnd,
-      prevFullWeekStart, prevFullWeekEnd, prevFullMonthStart, prevFullMonthEnd
-    }),
+  // Query both databases in parallel — fetch actual email+date rows for dedup
+  // plus matters and pitched counts (which are Instructions-only, no dedup needed)
+  const widestStart = new Date(Math.min(
+    prevFullMonthStart.getTime(), prevFullWeekStart.getTime(),
+    prevMonthStart.getTime(), prevWeekStart.getTime(), prevToday.getTime(),
+    startOfMonth.getTime()
+  ));
+  const [mainRows, instRows, mattersCounts, mainBreakdown, instBreakdown] = await Promise.all([
+    queryDbEmailRows(mainConnectionString, email, initials, widestStart, endOfToday, 'legacy'),
+    queryDbEmailRows(instructionsConnectionString, email, initials, widestStart, endOfToday, 'instructions'),
     queryMattersOpened(instructionsConnectionString, initials, today),
-    queryPitchedCounts(instructionsConnectionString, email, initials, {
-      today, endOfToday, startOfWeek, startOfMonth,
-      prevToday, prevWeekStart, prevWeekEnd, prevMonthStart, prevMonthEnd
-    })
+    queryMainDbBreakdown(mainConnectionString, email, initials, {
+      today, endOfToday, startOfWeek, startOfMonth
+    }),
+    queryInstructionsDbBreakdown(instructionsConnectionString, email, initials, {
+      today, endOfToday, startOfWeek, startOfMonth
+    }),
   ]);
 
-  // For enquiries we need to be careful about double-counting across DBs.
-  // Since migrated records exist in both, we take the MAX of each DB's count.
-  // For breakdowns, we pick the breakdown from the same DB that provided the MAX.
-  const pick = (mainValue, instValue, mainObj, instObj) => (mainValue >= instValue ? (mainObj || {}) : (instObj || {}));
+  // Merge rows from both DBs and deduplicate by lowercase email + date string.
+  // Records with the same enquiry email on the same day are the same enquiry.
+  const allRows = [...mainRows, ...instRows];
+  const dedupKey = (r) => `${(r.email || '').toLowerCase()}|${r.dateStr}`;
 
-  const enquiriesToday = Math.max(mainCounts.today, instCounts.today);
-  const enquiriesWeekToDate = Math.max(mainCounts.weekToDate, instCounts.weekToDate);
-  const enquiriesMonthToDate = Math.max(mainCounts.monthToDate, instCounts.monthToDate);
+  // Map each dedup key to all its prospect IDs (from either DB)
+  const keyToPids = new Map();
+  for (const r of allRows) {
+    const key = dedupKey(r);
+    if (!keyToPids.has(key)) keyToPids.set(key, new Set());
+    if (r.prospectId) keyToPids.get(key).add(r.prospectId);
+  }
+
+  // Collect all prospect IDs and check which have been pitched (have Deals)
+  const allPids = new Set();
+  for (const r of allRows) {
+    if (r.prospectId) allPids.add(r.prospectId);
+  }
+  const pitchedPids = await queryPitchedProspectIds(instructionsConnectionString, [...allPids]);
+
+  // Build unique set per period
+  const countInRange = (start, end) => {
+    const seen = new Set();
+    for (const r of allRows) {
+      if (r.dateMs >= start.getTime() && r.dateMs <= end.getTime()) {
+        seen.add(dedupKey(r));
+      }
+    }
+    return seen.size;
+  };
+
+  // Count deduped enquiries in range that have at least one pitched deal
+  const countPitchedInRange = (start, end) => {
+    const seen = new Set();
+    let count = 0;
+    for (const r of allRows) {
+      const key = dedupKey(r);
+      if (r.dateMs >= start.getTime() && r.dateMs <= end.getTime() && !seen.has(key)) {
+        seen.add(key);
+        const pids = keyToPids.get(key);
+        if (pids && [...pids].some(pid => pitchedPids.has(pid))) {
+          count++;
+        }
+      }
+    }
+    return count;
+  };
+
+  const enquiriesToday = countInRange(today, endOfToday);
+  const enquiriesWeekToDate = countInRange(startOfWeek, endOfToday);
+  const enquiriesMonthToDate = countInRange(startOfMonth, endOfToday);
+
+  // Pick breakdown from whichever DB has more records (approximation until breakdown is deduped too)
+  const pick = (mainObj, instObj) => {
+    const mainCount = (mainObj?.aowTop || []).reduce((s, x) => s + x.count, 0);
+    const instCount = (instObj?.aowTop || []).reduce((s, x) => s + x.count, 0);
+    return mainCount >= instCount ? (mainObj || {}) : (instObj || {});
+  };
 
   const breakdown = {
-    today: pick(mainCounts.today, instCounts.today, mainCounts.breakdown?.today, instCounts.breakdown?.today),
-    weekToDate: pick(mainCounts.weekToDate, instCounts.weekToDate, mainCounts.breakdown?.weekToDate, instCounts.breakdown?.weekToDate),
-    monthToDate: pick(mainCounts.monthToDate, instCounts.monthToDate, mainCounts.breakdown?.monthToDate, instCounts.breakdown?.monthToDate),
+    today: pick(mainBreakdown?.today, instBreakdown?.today),
+    weekToDate: pick(mainBreakdown?.weekToDate, instBreakdown?.weekToDate),
+    monthToDate: pick(mainBreakdown?.monthToDate, instBreakdown?.monthToDate),
   };
 
   return {
     enquiriesToday,
     enquiriesWeekToDate,
     enquiriesMonthToDate,
-    prevEnquiriesToday: Math.max(mainCounts.prevToday, instCounts.prevToday),
-    prevEnquiriesWeekToDate: Math.max(mainCounts.prevWeekToDate, instCounts.prevWeekToDate),
-    prevEnquiriesMonthToDate: Math.max(mainCounts.prevMonthToDate, instCounts.prevMonthToDate),
-    prevEnquiriesWeekFull: Math.max(mainCounts.prevWeekFull || 0, instCounts.prevWeekFull || 0),
-    prevEnquiriesMonthFull: Math.max(mainCounts.prevMonthFull || 0, instCounts.prevMonthFull || 0),
-    pitchedToday: pitchedCounts.today,
-    pitchedWeekToDate: pitchedCounts.weekToDate,
-    pitchedMonthToDate: pitchedCounts.monthToDate,
-    prevPitchedToday: pitchedCounts.prevToday,
-    prevPitchedWeekToDate: pitchedCounts.prevWeekToDate,
-    prevPitchedMonthToDate: pitchedCounts.prevMonthToDate,
+    prevEnquiriesToday: countInRange(prevToday, new Date(prevToday.getTime() + 24*60*60*1000 - 1)),
+    prevEnquiriesWeekToDate: countInRange(prevWeekStart, prevWeekEnd),
+    prevEnquiriesMonthToDate: countInRange(prevMonthStart, prevMonthEnd),
+    prevEnquiriesWeekFull: countInRange(prevFullWeekStart, prevFullWeekEnd),
+    prevEnquiriesMonthFull: countInRange(prevFullMonthStart, prevFullMonthEnd),
+    pitchedToday: countPitchedInRange(today, endOfToday),
+    pitchedWeekToDate: countPitchedInRange(startOfWeek, endOfToday),
+    pitchedMonthToDate: countPitchedInRange(startOfMonth, endOfToday),
+    prevPitchedToday: countPitchedInRange(prevToday, new Date(prevToday.getTime() + 24*60*60*1000 - 1)),
+    prevPitchedWeekToDate: countPitchedInRange(prevWeekStart, prevWeekEnd),
+    prevPitchedMonthToDate: countPitchedInRange(prevMonthStart, prevMonthEnd),
     mattersOpenedMonth: mattersCounts.userMatters,
     firmMattersOpenedMonth: mattersCounts.firmMatters,
     breakdown,
   };
 }
 
-async function queryPitchedCounts(connectionString, email, initials, dates) {
-  if (!connectionString) {
-    return { today: 0, weekToDate: 0, monthToDate: 0, prevToday: 0, prevWeekToDate: 0, prevMonthToDate: 0, prevWeekFull: 0, prevMonthFull: 0 };
-  }
+/**
+ * Fetch email + date rows from a database for cross-DB deduplication.
+ * Returns lightweight objects: { email, dateStr, dateMs, source }
+ */
+async function queryDbEmailRows(connectionString, email, initials, rangeStart, rangeEnd, source) {
+  if (!connectionString) return [];
+
+  const isLegacy = source === 'legacy';
+  const pocField = isLegacy ? 'Point_of_Contact' : 'poc';
+  const dateField = isLegacy ? 'Touchpoint_Date' : 'datetime';
+  const emailField = isLegacy ? 'Email' : 'email';
+  const table = isLegacy ? 'enquiries' : 'dbo.enquiries';
 
   try {
-    const result = await withRequest(connectionString, async (request) => {
-      const pitchedByConditions = [];
+    return await withRequest(connectionString, async (request) => {
+      const pocConditions = [];
       if (email) {
         request.input('userEmail', sql.VarChar(255), email);
-        pitchedByConditions.push("LOWER(LTRIM(RTRIM(PitchedBy))) = @userEmail");
+        pocConditions.push(`LOWER(LTRIM(RTRIM(${pocField}))) = @userEmail`);
       }
       if (initials) {
         request.input('userInitials', sql.VarChar(50), initials);
-        pitchedByConditions.push("LOWER(REPLACE(REPLACE(LTRIM(RTRIM(PitchedBy)), ' ', ''), '.', '')) = @userInitials");
+        pocConditions.push(buildInitialsMatchSql(pocField));
       }
-      if (pitchedByConditions.length === 0) {
-        return { today_count: 0, week_count: 0, month_count: 0, prev_today_count: 0, prev_week_count: 0, prev_month_count: 0 };
-      }
+      if (pocConditions.length === 0) return [];
 
-      const pitchedByFilter = `(${pitchedByConditions.join(' OR ')})`;
+      request.input('rangeStart', sql.DateTime2, rangeStart);
+      request.input('rangeEnd', sql.DateTime2, rangeEnd);
+
+      const idField = isLegacy ? 'ID' : 'acid';
+
+      const result = await request.query(`
+        SELECT
+          LOWER(LTRIM(RTRIM(${emailField}))) as email,
+          ${dateField} as enquiryDate,
+          ${idField} as prospectId
+        FROM ${table}
+        WHERE (${pocConditions.join(' OR ')})
+          AND ${dateField} >= @rangeStart
+          AND ${dateField} <= @rangeEnd
+      `);
+
+      return (result.recordset || []).map((r) => {
+        const d = new Date(r.enquiryDate);
+        return {
+          email: r.email || '',
+          dateStr: d.toISOString().slice(0, 10),
+          dateMs: d.getTime(),
+          source,
+          prospectId: r.prospectId != null ? String(r.prospectId) : null,
+        };
+      });
+    });
+  } catch (err) {
+    log.warn(`[home-enquiries] ${source} DB email rows query failed:`, err.message);
+    return [];
+  }
+}
+
+/**
+ * Query AoW breakdown from main (legacy) DB — no counts, just breakdown structure.
+ */
+async function queryMainDbBreakdown(connectionString, email, initials, dates) {
+  if (!connectionString) return undefined;
+
+  try {
+    return await withRequest(connectionString, async (request) => {
+      const pocConditions = [];
+      if (email) {
+        request.input('userEmail', sql.VarChar(255), email);
+        pocConditions.push("LOWER(LTRIM(RTRIM(Point_of_Contact))) = @userEmail");
+      }
+      if (initials) {
+        request.input('userInitials', sql.VarChar(50), initials);
+        pocConditions.push(buildInitialsMatchSql('Point_of_Contact'));
+      }
+      if (pocConditions.length === 0) return undefined;
+
+      const pocFilter = `(${pocConditions.join(' OR ')})`;
 
       request.input('today', sql.DateTime2, dates.today);
       request.input('endOfToday', sql.DateTime2, dates.endOfToday);
       request.input('startOfWeek', sql.DateTime2, dates.startOfWeek);
       request.input('startOfMonth', sql.DateTime2, dates.startOfMonth);
-      request.input('prevToday', sql.DateTime2, dates.prevToday);
-      request.input('prevTodayEnd', sql.DateTime2, new Date(dates.prevToday.getTime() + 24*60*60*1000 - 1));
-      request.input('prevWeekStart', sql.DateTime2, dates.prevWeekStart);
-      request.input('prevWeekEnd', sql.DateTime2, dates.prevWeekEnd);
-      request.input('prevMonthStart', sql.DateTime2, dates.prevMonthStart);
-      request.input('prevMonthEnd', sql.DateTime2, dates.prevMonthEnd);
-      request.input('prevFullWeekStart', sql.DateTime2, dates.prevFullWeekStart);
-      request.input('prevFullWeekEnd', sql.DateTime2, dates.prevFullWeekEnd);
-      request.input('prevFullMonthStart', sql.DateTime2, dates.prevFullMonthStart);
-      request.input('prevFullMonthEnd', sql.DateTime2, dates.prevFullMonthEnd);
 
-      const countsResult = await request.query(`
-        SELECT
-          COUNT(CASE WHEN PitchedDate >= @today AND PitchedDate <= @endOfToday THEN 1 END) as today_count,
-          COUNT(CASE WHEN PitchedDate >= @startOfWeek AND PitchedDate <= @endOfToday THEN 1 END) as week_count,
-          COUNT(CASE WHEN PitchedDate >= @startOfMonth AND PitchedDate <= @endOfToday THEN 1 END) as month_count,
-          COUNT(CASE WHEN PitchedDate >= @prevToday AND PitchedDate <= @prevTodayEnd THEN 1 END) as prev_today_count,
-          COUNT(CASE WHEN PitchedDate >= @prevWeekStart AND PitchedDate <= @prevWeekEnd THEN 1 END) as prev_week_count,
-          COUNT(CASE WHEN PitchedDate >= @prevMonthStart AND PitchedDate <= @prevMonthEnd THEN 1 END) as prev_month_count
+      const buildAowTop = async (rangeStartParam, rangeEndParam) => {
+        const aowResult = await request.query(`
+          SELECT TOP (3)
+            COALESCE(NULLIF(LTRIM(RTRIM(Area_of_Work)), ''), 'Other') as aow,
+            COUNT(1) as c
+          FROM enquiries
+          WHERE ${pocFilter}
+            AND Touchpoint_Date >= ${rangeStartParam}
+            AND Touchpoint_Date <= ${rangeEndParam}
+          GROUP BY COALESCE(NULLIF(LTRIM(RTRIM(Area_of_Work)), ''), 'Other')
+          ORDER BY COUNT(1) DESC
+        `);
+        return (aowResult.recordset || [])
+          .map((r) => ({ key: String(r.aow || 'Other'), count: Number(r.c || 0) }))
+          .filter((x) => x.count > 0);
+      };
+
+      const [aowToday, aowWeek, aowMonth] = await Promise.all([
+        buildAowTop('@today', '@endOfToday'),
+        buildAowTop('@startOfWeek', '@endOfToday'),
+        buildAowTop('@startOfMonth', '@endOfToday'),
+      ]);
+
+      return {
+        today: { aowTop: aowToday },
+        weekToDate: { aowTop: aowWeek },
+        monthToDate: { aowTop: aowMonth },
+      };
+    });
+  } catch (err) {
+    log.warn('[home-enquiries] Main DB breakdown query failed:', err.message);
+    return undefined;
+  }
+}
+
+/**
+ * Query AoW breakdown from instructions DB — no counts, just breakdown structure.
+ */
+async function queryInstructionsDbBreakdown(connectionString, email, initials, dates) {
+  if (!connectionString) return undefined;
+
+  try {
+    return await withRequest(connectionString, async (request) => {
+      const pocConditions = [];
+      if (email) {
+        request.input('userEmail', sql.VarChar(255), email);
+        pocConditions.push("LOWER(LTRIM(RTRIM(poc))) = @userEmail");
+      }
+      if (initials) {
+        request.input('userInitials', sql.VarChar(50), initials);
+        pocConditions.push(buildInitialsMatchSql('poc'));
+      }
+      if (pocConditions.length === 0) return undefined;
+
+      const pocFilter = `(${pocConditions.join(' OR ')})`;
+
+      request.input('today', sql.DateTime2, dates.today);
+      request.input('endOfToday', sql.DateTime2, dates.endOfToday);
+      request.input('startOfWeek', sql.DateTime2, dates.startOfWeek);
+      request.input('startOfMonth', sql.DateTime2, dates.startOfMonth);
+
+      const buildAowTop = async (rangeStartParam, rangeEndParam) => {
+        const aowResult = await request.query(`
+          SELECT TOP (3)
+            COALESCE(NULLIF(LTRIM(RTRIM(aow)), ''), 'Other') as aow,
+            COUNT(1) as c
+          FROM dbo.enquiries
+          WHERE ${pocFilter}
+            AND datetime >= ${rangeStartParam}
+            AND datetime <= ${rangeEndParam}
+          GROUP BY COALESCE(NULLIF(LTRIM(RTRIM(aow)), ''), 'Other')
+          ORDER BY COUNT(1) DESC
+        `);
+        return (aowResult.recordset || [])
+          .map((r) => ({ key: String(r.aow || 'Other'), count: Number(r.c || 0) }))
+          .filter((x) => x.count > 0);
+      };
+
+      const [aowToday, aowWeek, aowMonth] = await Promise.all([
+        buildAowTop('@today', '@endOfToday'),
+        buildAowTop('@startOfWeek', '@endOfToday'),
+        buildAowTop('@startOfMonth', '@endOfToday'),
+      ]);
+
+      return {
+        today: { aowTop: aowToday },
+        weekToDate: { aowTop: aowWeek },
+        monthToDate: { aowTop: aowMonth },
+      };
+    });
+  } catch (err) {
+    log.warn('[home-enquiries] Instructions DB breakdown query failed:', err.message);
+    return undefined;
+  }
+}
+
+/**
+ * Given a list of prospect IDs (acid / legacy ID), return the Set of those
+ * that have at least one Deal with a non-null PitchedDate.
+ * Used to answer "of my enquiries, how many have been pitched?"
+ */
+async function queryPitchedProspectIds(connectionString, prospectIds) {
+  if (!connectionString || !prospectIds.length) return new Set();
+
+  try {
+    return await withRequest(connectionString, async (request) => {
+      const params = prospectIds.map((pid, i) => {
+        request.input(`pid${i}`, sql.NVarChar(100), pid);
+        return `@pid${i}`;
+      });
+
+      const result = await request.query(`
+        SELECT DISTINCT CAST(ProspectId AS NVARCHAR(100)) as pid
         FROM Deals
-        WHERE ${pitchedByFilter}
+        WHERE CAST(ProspectId AS NVARCHAR(100)) IN (${params.join(',')})
           AND PitchedDate IS NOT NULL
       `);
 
-      return countsResult.recordset?.[0] || {};
+      return new Set((result.recordset || []).map(r => String(r.pid).trim()));
     });
-
-    return {
-      today: Number(result.today_count || 0),
-      weekToDate: Number(result.week_count || 0),
-      monthToDate: Number(result.month_count || 0),
-      prevToday: Number(result.prev_today_count || 0),
-      prevWeekToDate: Number(result.prev_week_count || 0),
-      prevMonthToDate: Number(result.prev_month_count || 0),
-    };
   } catch (err) {
-    log.warn('[home-enquiries] Pitched counts query failed:', err.message);
-    return { today: 0, weekToDate: 0, monthToDate: 0, prevToday: 0, prevWeekToDate: 0, prevMonthToDate: 0 };
+    log.warn('[home-enquiries] Pitched prospect IDs query failed:', err.message);
+    return new Set();
   }
 }
 
@@ -418,7 +635,7 @@ async function queryMainDbRecords(connectionString, email, initials, rangeStart,
       }
       if (initials) {
         request.input('userInitials', sql.VarChar(50), initials);
-        pocConditions.push("LOWER(REPLACE(REPLACE(LTRIM(RTRIM(Point_of_Contact)), ' ', ''), '.', '')) = @userInitials");
+        pocConditions.push(buildInitialsMatchSql('Point_of_Contact'));
       }
       // User-scoped metrics only (no team inbox)
       const pocFilter = `(${pocConditions.join(' OR ')})`;
@@ -429,23 +646,31 @@ async function queryMainDbRecords(connectionString, email, initials, rangeStart,
 
       const rows = await request.query(`
         SELECT TOP (@limit)
-          CONVERT(VARCHAR(19), Date_Created, 120) as date,
+          CONVERT(VARCHAR(19), Touchpoint_Date, 120) as date,
           LTRIM(RTRIM(Point_of_Contact)) as poc,
           COALESCE(NULLIF(LTRIM(RTRIM(Area_of_Work)), ''), 'Other') as aow,
-          CAST(ID as VARCHAR(50)) as id
+          CAST(ID as VARCHAR(50)) as id,
+          LTRIM(RTRIM(First_Name)) as firstName,
+          LTRIM(RTRIM(Last_Name)) as lastName
         FROM enquiries
         WHERE ${pocFilter}
-          AND Date_Created >= @rangeStart
-          AND Date_Created <= @rangeEnd
-        ORDER BY Date_Created DESC
+          AND Touchpoint_Date >= @rangeStart
+          AND Touchpoint_Date <= @rangeEnd
+        ORDER BY Touchpoint_Date DESC
       `);
-      return (rows.recordset || []).map((r) => ({
-        date: r.date,
-        poc: r.poc,
-        aow: r.aow,
-        id: r.id,
-        source: 'legacy',
-      }));
+      return (rows.recordset || []).map((r) => {
+        const parts = [r.firstName, r.lastName].filter(Boolean);
+        return {
+          date: r.date,
+          poc: r.poc,
+          aow: r.aow,
+          id: r.id,
+          name: parts.length > 0 ? parts.join(' ') : undefined,
+          stage: 'enquiry',
+          pipelineStage: 'enquiry',
+          source: 'legacy',
+        };
+      });
     });
     return result;
   } catch (err) {
@@ -458,15 +683,17 @@ async function queryInstructionsDbRecords(connectionString, email, initials, ran
   if (!connectionString) return [];
 
   try {
+    const rangeStartMs = rangeStart.getTime();
+    const rangeEndMs = rangeEnd.getTime();
     const result = await withRequest(connectionString, async (request) => {
       const pocConditions = [];
       if (email) {
         request.input('userEmail', sql.VarChar(255), email);
-        pocConditions.push("LOWER(LTRIM(RTRIM(poc))) = @userEmail");
+        pocConditions.push("LOWER(LTRIM(RTRIM(e.poc))) = @userEmail");
       }
       if (initials) {
         request.input('userInitials', sql.VarChar(50), initials);
-        pocConditions.push("LOWER(REPLACE(REPLACE(LTRIM(RTRIM(poc)), ' ', ''), '.', '')) = @userInitials");
+        pocConditions.push(buildInitialsMatchSql('e.poc'));
       }
       // User-scoped metrics only (no team inbox)
       const pocFilter = `(${pocConditions.join(' OR ')})`;
@@ -477,236 +704,128 @@ async function queryInstructionsDbRecords(connectionString, email, initials, ran
 
       const rows = await request.query(`
         SELECT TOP (@limit)
-          CONVERT(VARCHAR(19), datetime, 120) as date,
-          LTRIM(RTRIM(poc)) as poc,
-          COALESCE(NULLIF(LTRIM(RTRIM(aow)), ''), 'Other') as aow
-        FROM dbo.enquiries
+          CONVERT(VARCHAR(19), e.datetime, 120) as enquiryDate,
+          CONVERT(VARCHAR(19), COALESCE(
+            TRY_CONVERT(DATETIME2, CONCAT(d.PitchedDate, ' ', COALESCE(NULLIF(d.PitchedTime, ''), '00:00:00'))),
+            TRY_CONVERT(DATETIME2, d.PitchedDate)
+          ), 120) as pitchDate,
+          CONVERT(VARCHAR(19), COALESCE(ins.LastUpdated, CAST(ins.SubmissionDate AS DATETIME2)), 120) as instructionDate,
+          LTRIM(RTRIM(e.poc)) as poc,
+          COALESCE(NULLIF(LTRIM(RTRIM(e.aow)), ''), 'Other') as aow,
+          LTRIM(RTRIM(e.first)) as firstName,
+          LTRIM(RTRIM(e.last)) as lastName,
+          CAST(e.id AS NVARCHAR(100)) as enquiryId,
+          LTRIM(RTRIM(CAST(e.acid AS NVARCHAR(100)))) as acid,
+          LTRIM(RTRIM(e.stage)) as stage,
+          t.ChannelId   as teamsChannelId,
+          t.TeamId       as teamsTeamId,
+          t.CardType     as teamsCardType,
+          t.Stage        as teamsStage,
+          t.ClaimedBy    as teamsClaimed,
+          t.TeamsMessageId as teamsMessageId,
+          t.ActivityId   as teamsActivityId,
+          DATEDIFF_BIG(MILLISECOND, '1970-01-01', t.CreatedAt) AS teamsCreatedAtMs,
+          CASE
+            WHEN ins.MatterId IS NOT NULL THEN 'instructed'
+            WHEN ins.Stage IN ('proof-of-id-complete', 'completed') THEN 'instructed'
+            WHEN ins.Stage = 'pitch' THEN 'pitched'
+            WHEN d.PitchedDate IS NOT NULL THEN 'pitched'
+            WHEN t.Stage IS NOT NULL THEN t.Stage
+            ELSE e.stage
+          END as pipelineStage,
+          CASE WHEN d.PitchedDate IS NOT NULL OR ins.Stage = 'pitch' THEN 1 ELSE 0 END as hasPitch,
+          CASE WHEN ins.MatterId IS NOT NULL OR ins.Stage IN ('proof-of-id-complete', 'completed') THEN 1 ELSE 0 END as hasInstruction
+        FROM dbo.enquiries e
+        LEFT JOIN (
+          SELECT *, ROW_NUMBER() OVER (PARTITION BY EnquiryId ORDER BY CreatedAt DESC) AS rn
+          FROM dbo.TeamsBotActivityTracking
+          WHERE Status = 'active'
+        ) t ON t.EnquiryId = e.id AND t.rn = 1
+        LEFT JOIN (
+          SELECT ProspectId, PitchedDate, PitchedTime, InstructionRef,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY ProspectId
+                   ORDER BY TRY_CONVERT(DATETIME2, CONCAT(PitchedDate, ' ', COALESCE(NULLIF(PitchedTime, ''), '00:00:00'))) DESC,
+                            TRY_CONVERT(DATETIME2, PitchedDate) DESC
+                 ) AS rn
+          FROM Deals
+          WHERE PitchedDate IS NOT NULL
+        ) d ON d.rn = 1 AND (
+          CAST(d.ProspectId AS NVARCHAR(100)) = CAST(e.id AS NVARCHAR(100))
+          OR CAST(d.ProspectId AS NVARCHAR(100)) = LTRIM(RTRIM(CAST(e.acid AS NVARCHAR(100))))
+        )
+        LEFT JOIN Instructions ins ON ins.InstructionRef = d.InstructionRef
         WHERE ${pocFilter}
-          AND datetime >= @rangeStart
-          AND datetime <= @rangeEnd
-        ORDER BY datetime DESC
+          AND (
+            (e.datetime >= @rangeStart AND e.datetime <= @rangeEnd)
+            OR (
+              COALESCE(
+                TRY_CONVERT(DATETIME2, CONCAT(d.PitchedDate, ' ', COALESCE(NULLIF(d.PitchedTime, ''), '00:00:00'))),
+                TRY_CONVERT(DATETIME2, d.PitchedDate)
+              ) >= @rangeStart
+              AND COALESCE(
+                TRY_CONVERT(DATETIME2, CONCAT(d.PitchedDate, ' ', COALESCE(NULLIF(d.PitchedTime, ''), '00:00:00'))),
+                TRY_CONVERT(DATETIME2, d.PitchedDate)
+              ) <= @rangeEnd
+            )
+            OR (
+              COALESCE(ins.LastUpdated, CAST(ins.SubmissionDate AS DATETIME2)) >= @rangeStart
+              AND COALESCE(ins.LastUpdated, CAST(ins.SubmissionDate AS DATETIME2)) <= @rangeEnd
+            )
+          )
+        ORDER BY
+          COALESCE(
+            ins.LastUpdated,
+            CAST(ins.SubmissionDate AS DATETIME2),
+            TRY_CONVERT(DATETIME2, CONCAT(d.PitchedDate, ' ', COALESCE(NULLIF(d.PitchedTime, ''), '00:00:00'))),
+            TRY_CONVERT(DATETIME2, d.PitchedDate),
+            e.datetime
+          ) DESC
       `);
-      return (rows.recordset || []).map((r) => ({
-        date: r.date,
-        poc: r.poc,
-        aow: r.aow,
-        source: 'instructions',
-      }));
+      return (rows.recordset || []).flatMap((r) => {
+        const parts = [r.firstName, r.lastName].filter(Boolean);
+        let teamsLink = null;
+        let teamsChannel = null;
+        if (r.teamsChannelId && r.teamsTeamId) {
+          teamsLink = buildTeamsDeepLink(r.teamsChannelId, r.teamsActivityId, r.teamsTeamId, r.teamsMessageId, r.teamsCreatedAtMs);
+          teamsChannel = resolveChannelName(r.teamsChannelId);
+        }
+        const base = {
+          enquiryId: r.enquiryId || undefined,
+          poc: r.poc,
+          aow: r.aow,
+          name: parts.length > 0 ? parts.join(' ') : undefined,
+          source: 'instructions',
+          teamsChannel: teamsChannel || undefined,
+          teamsCardType: r.teamsCardType || undefined,
+          teamsStage: r.teamsStage || undefined,
+          teamsClaimed: r.teamsClaimed || undefined,
+          teamsLink: teamsLink || undefined,
+          pipelineStage: r.pipelineStage || r.teamsStage || r.stage || undefined,
+        };
+
+        const out = [];
+        const enquiryMs = r.enquiryDate ? Date.parse(r.enquiryDate) : NaN;
+        const pitchMs = r.pitchDate ? Date.parse(r.pitchDate) : NaN;
+        const instructionMs = r.instructionDate ? Date.parse(r.instructionDate) : NaN;
+
+        if (Number.isFinite(enquiryMs) && enquiryMs >= rangeStartMs && enquiryMs <= rangeEndMs) {
+          out.push({ ...base, date: r.enquiryDate, stage: 'enquiry' });
+        }
+        if (Number.isFinite(pitchMs) && pitchMs >= rangeStartMs && pitchMs <= rangeEndMs && Number(r.hasPitch) > 0) {
+          out.push({ ...base, date: r.pitchDate, stage: 'pitched' });
+        }
+        if (Number.isFinite(instructionMs) && instructionMs >= rangeStartMs && instructionMs <= rangeEndMs && Number(r.hasInstruction) > 0) {
+          out.push({ ...base, date: r.instructionDate, stage: 'instructed' });
+        }
+
+        return out;
+      });
     });
     return result;
   } catch (err) {
     log.warn('[home-enquiries] Instructions records query failed:', err.message);
     return [];
-  }
-}
-
-/**
- * Query main (legacy) enquiries database for counts
- */
-async function queryMainDbCounts(connectionString, email, initials, dates) {
-  if (!connectionString) {
-    log.warn('[home-enquiries] Main connection string not configured');
-    return { today: 0, weekToDate: 0, monthToDate: 0, prevToday: 0, prevWeekToDate: 0, prevMonthToDate: 0 };
-  }
-
-  try {
-    const result = await withRequest(connectionString, async (request) => {
-      // Build POC filter
-      const pocConditions = [];
-      if (email) {
-        request.input('userEmail', sql.VarChar(255), email);
-        pocConditions.push("LOWER(LTRIM(RTRIM(Point_of_Contact))) = @userEmail");
-      }
-      if (initials) {
-        request.input('userInitials', sql.VarChar(50), initials);
-        pocConditions.push("LOWER(REPLACE(REPLACE(LTRIM(RTRIM(Point_of_Contact)), ' ', ''), '.', '')) = @userInitials");
-      }
-      // User-scoped metrics only (no team inbox)
-      
-      const pocFilter = `(${pocConditions.join(' OR ')})`;
-
-      // Set date parameters
-      request.input('today', sql.DateTime2, dates.today);
-      request.input('endOfToday', sql.DateTime2, dates.endOfToday);
-      request.input('startOfWeek', sql.DateTime2, dates.startOfWeek);
-      request.input('startOfMonth', sql.DateTime2, dates.startOfMonth);
-      request.input('prevToday', sql.DateTime2, dates.prevToday);
-      request.input('prevTodayEnd', sql.DateTime2, new Date(dates.prevToday.getTime() + 24*60*60*1000 - 1));
-      request.input('prevWeekStart', sql.DateTime2, dates.prevWeekStart);
-      request.input('prevWeekEnd', sql.DateTime2, dates.prevWeekEnd);
-      request.input('prevMonthStart', sql.DateTime2, dates.prevMonthStart);
-      request.input('prevMonthEnd', sql.DateTime2, dates.prevMonthEnd);
-
-      const countsResult = await request.query(`
-        SELECT
-          COUNT(CASE WHEN Date_Created >= @today AND Date_Created <= @endOfToday THEN 1 END) as today_count,
-          COUNT(CASE WHEN Date_Created >= @startOfWeek AND Date_Created <= @endOfToday THEN 1 END) as week_count,
-          COUNT(CASE WHEN Date_Created >= @startOfMonth AND Date_Created <= @endOfToday THEN 1 END) as month_count,
-          COUNT(CASE WHEN Date_Created >= @prevToday AND Date_Created <= @prevTodayEnd THEN 1 END) as prev_today_count,
-          COUNT(CASE WHEN Date_Created >= @prevWeekStart AND Date_Created <= @prevWeekEnd THEN 1 END) as prev_week_count,
-          COUNT(CASE WHEN Date_Created >= @prevMonthStart AND Date_Created <= @prevMonthEnd THEN 1 END) as prev_month_count,
-          COUNT(CASE WHEN Date_Created >= @prevFullWeekStart AND Date_Created <= @prevFullWeekEnd THEN 1 END) as prev_week_full_count,
-          COUNT(CASE WHEN Date_Created >= @prevFullMonthStart AND Date_Created <= @prevFullMonthEnd THEN 1 END) as prev_month_full_count
-        FROM enquiries
-        WHERE ${pocFilter}
-      `);
-
-      const buildAowTop = async (rangeStartParam, rangeEndParam) => {
-        const aowResult = await request.query(`
-          SELECT TOP (3)
-            COALESCE(NULLIF(LTRIM(RTRIM(Area_of_Work)), ''), 'Other') as aow,
-            COUNT(1) as c
-          FROM enquiries
-          WHERE ${pocFilter}
-            AND Date_Created >= ${rangeStartParam}
-            AND Date_Created <= ${rangeEndParam}
-          GROUP BY COALESCE(NULLIF(LTRIM(RTRIM(Area_of_Work)), ''), 'Other')
-          ORDER BY COUNT(1) DESC
-        `);
-        return (aowResult.recordset || [])
-          .map((r) => ({ key: String(r.aow || 'Other'), count: Number(r.c || 0) }))
-          .filter((x) => x.count > 0);
-      };
-
-      const [aowToday, aowWeek, aowMonth] = await Promise.all([
-        buildAowTop('@today', '@endOfToday'),
-        buildAowTop('@startOfWeek', '@endOfToday'),
-        buildAowTop('@startOfMonth', '@endOfToday'),
-      ]);
-
-      const row = countsResult.recordset?.[0] || {};
-      return {
-        row,
-        breakdown: {
-          today: { aowTop: aowToday },
-          weekToDate: { aowTop: aowWeek },
-          monthToDate: { aowTop: aowMonth },
-        },
-      };
-    });
-
-    const row = result?.row || {};
-    return {
-      today: row.today_count || 0,
-      weekToDate: row.week_count || 0,
-      monthToDate: row.month_count || 0,
-      prevToday: row.prev_today_count || 0,
-      prevWeekToDate: row.prev_week_count || 0,
-      prevMonthToDate: row.prev_month_count || 0,
-      prevWeekFull: row.prev_week_full_count || 0,
-      prevMonthFull: row.prev_month_full_count || 0,
-      breakdown: result?.breakdown || undefined,
-    };
-  } catch (err) {
-    log.error('[home-enquiries] Main DB query failed:', err.message);
-    return { today: 0, weekToDate: 0, monthToDate: 0, prevToday: 0, prevWeekToDate: 0, prevMonthToDate: 0, prevWeekFull: 0, prevMonthFull: 0, breakdown: undefined };
-  }
-}
-
-/**
- * Query instructions database for enquiry counts
- */
-async function queryInstructionsDbCounts(connectionString, email, initials, dates) {
-  if (!connectionString) {
-    log.warn('[home-enquiries] Instructions connection string not configured');
-    return { today: 0, weekToDate: 0, monthToDate: 0, prevToday: 0, prevWeekToDate: 0, prevMonthToDate: 0, prevWeekFull: 0, prevMonthFull: 0 };
-  }
-
-  try {
-    const result = await withRequest(connectionString, async (request) => {
-      // Build POC filter for instructions DB (uses 'poc' field)
-      const pocConditions = [];
-      if (email) {
-        request.input('userEmail', sql.VarChar(255), email);
-        pocConditions.push("LOWER(LTRIM(RTRIM(poc))) = @userEmail");
-      }
-      if (initials) {
-        request.input('userInitials', sql.VarChar(50), initials);
-        pocConditions.push("LOWER(REPLACE(REPLACE(LTRIM(RTRIM(poc)), ' ', ''), '.', '')) = @userInitials");
-      }
-      // User-scoped metrics only (no team inbox)
-      
-      const pocFilter = `(${pocConditions.join(' OR ')})`;
-
-      // Set date parameters
-      request.input('today', sql.DateTime2, dates.today);
-      request.input('endOfToday', sql.DateTime2, dates.endOfToday);
-      request.input('startOfWeek', sql.DateTime2, dates.startOfWeek);
-      request.input('startOfMonth', sql.DateTime2, dates.startOfMonth);
-      request.input('prevToday', sql.DateTime2, dates.prevToday);
-      request.input('prevTodayEnd', sql.DateTime2, new Date(dates.prevToday.getTime() + 24*60*60*1000 - 1));
-      request.input('prevWeekStart', sql.DateTime2, dates.prevWeekStart);
-      request.input('prevWeekEnd', sql.DateTime2, dates.prevWeekEnd);
-      request.input('prevMonthStart', sql.DateTime2, dates.prevMonthStart);
-      request.input('prevMonthEnd', sql.DateTime2, dates.prevMonthEnd);
-      request.input('prevFullWeekStart', sql.DateTime2, dates.prevFullWeekStart);
-      request.input('prevFullWeekEnd', sql.DateTime2, dates.prevFullWeekEnd);
-      request.input('prevFullMonthStart', sql.DateTime2, dates.prevFullMonthStart);
-      request.input('prevFullMonthEnd', sql.DateTime2, dates.prevFullMonthEnd);
-
-      const countsResult = await request.query(`
-        SELECT
-          COUNT(CASE WHEN datetime >= @today AND datetime <= @endOfToday THEN 1 END) as today_count,
-          COUNT(CASE WHEN datetime >= @startOfWeek AND datetime <= @endOfToday THEN 1 END) as week_count,
-          COUNT(CASE WHEN datetime >= @startOfMonth AND datetime <= @endOfToday THEN 1 END) as month_count,
-          COUNT(CASE WHEN datetime >= @prevToday AND datetime <= @prevTodayEnd THEN 1 END) as prev_today_count,
-          COUNT(CASE WHEN datetime >= @prevWeekStart AND datetime <= @prevWeekEnd THEN 1 END) as prev_week_count,
-          COUNT(CASE WHEN datetime >= @prevMonthStart AND datetime <= @prevMonthEnd THEN 1 END) as prev_month_count,
-          COUNT(CASE WHEN datetime >= @prevFullWeekStart AND datetime <= @prevFullWeekEnd THEN 1 END) as prev_week_full_count,
-          COUNT(CASE WHEN datetime >= @prevFullMonthStart AND datetime <= @prevFullMonthEnd THEN 1 END) as prev_month_full_count
-        FROM dbo.enquiries
-        WHERE ${pocFilter}
-      `);
-
-      const buildAowTop = async (rangeStartParam, rangeEndParam) => {
-        const aowResult = await request.query(`
-          SELECT TOP (3)
-            COALESCE(NULLIF(LTRIM(RTRIM(aow)), ''), 'Other') as aow,
-            COUNT(1) as c
-          FROM dbo.enquiries
-          WHERE ${pocFilter}
-            AND datetime >= ${rangeStartParam}
-            AND datetime <= ${rangeEndParam}
-          GROUP BY COALESCE(NULLIF(LTRIM(RTRIM(aow)), ''), 'Other')
-          ORDER BY COUNT(1) DESC
-        `);
-        return (aowResult.recordset || [])
-          .map((r) => ({ key: String(r.aow || 'Other'), count: Number(r.c || 0) }))
-          .filter((x) => x.count > 0);
-      };
-
-      const [aowToday, aowWeek, aowMonth] = await Promise.all([
-        buildAowTop('@today', '@endOfToday'),
-        buildAowTop('@startOfWeek', '@endOfToday'),
-        buildAowTop('@startOfMonth', '@endOfToday'),
-      ]);
-
-      const row = countsResult.recordset?.[0] || {};
-      return {
-        row,
-        breakdown: {
-          today: { aowTop: aowToday },
-          weekToDate: { aowTop: aowWeek },
-          monthToDate: { aowTop: aowMonth },
-        },
-      };
-    });
-
-    const row = result?.row || {};
-    return {
-      today: row.today_count || 0,
-      weekToDate: row.week_count || 0,
-      monthToDate: row.month_count || 0,
-      prevToday: row.prev_today_count || 0,
-      prevWeekToDate: row.prev_week_count || 0,
-      prevMonthToDate: row.prev_month_count || 0,
-      prevWeekFull: row.prev_week_full_count || 0,
-      prevMonthFull: row.prev_month_full_count || 0,
-      breakdown: result?.breakdown || undefined,
-    };
-  } catch (err) {
-    log.error('[home-enquiries] Instructions DB query failed:', err.message);
-    return { today: 0, weekToDate: 0, monthToDate: 0, prevToday: 0, prevWeekToDate: 0, prevMonthToDate: 0, prevWeekFull: 0, prevMonthFull: 0, breakdown: undefined };
   }
 }
 
@@ -810,6 +929,52 @@ async function setCached(key, data) {
   } catch (err) {
     log.warn('[home-enquiries] Redis set failed:', err.message);
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Teams deep link helpers (mirrors teamsActivityTracking.js logic)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const TENANT_ID = '7fbc252f-3ce5-460f-9740-4e1cb8bf78b8';
+
+/** Resolve a message ID (epoch ms) from various formats */
+function resolveMessageId(value) {
+  if (!value) return null;
+  if (typeof value === 'number' && value > 1640995200000) return value;
+  const raw = String(value).trim();
+  if (!raw) return null;
+  if (raw.startsWith('0:')) {
+    const tail = raw.split(':')[1];
+    if (tail && /^\d{13,}$/.test(tail)) return Number(tail);
+  }
+  const match = raw.match(/\d{13,}/);
+  if (match) return Number(match[0]);
+  return null;
+}
+
+function buildTeamsDeepLink(channelId, activityId, teamId, teamsMessageId, createdAtMs) {
+  if (!channelId || !teamId) return null;
+  const messageId = resolveMessageId(teamsMessageId) || resolveMessageId(activityId) || resolveMessageId(createdAtMs);
+  if (!messageId) return null;
+  const token = String(messageId);
+  const channelName = resolveChannelName(channelId);
+  return `https://teams.microsoft.com/l/message/${channelId}/${token}?tenantId=${TENANT_ID}&groupId=${encodeURIComponent(teamId)}&parentMessageId=${token}&teamName=${encodeURIComponent('Helix Law')}&channelName=${encodeURIComponent(channelName)}&createdTime=${messageId}`;
+}
+
+function resolveChannelName(channelId) {
+  if (!channelId) return 'General';
+  if (channelId.includes('09c0d3669cd2464aab7db60520dd9180')) return 'Commercial';
+  if (channelId.includes('2ba7d5a50540426da60196c3b2daf8e8')) return 'Construction';
+  if (channelId.includes('6d09477d15d548a6b56f88c59b674da6')) return 'Property';
+  if (channelId.includes('9e1c8918bca747f5afc9ca5acbd89683')) return 'Employment';
+  if (channelId.includes('033cf7072dae4900b661c2c19c36c90e')) return 'Commercial';
+  if (channelId.includes('ac1bc6fba0d4479ba96e041198cebc40')) return 'Construction';
+  if (channelId.includes('9eddeca7cbcd4aebba1b4d43f80b779b')) return 'Employment';
+  if (channelId.includes('2e0082c66bdd47ebacc6496ebd7a8ed8')) return 'Property';
+  if (channelId.includes('3fccda9236ee4dcbb3989566baca35ba')) return 'Triage';
+  if (channelId.includes('cd13d45296d64fc493f74d9c00f669f6')) return 'Triage';
+  if (channelId.includes('83484a22d83941fd93710c08b821cbb2')) return 'Outreach';
+  return 'General';
 }
 
 module.exports = router;

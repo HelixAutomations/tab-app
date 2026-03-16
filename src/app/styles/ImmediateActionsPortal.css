@@ -1,26 +1,13 @@
-/* Immediate Actions Portal Styling - Operations Dashboard Aesthetic */
+/* Immediate Actions Portal — invisible collapse wrapper.
+   All visual styling (background, border, padding) lives inside the
+   ImmediateActionsBar component so the portal collapses to zero height
+   when the scroll-fold hides the bar. */
 
 .immediate-actions-portal {
-  /* Clean, minimal surface matching ops dashboard */
-  background: #f8fafc;
-  color: #1e293b;
-  padding: 12px 0;
-}
-
-body.theme-dark .immediate-actions-portal,
-body[data-theme="dark"] .immediate-actions-portal,
-body.theme-contrast .immediate-actions-portal,
-body[data-theme="contrast"] .immediate-actions-portal {
-  background: #000319;
-  border-bottom: 1px solid rgba(55, 65, 81, 0.4);
-  color: #f3f4f6;
-}
-
-body.theme-light .immediate-actions-portal,
-body[data-theme="light"] .immediate-actions-portal {
-  background: #f8fafc;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
-  color: #1e293b;
+  overflow: hidden;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .immediate-action-chip {

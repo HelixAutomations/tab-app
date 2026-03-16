@@ -17,8 +17,6 @@ import { safeSetItem, safeGetItem, cleanupLocalStorage, logStorageUsage } from '
 import {
   mergeStyles,
   Text,
-  Spinner,
-  SpinnerSize,
   MessageBar,
   MessageBarType,
   IconButton,
@@ -37,7 +35,6 @@ import {
 import { FaCheck } from 'react-icons/fa';
 import { colours } from '../../app/styles/colours';
 // Removed legacy MetricCard usage
-import TimeMetricsV2 from '../../components/modern/TimeMetricsV2';
 import { useHomeMetricsStream } from '../../hooks/useHomeMetricsStream';
 import GreyHelixMark from '../../assets/grey helix mark.png';
 import InAttendanceImg from '../../assets/in_attendance.png';
@@ -50,7 +47,7 @@ import { useNavigatorActions } from '../../app/functionality/NavigatorContext';
 import './EnhancedHome.css';
 import { dashboardTokens, cardTokens, cardStyles } from '../instructions/componentTokens';
 import { componentTokens } from '../../app/styles/componentTokens';
-import ThemedSpinner from '../../components/ThemedSpinner';
+// ThemedSpinner removed — skeleton fallbacks used instead
 import { ModalSkeleton } from '../../components/ModalSkeleton';
 import { getProxyBaseUrl } from '../../utils/getProxyBaseUrl';
 import OperationStatusToast from '../enquiries/pitch-builder/OperationStatusToast';
@@ -103,12 +100,10 @@ import ImmediateActionsBar from './ImmediateActionsBar';
 import type { ImmediateActionCategory } from './ImmediateActionChip';
 import { enrichImmediateActions, type HomeImmediateAction } from './ImmediateActionModel';
 import { getActionableInstructions } from './InstructionsPrompt';
-import OutstandingBalancesList from '../transactions/OutstandingBalancesList';
 
 import Attendance from './AttendanceCompact';
 import EnhancedAttendance from './EnhancedAttendanceNew';
 import PersonalAttendanceConfirm from './PersonalAttendanceConfirm';
-import AwayInsight from './AwayInsight';
 import AttendancePortal from './AttendancePortal';
 import RateChangeModal from './RateChangeModal';
 import { useRateChangeData } from './useRateChangeData';
@@ -158,6 +153,9 @@ const AnnualLeaveApprovals = lazy(() => import('../../CustomForms/AnnualLeaveApp
 const AnnualLeaveBookings = lazy(() => import('../../CustomForms/AnnualLeaveBookings').then(m => ({ default: m.default || m })));
 const BookSpaceForm = lazy(() => import('../../CustomForms/BookSpaceForm').then(m => ({ default: m.default || m })));
 const SnippetEditsApproval = lazy(() => import('../../CustomForms/SnippetEditsApproval'));
+const OperationsDashboard = lazy(() => import('../../components/modern/OperationsDashboard'));
+const TeamInsight = lazy(() => import('./TeamInsight'));
+const OutstandingBalancesList = lazy(() => import('../transactions/OutstandingBalancesList'));
 
 // Icons initialized in index.tsx
 
@@ -311,6 +309,8 @@ const quickActionOrder: Record<string, number> = {
   'Verify ID': 3,
   'Assess Risk': 4,
   'Submit to CCL': 5,
+  'Review CCL': 5,
+  'Draft CCL': 5,
   'Create a Task': 4,
   'Request CollabSpace': 5,
   'Save Telephone Note': 6,
@@ -627,7 +627,74 @@ let cachedRecovered: number | null = null;
 let cachedRecoveredError: string | null = null;
 let cachedPrevRecovered: number | null = null;
 let cachedPrevRecoveredError: string | null = null;
+let cachedRecoveredHours: number | null = null;
+let cachedPrevRecoveredHours: number | null = null;
 let cachedMetricsUserKey: string | null = null;
+
+const HOME_METRICS_SNAPSHOT_KEY = 'home-metrics-snapshot-v1';
+const HOME_METRICS_SNAPSHOT_TTL_MS = 2 * 60 * 1000;
+
+interface HomeMetricsSnapshot {
+  userKey: string;
+  savedAt: number;
+  wipClioData: any | null;
+  recoveredData: number | null;
+  prevRecoveredData: number | null;
+  recoveredHours: number | null;
+  prevRecoveredHours: number | null;
+  enquiryMetrics: {
+    enquiriesToday: number;
+    enquiriesWeekToDate: number;
+    enquiriesMonthToDate: number;
+    prevEnquiriesToday: number;
+    prevEnquiriesWeekToDate: number;
+    prevEnquiriesMonthToDate: number;
+    prevEnquiriesWeekFull: number;
+    prevEnquiriesMonthFull: number;
+    pitchedEnquiriesToday: number;
+    pitchedEnquiriesWeekToDate: number;
+    pitchedEnquiriesMonthToDate: number;
+    prevPitchedEnquiriesToday: number;
+    prevPitchedEnquiriesWeekToDate: number;
+    prevPitchedEnquiriesMonthToDate: number;
+    enquiryMetricsBreakdown: unknown;
+  } | null;
+}
+
+function readHomeMetricsSnapshot(userKey: string | null): HomeMetricsSnapshot | null {
+  if (!userKey) return null;
+
+  try {
+    const raw = sessionStorage.getItem(HOME_METRICS_SNAPSHOT_KEY);
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw) as Partial<HomeMetricsSnapshot>;
+    if (parsed.userKey !== userKey) return null;
+    if (typeof parsed.savedAt !== 'number') return null;
+    if (Date.now() - parsed.savedAt > HOME_METRICS_SNAPSHOT_TTL_MS) return null;
+
+    return {
+      userKey,
+      savedAt: parsed.savedAt,
+      wipClioData: parsed.wipClioData ?? null,
+      recoveredData: parsed.recoveredData ?? null,
+      prevRecoveredData: parsed.prevRecoveredData ?? null,
+      recoveredHours: parsed.recoveredHours ?? null,
+      prevRecoveredHours: parsed.prevRecoveredHours ?? null,
+      enquiryMetrics: parsed.enquiryMetrics ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeHomeMetricsSnapshot(snapshot: HomeMetricsSnapshot): void {
+  try {
+    sessionStorage.setItem(HOME_METRICS_SNAPSHOT_KEY, JSON.stringify(snapshot));
+  } catch {
+    // Ignore storage write failures.
+  }
+}
 
 let cachedAllMatters: Matter[] | null = null; // Force refresh after database cleanup - cleared at 2025-09-21
 let cachedAllMattersError: string | null = null;
@@ -694,11 +761,13 @@ const CognitoForm: React.FC<{ dataKey: string; dataForm: string }> = ({ dataKey,
 
 const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: providedMatters, instructionData: propInstructionData, onAllMattersFetched, onOutstandingBalancesFetched, onPOID6YearsFetched, onTransactionsFetched, teamData, onBoardroomBookingsFetched, onSoundproofBookingsFetched, isInMatterOpeningWorkflow = false, onImmediateActionsChange, originalAdminUser, featureToggles = {}, demoModeEnabled = false, isSwitchingUser = false }) => {
   const { isDarkMode, toggleTheme } = useTheme();
+  const hasAdminContext = isAdminUser(userData?.[0]) || isAdminUser(originalAdminUser || null);
   const [showReleaseNotes, setShowReleaseNotes] = useState(false);
   const { setContent } = useNavigatorActions();
   const inTeams = isInTeams();
   const useLocalData =
     process.env.REACT_APP_USE_LOCAL_DATA === 'true';
+  const [secondaryPanelsReady, setSecondaryPanelsReady] = useState(false);
   
   // Component mounted successfully
 
@@ -875,6 +944,11 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
 
   const [currentUserName, setCurrentUserName] = useState<string>('');
   const [currentUserEmail, setCurrentUserEmail] = useState<string>('');
+  const homeMetricsUserKey = useMemo(() => {
+    const rawEmail = String(userData?.[0]?.Email || '').toLowerCase().trim();
+    const rawInitials = String(userData?.[0]?.Initials || '').toUpperCase().trim();
+    return rawEmail || rawInitials ? `${rawEmail}|${rawInitials}` : null;
+  }, [userData]);
   const [attendanceRecords, setAttendanceRecords] = useState<any[]>([]);
   const [attendanceError, setAttendanceError] = useState<string | null>(null);
   const [annualLeaveRecords, setAnnualLeaveRecords] = useState<AnnualLeaveRecord[]>([]);
@@ -885,6 +959,8 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
   const [wipClioError, setWipClioError] = useState<string | null>(null);
   const [recoveredData, setRecoveredData] = useState<number | null>(null);
   const [prevRecoveredData, setPrevRecoveredData] = useState<number | null>(null);
+  const [recoveredHours, setRecoveredHours] = useState<number | null>(null);
+  const [prevRecoveredHours, setPrevRecoveredHours] = useState<number | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [recoveredError, setRecoveredError] = useState<string | null>(null);
   const [prevRecoveredError, setPrevRecoveredError] = useState<string | null>(null);
@@ -902,6 +978,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
 
   // State for refreshing time metrics
   const [isRefreshingTimeMetrics, setIsRefreshingTimeMetrics] = useState<boolean>(false);
+  const hasSeededEnquiryMetricsRef = useRef(false);
 
   // Dev-only diagnostics for Time Metrics (WIP daily totals)
   const lastTimeMetricsLogRef = useRef<string>('');
@@ -931,9 +1008,29 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
   const [isLoadingPOID6Years, setIsLoadingPOID6Years] = useState<boolean>(false);
   const [poid6YearsError, setPoid6YearsError] = useState<string | null>(null);
 
+  // Demo mode: track whether a CCL draft exists for the demo matter (drives Home action card)
+  const [demoCclDraftExists, setDemoCclDraftExists] = useState(false);
+  useEffect(() => {
+    if (!demoModeEnabled) return;
+    const checkDemoCcl = async () => {
+      try {
+        const res = await fetch('/api/ccl/DEMO-3311402');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.ok && (data.exists || data.json)) {
+          setDemoCclDraftExists(true);
+        }
+      } catch { /* silent */ }
+    };
+    checkDemoCcl();
+  }, [demoModeEnabled]);
+
   // Consider immediate actions 'ready' only after we've actually started the parallel fetch.
   // This avoids an initial "All caught up" flash before attendance-derived actions appear.
   const immediateActionsReady = hasStartedParallelFetch && !isLoadingAttendance && !isLoadingAnnualLeave;
+  const homePrimaryReady = hasStartedParallelFetch
+    && !isLoadingAttendance
+    && !isLoadingWipClio;
 
   // SAFETY: In rare error paths isActionsLoading might never be cleared; ensure it flips off
   React.useEffect(() => {
@@ -1004,14 +1101,152 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
   const [pendingDocActions, setPendingDocActions] = useState<PendingDocAction[]>([]);
   const [pendingDocActionsLoading, setPendingDocActionsLoading] = useState<boolean>(true);
 
+  useEffect(() => {
+    let timeoutId: ReturnType<typeof globalThis.setTimeout> | null = null;
+    let idleId: number | null = null;
+    let cancelled = false;
+
+    const markReady = () => {
+      if (!cancelled) {
+        setSecondaryPanelsReady(true);
+      }
+    };
+
+    if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+      idleId = (window as typeof window & {
+        requestIdleCallback: (cb: IdleRequestCallback, options?: IdleRequestOptions) => number;
+      }).requestIdleCallback(() => markReady(), { timeout: 250 });
+    } else if (typeof window !== 'undefined') {
+      timeoutId = globalThis.setTimeout(markReady, 120);
+    } else {
+      markReady();
+    }
+
+    return () => {
+      cancelled = true;
+      if (timeoutId !== null) {
+        globalThis.clearTimeout(timeoutId);
+      }
+      if (idleId !== null && typeof window !== 'undefined' && 'cancelIdleCallback' in window) {
+        (window as typeof window & { cancelIdleCallback: (id: number) => void }).cancelIdleCallback(idleId);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (useLocalData) return;
+
+    const snapshot = readHomeMetricsSnapshot(homeMetricsUserKey);
+    if (!snapshot) return;
+
+    cachedWipClio = snapshot.wipClioData;
+    cachedRecovered = snapshot.recoveredData;
+    cachedPrevRecovered = snapshot.prevRecoveredData;
+    cachedRecoveredHours = snapshot.recoveredHours;
+    cachedPrevRecoveredHours = snapshot.prevRecoveredHours;
+
+    if (snapshot.wipClioData) {
+      setWipClioData(snapshot.wipClioData);
+      setIsLoadingWipClio(false);
+    }
+
+    if (snapshot.recoveredData !== null || snapshot.prevRecoveredData !== null) {
+      setRecoveredData(snapshot.recoveredData);
+      setPrevRecoveredData(snapshot.prevRecoveredData);
+      setRecoveredHours(snapshot.recoveredHours);
+      setPrevRecoveredHours(snapshot.prevRecoveredHours);
+      setIsLoadingRecovered(false);
+    }
+
+    if (snapshot.enquiryMetrics) {
+      setEnquiriesToday(snapshot.enquiryMetrics.enquiriesToday);
+      setEnquiriesWeekToDate(snapshot.enquiryMetrics.enquiriesWeekToDate);
+      setEnquiriesMonthToDate(snapshot.enquiryMetrics.enquiriesMonthToDate);
+      setPrevEnquiriesToday(snapshot.enquiryMetrics.prevEnquiriesToday);
+      setPrevEnquiriesWeekToDate(snapshot.enquiryMetrics.prevEnquiriesWeekToDate);
+      setPrevEnquiriesMonthToDate(snapshot.enquiryMetrics.prevEnquiriesMonthToDate);
+      setPrevEnquiriesWeekFull(snapshot.enquiryMetrics.prevEnquiriesWeekFull);
+      setPrevEnquiriesMonthFull(snapshot.enquiryMetrics.prevEnquiriesMonthFull);
+      setPitchedEnquiriesToday(snapshot.enquiryMetrics.pitchedEnquiriesToday);
+      setPitchedEnquiriesWeekToDate(snapshot.enquiryMetrics.pitchedEnquiriesWeekToDate);
+      setPitchedEnquiriesMonthToDate(snapshot.enquiryMetrics.pitchedEnquiriesMonthToDate);
+      setPrevPitchedEnquiriesToday(snapshot.enquiryMetrics.prevPitchedEnquiriesToday);
+      setPrevPitchedEnquiriesWeekToDate(snapshot.enquiryMetrics.prevPitchedEnquiriesWeekToDate);
+      setPrevPitchedEnquiriesMonthToDate(snapshot.enquiryMetrics.prevPitchedEnquiriesMonthToDate);
+      setEnquiryMetricsBreakdown(snapshot.enquiryMetrics.enquiryMetricsBreakdown ?? null);
+      hasSeededEnquiryMetricsRef.current = true;
+      setIsLoadingEnquiryMetrics(false);
+    }
+  }, [homeMetricsUserKey, useLocalData]);
+
+  useEffect(() => {
+    if (useLocalData || !homeMetricsUserKey) return;
+
+    const shouldPersistEnquiryMetrics = hasSeededEnquiryMetricsRef.current || !isLoadingEnquiryMetrics;
+    if (!wipClioData && recoveredData === null && prevRecoveredData === null && !shouldPersistEnquiryMetrics) return;
+
+    writeHomeMetricsSnapshot({
+      userKey: homeMetricsUserKey,
+      savedAt: Date.now(),
+      wipClioData,
+      recoveredData,
+      prevRecoveredData,
+      recoveredHours,
+      prevRecoveredHours,
+      enquiryMetrics: shouldPersistEnquiryMetrics ? {
+        enquiriesToday,
+        enquiriesWeekToDate,
+        enquiriesMonthToDate,
+        prevEnquiriesToday,
+        prevEnquiriesWeekToDate,
+        prevEnquiriesMonthToDate,
+        prevEnquiriesWeekFull,
+        prevEnquiriesMonthFull,
+        pitchedEnquiriesToday,
+        pitchedEnquiriesWeekToDate,
+        pitchedEnquiriesMonthToDate,
+        prevPitchedEnquiriesToday,
+        prevPitchedEnquiriesWeekToDate,
+        prevPitchedEnquiriesMonthToDate,
+        enquiryMetricsBreakdown,
+      } : null,
+    });
+  }, [
+    enquiriesMonthToDate,
+    enquiriesToday,
+    enquiriesWeekToDate,
+    enquiryMetricsBreakdown,
+    homeMetricsUserKey,
+    isLoadingEnquiryMetrics,
+    pitchedEnquiriesMonthToDate,
+    pitchedEnquiriesToday,
+    pitchedEnquiriesWeekToDate,
+    prevEnquiriesMonthFull,
+    prevRecoveredData,
+    prevEnquiriesMonthToDate,
+    prevEnquiriesToday,
+    prevEnquiriesWeekFull,
+    prevEnquiriesWeekToDate,
+    prevPitchedEnquiriesMonthToDate,
+    prevPitchedEnquiriesToday,
+    prevPitchedEnquiriesWeekToDate,
+    prevRecoveredHours,
+    recoveredData,
+    recoveredHours,
+    useLocalData,
+    wipClioData,
+  ]);
+
   // Fetch pending doc workspace actions on mount
   useEffect(() => {
+    if (!secondaryPanelsReady) {
+      return;
+    }
+
     const fetchPendingDocActions = async () => {
       try {
         setPendingDocActionsLoading(true);
-        const url = proxyBaseUrl
-          ? `${proxyBaseUrl.replace(/\/$/, '')}/doc-workspace/pending-actions`
-          : '/api/doc-workspace/pending-actions';
+        const url = '/api/doc-workspace/pending-actions';
         const res = await fetch(url);
         if (res.ok) {
           const data = await res.json();
@@ -1024,7 +1259,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
       }
     };
     fetchPendingDocActions();
-  }, []);
+  }, [secondaryPanelsReady]);
 
   // Rate change notification modal state
   const [showRateChangeModal, setShowRateChangeModal] = useState<boolean>(false);
@@ -1062,6 +1297,31 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
       ),
     [enquiries]
   );
+
+  // Unclaimed counts by date range (for dashboard pills)
+  const { unclaimedToday, unclaimedThisWeek, unclaimedLastWeek } = useMemo(() => {
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const dayOfWeek = now.getDay(); // 0=Sun
+    const mondayOffset = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+    const weekStart = new Date(todayStart);
+    weekStart.setDate(weekStart.getDate() - mondayOffset);
+    const lastWeekStart = new Date(weekStart);
+    lastWeekStart.setDate(lastWeekStart.getDate() - 7);
+    const lastWeekEnd = new Date(weekStart);
+
+    let today = 0;
+    let week = 0;
+    let lastWk = 0;
+    for (const e of unclaimedEnquiries) {
+      const d = new Date(e.Date_Created);
+      if (isNaN(d.getTime())) continue;
+      if (d >= todayStart) today++;
+      if (d >= weekStart) week++;
+      if (d >= lastWeekStart && d < lastWeekEnd) lastWk++;
+    }
+    return { unclaimedToday: today, unclaimedThisWeek: week, unclaimedLastWeek: lastWk };
+  }, [unclaimedEnquiries]);
 
   // Fetch pending snippet edits and prefetch snippet blocks
   useEffect(() => {
@@ -1182,6 +1442,8 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
     cachedRecoveredError = null;
     cachedPrevRecovered = null;
     cachedPrevRecoveredError = null;
+    cachedRecoveredHours = null;
+    cachedPrevRecoveredHours = null;
     recoveredFeesInitialized.current = false; // Reset so new user can fetch
     parallelFetchKeyRef.current = ''; // Reset so parallel fetch runs for new user
     zeroWipFallbackRef.current = false; // Reset fallback flag for new user
@@ -1189,6 +1451,8 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
     setWipClioData(null);
     setRecoveredData(null);
     setPrevRecoveredData(null);
+    setRecoveredHours(null);
+    setPrevRecoveredHours(null);
   }, [userData]);
 
   // Separate effect to fetch recovered fees
@@ -1205,6 +1469,9 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
         : null;
 
       const isLZ = currentUserData?.Initials === 'LZ';
+
+      // LZ must wait for teamData so we can resolve Alex's IDs
+      if (isLZ && !teamData) return;
       
       // Use Alex fallback for LZ (dev user with no time data) or users genuinely missing IDs
       if ((isLZ || !userClioId && !userEntraId) && teamData) {
@@ -1254,11 +1521,17 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
 
         const currentTotal = Number(summary.currentMonthTotal) || 0;
         const lastTotal = Number(summary.previousMonthTotal) || 0;
+        const curHrs = Number(summary.currentMonthHours) || 0;
+        const prevHrs = Number(summary.previousMonthHours) || 0;
 
         cachedRecovered = currentTotal;
         cachedPrevRecovered = lastTotal;
+        cachedRecoveredHours = curHrs;
+        cachedPrevRecoveredHours = prevHrs;
         setRecoveredData(currentTotal);
         setPrevRecoveredData(lastTotal);
+        setRecoveredHours(curHrs);
+        setPrevRecoveredHours(prevHrs);
         recoveredFeesInitialized.current = true;
       } catch (error) {
         console.error('❌ Error fetching recovered fees summary:', error);
@@ -1271,6 +1544,8 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
       recoveredFeesInitialized.current = true;
       setRecoveredData(cachedRecovered);
       setPrevRecoveredData(cachedPrevRecovered ?? 0);
+      setRecoveredHours(cachedRecoveredHours ?? 0);
+      setPrevRecoveredHours(cachedPrevRecoveredHours ?? 0);
     }
   }, [teamData, userData?.[0]?.EntraID, userData?.[0]?.['Entra ID'], userData?.[0]?.Initials, userData?.[0]?.['Clio ID']]);
 
@@ -1361,10 +1636,16 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
             if (summary && typeof summary === 'object') {
               const currentTotal = Number(summary.currentMonthTotal) || 0;
               const lastTotal = Number(summary.previousMonthTotal) || 0;
+              const curHrs = Number(summary.currentMonthHours) || 0;
+              const prevHrs = Number(summary.previousMonthHours) || 0;
               cachedRecovered = currentTotal;
               cachedPrevRecovered = lastTotal;
+              cachedRecoveredHours = curHrs;
+              cachedPrevRecoveredHours = prevHrs;
               setRecoveredData(currentTotal);
               setPrevRecoveredData(lastTotal);
+              setRecoveredHours(curHrs);
+              setPrevRecoveredHours(prevHrs);
               recoveredFeesInitialized.current = true;
             }
           }
@@ -1383,13 +1664,124 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
     }
   }, [userData, teamData]);
 
+  const userFullName = userData?.[0]?.FullName || '';
+
   // Use app-provided normalized matters when available; otherwise normalize local allMatters
   const normalizedMatters = useMemo<NormalizedMatter[]>(() => {
     if (providedMatters && providedMatters.length > 0) return providedMatters;
     if (!allMatters) return [];
-    const userFullName = userData?.[0]?.FullName || '';
     return allMatters.map(matter => normalizeMatterData(matter, userFullName, 'legacy_all'));
-  }, [providedMatters, allMatters, userData]);
+  }, [providedMatters, allMatters, userData, userFullName]);
+
+  const demoModeActive = useMemo(() => {
+    if (demoModeEnabled) return true;
+    try {
+      return localStorage.getItem('demoModeEnabled') === 'true';
+    } catch {
+      return false;
+    }
+  }, [demoModeEnabled]);
+
+  // Recent new-space matters for the operations dashboard
+  const recentMatters = useMemo(() => {
+    // Resolve demo state inline — belt-and-braces: prop OR localStorage
+    const isDemo = demoModeActive || (() => { try { return localStorage.getItem('demoModeEnabled') === 'true'; } catch { return false; } })();
+
+    const isDemoMatter = (m: NormalizedMatter): boolean => {
+      const matterId = String(m.matterId || '').toUpperCase();
+      const displayNumber = String(m.displayNumber || '').toUpperCase();
+      const instructionRef = String(m.instructionRef || '').toUpperCase();
+      const clientName = String(m.clientName || '').toUpperCase();
+      return matterId.startsWith('DEMO-')
+        || displayNumber.startsWith('DEMO-')
+        || instructionRef.includes('HLX-DEMO')
+        || instructionRef === 'HELIX01-01'
+        || clientName.startsWith('DEMO ')
+        || clientName === 'HELIX ADMINISTRATION';
+    };
+
+    // Resolve the real solicitor name from team data using initials
+    // On localhost the dev user's FullName (e.g. "Luke Dev") won't match real solicitor names
+    const userInitials = (userData?.[0]?.Initials || '').trim().toUpperCase();
+    const isLocalHost = typeof window !== 'undefined'
+      && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+    const effectiveInitials = isLocalHost && userInitials === 'LZ' ? 'AC' : userInitials;
+
+    const teamRecord = teamData?.find(
+      (t: any) => (t?.Initials || '').trim().toUpperCase() === effectiveInitials
+    ) || teamData?.find(
+      (t: any) => (t?.Initials || '').trim().toUpperCase() === userInitials
+    );
+    const resolvedName = teamRecord?.['Full Name'] || teamRecord?.['Nickname'] || userFullName || '';
+
+    const isUserMatter = (solicitor: string): boolean => {
+      if (!resolvedName && !userInitials) return true;
+      const s = solicitor.toLowerCase().trim().replace(/\s+/g, ' ');
+      if (!s) return true;
+
+      // Match against resolved full name
+      const u = resolvedName.toLowerCase().trim().replace(/\s+/g, ' ');
+      if (u && s === u) return true;
+      // Handle "Last, First" format
+      if (u && s.includes(',')) {
+        const [last, first] = s.split(',').map((p: string) => p.trim());
+        if (`${first} ${last}` === u) return true;
+      }
+      // Also match against first name only (e.g. "Luke" matches "Luke Watson")
+      const firstName = (teamRecord?.['First'] || teamRecord?.['Nickname'] || '').toLowerCase().trim();
+      if (firstName && s === firstName) return true;
+      if (firstName && s.startsWith(firstName + ' ')) return true;
+
+      return false;
+    };
+
+    const mapped = normalizedMatters
+      .filter(m => m.dataSource === 'vnet_direct')
+      .filter(m => isDemoMatter(m) ? isDemo : isUserMatter(m.responsibleSolicitor || ''))
+      .filter(m => isDemo ? true : !isDemoMatter(m))
+      .sort((a, b) => (b.openDate || '').localeCompare(a.openDate || ''))
+      .slice(0, 15)
+      .map(m => ({
+        matterId: m.matterId || '',
+        displayNumber: m.displayNumber || '',
+        clientName: m.clientName || '',
+        practiceArea: m.practiceArea || '',
+        openDate: m.openDate || '',
+        responsibleSolicitor: m.responsibleSolicitor || '',
+        status: (m.status === 'closed' ? 'closed' : 'active') as 'active' | 'closed',
+        instructionRef: m.instructionRef,
+      }));
+
+    if (!isDemo) return mapped;
+
+    // Check if a demo matter already exists in the list
+    const hasDemoMatter = mapped.some(m => {
+      const matterId = String(m.matterId || '').toUpperCase();
+      const instructionRef = String(m.instructionRef || '').toUpperCase();
+      const clientName = String(m.clientName || '').toUpperCase();
+      return matterId.startsWith('DEMO-')
+        || instructionRef === 'HELIX01-01'
+        || clientName === 'HELIX ADMINISTRATION';
+    });
+
+    if (hasDemoMatter) return mapped;
+
+    // Inject the same demo matter used by the Matters tab
+    const today = new Date().toISOString().split('T')[0];
+    return [
+      {
+        matterId: 'DEMO-3311402',
+        displayNumber: 'HELIX01-01',
+        clientName: 'Helix administration',
+        practiceArea: 'Commercial',
+        openDate: today,
+        responsibleSolicitor: resolvedName || userFullName || 'Demo User',
+        status: 'active' as 'active' | 'closed',
+        instructionRef: 'HELIX01-01',
+      },
+      ...mapped,
+    ].slice(0, 15);
+  }, [normalizedMatters, demoModeActive, userFullName, userData, teamData]);
 
   const [reviewedInstructionIds, setReviewedInstructionIds] = useState<string>(() =>
     sessionStorage.getItem('reviewedInstructionIds') || ''
@@ -1629,6 +2021,7 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
             Week_End: member.Week_End ? new Date(member.Week_End).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
             ISO_Week: typeof member.iso === 'number' ? member.iso : 0,
             Attendance_Days: member.Status || '',
+            Confirmed_At: member.Confirmed_At ?? null,
             weeks: member.weeks || {},
           }));
 
@@ -1754,7 +2147,7 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
     undo: undoRateChange,
     undoStreaming: undoRateChangeStreaming,
     pendingCountForUser: rateChangePendingCount,
-  } = useRateChangeData(rateChangeYear, currentUserName, true);
+    } = useRateChangeData(rateChangeYear, currentUserName, showRateChangeModal);
 
   // Migrate tab: include matters opened in the rate-change year (migration source-of-truth)
   const {
@@ -1809,8 +2202,26 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
   }, []);
 
   useEffect(() => {
-    if (!useLocalData) return;
     if (enquiries && currentUserEmail) {
+      // Server-sourced metrics (from /api/home-enquiries) are authoritative.
+      // Only run this client-side fallback when the server hasn't delivered yet.
+      if (hasSeededEnquiryMetricsRef.current) return;
+
+      // Alex fallback: when LZ (dev user), use Alex's email for enquiry matching
+      let effectiveEmail = currentUserEmail;
+      const isLZ = (userData?.[0]?.Initials || '').toUpperCase().trim() === 'LZ';
+
+      // LZ must wait for teamData so we can resolve Alex's email.
+      // Without this gate the first render would count with LZ's email (zero matches).
+      if (isLZ && !teamData) return;
+
+      if (isLZ && teamData) {
+        const alex = teamData.find((t: any) => t.Initials === 'AC' || t.First === 'Alex');
+        if (alex?.Email) {
+          effectiveEmail = String(alex.Email).toLowerCase().trim();
+        }
+      }
+
       const today = new Date();
       const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
   // FIX: Use Monday as the start of week (previous logic used Sunday via getDay())
@@ -1851,7 +2262,7 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
       const matchesUser = (enquiry: any) => {
         // Use exact email matching only - no initials matching to avoid false positives
         const pocValue = (enquiry.Point_of_Contact || '').toLowerCase().trim();
-        const emailMatch = pocValue === currentUserEmail;
+        const emailMatch = pocValue === effectiveEmail;
         
         return emailMatch;
       };
@@ -1936,8 +2347,10 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
       setPrevEnquiriesToday(prevTodayCount);
       setPrevEnquiriesWeekToDate(prevWeekCount);
       setPrevEnquiriesMonthToDate(prevMonthCount);
+      hasSeededEnquiryMetricsRef.current = true;
+      setIsLoadingEnquiryMetrics(false);
     }
-  }, [enquiries, currentUserEmail, userInitials, useLocalData]);
+  }, [enquiries, currentUserEmail, userData, teamData]);
 
   // Helper function to derive approvers for annual leave requests based on AOW
   const deriveApproversForPerson = useCallback((personRaw: unknown): string[] => {
@@ -1984,16 +2397,30 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
     }
 
     // Read directly from userData to avoid stale state during user switches
-    const email = (userData[0]?.Email || '').toLowerCase().trim();
-    const initials = (userData[0]?.Initials || '').toUpperCase().trim();
+    let email = (userData[0]?.Email || '').toLowerCase().trim();
+    let initials = (userData[0]?.Initials || '').toUpperCase().trim();
     let entraId = userData?.[0]?.EntraID || userData?.[0]?.['Entra ID'] || '';
     
     // Use Alex fallback for LZ (dev user with no time data)
     const isLZ = initials === 'LZ';
+
+    // LZ MUST wait for teamData so we can resolve Alex's IDs.
+    // Without this gate the first render fires with LZ's own creds,
+    // the response lands, and the corrected second run is too late.
+    if (isLZ && !teamData) {
+      return;
+    }
+
     if (isLZ && teamData) {
       const alex = teamData.find((t: any) => t.Initials === 'AC' || t.First === 'Alex');
       if (alex?.['Entra ID']) {
         entraId = String(alex['Entra ID']);
+      }
+      if (alex?.Email) {
+        email = String(alex.Email).toLowerCase().trim();
+      }
+      if (alex?.Initials) {
+        initials = String(alex.Initials).toUpperCase().trim();
       }
     }
     
@@ -2011,74 +2438,76 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
     fetchRunIdRef.current = runId;
 
     const fetchAllData = async () => {
-      try {
-        setHasStartedParallelFetch(true);
-        setIsLoadingAttendance(true);
-        setIsLoadingAnnualLeave(true);
-        setIsActionsLoading(true);
-        setIsLoadingWipClio(true);
-        setIsLoadingEnquiryMetrics(true);
-        // Start all requests in parallel
-        const [attendanceRes, annualLeaveRes, wipRes, enquiriesRes] = await Promise.all([
-          fetch('/api/attendance/getAttendance', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
-          }),
-          fetch('/api/attendance/getAnnualLeave', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ userInitials: initials })
-          }),
-          entraId
-            ? fetch(`/api/home-wip?entraId=${encodeURIComponent(entraId)}`, {
-                credentials: 'include',
-                headers: { Accept: 'application/json' }
-              })
-            : Promise.resolve(null),
-          email || initials
-            ? fetch('/api/home-enquiries?' + (email ? 'email=' + encodeURIComponent(email) : '') + '&' + (initials ? 'initials=' + encodeURIComponent(initials) : ''), {
-                headers: { Accept: 'application/json' }
-              })
-            : Promise.resolve(null)
-        ]);
+      setHasStartedParallelFetch(true);
+      setIsLoadingAttendance(true);
+      setIsLoadingAnnualLeave(true);
+      setIsActionsLoading(true);
+      setIsLoadingWipClio(true);
+      setIsLoadingEnquiryMetrics(!hasSeededEnquiryMetricsRef.current);
 
-        if (fetchRunIdRef.current !== runId) return;
-
-        // Process attendance
-        if (attendanceRes.ok) {
-          const data = await attendanceRes.json();
-          if (data.success && data.attendance) {
-            const transformedAttendance = data.attendance.map((member: any) => ({
-              Attendance_ID: 0,
-              Entry_ID: 0,
-              First_Name: member.First || member.name || '',
-              Initials: member.Initials || '',
-              Nickname: member.Nickname || member.First || '',
-              Level: member.Level || '',
-              Week_Start: member.Week_Start ? new Date(member.Week_Start).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-              Week_End: member.Week_End ? new Date(member.Week_End).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-              ISO_Week: typeof member.iso === 'number' ? member.iso : 0,
-              Attendance_Days: member.Status || '',
-              weeks: member.weeks || {},
-            }));
-            cachedAttendance = { attendance: transformedAttendance, team: data.team || [] };
-            setAttendanceRecords(transformedAttendance);
-            setAttendanceTeam(data.team || []);
-
-          }
+      let attendanceDone = false;
+      let annualLeaveDone = false;
+      const isLatestRun = () => fetchRunIdRef.current === runId;
+      const maybeFinishImmediateActions = () => {
+        if (isLatestRun() && attendanceDone && annualLeaveDone) {
+          setIsActionsLoading(false);
         }
-        setIsLoadingAttendance(false);
+      };
 
-        // Process annual leave
-        if (annualLeaveRes.ok) {
+      const attendanceRequest = fetch('/api/attendance/getAttendance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      })
+        .then(async (attendanceRes) => {
+          if (!isLatestRun() || !attendanceRes.ok) return;
+          const data = await attendanceRes.json();
+          if (!isLatestRun() || !data.success || !data.attendance) return;
+          const transformedAttendance = data.attendance.map((member: any) => ({
+            Attendance_ID: 0,
+            Entry_ID: 0,
+            First_Name: member.First || member.name || '',
+            Initials: member.Initials || '',
+            Nickname: member.Nickname || member.First || '',
+            Level: member.Level || '',
+            Week_Start: member.Week_Start ? new Date(member.Week_Start).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+            Week_End: member.Week_End ? new Date(member.Week_End).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+            ISO_Week: typeof member.iso === 'number' ? member.iso : 0,
+            Attendance_Days: member.Status || '',
+            Confirmed_At: member.Confirmed_At ?? null,
+            weeks: member.weeks || {},
+          }));
+          cachedAttendance = { attendance: transformedAttendance, team: data.team || [] };
+          setAttendanceRecords(transformedAttendance);
+          setAttendanceTeam(data.team || []);
+          setAttendanceError(null);
+        })
+        .catch((error: any) => {
+          if (!isLatestRun()) return;
+          console.error('[parallel-fetch] Attendance error:', error);
+          setAttendanceError(error?.message || 'Failed to load attendance');
+        })
+        .finally(() => {
+          if (!isLatestRun()) return;
+          attendanceDone = true;
+          setIsLoadingAttendance(false);
+          maybeFinishImmediateActions();
+        });
+
+      const annualLeaveRequest = fetch('/api/attendance/getAnnualLeave', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userInitials: initials })
+      })
+        .then(async (annualLeaveRes) => {
+          if (!isLatestRun() || !annualLeaveRes.ok) return;
           const data = await annualLeaveRes.json();
+          if (!isLatestRun()) return;
           if (data.annual_leave) {
             const mappedAnnualLeave: AnnualLeaveRecord[] = data.annual_leave.map((rec: any) => {
               const leaveType = rec.leave_type ?? rec.leaveType;
               const personInitials = String(rec.person ?? rec.fe ?? rec.initials ?? rec.user_initials ?? rec.userInitials ?? '').trim();
-              // Use backend approvers if present, otherwise calculate based on AOW
-              const approvers = Array.isArray(rec.approvers) && rec.approvers.length > 0 
-                ? rec.approvers 
+              const approvers = Array.isArray(rec.approvers) && rec.approvers.length > 0
+                ? rec.approvers
                 : deriveApproversForPerson(personInitials);
               return {
                 id: String(rec.request_id ?? rec.id ?? rec.ID ?? ''),
@@ -2107,8 +2536,8 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
             const mappedFutureLeave: AnnualLeaveRecord[] = data.future_leave.map((rec: any) => {
               const leaveType = rec.leave_type ?? rec.leaveType;
               const personInitials = String(rec.person ?? rec.fe ?? rec.initials ?? rec.user_initials ?? rec.userInitials ?? '').trim();
-              const approvers = Array.isArray(rec.approvers) && rec.approvers.length > 0 
-                ? rec.approvers 
+              const approvers = Array.isArray(rec.approvers) && rec.approvers.length > 0
+                ? rec.approvers
                 : deriveApproversForPerson(personInitials);
               return {
                 id: String(rec.request_id ?? rec.id ?? rec.ID ?? ''),
@@ -2142,51 +2571,80 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
           if (Array.isArray(data.team)) {
             setAnnualLeaveTeam(data.team);
           }
-        }
-        setIsLoadingAnnualLeave(false);
-        setIsActionsLoading(false);
+          cachedAnnualLeaveError = null;
+          setAnnualLeaveError(null);
+        })
+        .catch((error: any) => {
+          if (!isLatestRun()) return;
+          console.error('[parallel-fetch] Annual leave error:', error);
+          cachedAnnualLeaveError = error?.message || 'Failed to load annual leave';
+          setAnnualLeaveError(cachedAnnualLeaveError);
+        })
+        .finally(() => {
+          if (!isLatestRun()) return;
+          annualLeaveDone = true;
+          setIsLoadingAnnualLeave(false);
+          maybeFinishImmediateActions();
+        });
 
-        // Process WIP
-        if (wipRes && wipRes.ok) {
+      const wipRequest = (entraId
+        ? fetch(`/api/home-wip?entraId=${encodeURIComponent(entraId)}`, {
+            credentials: 'include',
+            headers: { Accept: 'application/json' }
+          })
+        : Promise.resolve(null))
+        .then(async (wipRes) => {
+          if (!isLatestRun() || !wipRes || !wipRes.ok) return;
           const data = await wipRes.json();
-
+          if (!isLatestRun()) return;
           if (data && typeof data === 'object' && 'error' in data && (data as any).error) {
             setWipClioError(String((data as any).error));
-          } else {
-            const daily = (data as any)?.current_week?.daily_data || {};
-            const hasHours = Object.values(daily).some((d: any) => (Number(d?.total_hours) || 0) > 0);
-            const hasAmount = Object.values(daily).some((d: any) => (Number(d?.total_amount) || 0) > 0);
-            const dailyKeys = Object.keys(daily);
-
-            if (!hasHours && !hasAmount && dailyKeys.length > 0) {
-
-              setIsLoadingWipClio(false); // End loading for lightweight endpoint
-              if (!zeroWipFallbackRef.current) {
-                zeroWipFallbackRef.current = true;
-                  handleRefreshTimeMetrics?.(); // Fallback manages isRefreshingTimeMetrics
-              }
-            } else if (dailyKeys.length === 0) {
-              console.error('[parallel-fetch] WIP endpoint returned no daily_data structure - possible API issue');
-              setIsLoadingWipClio(false);
-              setWipClioError('No time data available');
-            } else {
-              cachedWipClio = data as any;
-              setWipClioData(cachedWipClio);
-              setWipClioError(null);
-              const keys = Object.keys(cachedWipClio?.current_week?.daily_data || {});
-
-              setIsLoadingWipClio(false);
-            }
+            return;
           }
-        }
-        if (wipClioData && !isLoadingWipClio) {
+
+          const daily = (data as any)?.current_week?.daily_data || {};
+          const hasHours = Object.values(daily).some((d: any) => (Number(d?.total_hours) || 0) > 0);
+          const hasAmount = Object.values(daily).some((d: any) => (Number(d?.total_amount) || 0) > 0);
+          const dailyKeys = Object.keys(daily);
+
+          if (!hasHours && !hasAmount && dailyKeys.length > 0) {
+            if (!zeroWipFallbackRef.current) {
+              zeroWipFallbackRef.current = true;
+              handleRefreshTimeMetrics?.();
+            }
+            return;
+          }
+
+          if (dailyKeys.length === 0) {
+            console.error('[parallel-fetch] WIP endpoint returned no daily_data structure - possible API issue');
+            setWipClioError('No time data available');
+            return;
+          }
+
+          cachedWipClio = data as any;
+          setWipClioData(cachedWipClio);
+          setWipClioError(null);
+        })
+        .catch((error: any) => {
+          if (!isLatestRun()) return;
+          console.error('[parallel-fetch] WIP error:', error);
+          setWipClioError(error?.message || 'Failed to load WIP');
+        })
+        .finally(() => {
+          if (!isLatestRun()) return;
           setIsLoadingWipClio(false);
-        }
+        });
 
-        // Process enquiries
-        if (enquiriesRes && enquiriesRes.ok) {
+      const enquiriesRequest = ((email || initials)
+        ? fetch('/api/home-enquiries?' + (email ? 'email=' + encodeURIComponent(email) : '') + '&' + (initials ? 'initials=' + encodeURIComponent(initials) : ''), {
+            headers: { Accept: 'application/json' }
+          })
+        : Promise.resolve(null))
+        .then(async (enquiriesRes) => {
+          if (!isLatestRun() || !enquiriesRes || !enquiriesRes.ok) return;
           const data = await enquiriesRes.json();
-
+          if (!isLatestRun()) return;
+          hasSeededEnquiryMetricsRef.current = true;
           setEnquiriesToday(data.enquiriesToday ?? 0);
           setEnquiriesWeekToDate(data.enquiriesWeekToDate ?? 0);
           setEnquiriesMonthToDate(data.enquiriesMonthToDate ?? 0);
@@ -2202,19 +2660,25 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
           setPrevPitchedEnquiriesWeekToDate(data.prevPitchedWeekToDate ?? 0);
           setPrevPitchedEnquiriesMonthToDate(data.prevPitchedMonthToDate ?? 0);
           setEnquiryMetricsBreakdown((data as any)?.breakdown ?? null);
-        }
-        setIsLoadingEnquiryMetrics(false);
+        })
+        .catch((error: any) => {
+          if (!isLatestRun()) return;
+          console.error('[parallel-fetch] Enquiry metrics error:', error);
+        })
+        .finally(() => {
+          if (!isLatestRun()) return;
+          setIsLoadingEnquiryMetrics(false);
+        });
 
+      await Promise.allSettled([
+        attendanceRequest,
+        annualLeaveRequest,
+        wipRequest,
+        enquiriesRequest,
+      ]);
 
-
-      } catch (error: any) {
-        console.error('[parallel-fetch] Error:', error);
-        // Set all loading states to false on error
-        setIsLoadingAttendance(false);
-        setIsLoadingAnnualLeave(false);
-        setIsLoadingWipClio(false);
-        setIsLoadingEnquiryMetrics(false);
-        setIsActionsLoading(false);
+      if (isLatestRun()) {
+        maybeFinishImmediateActions();
       }
     };
 
@@ -2533,6 +2997,8 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
         debugLog('💰 Restoring cached recovered fees:', { current: cachedRecovered, prev: cachedPrevRecovered });
         setRecoveredData(cachedRecovered);
         setPrevRecoveredData(cachedPrevRecovered ?? 0);
+        setRecoveredHours(cachedRecoveredHours ?? 0);
+        setPrevRecoveredHours(cachedPrevRecoveredHours ?? 0);
       }
       return;
     }
@@ -2663,7 +3129,7 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
 
   // Stream Home metrics progressively; update state as each arrives
   useHomeMetricsStream({
-    autoStart: !demoModeEnabled,
+    autoStart: !demoModeEnabled && homePrimaryReady && secondaryPanelsReady,
     metrics: ['transactions', 'futureBookings', 'outstandingBalances', 'poid6Years'],
     bypassCache: false,
     onMetric: (name, data) => {
@@ -3250,10 +3716,9 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         if (!openDate) return false;
         const isCurrentMonth = openDate.getMonth() === currentMonth && openDate.getFullYear() === currentYear;
         if (!isCurrentMonth) return false;
-        const role = (m as any).role;
-        return role === 'responsible' || role === 'both';
+        return namesMatchForOutstanding(m.responsibleSolicitor, userResponsibleName);
       }).length;
-    }, [normalizedMatters, currentMonth, currentYear]);
+    }, [normalizedMatters, currentMonth, currentYear, userResponsibleName]);
 
     const firmMattersOpenedCount = useMemo(() => {
       if (!normalizedMatters) return 0;
@@ -3444,18 +3909,20 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
       {
         title: 'Time This Week',
         isTimeMoney: true,
-        money: 0,
+        money: weekToDateAmount,
         hours: totalTimeThisWeek,
-        prevMoney: 0,
+        prevMoney: lastWeekToDateAmount,
         prevHours: lastWeekToDateHours,
         showDial: true,
         dialTarget: adjustedTarget,
       },
       {
         title: 'Fees Recovered This Month',
-        isMoneyOnly: true,
+        isTimeMoney: true,
         money: recoveredData ?? 0,
+        hours: recoveredHours ?? 0,
         prevMoney: prevRecoveredData ?? 0,
+        prevHours: prevRecoveredHours ?? 0,
       },
       {
         title: 'Outstanding Office Balances',
@@ -3501,6 +3968,8 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     wipClioData,
     recoveredData,
     prevRecoveredData,
+    recoveredHours,
+    prevRecoveredHours,
     enquiriesToday,
     prevEnquiriesToday,
     enquiriesWeekToDate,
@@ -3601,6 +4070,33 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
   const displayPitchedEnquiriesWeekToDate = demoModeEnabled ? 0 : pitchedEnquiriesWeekToDate;
   const displayPitchedEnquiriesMonthToDate = demoModeEnabled ? 0 : pitchedEnquiriesMonthToDate;
   const displayMattersOpenedCount = demoModeEnabled ? demoEnquiryMetrics.mattersOpened : mattersOpenedCount;
+  const isWaitingForLocalDashboardIdentity = useMemo(() => {
+    const rawInitials = String(userData?.[0]?.Initials || '').trim().toUpperCase();
+    const isLocalHost = typeof window !== 'undefined'
+      && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+    return isLocalHost && rawInitials === 'LZ' && !teamData?.length;
+  }, [teamData, userData]);
+  const effectiveDashboardIdentity = useMemo(() => {
+    const rawEmail = String(userData?.[0]?.Email || '').trim();
+    const rawInitials = String(userData?.[0]?.Initials || '').trim().toUpperCase();
+    const isLocalHost = typeof window !== 'undefined'
+      && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+    if (!isLocalHost || rawInitials !== 'LZ' || !teamData?.length) {
+      return { email: rawEmail, initials: rawInitials };
+    }
+
+    const alex = teamData.find((member: any) => {
+      const memberInitials = String(member?.Initials || '').trim().toUpperCase();
+      const memberFirst = String(member?.First || '').trim().toLowerCase();
+      return memberInitials === 'AC' || memberFirst === 'alex';
+    });
+
+    return {
+      email: String(alex?.Email || rawEmail).trim(),
+      initials: String(alex?.Initials || rawInitials).trim().toUpperCase(),
+    };
+  }, [teamData, userData]);
 
   // Fallback: if lightweight home-wip endpoint returns zeroes, trigger the heavier reporting fetch once.
   const zeroWipFallbackRef = useRef(false);
@@ -4050,7 +4546,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
           <PersonalAttendanceConfirm
             isDarkMode={isDarkMode}
             demoModeEnabled={demoModeEnabled}
-            isAdmin={isAdminUser(userData?.[0])}
+            isAdmin={hasAdminContext}
             attendanceRecords={transformedAttendanceRecords}
             annualLeaveRecords={annualLeaveRecords}
             futureLeaveRecords={futureLeaveRecords}
@@ -4072,7 +4568,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
           <PersonalAttendanceConfirm
             isDarkMode={isDarkMode}
             demoModeEnabled={demoModeEnabled}
-            isAdmin={isAdminUser(userData?.[0])}
+            isAdmin={hasAdminContext}
             attendanceRecords={transformedAttendanceRecords}
             annualLeaveRecords={annualLeaveRecords}
             futureLeaveRecords={futureLeaveRecords}
@@ -4094,7 +4590,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
           <AttendancePortal
             isDarkMode={isDarkMode}
             currentUserInitials={userData?.[0]?.Initials}
-            isAdmin={isAdminUser(userData?.[0])}
+            isAdmin={hasAdminContext}
             preloadedLeave={annualLeaveAllData}
             preloadedTeam={transformedTeamData}
             onRequestLeave={() => {
@@ -4149,7 +4645,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
               futureLeave={futureLeaveRecords}
               allLeave={annualLeaveAllData}
               team={transformedTeamData}
-              isAdmin={isAdminUser(userData?.[0])}
+              isAdmin={hasAdminContext}
               isLoadingAnnualLeave={isLoadingAnnualLeave}
               onSubmitSuccess={async () => {
                 // Refresh annual leave data after successful submission
@@ -4240,18 +4736,16 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         break;
       case 'Submit to CCL':
       case 'Draft CCL':
-        content = (
-          <div style={{ padding: '20px' }}>
-            <Text variant="medium" style={{ marginBottom: '15px', display: 'block' }}>
-              CCL submission functionality is coming soon.
-            </Text>
-            <DefaultButton 
-              text="Close" 
-              onClick={() => setIsBespokePanelOpen(false)}
-            />
-          </div>
-        );
-        break;
+      case 'Review CCL':
+        // Navigate to Matters tab and auto-open CCL for the target matter
+        try {
+          window.dispatchEvent(new CustomEvent('navigateToMatter', {
+            detail: { matterId: 'DEMO-3311402', showCcl: true },
+          }));
+        } catch (error) {
+          console.error('Failed to dispatch navigateToMatter event:', error);
+        }
+        return; // Navigate without opening panel
       default:
         content = <div>No form available.</div>;
         break;
@@ -4405,6 +4899,25 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
       });
     }
 
+    // Demo mode: surface CCL review action when a draft exists for the demo matter
+    if (demoModeEnabled && demoCclDraftExists) {
+      actions.push({
+        title: 'Review CCL',
+        subtitle: 'HELIX01-01',
+        icon: 'CCL',
+        onClick: () => {
+          try {
+            window.dispatchEvent(new CustomEvent('navigateToMatter', {
+              detail: { matterId: 'DEMO-3311402', showCcl: true },
+            }));
+          } catch (error) {
+            console.error('Failed to dispatch navigateToMatter event:', error);
+          }
+        },
+        category: 'standard' as ImmediateActionCategory,
+      });
+    }
+
     // Normalize titles (strip count suffix like " (3)") when sorting
     const sortKey = (title: string) => {
       const base = title.replace(/\s*\(\d+\)$/,'');
@@ -4427,6 +4940,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     isLocalhost,
     pendingDocActions,
     enquiries,
+    demoCclDraftExists,
   ]);
 
   // Notify parent component when immediate actions state changes
@@ -4632,71 +5146,228 @@ const conversionRate = displayEnquiriesMonthToDate
 
       {/* Operations hub — cohesive home surface (metrics + team availability) */}
       <div className={operationsHubStyle(isDarkMode)}>
-        <TimeMetricsV2 
-          metrics={displayTimeMetrics}
-          enquiryMetrics={[
-          {
-            title: 'Enquiries Today',
-            count: displayEnquiriesToday,
-            prevCount: displayPrevEnquiriesToday,
-            pitchedCount: displayPitchedEnquiriesToday,
-          },
-          {
-            title: 'Enquiries This Week',
-            count: displayEnquiriesWeekToDate,
-            prevCount: displayPrevEnquiriesWeekFull,
-            elapsedPrevCount: displayPrevEnquiriesWeekToDate,
-            pitchedCount: displayPitchedEnquiriesWeekToDate,
-          },
-          {
-            title: 'Enquiries This Month',
-            count: displayEnquiriesMonthToDate,
-            prevCount: displayPrevEnquiriesMonthFull,
-            elapsedPrevCount: displayPrevEnquiriesMonthToDate,
-            pitchedCount: displayPitchedEnquiriesMonthToDate,
-          },
-          { title: 'Matters Opened This Month', count: displayMattersOpenedCount },
-          { 
-            title: 'Conversion Rate', 
-            percentage: conversionRate, 
-            isPercentage: true,
-            showTrend: false,
-            context: {
-              enquiriesMonthToDate: displayEnquiriesMonthToDate,
-              mattersOpenedMonthToDate: displayMattersOpenedCount,
-              prevEnquiriesMonthToDate: displayPrevEnquiriesMonthToDate,
-            },
-          }
-        ]}
-        enquiryMetricsBreakdown={enquiryMetricsBreakdown}
-        isDarkMode={isDarkMode}
-        userEmail={userData?.[0]?.Email || ''}
-        userInitials={userData?.[0]?.Initials || ''}
-        onRefresh={handleRefreshTimeMetrics}
-        isRefreshing={isRefreshingTimeMetrics}
-        isLoading={isLoadingWipClio}
-        isOutstandingLoading={!outstandingBalancesData?.data || outstandingTotal === null}
-        isLoadingEnquiryMetrics={isLoadingEnquiryMetrics}
-        viewAsProd={featureToggles.viewAsProd}
-        hasOutstandingBreakdown={filteredBalancesForPanel.length > 0}
-        onOpenOutstandingBreakdown={() => {
-          setShowOnlyMine(false);
-          setIsOutstandingPanelOpen(true);
-        }}
-      />
-
-        {/* Away / Annual Leave insight — team availability panel */}
-        {featureToggles.showAttendance && (
-          <div style={{ padding: '0 12px 12px 12px' }}>
-            <AwayInsight
+        {/* OperationsDashboard — unified for all users */}
+          <Suspense fallback={
+            <div style={{ minHeight: 320, padding: '12px 12px 0' }}>
+              {/* Billing skeleton: 3 tiles */}
+              <div style={{ fontSize: 11, fontWeight: 600, color: isDarkMode ? colours.subtleGrey : colours.greyText, padding: '6px 0 4px', letterSpacing: '0.2px' }}>Billing</div>
+              <div style={{ background: isDarkMode ? 'rgba(6, 23, 51, 0.55)' : '#fff', border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(160,160,160,0.12)'}`, boxShadow: isDarkMode ? 'none' : undefined, display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)' }}>
+                {[0,1,2].map(i => (
+                  <div key={i} style={{ padding: '16px 18px 14px', borderRight: i < 2 ? `1px solid ${isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(160,160,160,0.08)'}` : 'none' }}>
+                    <div style={{ width: 52, height: 22, background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(54,144,206,0.06)', borderRadius: 2, animation: 'homeSkelPulse 1.5s ease-in-out infinite', animationDelay: `${i * 0.12}s` }} />
+                    <div style={{ width: 60, height: 9, marginTop: 6, background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)', borderRadius: 2 }} />
+                    <div style={{ width: '100%', height: 2, marginTop: 8, background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)', borderRadius: 1 }} />
+                  </div>
+                ))}
+              </div>
+              {/* Enquiries skeleton: 3 tiles */}
+              <div style={{ fontSize: 11, fontWeight: 600, color: isDarkMode ? colours.subtleGrey : colours.greyText, padding: '12px 0 4px', letterSpacing: '0.2px' }}>Enquiries</div>
+              <div style={{ background: isDarkMode ? 'rgba(6, 23, 51, 0.55)' : '#fff', border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(160,160,160,0.12)'}`, boxShadow: isDarkMode ? 'none' : undefined, display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)' }}>
+                {[0,1,2].map(i => (
+                  <div key={i} style={{ padding: '14px 14px 10px', borderRight: i < 2 ? `1px solid ${isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(160,160,160,0.08)'}` : 'none' }}>
+                    <div style={{ width: 36, height: 20, background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(54,144,206,0.06)', borderRadius: 2, animation: 'homeSkelPulse 1.5s ease-in-out infinite', animationDelay: `${(i + 3) * 0.12}s` }} />
+                    <div style={{ width: 50, height: 9, marginTop: 4, background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)', borderRadius: 2 }} />
+                  </div>
+                ))}
+              </div>
+              <style>{`@keyframes homeSkelPulse { 0%,100% { opacity: 0.4; } 50% { opacity: 1; } }`}</style>
+            </div>
+          }>
+            <OperationsDashboard
+              metrics={displayTimeMetrics}
+              enquiryMetrics={[
+                {
+                  title: 'Enquiries Today',
+                  count: displayEnquiriesToday,
+                  prevCount: displayPrevEnquiriesToday,
+                  pitchedCount: displayPitchedEnquiriesToday,
+                },
+                {
+                  title: 'Enquiries This Week',
+                  count: displayEnquiriesWeekToDate,
+                  prevCount: displayPrevEnquiriesWeekFull,
+                  elapsedPrevCount: displayPrevEnquiriesWeekToDate,
+                  pitchedCount: displayPitchedEnquiriesWeekToDate,
+                },
+                {
+                  title: 'Enquiries This Month',
+                  count: displayEnquiriesMonthToDate,
+                  prevCount: displayPrevEnquiriesMonthFull,
+                  elapsedPrevCount: displayPrevEnquiriesMonthToDate,
+                  pitchedCount: displayPitchedEnquiriesMonthToDate,
+                },
+                { title: 'Matters Opened This Month', count: displayMattersOpenedCount },
+                {
+                  title: 'Conversion Rate',
+                  percentage: conversionRate,
+                  isPercentage: true,
+                  showTrend: false,
+                  context: {
+                    enquiriesMonthToDate: displayEnquiriesMonthToDate,
+                    mattersOpenedMonthToDate: displayMattersOpenedCount,
+                    prevEnquiriesMonthToDate: displayPrevEnquiriesMonthToDate,
+                  },
+                },
+              ]}
+              enquiryMetricsBreakdown={enquiryMetricsBreakdown}
+              unclaimedQueueCount={unclaimedEnquiries.length}
+              unclaimedToday={unclaimedToday}
+              unclaimedThisWeek={unclaimedThisWeek}
+              unclaimedLastWeek={unclaimedLastWeek}
+              canClaimUnclaimed={['LZ', 'JW', 'AC'].includes(userInitials)}
               isDarkMode={isDarkMode}
-              annualLeaveRecords={annualLeaveRecords}
-              futureLeaveRecords={futureLeaveRecords}
-              teamData={attendanceTeam}
-              isLoading={isLoadingAnnualLeave}
+              userEmail={isWaitingForLocalDashboardIdentity ? '' : effectiveDashboardIdentity.email}
+              userInitials={isWaitingForLocalDashboardIdentity ? '' : effectiveDashboardIdentity.initials}
+              recentMatters={recentMatters}
+              demoModeEnabled={demoModeEnabled}
+              teamData={teamData ?? undefined}
+              wipDailyData={wipClioData ? {
+                currentWeek: Object.fromEntries(
+                  Object.entries(wipClioData?.current_week?.daily_data || {}).map(([k, v]: [string, any]) => [k, {
+                    hours: Number(v?.total_hours) || 0,
+                    value: Number(v?.total_amount) || 0,
+                    entries: Array.isArray(v?.entries) ? v.entries.map((e: any) => ({
+                      hours: Number(e?.hours) || 0,
+                      value: Number(e?.value) || 0,
+                      type: e?.type || undefined,
+                      note: e?.note || undefined,
+                      matter: e?.matter || undefined,
+                      matterDesc: e?.matterDesc || undefined,
+                      activity: e?.activity || undefined,
+                    })) : undefined,
+                  }])
+                ),
+                lastWeek: Object.fromEntries(
+                  Object.entries(wipClioData?.last_week?.daily_data || {}).map(([k, v]: [string, any]) => [k, {
+                    hours: Number(v?.total_hours) || 0,
+                    value: Number(v?.total_amount) || 0,
+                    entries: Array.isArray(v?.entries) ? v.entries.map((e: any) => ({
+                      hours: Number(e?.hours) || 0,
+                      value: Number(e?.value) || 0,
+                      type: e?.type || undefined,
+                      note: e?.note || undefined,
+                      matter: e?.matter || undefined,
+                      matterDesc: e?.matterDesc || undefined,
+                      activity: e?.activity || undefined,
+                    })) : undefined,
+                  }])
+                ),
+              } : undefined}
+              onRefresh={handleRefreshTimeMetrics}
+              isRefreshing={isRefreshingTimeMetrics}
+              isLoading={isLoadingWipClio}
+              isOutstandingLoading={!outstandingBalancesData?.data || outstandingTotal === null}
+              isLoadingEnquiryMetrics={isLoadingEnquiryMetrics}
+              hasOutstandingBreakdown={filteredBalancesForPanel.length > 0}
+              onOpenOutstandingBreakdown={() => {
+                setShowOnlyMine(false);
+                setIsOutstandingPanelOpen(true);
+              }}
             />
-          </div>
-        )}
+          </Suspense>
+
+        {/* Team insight — attendance + leave in one panel */}
+        <div style={{ padding: '0 12px 12px 12px' }}>
+          {secondaryPanelsReady ? (
+            <Suspense fallback={
+              <div style={{ minHeight: 220, padding: '12px 0' }}>
+                {/* Team attendance skeleton */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: isDarkMode ? 'rgba(255,255,255,0.18)' : colours.highlight, opacity: 0.5 }} />
+                  <div style={{ width: 90, height: 11, background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)', borderRadius: 2 }} />
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {[0,1,2,3,4,5].map(i => (
+                    <div key={i} style={{ width: 36, height: 36, background: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)', borderRadius: 0, animation: 'homeSkelPulse 1.5s ease-in-out infinite', animationDelay: `${i * 0.1}s` }} />
+                  ))}
+                </div>
+                {/* Leave skeleton */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 20, marginBottom: 14 }}>
+                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: isDarkMode ? 'rgba(255,255,255,0.18)' : colours.highlight, opacity: 0.5 }} />
+                  <div style={{ width: 70, height: 11, background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)', borderRadius: 2 }} />
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {[0,1,2].map(i => (
+                    <div key={i} style={{ width: 100, height: 28, background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)', borderRadius: 0, animation: 'homeSkelPulse 1.5s ease-in-out infinite', animationDelay: `${i * 0.15}s` }} />
+                  ))}
+                </div>
+              </div>
+            }>
+              <TeamInsight
+                isDarkMode={isDarkMode}
+                attendanceRecords={attendanceRecords}
+                teamData={attendanceTeam}
+                annualLeaveRecords={annualLeaveRecords}
+                futureLeaveRecords={futureLeaveRecords}
+                isLoadingAttendance={isLoadingAttendance}
+                isLoadingLeave={isLoadingAnnualLeave}
+                onShowToast={showToast}
+                onConfirmAttendance={async (initials: string, weekStart: string, attendanceDays: string) => {
+                  const res = await fetch('/api/attendance/updateAttendance', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ initials, weekStart, attendanceDays }),
+                  });
+                  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+                  const json = await res.json();
+                  if (!json?.success || !json.record) throw new Error('Unexpected response');
+                  const rec = json.record;
+                  const mapped: AttendanceRecord = {
+                    Attendance_ID: rec.Attendance_ID ?? 0,
+                    Entry_ID: rec.Entry_ID ?? 0,
+                    First_Name: rec.First_Name || initials,
+                    Initials: rec.Initials || initials,
+                    Level: (attendanceTeam.find((t: any) => t.Initials === (rec.Initials || initials))?.Level) || '',
+                    Week_Start: rec.Week_Start || weekStart,
+                    Week_End: rec.Week_End || '',
+                    ISO_Week: rec.ISO_Week ?? 0,
+                    Attendance_Days: rec.Attendance_Days || attendanceDays,
+                    Confirmed_At: rec.Confirmed_At || new Date().toISOString(),
+                  };
+                  handleAttendanceUpdated([mapped]);
+                }}
+                onUnconfirmAttendance={async (initials: string, weekStart: string) => {
+                  const res = await fetch('/api/attendance/unconfirmAttendance', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ initials, weekStart }),
+                  });
+                  if (!res.ok) throw new Error(`Failed: ${res.status}`);
+                  const json = await res.json();
+                  if (!json?.success) throw new Error('Unexpected response');
+                  // Remove confirmed state from local records — clear everything so no stale Status/Attendance_Days lingers
+                  const cleared: AttendanceRecord = {
+                    Attendance_ID: 0,
+                    Entry_ID: 0,
+                    First_Name: initials,
+                    Initials: initials,
+                    Level: '',
+                    Week_Start: weekStart,
+                    Week_End: '',
+                    ISO_Week: 0,
+                    Attendance_Days: null as any,
+                    Confirmed_At: null,
+                    Status: null as any,
+                  } as AttendanceRecord;
+                  handleAttendanceUpdated([cleared]);
+                }}
+              />
+            </Suspense>
+          ) : (
+            <div style={{ minHeight: 220, padding: '12px 0', display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {[0,1,2,3,4,5].map(i => (
+                  <div key={i} style={{ width: 36, height: 36, background: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)', animation: 'homeSkelPulse 1.5s ease-in-out infinite', animationDelay: `${i * 0.1}s` }} />
+                ))}
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {[0,1,2].map(i => (
+                  <div key={i} style={{ width: 100, height: 28, background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)', animation: 'homeSkelPulse 1.5s ease-in-out infinite', animationDelay: `${i * 0.15}s` }} />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Transactions & Balances - only show in local environment */}
@@ -4750,10 +5421,21 @@ const conversionRate = displayEnquiriesMonthToDate
           onChange={(ev, checked) => setShowOnlyMine(!!checked)}
           styles={{ root: { marginBottom: '10px' } }}
         />
-        <OutstandingBalancesList 
-          balances={filteredBalancesForPanel} 
-          matters={allMatters ?? []} 
-        />
+        <Suspense fallback={
+          <div style={{ minHeight: 180, padding: '12px 0' }}>
+            {[0,1,2].map(i => (
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)'}` }}>
+                <div style={{ width: 120, height: 14, background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)', borderRadius: 2, animation: 'homeSkelPulse 1.5s ease-in-out infinite', animationDelay: `${i * 0.15}s` }} />
+                <div style={{ width: 60, height: 14, background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)', borderRadius: 2, animation: 'homeSkelPulse 1.5s ease-in-out infinite', animationDelay: `${i * 0.15 + 0.05}s` }} />
+              </div>
+            ))}
+          </div>
+        }>
+          <OutstandingBalancesList 
+            balances={filteredBalancesForPanel} 
+            matters={allMatters ?? []} 
+          />
+        </Suspense>
       </BespokePanel>
 
       {/* Bespoke Panel for other actions */}

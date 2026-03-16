@@ -5,6 +5,7 @@ import { Stack, Text } from '@fluentui/react';
 import '../../../app/styles/MultiSelect.css';
 import { colours } from '../../../app/styles/colours';
 import { useTheme } from '../../../app/functionality/ThemeContext';
+import { getPracticeAreaOptions } from './config';
 
 const areaColors: Record<string, string> = { /* invisible change */
     // Commercial: colours.blue, // Removed Commercial
@@ -24,8 +25,7 @@ interface PracticeAreaStepProps {
 const PracticeAreaStep: React.FC<PracticeAreaStepProps> = ({ options, practiceArea, setPracticeArea, onContinue, areaOfWork }) => {
     const { isDarkMode } = useTheme();
     const color = areaColors[areaOfWork] || '#3690CE';
-    // Filter out 'Commercial' from the options before rendering
-    const filteredOptions = options.filter((pa) => pa !== 'Commercial');
+    const filteredOptions = getPracticeAreaOptions(areaOfWork).filter((pa) => options.includes(pa));
     
     // Professional theme colors
     const themeColours = {

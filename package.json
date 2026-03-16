@@ -91,12 +91,12 @@
         "ts-jest": "^29.1.1"
     },
     "scripts": {
-        "dev:teamsfx": "concurrently \"npm run dev-tab:teamsfx\" \"npm run dev-api:teamsfx\" \"npm run start:server\" \"npm run start\"",
+        "dev:teamsfx": "concurrently \"npm run dev-tab:teamsfx\" \"npm run dev-api:teamsfx\" \"npm run start:server:watch\" \"npm run start\"",
         "dev-tab:teamsfx": "env-cmd --silent -f .localConfigs npm run start",
         "dev-api:teamsfx": "cd api && npm run dev:teamsfx",
         "dev": "concurrently \"npm run start:server:watch\" \"npm start\"",
-        "dev:all": "concurrently \"npm run start:api-functions\" \"npm run start:server\" \"npm run start:dev\"",
-        "dev:backend": "concurrently \"npm run start:api-functions\" \"npm run start:server\"",
+        "dev:all": "concurrently \"npm run start:api-functions\" \"npm run start:server:watch\" \"npm run start:dev\"",
+        "dev:backend": "concurrently \"npm run start:api-functions\" \"npm run start:server:watch\"",
         "dev:functions": "npm run start:api-functions",
         "start": "node server.js",
         "start:dev": "craco start",

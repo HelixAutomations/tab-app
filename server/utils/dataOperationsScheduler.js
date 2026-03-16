@@ -39,7 +39,7 @@ function formatSlotKey(date) {
  *
  * ~29 API calls/day per operation (24 hot + 4 warm + 1 cold).
  * Each tier has its own running guard + last-slot dedup.
- * WIP runs at :08 offset to avoid overlapping Clio API calls with collected.
+ * WIP runs at :20 offset to avoid overlapping Clio API calls with collected.
  * WIP windows are wider than collected to catch delayed backfills in recent history.
  */
 function startDataOperationsScheduler() {
@@ -139,11 +139,11 @@ function startDataOperationsScheduler() {
     }
 
     // ═══════════════════════════════════════════════
-    // WIP — runs at :08 (5 min offset from collected)
+    // WIP — runs at :20 (17 min offset from collected)
     // ═══════════════════════════════════════════════
 
-    // ─── HOT: every 60 min at :08 — rolling recent history ───
-    if (minute === 8) {
+    // ─── HOT: every 60 min at :20 — rolling recent history ───
+    if (minute === 20) {
       const slotKey = formatSlotKey(now);
       if (!state.wipHotRunning && state.wipHotLastSlot !== slotKey) {
         state.wipHotRunning = true;
@@ -164,8 +164,8 @@ function startDataOperationsScheduler() {
       }
     }
 
-    // ─── WARM: every 6h at :08 (00:08, 06:08, 12:08, 18:08) — rolling medium history ───
-    if (hour % 6 === 0 && minute === 8) {
+    // ─── WARM: every 6h at :20 (00:20, 06:20, 12:20, 18:20) — rolling medium history ───
+    if (hour % 6 === 0 && minute === 20) {
       const slotKey = formatSlotKey(now);
       if (!state.wipWarmRunning && state.wipWarmLastSlot !== slotKey) {
         state.wipWarmRunning = true;
@@ -186,14 +186,14 @@ function startDataOperationsScheduler() {
       }
     }
 
-    // ─── COLD: nightly at 23:08 — rolling deeper history ───
-    if (hour === 23 && minute === 8) {
+    // ─── COLD: nightly at 23:20 — rolling deeper history ───
+    if (hour === 23 && minute === 20) {
       const dateKey = formatDateKey(now);
       if (!state.wipColdRunning && state.wipColdLastDate !== dateKey) {
         state.wipColdRunning = true;
         state.wipColdLastDate = dateKey;
         const opName = 'syncWipCold';
-        logProgress(opName, `WIP cold sync triggered (${dateKey} 23:08) — rolling ${WIP_COLD_DAYS_BACK} days`, { triggeredBy: 'scheduler' });
+        logProgress(opName, `WIP cold sync triggered (${dateKey} 23:20) — rolling ${WIP_COLD_DAYS_BACK} days`, { triggeredBy: 'scheduler' });
         try {
           await syncWip({ daysBack: WIP_COLD_DAYS_BACK, triggeredBy: 'scheduler' });
           schedulerLogger.info(`WIP cold sync completed (${dateKey})`);

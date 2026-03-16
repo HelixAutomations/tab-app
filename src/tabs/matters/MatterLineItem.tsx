@@ -103,7 +103,7 @@ const MatterLineItem: React.FC<MatterLineItemProps> = ({ matter, onSelect, isLas
         display: 'flex',
         alignItems: 'center',
         padding: '8px 20px',
-        borderBottom: !isLast ? `1px solid ${isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'}` : 'none',
+        borderBottom: !isLast ? `0.5px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.18)' : 'rgba(160, 160, 160, 0.14)'}` : 'none',
         cursor: 'pointer',
         transition: 'all 0.15s ease',
         fontFamily: 'Raleway, sans-serif',

@@ -47,10 +47,10 @@ const OperationStatusToast: React.FC<OperationStatusToastProps> = ({
 
   const getTypeColor = () => {
     switch (type) {
-      case 'success': return '#10B981';
-      case 'error': return '#EF4444';
-      case 'warning': return '#F59E0B';
-      case 'info': return '#3690CE';
+      case 'success': return '#20b26c';  // colours.green
+      case 'error': return '#D65541';    // colours.cta
+      case 'warning': return '#FF8C00';  // colours.orange
+      case 'info': return '#3690CE';     // colours.highlight
       default: return '#3690CE';
     }
   };
@@ -66,11 +66,11 @@ const OperationStatusToast: React.FC<OperationStatusToastProps> = ({
           maxWidth: 400,
           minWidth: 320,
           zIndex: 2000,
-          background: isDarkMode ? '#1E293B' : '#FFFFFF',
-          borderRadius: '12px',
+          background: isDarkMode ? '#081c30' : '#FFFFFF',
+          borderRadius: 0,
           boxShadow: isDarkMode 
-            ? '0 10px 25px rgba(0, 0, 0, 0.3), 0 4px 6px rgba(0, 0, 0, 0.2)'
-            : '0 10px 25px rgba(0, 0, 0, 0.15), 0 4px 6px rgba(0, 0, 0, 0.1)',
+            ? '0 10px 25px rgba(0, 0, 0, 0.4), 0 4px 6px rgba(0, 0, 0, 0.25)'
+            : '0 10px 25px rgba(0, 0, 0, 0.12), 0 4px 6px rgba(0, 0, 0, 0.06)',
           border: `1px solid ${getTypeColor()}`,
           overflow: 'hidden',
           fontFamily: 'Raleway, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
@@ -141,7 +141,7 @@ const OperationStatusToast: React.FC<OperationStatusToastProps> = ({
               <div style={{
                 fontSize: '14px',
                 fontWeight: 600,
-                color: isDarkMode ? '#E2E8F0' : '#1E293B',
+                color: isDarkMode ? '#f3f4f6' : '#061733',
                 lineHeight: '1.4',
                 marginBottom: details ? '4px' : 0
               }}>
@@ -151,7 +151,7 @@ const OperationStatusToast: React.FC<OperationStatusToastProps> = ({
               {details && (
                 <div style={{
                   fontSize: '13px',
-                  color: isDarkMode ? '#94A3B8' : '#64748B',
+                  color: isDarkMode ? '#A0A0A0' : '#6B6B6B',
                   lineHeight: '1.4',
                   fontWeight: 400
                 }}>
@@ -162,36 +162,6 @@ const OperationStatusToast: React.FC<OperationStatusToastProps> = ({
           </div>
         </div>
 
-        {/* Enhanced CSS for animations */}
-        <style>{`
-          @keyframes toast-loading {
-            0% { transform: translateX(-100%); }
-            50% { transform: translateX(100%); }
-            100% { transform: translateX(-100%); }
-          }
-          
-          .toast-enter {
-            opacity: 0;
-            transform: translateX(100%) scale(0.9);
-          }
-          
-          .toast-enter-active {
-            opacity: 1;
-            transform: translateX(0) scale(1);
-            transition: all 300ms cubic-bezier(0.4, 0, 0.2, 1);
-          }
-          
-          .toast-exit {
-            opacity: 1;
-            transform: translateX(0) scale(1);
-          }
-          
-          .toast-exit-active {
-            opacity: 0;
-            transform: translateX(100%) scale(0.9);
-            transition: all 300ms cubic-bezier(0.4, 0, 0.2, 1);
-          }
-        `}</style>
       </div>
     </CSSTransition>
   );

@@ -65,6 +65,7 @@ export interface FilterBannerProps {
     onRefresh: () => void;
     isLoading?: boolean;
     nextUpdateTime?: string;
+    statusLabel?: string;
     collapsible?: boolean;
     progressPercentage?: number; // 0-100% remaining time
   };
@@ -400,11 +401,11 @@ const FilterBanner: React.FC<FilterBannerProps> = React.memo(({
                         clearTimeout(searchDebounceRef.current);
                       }
                       searchDebounceRef.current = setTimeout(() => {
-                        search.onChange(nextValue);
+                        search.onChange(nextValue.trim());
                       }, search.debounceMs);
                       return;
                     }
-                    search.onChange(nextValue);
+                    search.onChange(nextValue.trim());
                   }}
                   onFocus={() => setSearchOpen(true)}
                   onBlur={() => {
@@ -426,6 +427,18 @@ const FilterBanner: React.FC<FilterBannerProps> = React.memo(({
               flex: '0 0 auto'
             }}>
               {middleActions}
+            </div>
+          )}
+
+          {/* Right-side actions (before refresh) */}
+          {rightActions && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              flex: '0 0 auto'
+            }}>
+              {rightActions}
             </div>
           )}
 
@@ -496,7 +509,7 @@ const FilterBanner: React.FC<FilterBannerProps> = React.memo(({
                 )}
                 
                 <Icon
-                  iconName={refresh.isLoading ? "Sync" : "Clock"}
+                  iconName={refresh.isLoading ? "Sync" : "Database"}
                   style={{ 
                     fontSize: 12,
                     color: isDarkMode ? colours.subtleGrey : colours.greyText,
@@ -506,17 +519,17 @@ const FilterBanner: React.FC<FilterBannerProps> = React.memo(({
                   }}
                 />
                 
-                {refreshOpen && refresh.nextUpdateTime && !refresh.isLoading && (
+                {refreshOpen && !refresh.isLoading && (refresh.statusLabel || refresh.nextUpdateTime) && (
                   <>
                     <span style={{
                       fontSize: 10,
                       opacity: 0.8,
                       whiteSpace: 'nowrap',
                       animation: 'fadeIn 0.15s ease',
-                      minWidth: 28, // Fixed width to prevent layout shift (handles "4:59" to "0:01")
+                      minWidth: refresh.statusLabel ? 36 : 28,
                       textAlign: 'center',
                     }}>
-                      {refresh.nextUpdateTime}
+                      {refresh.statusLabel || refresh.nextUpdateTime}
                     </span>
                     <span
                       role="button"
@@ -573,17 +586,6 @@ const FilterBanner: React.FC<FilterBannerProps> = React.memo(({
             </div>
           )}
           
-          {/* Right-side actions */}
-          {rightActions && (
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              flex: '0 0 auto'
-            }}>
-              {rightActions}
-            </div>
-          )}
           </div>
         )}
       </div>

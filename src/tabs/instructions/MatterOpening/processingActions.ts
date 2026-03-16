@@ -5,12 +5,11 @@ import asanaIcon from '../../../assets/asana.svg';
 import cclIcon from '../../../assets/ccl.svg';
 import netdocsIcon from '../../../assets/netdocuments.svg';
 import helixBlueMark from '../../../assets/dark blue mark.svg';
+import { resolveMatterPracticeArea } from './config';
 
 // locally cached values so refresh endpoints can be called in sequence
 let acToken = '';
 let clioClientId = '';
-let clioClientSecret = '';
-let clioRefreshToken = '';
 let asanaClientId = '';
 let asanaSecret = '';
 let asanaRefreshToken = '';
@@ -35,6 +34,10 @@ export function registerClientIdCallback(cb: ((id: string | null) => void) | nul
 
 export function registerMatterIdCallback(cb: ((id: string | null) => void) | null) {
     matterIdCallback = cb;
+}
+
+export function getMatterDisplayNumber(): string | null {
+    return matterDisplayNumber;
 }
 
 export interface ProcessingResult {
@@ -179,8 +182,7 @@ export const processingActions: ProcessingAction[] = [
         run: async (_form, initials) => {
             const res = await instrumentedFetch('Retrieve Clio Client Secret', `/api/keys/${initials.toLowerCase()}-clio-v1-clientsecret`);
             if (!res.ok) throw new Error('Failed to fetch secret');
-            const data = await res.json();
-            clioClientSecret = data.value;
+            await res.json();
             return 'Client Secret retrieved';
         }
     },
@@ -190,8 +192,7 @@ export const processingActions: ProcessingAction[] = [
         run: async (_form, initials) => {
             const res = await instrumentedFetch('Retrieve Clio Refresh Token', `/api/keys/${initials.toLowerCase()}-clio-v1-refreshtoken`);
             if (!res.ok) throw new Error('Failed to fetch secret');
-            const data = await res.json();
-            clioRefreshToken = data.value;
+            await res.json();
             return 'Refresh Token retrieved';
         }
     },
@@ -384,7 +385,8 @@ export const processingActions: ProcessingAction[] = [
             matterId = id ? String(id) : null;
             matterDisplayNumber = data.matter?.display_number || data.matter?.displayNumber || null;
             if (matterId && matterIdCallback) matterIdCallback(matterId);
-            return `Matter created with ID ${matterId}`;
+            const dn = matterDisplayNumber ? ` (${matterDisplayNumber})` : '';
+            return `Matter ${matterId}${dn} created`;
         }
     },
     {
@@ -398,6 +400,9 @@ export const processingActions: ProcessingAction[] = [
                 console.warn('No instruction reference available for sync');
                 return 'Skipped - no instruction reference';
             }
+
+            // Demo/test refs don't exist in Instructions DB — skip the write to avoid noise
+            const isDemo = /^HLX-DEMO/i.test(instructionRef);
             
             if (!clientId) {
                 console.warn('No client ID available for sync');
@@ -417,11 +422,15 @@ export const processingActions: ProcessingAction[] = [
             }, payload);
             
             if (!resp.ok) {
+                // Demo refs won't have an Instructions row — treat 404 as acceptable
+                if (isDemo && resp.status === 404) {
+                    console.log(`[Demo] sync-instruction-client skipped for ${instructionRef} (no Instructions row)`);
+                    return `Skipped — demo ref ${instructionRef}`;
+                }
                 const errorText = await resp.text();
                 throw new Error(`Failed to sync Instructions database: ${errorText}`);
             }
             
-            const data = await resp.json();
             if (matterRequestId) {
                 const patchPayload = {
                     instructionRef,
@@ -481,7 +490,10 @@ export const processingActions: ProcessingAction[] = [
                     const c = formData.client_information?.[0];
                     return c ? [c.first_name, c.last_name].filter(Boolean).join(' ') : 'the client';
                 })();
-                const practiceArea = formData.matter_details?.practice_area || formData.matter_details?.area_of_work || '';
+                const practiceArea = resolveMatterPracticeArea(
+                    formData.matter_details?.area_of_work,
+                    formData.matter_details?.practice_area,
+                );
                 const defaultSnapshot = `Matter opened for ${clientName}${practiceArea ? ` — ${practiceArea}` : ''}. Initial review in progress.`;
 
                 const snapResp = await instrumentedFetch('Portal Snapshot Set', `/api/matter-control/${encodeURIComponent(id)}/snapshot`, {
@@ -518,55 +530,91 @@ export const processingActions: ProcessingAction[] = [
         }
     },
     {
-        label: 'CCL AI Fill',
+        label: 'CCL Context Assembled',
         icon: cclIcon,
         run: async (formData, _initials) => {
-            const id = matterId || formData.matter_details?.matter_ref;
-            if (!id) return 'Skipped — no matter ID available';
+            // Non-blocking — CCL failures must never abort matter opening
+            try {
+                const id = matterId || formData.matter_details?.matter_ref;
+                if (!id) return 'Skipped — no matter ID available';
 
-            const payload = {
-                matterId: id,
-                instructionRef: formData.matter_details?.instruction_ref || '',
-                practiceArea: formData.matter_details?.practice_area || formData.matter_details?.area_of_work || '',
-                description: formData.matter_details?.description || '',
-                clientName: (() => {
-                    const c = formData.client_information?.[0];
-                    return c ? [c.first_name, c.last_name].filter(Boolean).join(' ') : '';
-                })(),
-                opponent: formData.opponent_details?.opponent?.first_name
-                    ? `${formData.opponent_details.opponent.first_name} ${formData.opponent_details.opponent.last_name || ''}`.trim()
-                    : '',
-                handlerName: formData.team_assignments?.fee_earner || '',
-            };
+                const payload = {
+                    matterId: id,
+                    instructionRef: formData.matter_details?.instruction_ref || '',
+                    practiceArea: resolveMatterPracticeArea(
+                        formData.matter_details?.area_of_work,
+                        formData.matter_details?.practice_area,
+                    ),
+                    description: formData.matter_details?.description || '',
+                    clientName: (() => {
+                        const c = formData.client_information?.[0];
+                        return c ? [c.first_name, c.last_name].filter(Boolean).join(' ') : '';
+                    })(),
+                    opponent: formData.opponent_details?.opponent?.first_name
+                        ? `${formData.opponent_details.opponent.first_name} ${formData.opponent_details.opponent.last_name || ''}`.trim()
+                        : '',
+                    handlerName: formData.team_assignments?.fee_earner || '',
+                };
 
-            const resp = await instrumentedFetch('CCL AI Fill', '/api/ccl-ai/fill', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            }, payload);
+                const resp = await instrumentedFetch('CCL Context Assembled', '/api/ccl-ai/context-preview', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                }, payload);
 
-            if (!resp.ok) throw new Error('CCL AI fill failed');
-            const data = await resp.json();
-            return `AI fill complete — ${Object.keys(data.fields || {}).length} fields populated`;
+                if (!resp.ok) return 'CCL context preview skipped (endpoint unavailable)';
+                const data = await resp.json();
+                const sources = Array.isArray(data.dataSources) ? data.dataSources.length : 0;
+                return `Context assembled — ${sources} source${sources === 1 ? '' : 's'} surfaced`;
+            } catch (err) {
+                console.warn('[CCL] Context preview failed (non-blocking):', err instanceof Error ? err.message : err);
+                return `CCL context preview skipped — ${err instanceof Error ? err.message : 'error'}`;
+            }
         }
     },
     {
         label: 'Draft CCL Generated',
         icon: cclIcon,
         run: async (formData, _initials) => {
-            const id = matterId || formData.matter_details?.matter_ref;
-            if (!id) return 'Skipped — no matter ID available';
+            // Non-blocking — CCL failures must never abort matter opening
+            try {
+                const id = matterId || formData.matter_details?.matter_ref;
+                if (!id) return 'Skipped — no matter ID available';
 
-            const payload = { matterId: id, draftJson: formData };
-            const resp = await instrumentedFetch('Draft CCL Generated', '/api/ccl', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            }, payload);
+                const payload = {
+                    matterId: id,
+                    draftJson: formData,
+                    instructionRef: formData.matter_details?.instruction_ref || '',
+                    practiceArea: resolveMatterPracticeArea(
+                        formData.matter_details?.area_of_work,
+                        formData.matter_details?.practice_area,
+                    ),
+                    description: formData.matter_details?.description || '',
+                    clientName: (() => {
+                        const c = formData.client_information?.[0];
+                        return c ? [c.first_name, c.last_name].filter(Boolean).join(' ') : '';
+                    })(),
+                    opponent: formData.opponent_details?.opponent?.first_name
+                        ? `${formData.opponent_details.opponent.first_name} ${formData.opponent_details.opponent.last_name || ''}`.trim()
+                        : '',
+                    handlerName: formData.team_assignments?.fee_earner || '',
+                    stage: 'matter-opening',
+                };
+                const resp = await instrumentedFetch('Draft CCL Generated', '/api/ccl/service/run', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                }, payload);
 
-            if (!resp.ok) throw new Error('CCL generation failed');
-            const { url } = await resp.json();
-            return { message: 'Draft CCL created', url };
+                if (!resp.ok) return 'Draft CCL skipped (service unavailable)';
+                const { url, preview, unresolvedCount } = await resp.json();
+                const sourceCount = Array.isArray(preview?.dataSources) ? preview.dataSources.length : 0;
+                const suffix = typeof unresolvedCount === 'number' ? ` · ${unresolvedCount} unresolved` : '';
+                return { message: `Draft CCL created · ${sourceCount} sources${suffix}`, url };
+            } catch (err) {
+                console.warn('[CCL] Draft generation failed (non-blocking):', err instanceof Error ? err.message : err);
+                return `Draft CCL skipped — ${err instanceof Error ? err.message : 'error'}`;
+            }
         }
     }
 ];

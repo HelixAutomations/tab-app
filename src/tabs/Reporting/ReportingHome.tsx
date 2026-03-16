@@ -4,6 +4,7 @@ import {
   ActionButton,
   DefaultButton,
   PrimaryButton,
+  Modal,
   Spinner,
   SpinnerSize,
   FontIcon,
@@ -33,6 +34,7 @@ import LogMonitor from './LogMonitor';
 import DataCentre from './DataCentre';
 import { useStreamingDatasets } from '../../hooks/useStreamingDatasets';
 import { fetchWithRetry, fetchJSON } from '../../utils/fetchUtils';
+import { isAdminUser, isPowerUser } from '../../app/admin';
 import markWhite from '../../assets/markwhite.svg';
 import type { PpcIncomeMetrics } from './PpcReport';
 import { useToast } from '../../components/feedback/ToastProvider';
@@ -673,24 +675,26 @@ const AVAILABLE_REPORTS: AvailableReport[] = [
   {
     key: 'annualLeave',
     name: 'Annual leave report',
-    status: 'Live today',
+    status: 'Draft',
     action: 'annualLeave',
     requiredDatasets: ['annualLeave', 'teamData'],
+    disabled: true,
   },
   {
     key: 'matters',
     name: 'Matters',
-    status: 'Focus view',
+    status: 'Draft',
     action: 'matters',
     requiredDatasets: MATTERS_REPORT_REFRESH_DATASETS,
+    disabled: true,
   },
   {
     key: 'metaMetrics',
     name: 'Meta ads',
-    status: 'Disabled',
+    status: 'In development',
     action: 'metaMetrics',
     requiredDatasets: META_REPORT_DATASETS,
-    disabled: true,
+    development: true,
   },
   {
     key: 'seo',
@@ -703,9 +707,10 @@ const AVAILABLE_REPORTS: AvailableReport[] = [
   {
     key: 'ppc',
     name: 'PPC report',
-    status: 'Live today',
+    status: 'Draft',
     action: 'ppcReport',
     requiredDatasets: ['googleAds', 'enquiries', 'allMatters', 'recoveredFees'],
+    disabled: true,
   },
   // logMonitor is not a report — rendered separately as a utility strip below the reports grid
 ];
@@ -1397,13 +1402,18 @@ const subtleButtonStyles = (isDarkMode: boolean): IButtonStyles => ({
   },
 });
 
-/** Navigator tabs for report sub-views — matches Matters/Enquiries pivot pattern */
-const REPORT_NAV_TABS: { key: typeof ACTIVE_VIEW_TYPE; label: string }[] = [
+/** Navigator tabs for report sub-views — matches Matters/Enquiries pivot pattern.
+ *  `draft` tabs are visually muted but still clickable (work-in-progress reports). */
+const REPORT_NAV_TABS: { key: typeof ACTIVE_VIEW_TYPE; label: string; draft?: boolean }[] = [
+  // ── Prod ─────────────────────────────────────────
   { key: 'dashboard' as const, label: 'Dashboard' },
   { key: 'enquiries' as const, label: 'Enquiries' },
-  { key: 'matters' as const, label: 'Matters' },
-  { key: 'annualLeave' as const, label: 'Leave' },
-  { key: 'ppcReport' as const, label: 'PPC' },
+  { key: 'annualLeave' as const, label: 'Leave', draft: true },
+  { key: 'metaMetrics' as const, label: 'Meta' },
+  // ── Draft (visually muted) ──────────────────────
+  { key: 'matters' as const, label: 'Matters', draft: true },
+  { key: 'ppcReport' as const, label: 'PPC', draft: true },
+  { key: 'seoReport' as const, label: 'SEO', draft: true },
 ];
 type ActiveViewType = 'overview' | 'dashboard' | 'annualLeave' | 'enquiries' | 'metaMetrics' | 'seoReport' | 'ppcReport' | 'matters' | 'logMonitor' | 'dataCentre';
 const ACTIVE_VIEW_TYPE: ActiveViewType = 'overview';
@@ -1499,12 +1509,13 @@ interface ReportingHomeProps {
   userData?: UserData[] | null;
   teamData?: TeamData[] | null;
   demoModeEnabled?: boolean;
+  featureToggles?: Record<string, boolean>;
 }
 
 /**
  * Streamlined reporting landing page that centres on the Management Dashboard experience.
  */
-const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, teamData: propTeamData, demoModeEnabled = false }) => {
+const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, teamData: propTeamData, demoModeEnabled = false, featureToggles }) => {
   const { isDarkMode } = useTheme();
   const { setContent } = useNavigatorActions();
   const { showToast, hideToast, updateToast } = useToast();
@@ -1684,6 +1695,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   });
   const [lastRefreshTimestamp, setLastRefreshTimestamp] = useState<number | null>(cachedTimestamp);
   const [isFetching, setIsFetching] = useState<boolean>(false);
+  const [showReportingOpsModal, setShowReportingOpsModal] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [hasFetchedOnce, setHasFetchedOnce] = useState<boolean>(() => {
     const cacheState = getCacheState();
@@ -1692,6 +1704,39 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   });
   const [refreshStartedAt, setRefreshStartedAt] = useState<number | null>(null);
   const prevIsFetchingRef = useRef<boolean>(false);
+  const primaryUser = propUserData?.[0] ?? null;
+  const canAccessReportingOps = useMemo(
+    () => Boolean(primaryUser) && (isAdminUser(primaryUser) || isPowerUser(primaryUser)),
+    [primaryUser]
+  );
+
+  useEffect(() => {
+    if (!canAccessReportingOps) {
+      setShowReportingOpsModal(false);
+    }
+  }, [canAccessReportingOps]);
+
+  const reportingOpsRows = useMemo(() => {
+    const priority: Record<DatasetStatusValue, number> = {
+      loading: 0,
+      error: 1,
+      ready: 2,
+      idle: 3,
+    };
+
+    return DATASETS
+      .filter((dataset) => dataset.key !== 'annualLeave')
+      .map((dataset) => {
+        const meta = datasetStatus[dataset.key];
+        return {
+          key: dataset.key,
+          label: dataset.name,
+          status: meta?.status ?? 'idle',
+          updatedAt: meta?.updatedAt ?? null,
+        };
+      })
+      .sort((a, b) => priority[a.status] - priority[b.status]);
+  }, [datasetStatus]);
 
   // Show global toast notifications for data loading
   useEffect(() => {
@@ -2548,16 +2593,21 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     // Utility views (logMonitor, etc.) that sit outside the main report tabs
     const isTabView = REPORT_NAV_TABS.some(t => t.key === activeView);
     const utilityLabels: Record<string, string> = {
-      seoReport: 'SEO Report',
-      metaMetrics: 'Meta Ads',
       logMonitor: 'Log Monitor',
     };
+
+    // Draft tabs: always visible locally (unless viewAsProd); in prod only for LZ/AW
+    const isLocalNow = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+    const isViewingAsProd = Boolean(featureToggles?.viewAsProd);
+    const initials = extractUserInitials(propUserData);
+    const isDraftViewer = (isLocalNow && !isViewingAsProd) || initials === 'LZ' || initials === 'AW';
+    const visibleTabs = REPORT_NAV_TABS.filter(t => !t.draft || isDraftViewer);
 
     setContent(
       <NavigatorDetailBar
         onBack={handleBackToOverview}
         backLabel="Back"
-        tabs={isTabView ? REPORT_NAV_TABS.map(t => ({ key: t.key, label: t.label })) : undefined}
+        tabs={isTabView ? visibleTabs.map(t => ({ key: t.key, label: t.draft ? `${t.label} ᴰ` : t.label, draft: t.draft })) : undefined}
         activeTab={activeView}
         onTabChange={(key) => setActiveView(key as ActiveViewType)}
         staticLabel={!isTabView ? (utilityLabels[activeView] || activeView) : undefined}
@@ -2567,7 +2617,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     return () => {
       setContent(null);
     };
-  }, [activeView, handleBackToOverview, isDarkMode, setContent]);
+  }, [activeView, handleBackToOverview, isDarkMode, setContent, propUserData, featureToggles]);
 
   const fetchAnnualLeaveDataset = useCallback(async (forceRefresh: boolean): Promise<AnnualLeaveFetchResult> => {
     const endpoint = forceRefresh ? '/api/attendance/getAnnualLeave?forceRefresh=true' : '/api/attendance/getAnnualLeave';
@@ -2624,14 +2674,10 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   }, [propUserData]);
 
   // Marketing metrics fetching function
-  const fetchMetaMetrics = useCallback(async (daysBack: number = DEFAULT_META_DAYS): Promise<MarketingMetrics[]> => {
-    debugLog('ReportingHome: fetchMetaMetrics called');
-    
+  const fetchMetaMetrics = useCallback(async (daysBack: number = DEFAULT_META_DAYS, bypassCache = false): Promise<MarketingMetrics[]> => {
     try {
       const safeDays = Math.max(Math.floor(daysBack), 7);
-      // Use our Express server route for live Facebook data with daily breakdown
-      const url = `/api/marketing-metrics?daysBack=${safeDays}`; // Request limited history to match UI window
-      debugLog('ReportingHome: Fetching meta metrics from:', url);
+      const url = `/api/marketing-metrics?daysBack=${safeDays}${bypassCache ? '&bypassCache=true' : ''}`;
       
       const response = await fetchWithRetry(url, {
         timeout: 30000,
@@ -2644,31 +2690,14 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       }
       
       const result = await response.json();
-      if (!result.success) {
-        debugWarn('ReportingHome: Meta metrics API returned error:', result.error);
-        return [];
-      }
+      if (!result.success) return [];
       
-      // The API now returns an array of daily metrics
       const dailyMetrics = result.data;
+      if (!Array.isArray(dailyMetrics)) return [];
       
-      if (!Array.isArray(dailyMetrics)) {
-        debugWarn('ReportingHome: Expected array of daily metrics, got:', typeof dailyMetrics);
-        return [];
-      }
-      
-      debugLog('ReportingHome: Meta metrics fetched successfully. Days included:', dailyMetrics.length);
-      debugLog('ReportingHome: Date range:', result.dataSource, result.dateRange);
-      
-      return dailyMetrics; // Return the array directly as it's already in the correct format
+      return dailyMetrics;
       
     } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        debugWarn('ReportingHome: Meta metrics request timed out after 30 seconds');
-        return [];
-      }
-      console.error('ReportingHome: Meta metrics fetch error:', error);
-      debugWarn('ReportingHome: Failed to fetch meta metrics:', error);
       // Return empty array on error to prevent blocking the dashboard
       return [];
     }
@@ -3093,13 +3122,13 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     }
     
     const lastUpdate = datasetStatus.metaMetrics?.updatedAt;
-    const fifteenMinutesAgo = Date.now() - (15 * 60 * 1000); // Extended to 15 minutes
-    if (lastUpdate && lastUpdate > fifteenMinutesAgo) {
+    const twoMinutesAgo = Date.now() - (2 * 60 * 1000);
+    if (lastUpdate && lastUpdate > twoMinutesAgo) {
       debugLog('Meta metrics data is recent, skipping refresh');
       showToast({
-        message: 'Meta metrics already fresh. Try again later for another update.',
+        message: 'Meta metrics already fresh. Try again in a minute.',
         type: 'info',
-        duration: 4000,
+        duration: 3000,
       });
       return;
     }
@@ -3109,7 +3138,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     setRefreshStartedAt(Date.now());
     setStatusesFor(['metaMetrics'], 'loading');
     try {
-      const metrics = await fetchMetaMetrics(metaDaysBack);
+      const metrics = await fetchMetaMetrics(metaDaysBack, true);
       setDatasetData(prev => ({ ...prev, metaMetrics: metrics }));
       const now = Date.now();
       setDatasetStatus(prev => ({ ...prev, metaMetrics: { status: 'ready', updatedAt: now } }));
@@ -3413,6 +3442,17 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
             ? clioActivities
             : (dbCurrentActivities && dbCurrentActivities.length > 0 ? dbCurrentActivities : []);
 
+          // eslint-disable-next-line no-console
+          console.info('📊 WIP merge diagnosis:', {
+            baseWipCount: baseWip.length,
+            clioStatus: clioState?.status ?? 'absent',
+            clioActivitiesCount: clioActivities?.length ?? 0,
+            dbCurrentStatus: dbCurrentState?.status ?? 'absent',
+            dbCurrentCount: dbCurrentActivities?.length ?? 0,
+            mergeSource: (clioActivities && clioActivities.length > 0) ? 'clio' : (dbCurrentActivities && dbCurrentActivities.length > 0 ? 'db' : 'none'),
+            activitiesToMergeCount: activitiesToMerge.length,
+          });
+
           if (activitiesToMerge.length > 0) {
             const seen = new Set<string>(
               baseWip.map(e => (
@@ -3441,11 +3481,14 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
               ...prev,
               wip: merged,
             }));
+            // Persist merged result so remounted components get current-week data
+            cachedData = { ...cachedData, wip: merged };
           } else {
             setDatasetData(prev => ({
               ...prev,
               wip: baseWip,
             }));
+            cachedData = { ...cachedData, wip: baseWip };
           }
         } else {
           // Debug: log when recoveredFees is received
@@ -3472,8 +3515,10 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
           },
         }));
 
-        // Update cache
-        cachedData = { ...cachedData, [datasetName]: datasetState.data };
+        // Update cache (wip is handled specially above to preserve the merge)
+        if (datasetName !== 'wip') {
+          cachedData = { ...cachedData, [datasetName]: datasetState.data };
+        }
         if (datasetState.updatedAt) {
           cachedTimestamp = datasetState.updatedAt;
           setLastRefreshTimestamp(datasetState.updatedAt);
@@ -3554,6 +3599,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
         added: merged.length - baseWip.length,
         total: merged.length,
       });
+      // Persist merged result so remounted components get current-week data
+      cachedData = { ...cachedData, wip: merged };
       return { ...prev, wip: merged };
     });
   }, [streamingDatasets.wip, streamingDatasets.wipClioCurrentWeek, streamingDatasets.wipDbCurrentWeek]);
@@ -4368,22 +4415,22 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
               gap: 6,
               marginBottom: 12,
               paddingLeft: 10,
-              borderLeft: `2px solid ${isDarkMode ? colours.orange : colours.orange}`,
+              borderLeft: `2px solid ${isDarkMode ? colours.green : colours.green}`,
             }}>
               <span style={{
                 fontSize: 9,
                 fontWeight: 700,
                 textTransform: 'uppercase' as const,
                 letterSpacing: '0.06em',
-                color: isDarkMode ? colours.orange : colours.orange,
+                color: isDarkMode ? colours.green : colours.green,
               }}>
-                In development
+                Production
               </span>
               <span style={{
                 width: 5,
                 height: 5,
                 borderRadius: '50%',
-                background: colours.orange,
+                background: colours.green,
                 display: 'inline-block',
                 animation: 'pulse 2s ease-in-out infinite',
               }} />
@@ -4422,7 +4469,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                 letterSpacing: '0.06em',
                 color: isDarkMode ? 'rgba(160, 160, 160, 0.5)' : 'rgba(107, 107, 107, 0.5)',
               }}>
-                Coming soon
+                Draft
               </span>
             </div>
 
@@ -5988,6 +6035,31 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                     />
                   </span>
                 </TooltipHost>
+                {canAccessReportingOps && (
+                  <TooltipHost content="View reporting activity feed">
+                    <IconButton
+                      ariaLabel="Open reporting activity"
+                      iconProps={{ iconName: 'Health' }}
+                      onClick={() => setShowReportingOpsModal(true)}
+                      styles={{
+                        root: {
+                          width: 32,
+                          height: 32,
+                          borderRadius: 0,
+                          border: 'none',
+                          background: 'transparent',
+                          color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                          transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                        },
+                        rootHovered: {
+                          background: isDarkMode ? 'rgba(75, 85, 99, 0.12)' : 'rgba(75, 85, 99, 0.06)',
+                          color: isDarkMode ? colours.dark.text : colours.greyText,
+                        },
+                        icon: { fontSize: 14 },
+                      }}
+                    />
+                  </TooltipHost>
+                )}
               </div>
             </div>
           </div>
@@ -6467,69 +6539,159 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
           {renderAvailableReportCards()}
 
           {/* ── Activity Monitor — not a report, a utility tool ── */}
-          <div
-            onClick={() => navigateToReport('logMonitor')}
-            style={{
-              marginTop: 18,
-              padding: '10px 14px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              cursor: 'pointer',
-              borderRadius: 0,
-              border: `0.5px solid ${subtleStroke(isDarkMode)}`,
-              background: isDarkMode ? 'rgba(10, 28, 50, 0.35)' : 'rgba(244, 244, 246, 0.35)',
-              backdropFilter: 'blur(12px) saturate(1.3)',
-              transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-              opacity: 0.78,
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.opacity = '1';
-              e.currentTarget.style.borderColor = isDarkMode ? 'rgba(75, 85, 99, 0.36)' : 'rgba(6, 23, 51, 0.1)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.opacity = '0.78';
-              e.currentTarget.style.borderColor = isDarkMode ? 'rgba(75, 85, 99, 0.28)' : 'rgba(6, 23, 51, 0.06)';
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{
-                fontSize: 14,
-                color: isDarkMode ? colours.subtleGrey : colours.greyText,
+          {canAccessReportingOps && (
+            <div
+              onClick={() => navigateToReport('logMonitor')}
+              style={{
+                marginTop: 18,
+                padding: '10px 14px',
                 display: 'flex',
                 alignItems: 'center',
-              }}>
-                <FontIcon iconName="Health" style={{ fontSize: 14 }} />
-              </span>
-              <div>
-                <span style={{
-                  fontSize: 12,
-                  fontWeight: 600,
-                  color: isDarkMode ? colours.subtleGrey : colours.greyText,
-                  fontFamily: 'Raleway, sans-serif',
-                }}>
-                  Activity monitor
-                </span>
-                <span style={{
-                  fontSize: 10,
-                  color: isDarkMode ? 'rgba(75, 85, 99, 0.7)' : 'rgba(107, 107, 107, 0.8)',
-                  marginLeft: 10,
-                }}>
-                  Real-time hub logs · Application Insights level
-                </span>
-              </div>
-            </div>
-            <FontIcon
-              iconName="ChevronRight"
-              style={{
-                fontSize: 10,
-                color: isDarkMode ? colours.greyText : colours.subtleGrey,
+                justifyContent: 'space-between',
+                cursor: 'pointer',
+                borderRadius: 0,
+                border: `0.5px solid ${subtleStroke(isDarkMode)}`,
+                background: isDarkMode ? 'rgba(10, 28, 50, 0.35)' : 'rgba(244, 244, 246, 0.35)',
+                backdropFilter: 'blur(12px) saturate(1.3)',
+                transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                opacity: 0.78,
               }}
-            />
-          </div>
+              onMouseEnter={(e) => {
+                e.currentTarget.style.opacity = '1';
+                e.currentTarget.style.borderColor = isDarkMode ? 'rgba(75, 85, 99, 0.36)' : 'rgba(6, 23, 51, 0.1)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.opacity = '0.78';
+                e.currentTarget.style.borderColor = isDarkMode ? 'rgba(75, 85, 99, 0.28)' : 'rgba(6, 23, 51, 0.06)';
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{
+                  fontSize: 14,
+                  color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                  display: 'flex',
+                  alignItems: 'center',
+                }}>
+                  <FontIcon iconName="Health" style={{ fontSize: 14 }} />
+                </span>
+                <div>
+                  <span style={{
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                    fontFamily: 'Raleway, sans-serif',
+                  }}>
+                    Activity monitor
+                  </span>
+                  <span style={{
+                    fontSize: 10,
+                    color: isDarkMode ? 'rgba(75, 85, 99, 0.7)' : 'rgba(107, 107, 107, 0.8)',
+                    marginLeft: 10,
+                  }}>
+                    Real-time hub logs · Application Insights level
+                  </span>
+                </div>
+              </div>
+              <FontIcon
+                iconName="ChevronRight"
+                style={{
+                  fontSize: 10,
+                  color: isDarkMode ? colours.greyText : colours.subtleGrey,
+                }}
+              />
+            </div>
+          )}
         </section>
 
       </div>
+
+      {canAccessReportingOps && (
+        <Modal
+          isOpen={showReportingOpsModal}
+          onDismiss={() => setShowReportingOpsModal(false)}
+          isBlocking={false}
+          styles={{
+            main: {
+              width: 560,
+              maxWidth: 'calc(100vw - 40px)',
+              borderRadius: 0,
+              background: isDarkMode ? 'rgba(6, 23, 51, 0.96)' : 'rgba(255, 255, 255, 0.96)',
+              border: `0.5px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.32)' : 'rgba(6, 23, 51, 0.08)'}`,
+              boxShadow: isDarkMode ? '0 6px 20px rgba(0, 0, 0, 0.42)' : '0 6px 20px rgba(6, 23, 51, 0.14)',
+            },
+          }}
+        >
+          <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: isDarkMode ? colours.accent : colours.highlight }}>
+                  Loading Reporting Data
+                </span>
+                <span style={{ fontSize: 13, color: isDarkMode ? '#d1d5db' : '#374151', lineHeight: 1.4 }}>
+                  Fetching latest data. You can continue browsing - we'll notify you when it's ready.
+                </span>
+              </div>
+              <IconButton
+                ariaLabel="Close reporting activity"
+                iconProps={{ iconName: 'Cancel' }}
+                onClick={() => setShowReportingOpsModal(false)}
+                styles={{ root: { width: 28, height: 28, borderRadius: 0, color: isDarkMode ? colours.subtleGrey : colours.greyText } }}
+              />
+            </div>
+
+            <div style={{
+              border: `0.5px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.26)' : 'rgba(6, 23, 51, 0.08)'}`,
+              background: isDarkMode ? 'rgba(2, 6, 23, 0.75)' : 'rgba(244, 244, 246, 0.75)',
+              minHeight: 210,
+              maxHeight: 280,
+              overflowY: 'auto',
+              padding: '10px 12px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 6,
+              fontFamily: 'Consolas, Monaco, monospace',
+            }}>
+              {reportingOpsRows.length === 0 && (
+                <span style={{ fontSize: 12, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+                  {isFetching ? 'Waiting for reporting activity…' : 'No recent reporting activity.'}
+                </span>
+              )}
+              {reportingOpsRows.map((entry) => (
+                <div key={entry.key} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 11, lineHeight: 1.35 }}>
+                  <span style={{ minWidth: 95, color: isDarkMode ? 'rgba(160, 160, 160, 0.9)' : 'rgba(107, 107, 107, 0.9)' }}>
+                    {entry.label}
+                  </span>
+                  <span style={{ color: isDarkMode ? 'rgba(243, 244, 246, 0.92)' : 'rgba(6, 23, 51, 0.9)', wordBreak: 'break-word' }}>
+                    {entry.status.toUpperCase()}
+                    {entry.updatedAt ? ` • ${new Date(entry.updatedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : ''}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: 11, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+                Restricted to operations/admin access.
+              </span>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <DefaultButton
+                  text="Open Activity Monitor"
+                  onClick={() => {
+                    setShowReportingOpsModal(false);
+                    navigateToReport('logMonitor');
+                  }}
+                  styles={subtleButtonStyles(isDarkMode)}
+                />
+                <PrimaryButton
+                  text="Close"
+                  onClick={() => setShowReportingOpsModal(false)}
+                  styles={primaryButtonStyles(isDarkMode)}
+                />
+              </div>
+            </div>
+          </div>
+        </Modal>
+      )}
     </>
   );
 };

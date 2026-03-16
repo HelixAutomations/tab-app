@@ -284,7 +284,7 @@ Backfill operations are not tracked as one-off scripts. If needed, implement a r
 
 **Critical Dependencies**:
 - Azure Key Vault for per-user Clio credentials
-- Refresh token rotation (single-use tokens)
+- Refresh token rotation (single-use tokens) — `clioAuth.js` now auto-persists the rotated `refresh_token` back to Key Vault after each successful exchange. If the stored token is already revoked (e.g. long server downtime), manual re-auth via Clio's OAuth flow is required; once a valid token is stored, rotation is self-healing.
 - EU region API endpoint (`eu.app.clio.com`)
 
 **See**: `.github/instructions/CLIO_API_REFERENCE.md`
@@ -516,10 +516,10 @@ Every sync operation logs:
 
 ### Current-Week Boundary (CRITICAL)
 
-The reporting layer (`server/routes/reporting.js`) splits WIP data sourcing:
-- **Historical**: SQL `wip` table — last 24 months **excluding the current ISO week** (Mon–Sun). Uses `getLast24MonthsExcludingCurrentWeek()` to compute the boundary.
-- **Current week**: Live from Clio API (`/api/v4/activities.json`). Frontend deduplicates by `id` when merging.
-- **Fallback**: If Clio is unavailable, `fetchWipDbCurrentWeek()` reads the current week from SQL instead.
+The reporting layer splits WIP data sourcing:
+- **Historical**: SQL `wip` table — last 24 months **excluding the current ISO week** (Mon–Sun). Uses `getLast24MonthsExcludingCurrentWeek()` to compute the boundary. DB has no current-week rows because `syncWip` skips the current week.
+- **Current week**: Live from Clio API (`/api/v4/activities.json`) via `wipClioCurrentWeek`. Frontend deduplicates by `id` when merging into the base `wip` dataset.
+- **Fallback**: If Clio is unavailable, `fetchWipClioCurrentWeek` errors propagate (not swallowed) so the streaming handler sends `dataset-error` instead of caching empty data as 'ready'. Frontend falls back to `wipDbCurrentWeek()` which reads the current week from SQL (usually empty since syncWip skips current week).
 
 **Implication for Data Hub sync**: When the Coverage Panel syncs the current month for WIP, `syncMonthKey` in `DataCentre.tsx` **caps the end date at last Sunday** to avoid writing current-week data into SQL. This prevents double-counting on the Management Dashboard, which combines SQL historical data with Clio live current-week data.
 
@@ -558,6 +558,34 @@ The OperationValidator is always visible when drilled into Collected or WIP — 
 | GET | `/api/data-operations/ops-log` | Fetch operation audit log |
 | GET | `/api/data-operations/explain` | Full pipeline explanation with sum analysis |
 | GET | `/api/data-operations/explain/sample?clioId=X` | Actual rows for a specific Clio line-item ID |
+
+---
+
+## Attendance Data Flow (CRITICAL — read before touching attendance)
+
+### Data Path
+
+1. **Server** (`server/routes/attendance.js`): `GET /api/attendance/getAttendance` queries `[dbo].[Attendance]` with `Confirmed_At` in the SELECT.
+2. **Home.tsx** transforms API response into `AttendanceRecord[]` in **two mappers** (both must stay in sync):
+   - SSE realtime refresh (~L1640)
+   - Initial fetch (~L2070)
+3. **TeamInsight.tsx** reads `rec?.Confirmed_At` to determine confirmed state.
+
+### Confirmed_At Mapper Rule (cost real debugging time)
+
+**Both** attendance transform mappers in Home.tsx **must** include `Confirmed_At: member.Confirmed_At ?? null`. If this field is omitted, `Boolean(undefined)` evaluates to `false` and every person appears unconfirmed.
+
+### Unconfirmed Status Logic
+
+When `Confirmed_At` is falsy (unconfirmed), TeamInsight forces all `weekStatuses` to `unknown` — it does **not** fall through to stale `Attendance_Days`/`Status` data. This prevents confirmed-looking WFH rows on people who haven't actually confirmed.
+
+### Unconfirm Endpoint
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST | `/api/attendance/unconfirmAttendance` | Sets `Confirmed_At = NULL` and `Attendance_Days = NULL`, broadcasts SSE, clears cache |
+
+The "Unconfirm" / "Reset" button in the modal always calls this endpoint (for both confirmed and unconfirmed people). The local state update must clear **both** `Attendance_Days` and `Confirmed_At` (and `Status` if present) to prevent stale data surviving the spread merge in `handleAttendanceUpdated`.
 
 ---
 

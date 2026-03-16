@@ -25,6 +25,7 @@ interface Props {
   inlineWorkbenchItem?: any;
   teamData?: any[] | null;
   workbenchHandlers?: {
+    onOpenEnquiryRating?: (enquiryId: string) => void;
     onDocumentPreview?: (doc: any) => void;
     onOpenRiskAssessment?: (instruction: any) => void;
     onOpenMatter?: (instruction: any) => void;
@@ -136,7 +137,7 @@ const getAreaColour = (area?: string) => {
   return colours.greyText;
 };
 
-const NewUnclaimedEnquiryCard: React.FC<Props> = ({ enquiry, onSelect, onAreaChange, userEmail, onClaimSuccess, onOptimisticClaim, promotionStatus, documentCount = 0, inlineWorkbenchItem, teamData, workbenchHandlers }) => {
+const NewUnclaimedEnquiryCard: React.FC<Props> = ({ enquiry, onSelect, onRate, onAreaChange, userEmail, onClaimSuccess, onOptimisticClaim, promotionStatus, documentCount = 0, inlineWorkbenchItem, teamData, workbenchHandlers }) => {
   const { isDarkMode } = useTheme();
   const [selected, setSelected] = useState(false);
   const [showActions, setShowActions] = useState(false);
@@ -394,6 +395,7 @@ const NewUnclaimedEnquiryCard: React.FC<Props> = ({ enquiry, onSelect, onAreaCha
             onOpenIdReview={workbenchHandlers?.onOpenIdReview}
             onOpenMatter={workbenchHandlers?.onOpenMatter}
             onOpenRiskAssessment={workbenchHandlers?.onOpenRiskAssessment}
+            onOpenEnquiryRating={(enquiryId) => onRate(String(enquiryId))}
             onRefreshData={workbenchHandlers?.onRefreshData ? () => workbenchHandlers.onRefreshData!(inlineWorkbenchItem?.instruction?.InstructionRef || inlineWorkbenchItem?.instruction?.instructionRef) : undefined}
             onClose={() => setSelected(false)}
             teamData={teamData}

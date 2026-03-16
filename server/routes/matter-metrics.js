@@ -2,6 +2,7 @@ const express = require('express');
 const fetch = require('node-fetch');
 const { getSecret } = require('../utils/getSecret');
 const { withRequest } = require('../utils/db');
+const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
 
 const router = express.Router();
 
@@ -220,7 +221,7 @@ async function fetchMatterActivities(initials, matterId, dateFrom, dateTo) {
   const activities = [];
   const limit = 200;
   let offset = 0;
-  const fields = 'id,date,created_at,quantity_in_hours,total,non_billable,non_billable_total,billed,on_bill';
+  const fields = 'id,type,date,created_at,quantity_in_hours,rounded_quantity_in_hours,total,note,non_billable,non_billable_total,billed,on_bill,activity_description{id,name},expense_category{id,name}';
 
   while (true) {
     const params = new URLSearchParams({
@@ -256,6 +257,21 @@ async function fetchMatterActivities(initials, matterId, dateFrom, dateTo) {
   }
 
   return activities;
+}
+
+async function resolveClioMatterId({ matterIdRaw, displayNumber, instructionRef }) {
+  let clioMatterId = Number.isFinite(Number(matterIdRaw)) ? Number(matterIdRaw) : null;
+  if (!clioMatterId) {
+    clioMatterId = await resolveClioMatterIdFromSql(matterIdRaw, displayNumber);
+  }
+  if (!clioMatterId) {
+    const resolution = await resolveClioMatterIdFromInstructions({ instructionRef, displayNumber, matterIdRaw });
+    clioMatterId = resolution.clioMatterId;
+    if (!clioMatterId) {
+      return { clioMatterId: null, pendingReason: resolution.pendingReason || null };
+    }
+  }
+  return { clioMatterId, pendingReason: null };
 }
 
 function aggregateActivities(activities) {
@@ -356,6 +372,78 @@ router.get('/wip', async (req, res) => {
   } catch (error) {
     console.error('[matter-metrics] WIP fetch failed:', error.message || error);
     return res.status(500).json({ error: 'Failed to fetch matter WIP' });
+  }
+});
+
+router.get('/activities', async (req, res) => {
+  const startedAt = Date.now();
+  try {
+    const matterIdRaw = req.query.matterId;
+    const displayNumber = typeof req.query.displayNumber === 'string' ? req.query.displayNumber.trim() : '';
+    const instructionRef = typeof req.query.instructionRef === 'string' ? req.query.instructionRef.trim() : '';
+    const entraId = typeof req.query.entraId === 'string' ? req.query.entraId.trim() : '';
+    let initials = String(req.query.initials || req.user?.initials || process.env.CLIO_USER_INITIALS || '').trim();
+    const dateFrom = typeof req.query.dateFrom === 'string' ? req.query.dateFrom : undefined;
+    const dateTo = typeof req.query.dateTo === 'string' ? req.query.dateTo : undefined;
+
+    trackEvent('MatterMetrics.Activities.Started', {
+      operation: 'activities',
+      triggeredBy: initials || entraId || 'unknown',
+      matterId: String(matterIdRaw || ''),
+      displayNumber,
+      instructionRef,
+      dateFrom: String(dateFrom || ''),
+      dateTo: String(dateTo || ''),
+    });
+
+    if (!initials && entraId) {
+      const resolved = await resolveInitialsFromEntraId(entraId);
+      if (resolved) initials = String(resolved).trim();
+    }
+
+    if (!initials) {
+      return res.status(400).json({ error: 'initials are required' });
+    }
+
+    if (!matterIdRaw && !displayNumber) {
+      return res.status(400).json({ error: 'matterId or displayNumber is required' });
+    }
+
+    const resolution = await resolveClioMatterId({ matterIdRaw, displayNumber, instructionRef });
+    if (!resolution.clioMatterId) {
+      if (resolution.pendingReason) {
+        return res.json({ status: 'pending', reason: resolution.pendingReason, data: [] });
+      }
+      return res.status(404).json({ error: 'Clio matter not found' });
+    }
+
+    const activities = await fetchMatterActivities(initials, resolution.clioMatterId, dateFrom, dateTo);
+    trackEvent('MatterMetrics.Activities.Completed', {
+      operation: 'activities',
+      triggeredBy: initials,
+      matterId: String(matterIdRaw || ''),
+      clioMatterId: String(resolution.clioMatterId),
+      count: String(activities.length),
+      durationMs: String(Date.now() - startedAt),
+    });
+    trackMetric('MatterMetrics.Activities.Duration', Date.now() - startedAt, {
+      operation: 'activities',
+      triggeredBy: initials,
+    });
+
+    return res.json({ data: activities, clioMatterId: resolution.clioMatterId });
+  } catch (error) {
+    console.error('[matter-metrics] Activities fetch failed:', error.message || error);
+    trackException(error, {
+      operation: 'activities',
+      phase: 'route',
+      entity: 'MatterMetrics',
+    });
+    trackEvent('MatterMetrics.Activities.Failed', {
+      operation: 'activities',
+      error: error.message || 'Unknown error',
+    });
+    return res.status(500).json({ error: 'Failed to fetch matter activities' });
   }
 });
 

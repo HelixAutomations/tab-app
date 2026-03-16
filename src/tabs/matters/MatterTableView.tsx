@@ -187,7 +187,7 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
   const tableSurface = isDarkMode ? colours.dark.background : colours.grey;
   const headerSurface = isDarkMode ? colours.darkBlue : 'rgba(255, 255, 255, 0.98)';
   const strongBorder = isDarkMode ? colours.dark.borderColor : 'rgba(160, 160, 160, 0.35)';
-  const rowBorder = isDarkMode ? 'rgba(54, 144, 206, 0.22)' : 'rgba(54, 144, 206, 0.12)';
+  const rowBorder = isDarkMode ? 'rgba(75, 85, 99, 0.18)' : 'rgba(160, 160, 160, 0.14)';
   const rowHover = isDarkMode ? 'rgba(54, 144, 206, 0.16)' : 'rgba(214, 232, 255, 0.6)';
   const rowGroupHover = isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(214, 232, 255, 0.35)';
   const rowEven = isDarkMode ? 'rgba(54, 144, 206, 0.022)' : 'rgba(54, 144, 206, 0.035)';
@@ -260,8 +260,8 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
           boxSizing: 'border-box',
           background: headerSurface,
           backdropFilter: 'blur(12px)',
-          borderTop: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.04)'}`,
-          borderBottom: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)'}`,
+          borderTop: 'none',
+          borderBottom: `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.38)' : 'rgba(160, 160, 160, 0.22)'}`,
           position: 'sticky',
           top: 0,
           zIndex: 10,
@@ -572,7 +572,7 @@ const MatterTableView: React.FC<MatterTableViewProps> = ({
                         : (isDarkMode 
                           ? (idx % 2 === 0 ? rowEven : rowOdd)
                           : (idx % 2 === 0 ? rowEven : rowOdd))),
-                    borderBottom: `1px solid ${rowBorder}`,
+                    borderBottom: `0.5px solid ${rowBorder}`,
                     cursor: 'pointer',
                     transition: 'background 0.15s ease, border-color 0.15s ease',
                     fontSize: 13,

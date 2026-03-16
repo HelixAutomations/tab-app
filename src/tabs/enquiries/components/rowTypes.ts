@@ -31,9 +31,10 @@ export interface RowPipelineHandlers {
 }
 
 export interface RowActionHandlers {
-  handleSelectEnquiryToPitch: (enquiry: Enquiry) => void;
+  handleSelectEnquiry: (enquiry: Enquiry) => void;
   handleRate: (id: string) => void;
   handleDeleteEnquiry: (enquiryId: string, enquiryName: string) => void;
+  handleShareEnquiry: (enquiry: Enquiry) => Promise<void>;
   handleCopyName: (value: string, key: string) => Promise<void>;
   setEditingEnquiry: (enquiry: Enquiry) => void;
   setShowEditModal: (show: boolean) => void;

@@ -9,6 +9,399 @@
    - Raleway, tight type, uppercase kickers
    ═══════════════════════════════════════════════════════════ */
 
+/* ─── Motion tokens (coordinated timing) ─── */
+:root {
+  --motion-row-stagger: 18ms;        /* delay between consecutive rows       */
+  --motion-row-duration: 0.18s;      /* individual row entrance duration     */
+  --motion-ease-out: cubic-bezier(0.16, 1, 0.3, 1);  /* decelerate curve   */
+  --motion-ease-smooth: cubic-bezier(0.4, 0, 0.2, 1); /* standard Material */
+  --motion-fade-fast: 0.12s;         /* quick opacity transitions            */
+  --motion-fade-base: 0.16s;         /* default fade                         */
+}
+
+/* ─── Row entrance cascade ─── */
+@keyframes prospect-row-enter {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.prospect-row {
+  /* Row entrance removed — prospect-content-fade handles crossfade.
+     Replay on every filter switch caused border flash + double-opacity. */
+  animation: none;
+}
+
+/* Day separator entrance — same cascade, slightly offset timing */
+@keyframes prospect-sep-enter {
+  from {
+    opacity: 0;
+    transform: translateX(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.prospect-day-sep {
+  /* Sep entrance removed — same reason as prospect-row above. */
+  animation: none;
+}
+
+/* ─── Content crossfade (filter/tab changes) ─── */
+@keyframes prospect-content-enter {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.prospect-content-fade {
+  animation: prospect-content-enter var(--motion-fade-base) ease-out both;
+}
+
+/* ─── Badge count settle ─── */
+@keyframes badge-count-pop {
+  0%   { transform: scale(0.7); opacity: 0; }
+  60%  { transform: scale(1.08); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.enq-badge {
+  transition: background var(--motion-fade-fast) ease, color var(--motion-fade-fast) ease;
+}
+
+/* Pop plays on mount — use key={count} in JSX to replay on change */
+.enq-badge[data-animate] {
+  animation: badge-count-pop 0.32s var(--motion-ease-out) both;
+}
+
+/* ─── New-arrival animation (realtime incoming enquiries) ─── */
+@keyframes prospect-new-arrival {
+  0%   { opacity: 0; transform: translateY(-6px) scale(0.98); box-shadow: 0 0 0 0 rgba(135, 243, 243, 0); }
+  40%  { opacity: 1; transform: translateY(0) scale(1); }
+  55%  { box-shadow: 0 0 0 3px rgba(135, 243, 243, 0.35); }
+  100% { opacity: 1; transform: translateY(0) scale(1); box-shadow: 0 0 0 0 rgba(135, 243, 243, 0); }
+}
+
+.prospect-row--new-arrival {
+  animation: prospect-new-arrival 0.55s var(--motion-ease-out) both !important;
+  z-index: 2;
+  position: relative;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Workbench motion — coordinated entrance for InlineWorkbench
+   ═══════════════════════════════════════════════════════════
+   
+   RULE: On initial entry (wb-motion-enter), ONLY the parent
+   panel does an opacity fade. All children use translateY-only
+   movement so there's no double-opacity flicker.
+   
+   On tab-switch (wb-tab-transition), children can do a quick
+   opacity crossfade since the parent is already fully visible.
+   ═══════════════════════════════════════════════════════════ */
+
+/* ─── Parent panel: the ONE opacity source on entry ─── */
+@keyframes wb-panel-enter {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.inline-workbench.wb-motion-enter {
+  animation: wb-panel-enter 0.24s var(--motion-ease-out) both;
+}
+
+/* ─── Children: translateY-only on initial entry (no opacity) ─── */
+@keyframes wb-slide-up {
+  from { transform: translateY(6px); }
+  to   { transform: translateY(0); }
+}
+
+@keyframes wb-slide-right {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+
+/* Pipeline chips — subtle staggered lift */
+.inline-workbench.wb-motion-enter .wb-chip {
+  animation: wb-slide-up 0.20s var(--motion-ease-out) both;
+  animation-delay: calc(var(--chip-index, 0) * 18ms + 30ms);
+}
+
+/* Connectors — grow left-to-right */
+.inline-workbench.wb-motion-enter .wb-connector {
+  transform-origin: left center;
+  animation: wb-slide-right 0.12s var(--motion-ease-out) both;
+  animation-delay: calc(var(--chip-index, 0) * 18ms + 25ms);
+}
+
+/* Status banner */
+.inline-workbench.wb-motion-enter .wb-status-banner {
+  animation: wb-slide-up 0.20s var(--motion-ease-out) both;
+  animation-delay: 25ms;
+}
+
+/* Tab content wrapper */
+.inline-workbench.wb-motion-enter .wb-tab-content {
+  animation: wb-slide-up 0.20s var(--motion-ease-out) both;
+  animation-delay: 20ms;
+}
+
+/* Enquiry header / meta row / pills — gentle stagger */
+.inline-workbench.wb-motion-enter .wb-enquiry-header {
+  animation: wb-slide-up 0.18s var(--motion-ease-out) both;
+  animation-delay: 30ms;
+}
+
+.inline-workbench.wb-motion-enter .wb-meta-row {
+  animation: wb-slide-up 0.18s var(--motion-ease-out) both;
+  animation-delay: 40ms;
+}
+
+.inline-workbench.wb-motion-enter .wb-meta-pill {
+  animation: wb-slide-up 0.16s var(--motion-ease-out) both;
+  animation-delay: 50ms;
+}
+
+.inline-workbench.wb-motion-enter .wb-meta-link {
+  animation: wb-slide-up 0.16s var(--motion-ease-out) both;
+  animation-delay: 60ms;
+}
+
+.inline-workbench.wb-motion-enter .wb-meta-rail > * {
+  animation: wb-slide-up 0.18s var(--motion-ease-out) both;
+}
+
+.inline-workbench.wb-motion-enter .wb-meta-rail > :nth-child(1) { animation-delay: 52ms; }
+.inline-workbench.wb-motion-enter .wb-meta-rail > :nth-child(2) { animation-delay: 70ms; }
+.inline-workbench.wb-motion-enter .wb-meta-rail > :nth-child(3) { animation-delay: 88ms; }
+.inline-workbench.wb-motion-enter .wb-meta-rail > :nth-child(4) { animation-delay: 106ms; }
+.inline-workbench.wb-motion-enter .wb-meta-rail > :nth-child(5) { animation-delay: 124ms; }
+
+/* Section cards */
+.inline-workbench.wb-motion-enter .wb-section {
+  animation: wb-slide-up 0.12s var(--motion-ease-out) both;
+  animation-delay: calc(var(--section-index, 0) * 18ms + 40ms);
+}
+
+/* ─── Tab-switch crossfade (parent visible, children can use opacity) ─── */
+@keyframes wb-tab-enter {
+  from { opacity: 0; transform: translateY(14px) scale(0.985); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Tab-switch lift for children (opacity handled by wb-mount-fade on parent stack) */
+@keyframes wb-tab-lift {
+  from { transform: translateY(8px); }
+  to   { transform: translateY(0); }
+}
+
+/* Parent container: NO opacity animation (mount-fade on children handles it) */
+.wb-tab-content.wb-tab-transition {
+  /* marker class only — children animate, not the parent */
+}
+
+.wb-tab-content.wb-tab-transition .wb-tab-stack > * {
+  animation: wb-tab-lift 0.22s var(--motion-ease-out) both;
+}
+
+.wb-tab-content.wb-tab-transition .wb-tab-stack > :nth-child(1) { animation-delay: 22ms; }
+.wb-tab-content.wb-tab-transition .wb-tab-stack > :nth-child(2) { animation-delay: 44ms; }
+.wb-tab-content.wb-tab-transition .wb-tab-stack > :nth-child(3) { animation-delay: 66ms; }
+.wb-tab-content.wb-tab-transition .wb-tab-stack > :nth-child(4) { animation-delay: 88ms; }
+
+.wb-tab-content.wb-tab-transition .wb-status-banner {
+  animation: wb-tab-lift 0.20s var(--motion-ease-out) both;
+  animation-delay: 18ms;
+}
+
+.wb-tab-content.wb-tab-transition .wb-enquiry-header {
+  animation: wb-tab-lift 0.20s var(--motion-ease-out) both;
+  animation-delay: 30ms;
+}
+
+.wb-tab-content.wb-tab-transition .wb-meta-row {
+  animation: wb-tab-lift 0.20s var(--motion-ease-out) both;
+  animation-delay: 44ms;
+}
+
+.wb-tab-content.wb-tab-transition .wb-meta-pill {
+  animation: wb-tab-lift 0.18s var(--motion-ease-out) both;
+  animation-delay: 60ms;
+}
+
+.wb-tab-content.wb-tab-transition .wb-meta-link {
+  animation: wb-tab-lift 0.18s var(--motion-ease-out) both;
+  animation-delay: 72ms;
+}
+
+.wb-tab-content.wb-tab-transition .wb-meta-rail > * {
+  animation: wb-tab-lift 0.18s var(--motion-ease-out) both;
+}
+
+.wb-tab-content.wb-tab-transition .wb-meta-rail > :nth-child(1) { animation-delay: 60ms; }
+.wb-tab-content.wb-tab-transition .wb-meta-rail > :nth-child(2) { animation-delay: 82ms; }
+.wb-tab-content.wb-tab-transition .wb-meta-rail > :nth-child(3) { animation-delay: 104ms; }
+.wb-tab-content.wb-tab-transition .wb-meta-rail > :nth-child(4) { animation-delay: 126ms; }
+.wb-tab-content.wb-tab-transition .wb-meta-rail > :nth-child(5) { animation-delay: 148ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  .inline-workbench.wb-motion-enter,
+  .inline-workbench.wb-motion-enter .wb-chip,
+  .inline-workbench.wb-motion-enter .wb-connector,
+  .inline-workbench.wb-motion-enter .wb-status-banner,
+  .inline-workbench.wb-motion-enter .wb-tab-content,
+  .inline-workbench.wb-motion-enter .wb-enquiry-header,
+  .inline-workbench.wb-motion-enter .wb-meta-row,
+  .inline-workbench.wb-motion-enter .wb-meta-pill,
+  .inline-workbench.wb-motion-enter .wb-meta-link,
+  .inline-workbench.wb-motion-enter .wb-meta-rail > *,
+  .wb-tab-content.wb-tab-transition,
+  .wb-tab-content.wb-tab-transition .wb-tab-stack > *,
+  .wb-tab-content.wb-tab-transition .wb-status-banner,
+  .wb-tab-content.wb-tab-transition .wb-enquiry-header,
+  .wb-tab-content.wb-tab-transition .wb-meta-row,
+  .wb-tab-content.wb-tab-transition .wb-meta-pill,
+  .wb-tab-content.wb-tab-transition .wb-meta-link,
+  .wb-tab-content.wb-tab-transition .wb-meta-rail > *,
+  .wb-tab-stack,
+  .wb-enquiry-stack {
+    animation: none !important;
+  }
+  .wb-tab-content,
+  .wb-status-banner,
+  .wb-enquiry-header,
+  .wb-meta-row,
+  .wb-meta-rail,
+  .wb-meta-rail > *,
+  .wb-section,
+  .wb-data-bar,
+  .wb-chip,
+  .wb-connector,
+  .wb-meta-pill,
+  .wb-meta-link,
+  .wb-notes-body {
+    transition: none !important;
+  }
+}
+
+/* ─── No animation on containers/data/notes (parent handles it) ─── */
+.inline-workbench.wb-motion-enter .wb-data-shell,
+.wb-tab-content.wb-tab-transition .wb-data-shell,
+.inline-workbench.wb-motion-enter .wb-data-bar,
+.wb-tab-content.wb-tab-transition .wb-data-bar,
+.inline-workbench.wb-motion-enter .wb-data-col,
+.wb-tab-content.wb-tab-transition .wb-data-col,
+.inline-workbench.wb-motion-enter .wb-data-sep,
+.wb-tab-content.wb-tab-transition .wb-data-sep,
+.inline-workbench.wb-motion-enter .wb-notes-block,
+.wb-tab-content.wb-tab-transition .wb-notes-block {
+  animation: none;
+}
+
+/* ─── Mount-based fade (plays on every fresh DOM insertion) ─── */
+@keyframes wb-mount-fade {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.wb-tab-stack {
+  animation: wb-mount-fade 0.22s var(--motion-ease-out) both;
+}
+
+.wb-enquiry-stack {
+  animation: wb-mount-fade 0.20s var(--motion-ease-out) both;
+}
+
+/* ─── Ambient transitions (smooth state changes, always active) ─── */
+.wb-tab-content {
+  transition: opacity 0.18s ease;
+}
+
+.wb-status-banner {
+  transition: background 0.16s ease,
+              border-color 0.16s ease,
+              opacity 0.16s ease;
+}
+
+.wb-enquiry-header {
+  transition: opacity 0.14s ease,
+              background 0.14s ease;
+}
+
+.wb-meta-row {
+  transition: opacity 0.14s ease,
+              background 0.14s ease;
+}
+
+.wb-meta-rail {
+  transition: opacity 0.16s ease;
+}
+
+.wb-meta-rail > * {
+  transition: opacity 0.14s ease,
+              transform 0.14s var(--motion-ease-smooth);
+}
+
+.wb-section {
+  transition: opacity 0.16s ease,
+              background 0.16s ease;
+}
+
+.wb-data-bar {
+  transition: opacity 0.14s ease;
+}
+
+.wb-chip {
+  transition: background 0.14s ease,
+              border-color 0.14s ease,
+              box-shadow 0.14s ease,
+              opacity 0.14s ease;
+}
+
+.wb-connector {
+  transition: opacity 0.14s ease;
+}
+
+/* ─── Interactive transitions (always active, not entry-only) ─── */
+.wb-meta-pill {
+  transition: transform var(--motion-fade-fast) var(--motion-ease-smooth),
+              background var(--motion-fade-fast) ease,
+              border-color var(--motion-fade-fast) ease,
+              box-shadow var(--motion-fade-fast) ease,
+              opacity var(--motion-fade-fast) ease;
+}
+
+.wb-meta-pill:hover {
+  transform: translateY(-1px);
+}
+
+.wb-meta-link {
+  transition: opacity var(--motion-fade-fast) ease;
+}
+
+.wb-notes-body {
+  transition: background var(--motion-fade-fast) ease, border-color var(--motion-fade-fast) ease;
+}
+
+@keyframes wb-refresh-pulse {
+  0%, 100% { opacity: 0.86; }
+  50% { opacity: 1; }
+}
+
+.wb-refresh-indicator {
+  min-height: 14px;
+}
+
+.wb-refresh-indicator span {
+  animation: wb-refresh-pulse 2.4s ease-in-out infinite;
+}
+
 /* ─── Day separator row ─── */
 .prospect-day-sep {
   display: grid;
@@ -18,7 +411,7 @@
   user-select: none;
   gap: 12px;
   background: transparent;
-  border-bottom: 0.5px solid rgba(var(--highlight-rgb), 0.22);
+  border-bottom: 0.5px solid rgba(var(--subtle-grey-rgb), 0.12);
   transition: background var(--transition-fast);
   /* gridTemplateColumns set inline (dynamic value) */
 }
@@ -32,7 +425,7 @@
 
 [data-theme="dark"] .prospect-day-sep {
   background: transparent;
-  border-bottom-color: rgba(var(--highlight-rgb), 0.26);
+  border-bottom-color: rgba(var(--subtle-grey-rgb), 0.14);
 }
 
 .prospect-day-sep__timeline {
@@ -106,20 +499,20 @@
   font-family: var(--font-primary);
   font-size: 10px;
   font-weight: 600;
-  color: rgba(var(--highlight-rgb), 0.92);
-  background: rgba(var(--highlight-rgb), 0.08);
+  color: var(--text-muted);
+  background: rgba(var(--subtle-grey-rgb), 0.06);
   padding: 1px 6px;
   border-radius: 999px;
   min-width: 18px;
   text-align: center;
   line-height: 1.5;
   flex-shrink: 0;
-  border: 1px solid rgba(var(--highlight-rgb), 0.22);
+  border: 1px solid rgba(var(--subtle-grey-rgb), 0.15);
 }
 [data-theme="light"] .prospect-day-sep__count {
-  color: rgba(var(--highlight-rgb), 0.92);
-  background: rgba(var(--highlight-rgb), 0.08);
-  border-color: rgba(var(--highlight-rgb), 0.22);
+  color: var(--text-muted);
+  background: rgba(var(--subtle-grey-rgb), 0.06);
+  border-color: rgba(var(--subtle-grey-rgb), 0.15);
 }
 
 .prospect-day-sep__fade {
@@ -174,6 +567,19 @@
 /* enquiry-row — semantic hook for single (non-grouped) enquiry rows */
 .enquiry-row {
   /* inherits prospect-row styles; no extra overrides needed */
+}
+
+/* ─── Converted / matter-opened row ─── */
+/* Subtle fade-back so the row clearly reads as "graduated" from prospects */
+.prospect-row--converted {
+  opacity: 0.42;
+  transition: opacity 0.22s ease, background 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.prospect-row--converted:hover {
+  opacity: 0.72;
+}
+.prospect-row--converted .prospect-timeline-cell__line {
+  opacity: 0.35 !important;
 }
 
 /* ─── Timeline cell inside a row ─── */

@@ -6,6 +6,108 @@ const { attachEnquiriesStream, broadcastEnquiriesChanged } = require('../utils/e
 const router = express.Router();
 
 const log = loggers.enquiries;
+const VALID_SOURCE_BIASES = new Set(['legacy-primary', 'new-primary', 'legacy-only', 'new-only']);
+const VALID_PROCESSING_APPROACHES = new Set(['unified', 'area-personalised']);
+const MEMORY_UNIFIED_CACHE_TTL_MS = 15 * 1000;
+const MEMORY_UNIFIED_CACHE_STALE_MS = 60 * 1000;
+const unifiedMemoryCache = new Map();
+
+function getMemoryUnifiedEntry(cacheKey) {
+  const entry = unifiedMemoryCache.get(cacheKey);
+  if (!entry) return null;
+
+  const ageMs = Date.now() - entry.ts;
+  if (ageMs >= MEMORY_UNIFIED_CACHE_TTL_MS + MEMORY_UNIFIED_CACHE_STALE_MS) {
+    unifiedMemoryCache.delete(cacheKey);
+    return null;
+  }
+
+  return {
+    ...entry,
+    ageMs,
+    isFresh: ageMs < MEMORY_UNIFIED_CACHE_TTL_MS,
+  };
+}
+
+function setMemoryUnifiedEntry(cacheKey, data) {
+  unifiedMemoryCache.set(cacheKey, {
+    data,
+    ts: Date.now(),
+    refreshPromise: null,
+  });
+}
+
+function clearUnifiedMemoryCache() {
+  unifiedMemoryCache.clear();
+}
+
+const normaliseEmail = (value) => String(value || '').trim().toLowerCase();
+
+const parseSharedWithEmails = (value) => {
+  return String(value || '')
+    .split(/[;,\n]/)
+    .map((entry) => normaliseEmail(entry))
+    .filter(Boolean);
+};
+
+const serialiseSharedWithEmails = (value) => {
+  return Array.from(new Set(parseSharedWithEmails(value))).join(',');
+};
+
+const isUserInSharedWith = (sharedWith, userEmail) => {
+  const target = normaliseEmail(userEmail);
+  if (!target) return false;
+  return parseSharedWithEmails(sharedWith).includes(target);
+};
+
+const normaliseSourceBias = (value) => {
+  const candidate = String(value || '').trim().toLowerCase();
+  return VALID_SOURCE_BIASES.has(candidate) ? candidate : 'legacy-primary';
+};
+
+const normaliseProcessingApproach = (value) => {
+  const candidate = String(value || '').trim().toLowerCase();
+  return VALID_PROCESSING_APPROACHES.has(candidate) ? candidate : 'unified';
+};
+
+const mergeIfBlank = (target, targetField, source, sourceField = targetField) => {
+  if (!target || !source) return;
+
+  const targetValue = target[targetField];
+  const sourceValue = source[sourceField];
+
+  if ((targetValue === null || targetValue === undefined || String(targetValue).trim() === '') &&
+      sourceValue !== null && sourceValue !== undefined && String(sourceValue).trim() !== '') {
+    target[targetField] = sourceValue;
+  }
+};
+
+const annotateProcessingIdentity = (record, { processingEnquiryId, processingSource, legacyEnquiryId, sourceBias, processingApproach }) => {
+  record.processingEnquiryId = processingEnquiryId;
+  record.processingSource = processingSource;
+  record.legacyEnquiryId = legacyEnquiryId || null;
+  record.sourceBias = sourceBias;
+  record.processingApproach = processingApproach;
+  return record;
+};
+
+async function instructionsHasColumn(instructionsConnectionString, columnName) {
+  try {
+    const result = await withRequest(instructionsConnectionString, async (request) => {
+      request.input('tableName', sql.VarChar(128), 'enquiries');
+      request.input('columnName', sql.VarChar(128), columnName);
+      return await request.query(`
+        SELECT TOP 1 1 as hasColumn
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = @tableName AND COLUMN_NAME = @columnName
+      `);
+    });
+    return (result?.recordset?.length || 0) > 0;
+  } catch (error) {
+    log.warn(`Failed to inspect instructions column ${columnName}:`, error?.message || error);
+    return false;
+  }
+}
 
 // SSE stream endpoint: GET /api/enquiries-unified/stream
 // Emits lightweight "enquiries.changed" events on mutations so clients can refresh.
@@ -81,6 +183,8 @@ router.get('/', async (req, res) => {
     const initials = (req.query.initials || '').trim().toLowerCase();
     const includeTeamInbox = String(req.query.includeTeamInbox || 'true').toLowerCase() === 'true';
     const fetchAll = String(req.query.fetchAll || 'false').toLowerCase() === 'true';
+    const sourceBias = normaliseSourceBias(req.query.sourceBias);
+    const processingApproach = normaliseProcessingApproach(req.query.processingApproach);
     const dateFrom = req.query.dateFrom || '';
     const dateTo = req.query.dateTo || '';
     const prospectId = (req.query.prospectId || '').toString().trim();
@@ -92,27 +196,60 @@ router.get('/', async (req, res) => {
 
     // Build cache params (not a prebuilt key) for consistent unified cache keys
     const cacheParams = [
-      'enquiries-v4', // bump cache schema to invalidate old payloads
+      'enquiries-v5', // bump cache schema to invalidate old payloads
       limit,
       email,
       initials,
       includeTeamInbox,
       fetchAll,
+      sourceBias,
+      processingApproach,
       dateFrom,
       dateTo,
       prospectId
     ].filter(p => p !== '' && p !== null && p !== undefined);
+    const memoryCacheKey = generateCacheKey(CACHE_CONFIG.PREFIXES.UNIFIED, 'data', ...cacheParams);
+
+    if (!effectiveBypassCache) {
+      const memoryEntry = getMemoryUnifiedEntry(memoryCacheKey);
+      if (memoryEntry?.isFresh) {
+        return res.json({ ...memoryEntry.data, cached: true, source: 'memory' });
+      }
+
+      if (memoryEntry && !memoryEntry.refreshPromise) {
+        memoryEntry.refreshPromise = (async () => {
+          try {
+            const freshData = await performUnifiedEnquiriesQuery(req.query);
+            setMemoryUnifiedEntry(memoryCacheKey, freshData);
+          } catch (error) {
+            log.warn('Background enquiries memory refresh failed:', error?.message || error);
+          } finally {
+            const currentEntry = unifiedMemoryCache.get(memoryCacheKey);
+            if (currentEntry) {
+              currentEntry.refreshPromise = null;
+            }
+          }
+        })();
+        unifiedMemoryCache.set(memoryCacheKey, memoryEntry);
+      }
+
+      if (memoryEntry) {
+        return res.json({ ...memoryEntry.data, cached: true, source: 'memory-stale' });
+      }
+    }
 
     // Use Redis cache wrapper if not bypassed
     if (!effectiveBypassCache) {
       const result = await cacheUnified(cacheParams, async () => {
         return await performUnifiedEnquiriesQuery(req.query);
       });
+      setMemoryUnifiedEntry(memoryCacheKey, result);
       return res.json({ ...result, cached: true });
     }
 
     // Bypass cache - direct query
     const result = await performUnifiedEnquiriesQuery(req.query);
+    setMemoryUnifiedEntry(memoryCacheKey, result);
     res.json({ ...result, cached: false });
 
   } catch (error) {
@@ -136,6 +273,11 @@ async function performUnifiedEnquiriesQuery(queryParams) {
   log.debug('Query params:', queryParams);
 
   const fetchAll = String(queryParams.fetchAll || 'false').toLowerCase() === 'true';
+  const sourceBias = normaliseSourceBias(queryParams.sourceBias);
+  const processingApproach = normaliseProcessingApproach(queryParams.processingApproach);
+  const includeLegacySource = sourceBias !== 'new-only';
+  const includeInstructionsSource = sourceBias !== 'legacy-only';
+  const preferInstructionsPrimary = sourceBias === 'new-primary' || sourceBias === 'new-only';
   const prospectIdRaw = (queryParams.prospectId || '').toString().trim();
   const prospectIdInt = Number.parseInt(prospectIdRaw, 10);
   const hasProspectId = Number.isFinite(prospectIdInt);
@@ -164,11 +306,16 @@ async function performUnifiedEnquiriesQuery(queryParams) {
 
   // Collect warnings and debug info
   const warnings = [];
+  const hasInstructionsSharedWithColumn = await instructionsHasColumn(instructionsConnectionString, 'shared_with');
 
   // Main DB query
   let mainEnquiries = [];
   let mainWhereClause = '';
   try {
+    if (!includeLegacySource) {
+      mainEnquiries = [];
+      log.debug('Skipping legacy enquiries query due to source bias');
+    } else {
     const result = await withRequest(mainConnectionString, async (request) => {
       const filters = [];
 
@@ -245,6 +392,7 @@ async function performUnifiedEnquiriesQuery(queryParams) {
       `);
     });
     mainEnquiries = Array.isArray(result.recordset) ? result.recordset : [];
+    }
     log.debug(`Main DB returned: ${mainEnquiries.length} enquiries`);
   } catch (err) {
     log.error('Main DB enquiries query failed:', err?.message || err);
@@ -256,6 +404,10 @@ async function performUnifiedEnquiriesQuery(queryParams) {
   let instructionsEnquiries = [];
   let instWhereClause = '';
   try {
+    if (!includeInstructionsSource) {
+      instructionsEnquiries = [];
+      log.debug('Skipping instructions enquiries query due to source bias');
+    } else {
     const result = await withRequest(instructionsConnectionString, async (request) => {
       const filters = [];
       if (dateFrom && !hasProspectId) {
@@ -270,9 +422,10 @@ async function performUnifiedEnquiriesQuery(queryParams) {
       }
       if (hasProspectId) {
         request.input('prospectIdStr', sql.NVarChar(100), prospectIdRaw);
-        // Match by EITHER id (Instructions DB PK / ProspectId) OR acid (legacy Core Data ID)
-        // ProspectId from the instructions pipeline is the id column, not acid.
-        // acid is the ActiveCampaign contact ID that links back to Core Data.
+        // Deals.ProspectId = ActiveCampaign contact ID.
+        // New-space: acid = AC contact ID (the bridge), id = internal PK (auto-increment).
+        // Legacy: ID = PK which also served as the AC bridge.
+        // Match both columns so we find the record regardless of which value was stored.
         filters.push('(id = @prospectIdStr OR acid = @prospectIdStr)');
       }
       if (!fetchAll && (email || initials)) {
@@ -280,6 +433,9 @@ async function performUnifiedEnquiriesQuery(queryParams) {
         if (email) {
           request.input('userEmail', sql.VarChar(255), email);
           pocConditions.push("LOWER(LTRIM(RTRIM(poc))) = @userEmail");
+          if (hasInstructionsSharedWithColumn) {
+            pocConditions.push("(',' + LOWER(REPLACE(REPLACE(ISNULL(shared_with, ''), ' ', ''), ';', ',')) + ',') LIKE '%,' + @userEmail + ',%'");
+          }
         }
         if (initials) {
           request.input('userInitials', sql.VarChar(50), initials.replace(/\./g, ''));
@@ -316,6 +472,7 @@ async function performUnifiedEnquiriesQuery(queryParams) {
           contact_referrer,
           company_referrer,
           gclid,
+          ${hasInstructionsSharedWithColumn ? 'shared_with,' : 'CAST(NULL as NVARCHAR(1000)) as shared_with,'}
           NULL as uid,
           NULL as displayNumber,
           NULL as postcode,
@@ -331,6 +488,7 @@ async function performUnifiedEnquiriesQuery(queryParams) {
       `);
     });
     instructionsEnquiries = Array.isArray(result.recordset) ? result.recordset : [];
+    }
     log.debug(`Instructions DB returned: ${instructionsEnquiries.length} enquiries`);
   } catch (err) {
     log.error('Instructions DB enquiries query failed:', err?.message || err);
@@ -399,11 +557,80 @@ async function performUnifiedEnquiriesQuery(queryParams) {
   // Build a set of instruction ids that correspond to a legacy record (via acid or fallback)
   const matchedInstructionIds = new Set();
   for (const [mainId, instId] of crossReferenceMap.entries()) {
-    matchedInstructionIds.add(String(instId));
+    const instructionsMatch = instructionsEnquiries.find((inst) => String(inst.id) === String(instId));
+    const collaboratorOnlyView = Boolean(
+      email &&
+      instructionsMatch &&
+      isUserInSharedWith(instructionsMatch.shared_with, email) &&
+      normaliseEmail(instructionsMatch.poc) !== normaliseEmail(email)
+    );
+    if (!collaboratorOnlyView) {
+      matchedInstructionIds.add(String(instId));
+    }
   }
 
   const uniqueEnquiries = [];
   const seenIds = new Set();
+
+  if (preferInstructionsPrimary) {
+    instructionsEnquiries.forEach((enquiry) => {
+      const pairedMain = instToMainMatch.get(enquiry.id);
+
+      if (pairedMain) {
+        mergeIfBlank(enquiry, 'Ultimate_Source', pairedMain, 'Ultimate_Source');
+        mergeIfBlank(enquiry, 'Company', pairedMain, 'Company');
+        mergeIfBlank(enquiry, 'Date_Created', pairedMain, 'Date_Created');
+        mergeIfBlank(enquiry, 'Touchpoint_Date', pairedMain, 'Date_Created');
+        mergeIfBlank(enquiry, 'Point_of_Contact', pairedMain, 'Point_of_Contact');
+        mergeIfBlank(enquiry, 'First_Name', pairedMain, 'First_Name');
+        mergeIfBlank(enquiry, 'Last_Name', pairedMain, 'Last_Name');
+        mergeIfBlank(enquiry, 'Phone_Number', pairedMain, 'Phone_Number');
+        mergeIfBlank(enquiry, 'Method_of_Contact', pairedMain, 'Method_of_Contact');
+      }
+
+      try {
+        enquiry.pitchEnquiryId = enquiry.id;
+        annotateProcessingIdentity(enquiry, {
+          processingEnquiryId: enquiry.id,
+          processingSource: 'new',
+          legacyEnquiryId: pairedMain?.id || enquiry.acid || null,
+          sourceBias,
+          processingApproach,
+        });
+      } catch { /* ignore */ }
+
+      const compositeKey = `instructions-${enquiry.id}`;
+      if (!seenIds.has(compositeKey)) {
+        seenIds.add(compositeKey);
+        uniqueEnquiries.push(enquiry);
+      }
+    });
+
+    if (includeLegacySource) {
+      mainEnquiries.forEach((enquiry) => {
+        if (crossReferenceMap.has(enquiry.id)) return;
+
+        annotateProcessingIdentity(enquiry, {
+          processingEnquiryId: enquiry.id,
+          processingSource: 'legacy',
+          legacyEnquiryId: enquiry.id,
+          sourceBias,
+          processingApproach,
+        });
+
+        const pocLower = (enquiry.poc || '').toString().trim().toLowerCase();
+        const firstName = (enquiry.First_Name || '').toString().trim().toLowerCase();
+        const lastName = (enquiry.Last_Name || '').toString().trim().toLowerCase();
+        const email = (enquiry.email || '').toString().trim().toLowerCase();
+        const dateCreated = enquiry.Date_Created || enquiry.datetime || '';
+        const compositeKey = `main-${enquiry.id}-${pocLower}-${firstName}-${lastName}-${email}-${dateCreated}`;
+        if (!seenIds.has(compositeKey)) {
+          seenIds.add(compositeKey);
+          uniqueEnquiries.push(enquiry);
+        }
+      });
+    }
+  } else {
 
   // Prefer legacy: add all legacy records first (with enhanced composite key to preserve distinct records)
   mainEnquiries.forEach(enquiry => {
@@ -436,9 +663,40 @@ async function performUnifiedEnquiriesQuery(queryParams) {
           if (paired.claim && !enquiry.claim) {
             enquiry.claim = paired.claim;
           }
+          if (paired.shared_with) {
+            enquiry.shared_with = paired.shared_with;
+          }
+          // Merge enriched data fields from instructions record when legacy has nulls.
+          // The instructions DB is often populated by the intake form while the legacy
+          // Core Data record may have NULLs for these columns.
+          const mergeIfNull = (legacyField, instrField) => {
+            instrField = instrField || legacyField;
+            if ((enquiry[legacyField] === null || enquiry[legacyField] === undefined || String(enquiry[legacyField]).trim() === '') &&
+                paired[instrField] !== null && paired[instrField] !== undefined && String(paired[instrField]).trim() !== '') {
+              enquiry[legacyField] = paired[instrField];
+            }
+          };
+          mergeIfNull('aow');
+          mergeIfNull('pitch');
+          mergeIfNull('Value');
+          mergeIfNull('tow');
+          mergeIfNull('first', 'first');
+          mergeIfNull('First_Name', 'first');
+          mergeIfNull('last', 'last');
+          mergeIfNull('Last_Name', 'last');
+          mergeIfNull('notes');
+          mergeIfNull('Rating', 'Rating');
         }
       }
     } catch { /* ignore */ }
+
+    annotateProcessingIdentity(enquiry, {
+      processingEnquiryId: enquiry.pitchEnquiryId || enquiry.id,
+      processingSource: enquiry.pitchEnquiryId ? 'new' : 'legacy',
+      legacyEnquiryId: enquiry.id,
+      sourceBias,
+      processingApproach,
+    });
 
     const pocLower = (enquiry.poc || '').toString().trim().toLowerCase();
     const firstName = (enquiry.First_Name || '').toString().trim().toLowerCase();
@@ -463,6 +721,13 @@ async function performUnifiedEnquiriesQuery(queryParams) {
     // For instructions-only records, the Pitch enquiry id is the instructions id
     try {
       enquiry.pitchEnquiryId = enquiry.id;
+      annotateProcessingIdentity(enquiry, {
+        processingEnquiryId: enquiry.id,
+        processingSource: 'new',
+        legacyEnquiryId: enquiry.acid || null,
+        sourceBias,
+        processingApproach,
+      });
     } catch { /* ignore */ }
 
     const compositeKey = `instructions-${enquiry.id}`;
@@ -471,6 +736,7 @@ async function performUnifiedEnquiriesQuery(queryParams) {
       uniqueEnquiries.push(enquiry);
     }
   });
+  }
 
   const migrationStats = {
     total: mainEnquiries.length,
@@ -508,7 +774,16 @@ async function performUnifiedEnquiriesQuery(queryParams) {
     warnings,
     debug: {
       mainWhereClause,
-      instWhereClause
+      instWhereClause,
+      sourceBias,
+      processingApproach,
+    },
+    processingModel: {
+      sourceBias,
+      processingApproach,
+      primarySource: preferInstructionsPrimary ? 'instructions' : 'legacy',
+      includesLegacyFallback: includeLegacySource,
+      includesInstructions: includeInstructionsSource,
     },
     migration: {
       ...migrationStats,
@@ -529,15 +804,25 @@ async function performUnifiedEnquiriesQuery(queryParams) {
 // Route: POST /api/enquiries-unified/update
 // Update enquiry fields in BOTH databases (legacy and new instructions)
 router.post('/update', async (req, res) => {
-  const { ID, ...updates } = req.body;
+  const { ID, processingEnquiryId, processingSource, ...updates } = req.body;
 
-  log.debug('Update request received:', { ID, IDType: typeof ID, updates });
+  log.debug('Update request received:', {
+    ID,
+    processingEnquiryId,
+    processingSource,
+    IDType: typeof ID,
+    updates,
+  });
 
-  if (!ID) return res.status(400).json({ error: 'Enquiry ID is required' });
+  if (!ID && !processingEnquiryId) return res.status(400).json({ error: 'Enquiry ID is required' });
   if (Object.keys(updates).length === 0) return res.status(400).json({ error: 'No updates provided' });
 
-  // Ensure ID is a string
-  const enquiryId = String(ID);
+  const displayEnquiryId = String(ID ?? '').trim();
+  const explicitProcessingEnquiryId = String(processingEnquiryId ?? '').trim();
+  const normalisedProcessingSource = String(processingSource ?? '').trim().toLowerCase();
+
+  // Ensure IDs are strings
+  const enquiryId = explicitProcessingEnquiryId || displayEnquiryId;
 
   try {
     const mainConnectionString = process.env.SQL_CONNECTION_STRING;
@@ -548,36 +833,30 @@ router.post('/update', async (req, res) => {
       return res.status(500).json({ error: 'Database configuration missing' });
     }
 
+    const hasInstructionsSharedWithColumn = await instructionsHasColumn(instructionsConnectionString, 'shared_with');
+
     // Check which database(s) contain this enquiry.
-    // IMPORTANT: legacy and new instructions DB often use DIFFERENT IDs for the same enquiry.
-    // - Legacy: enquiries.ID
-    // - Instructions: enquiries.id (primary), with enquiries.acid storing the legacy ID (when available)
+    // ID taxonomy:
+    //   Legacy (Core Data):      enquiries.ID = auto-increment PK (also the AC bridge for legacy records)
+    //   New-space (Instructions): enquiries.id = auto-increment internal PK
+    //                             enquiries.acid = ActiveCampaign contact ID (bridges to Deals.ProspectId)
+    // The acid column cross-references to legacy: acid may equal the legacy ID for paired records.
     // We resolve a paired legacyId/instructionsId so updates persist and don't "revert" when
     // the UI refreshes from the other source.
 
     const checkMainQuery = `SELECT COUNT(*) as count FROM enquiries WHERE ID = @id`;
     const checkInstructionsQuery = `SELECT COUNT(*) as count FROM enquiries WHERE id = @id`;
 
-    let legacyIdToUpdate = enquiryId;
-    let instructionsIdToUpdate = enquiryId;
+    let legacyIdToUpdate = displayEnquiryId || enquiryId;
+    let instructionsIdToUpdate = explicitProcessingEnquiryId || displayEnquiryId || enquiryId;
+    let mainCount = 0;
+    let instructionsCount = 0;
 
-    const mainResult = await withRequest(mainConnectionString, async (request) => {
-      request.input('id', sql.VarChar(50), enquiryId);
-      return await request.query(checkMainQuery);
-    });
-    let mainCount = mainResult.recordset[0]?.count || 0;
-
-    const instructionsResult = await withRequest(instructionsConnectionString, async (request) => {
-      request.input('id', sql.VarChar(50), enquiryId);
-      return await request.query(checkInstructionsQuery);
-    });
-    let instructionsCount = instructionsResult.recordset[0]?.count || 0;
-
-    // If we only found a legacy row, try to locate its paired instructions row via acid.
-    if (mainCount > 0 && instructionsCount === 0) {
+    const resolveInstructionsPairFromLegacyId = async (legacyCandidateId) => {
+      if (!legacyCandidateId) return;
       try {
         const pairResult = await withRequest(instructionsConnectionString, async (request) => {
-          request.input('acid', sql.VarChar(50), enquiryId);
+          request.input('acid', sql.VarChar(50), legacyCandidateId);
           return await request.query(`SELECT TOP 1 id FROM enquiries WHERE acid = @acid`);
         });
         const pairedInstructionsId = pairResult.recordset?.[0]?.id;
@@ -586,16 +865,15 @@ router.post('/update', async (req, res) => {
           instructionsCount = 1;
         }
       } catch (pairErr) {
-        // Tolerant: not all environments may have acid populated
         log.warn('Failed to resolve paired instructions enquiry via acid (legacy ID):', pairErr?.message);
       }
-    }
+    };
 
-    // If we only found an instructions row, try to locate its paired legacy row via acid.
-    if (instructionsCount > 0 && mainCount === 0) {
+    const resolveLegacyPairFromInstructionsId = async (instructionsCandidateId) => {
+      if (!instructionsCandidateId) return;
       try {
         const acidResult = await withRequest(instructionsConnectionString, async (request) => {
-          request.input('id', sql.VarChar(50), enquiryId);
+          request.input('id', sql.VarChar(50), instructionsCandidateId);
           return await request.query(`SELECT TOP 1 acid FROM enquiries WHERE id = @id`);
         });
         const pairedLegacyId = acidResult.recordset?.[0]?.acid;
@@ -609,6 +887,46 @@ router.post('/update', async (req, res) => {
         }
       } catch (pairErr) {
         log.warn('Failed to resolve paired legacy enquiry via acid (instructions ID):', pairErr?.message);
+      }
+    };
+
+    if (normalisedProcessingSource === 'new' && explicitProcessingEnquiryId) {
+      instructionsIdToUpdate = explicitProcessingEnquiryId;
+      const instructionsResult = await withRequest(instructionsConnectionString, async (request) => {
+        request.input('id', sql.VarChar(50), instructionsIdToUpdate);
+        return await request.query(checkInstructionsQuery);
+      });
+      instructionsCount = instructionsResult.recordset[0]?.count || 0;
+
+      await resolveLegacyPairFromInstructionsId(instructionsIdToUpdate);
+    } else if (normalisedProcessingSource === 'legacy' && explicitProcessingEnquiryId) {
+      legacyIdToUpdate = explicitProcessingEnquiryId;
+      const mainResult = await withRequest(mainConnectionString, async (request) => {
+        request.input('id', sql.VarChar(50), legacyIdToUpdate);
+        return await request.query(checkMainQuery);
+      });
+      mainCount = mainResult.recordset[0]?.count || 0;
+
+      await resolveInstructionsPairFromLegacyId(legacyIdToUpdate);
+    } else {
+      const mainResult = await withRequest(mainConnectionString, async (request) => {
+        request.input('id', sql.VarChar(50), enquiryId);
+        return await request.query(checkMainQuery);
+      });
+      mainCount = mainResult.recordset[0]?.count || 0;
+
+      const instructionsResult = await withRequest(instructionsConnectionString, async (request) => {
+        request.input('id', sql.VarChar(50), enquiryId);
+        return await request.query(checkInstructionsQuery);
+      });
+      instructionsCount = instructionsResult.recordset[0]?.count || 0;
+
+      if (mainCount > 0 && instructionsCount === 0) {
+        await resolveInstructionsPairFromLegacyId(enquiryId);
+      }
+
+      if (instructionsCount > 0 && mainCount === 0) {
+        await resolveLegacyPairFromInstructionsId(enquiryId);
       }
     }
 
@@ -707,6 +1025,12 @@ router.post('/update', async (req, res) => {
           request.input('poc', sql.VarChar(255), updates.Point_of_Contact);
         }
 
+        const sharedWithUpdateValue = updates.Shared_With ?? updates.shared_with;
+        if (sharedWithUpdateValue !== undefined && hasInstructionsSharedWithColumn) {
+          setClause.push('shared_with = @sharedWith');
+          request.input('sharedWith', sql.NVarChar(1000), serialiseSharedWithEmails(sharedWithUpdateValue));
+        }
+
         if (setClause.length > 0) {
           const updateQuery = `UPDATE enquiries SET ${setClause.join(', ')} WHERE id = @id`;
           await request.query(updateQuery);
@@ -717,6 +1041,7 @@ router.post('/update', async (req, res) => {
 
     // Invalidate all unified enquiries cache entries after successful update
     try {
+      clearUnifiedMemoryCache();
       // New correct pattern (matches cacheUnified which uses type 'data')
       const deletedData = await deleteCachePattern(`${CACHE_CONFIG.PREFIXES.UNIFIED}:data:*`);
       // Backward compatibility: also clear any older keys using 'enquiries' type
@@ -728,13 +1053,13 @@ router.post('/update', async (req, res) => {
     }
 
     try {
-      broadcastEnquiriesChanged({ changeType: 'update', enquiryId: String(ID) });
+      broadcastEnquiriesChanged({ changeType: 'update', enquiryId: displayEnquiryId || enquiryId });
     } catch { /* non-blocking */ }
 
     res.status(200).json({
       success: true,
       message: 'Enquiry updated successfully',
-      enquiryId: ID,
+      enquiryId: displayEnquiryId || enquiryId,
       updatedTables,
       updatedIds: {
         legacyId: legacyIdToUpdate,
@@ -903,6 +1228,7 @@ router.post('/create', async (req, res) => {
 
     // Invalidate cache after successful insert
     try {
+      clearUnifiedMemoryCache();
       // New correct pattern (matches cacheUnified which uses type 'data')
       const deletedData = await deleteCachePattern(`${CACHE_CONFIG.PREFIXES.UNIFIED}:data:*`);
       // Backward compatibility: also clear any older keys using 'enquiries' type
@@ -935,9 +1261,14 @@ router.post('/create', async (req, res) => {
 // Delete a specific enquiry by ID from both systems
 router.delete('/:id', async (req, res) => {
   try {
-    const enquiryId = req.params.id;
+    const enquiryId = String(req.params.id || '').trim();
+    const explicitProcessingEnquiryId = String(req.query.processingEnquiryId || '').trim();
+    const normalisedProcessingSource = String(req.query.processingSource || '').trim().toLowerCase();
     
-    log.info('🗑️  Delete request for enquiry ID:', enquiryId);
+    log.info('🗑️  Delete request for enquiry ID:', enquiryId, {
+      processingEnquiryId: explicitProcessingEnquiryId,
+      processingSource: normalisedProcessingSource,
+    });
 
     if (!enquiryId) {
       return res.status(400).json({ error: 'Enquiry ID is required' });
@@ -958,11 +1289,95 @@ router.delete('/:id', async (req, res) => {
       return res.status(500).json({ error: 'Database connection strings not configured' });
     }
 
+    const checkMainQuery = `SELECT COUNT(*) as count FROM enquiries WHERE ID = @id`;
+    const checkInstructionsQuery = `SELECT COUNT(*) as count FROM enquiries WHERE id = @id`;
+
+    let legacyIdToDelete = enquiryId;
+    let instructionsIdToDelete = explicitProcessingEnquiryId || enquiryId;
+    let mainCount = 0;
+    let instructionsCount = 0;
+
+    const resolveInstructionsPairFromLegacyId = async (legacyCandidateId) => {
+      if (!legacyCandidateId) return;
+      try {
+        const pairResult = await withRequest(instructionsConnectionString, async (request) => {
+          request.input('acid', sql.VarChar(50), legacyCandidateId);
+          return await request.query(`SELECT TOP 1 id FROM enquiries WHERE acid = @acid`);
+        });
+        const pairedInstructionsId = pairResult.recordset?.[0]?.id;
+        if (pairedInstructionsId) {
+          instructionsIdToDelete = String(pairedInstructionsId);
+          instructionsCount = 1;
+        }
+      } catch (pairErr) {
+        log.warn('Failed to resolve paired instructions enquiry via acid (legacy ID):', pairErr?.message);
+      }
+    };
+
+    const resolveLegacyPairFromInstructionsId = async (instructionsCandidateId) => {
+      if (!instructionsCandidateId) return;
+      try {
+        const acidResult = await withRequest(instructionsConnectionString, async (request) => {
+          request.input('id', sql.VarChar(50), instructionsCandidateId);
+          return await request.query(`SELECT TOP 1 acid FROM enquiries WHERE id = @id`);
+        });
+        const pairedLegacyId = acidResult.recordset?.[0]?.acid;
+        if (pairedLegacyId) {
+          legacyIdToDelete = String(pairedLegacyId);
+          const legacyCheck = await withRequest(mainConnectionString, async (request) => {
+            request.input('id', sql.VarChar(50), legacyIdToDelete);
+            return await request.query(checkMainQuery);
+          });
+          mainCount = legacyCheck.recordset[0]?.count || 0;
+        }
+      } catch (pairErr) {
+        log.warn('Failed to resolve paired legacy enquiry via acid (instructions ID):', pairErr?.message);
+      }
+    };
+
+    if (normalisedProcessingSource === 'new' && explicitProcessingEnquiryId) {
+      instructionsIdToDelete = explicitProcessingEnquiryId;
+      const instructionsResult = await withRequest(instructionsConnectionString, async (request) => {
+        request.input('id', sql.VarChar(50), instructionsIdToDelete);
+        return await request.query(checkInstructionsQuery);
+      });
+      instructionsCount = instructionsResult.recordset[0]?.count || 0;
+      await resolveLegacyPairFromInstructionsId(instructionsIdToDelete);
+    } else if (normalisedProcessingSource === 'legacy' && explicitProcessingEnquiryId) {
+      legacyIdToDelete = explicitProcessingEnquiryId;
+      const mainResult = await withRequest(mainConnectionString, async (request) => {
+        request.input('id', sql.VarChar(50), legacyIdToDelete);
+        return await request.query(checkMainQuery);
+      });
+      mainCount = mainResult.recordset[0]?.count || 0;
+      await resolveInstructionsPairFromLegacyId(legacyIdToDelete);
+    } else {
+      const mainResult = await withRequest(mainConnectionString, async (request) => {
+        request.input('id', sql.VarChar(50), enquiryId);
+        return await request.query(checkMainQuery);
+      });
+      mainCount = mainResult.recordset[0]?.count || 0;
+
+      const instructionsResult = await withRequest(instructionsConnectionString, async (request) => {
+        request.input('id', sql.VarChar(50), instructionsIdToDelete);
+        return await request.query(checkInstructionsQuery);
+      });
+      instructionsCount = instructionsResult.recordset[0]?.count || 0;
+
+      if (mainCount > 0 && instructionsCount === 0) {
+        await resolveInstructionsPairFromLegacyId(enquiryId);
+      }
+
+      if (instructionsCount > 0 && mainCount === 0) {
+        await resolveLegacyPairFromInstructionsId(instructionsIdToDelete);
+      }
+    }
+
     // First, clean up any Teams activities that reference this enquiry (to avoid FK constraints)
     try {
       const teamsActivityDeleted = await withRequest(instructionsConnectionString, async (request) => {
         // Find Teams activities for this enquiry
-        request.input('enquiryId', sql.VarChar(50), String(enquiryId));
+        request.input('enquiryId', sql.VarChar(50), String(instructionsIdToDelete));
         const selectResult = await request.query(`
           SELECT Id, EnquiryId, LeadName, Email
           FROM TeamsBotActivityTracking
@@ -984,7 +1399,7 @@ router.delete('/:id', async (req, res) => {
       
       results.teamsActivityDeleted = teamsActivityDeleted;
       if (teamsActivityDeleted > 0) {
-        log.info(`🗑️  Deleted ${teamsActivityDeleted} Teams activities for enquiry ${enquiryId}`);
+        log.info(`🗑️  Deleted ${teamsActivityDeleted} Teams activities for enquiry ${instructionsIdToDelete}`);
       }
     } catch (teamsError) {
       log.warn('⚠️  Failed to clean up Teams activities:', teamsError.message);
@@ -994,7 +1409,7 @@ router.delete('/:id', async (req, res) => {
     try {
       const v1Result = await withRequest(mainConnectionString, async (request) => {
         // First get the record details before deleting
-        request.input('id', sql.VarChar(50), String(enquiryId));
+        request.input('id', sql.VarChar(50), String(legacyIdToDelete));
         const selectResult = await request.query(`
           SELECT ID, First_Name, Last_Name, Email, Point_of_Contact
           FROM enquiries
@@ -1030,7 +1445,7 @@ router.delete('/:id', async (req, res) => {
     try {
       const v2Result = await withRequest(instructionsConnectionString, async (request) => {
         // Check if ID is numeric for v2 database
-        const numericId = parseInt(enquiryId, 10);
+        const numericId = parseInt(instructionsIdToDelete, 10);
         if (isNaN(numericId)) {
           return; // Skip v2 if ID is not numeric
         }
@@ -1080,6 +1495,7 @@ router.delete('/:id', async (req, res) => {
 
     // Clear cache after deletion
     try {
+      clearUnifiedMemoryCache();
       await deleteCachePattern(`${CACHE_CONFIG.PREFIXES.UNIFIED}:*`);
       log.info('🗑️  Cache cleared after deletion');
     } catch (cacheError) {
@@ -1101,7 +1517,12 @@ router.delete('/:id', async (req, res) => {
     res.json({
       success: true,
       message,
-      results
+      results,
+      deletedIds: {
+        displayId: enquiryId,
+        legacyId: legacyIdToDelete,
+        instructionsId: instructionsIdToDelete,
+      },
     });
 
   } catch (error) {
@@ -1321,6 +1742,7 @@ router.delete('/cleanup', async (req, res) => {
     // Clear cache after cleanup
     if (!dryRun && (results.v1Deleted > 0 || results.v2Deleted > 0)) {
       try {
+        clearUnifiedMemoryCache();
         await deleteCachePattern(`${CACHE_CONFIG.PREFIXES.UNIFIED}:*`);
         log.info('🗑️  Cache cleared after cleanup');
       } catch (cacheError) {

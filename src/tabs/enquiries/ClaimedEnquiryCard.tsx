@@ -45,6 +45,7 @@ interface Props {
   inlineWorkbenchItem?: any;
   teamData?: any[] | null;
   workbenchHandlers?: {
+    onOpenEnquiryRating?: (enquiryId: string) => void;
     onDocumentPreview?: (doc: any) => void;
     onOpenRiskAssessment?: (instruction: any) => void;
     onOpenMatter?: (instruction: any) => void;
@@ -1353,6 +1354,7 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
             onOpenIdReview={workbenchHandlers?.onOpenIdReview}
             onOpenMatter={workbenchHandlers?.onOpenMatter}
             onOpenRiskAssessment={workbenchHandlers?.onOpenRiskAssessment}
+            onOpenEnquiryRating={(enquiryId) => onRate(String(enquiryId))}
             onRefreshData={workbenchHandlers?.onRefreshData ? () => workbenchHandlers.onRefreshData!(inlineWorkbenchItem?.instruction?.InstructionRef || inlineWorkbenchItem?.instruction?.instructionRef) : undefined}
             onClose={() => setExpandedNotes(false)}
             teamData={teamData}

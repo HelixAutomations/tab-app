@@ -1,23 +1,30 @@
-  /* invisible change 2 */
+/* ─── Toast enter/exit transitions (slide from right, brand-aligned) ─── */
 .toast-enter {
   opacity: 0;
-  transform: translateY(10px);
+  transform: translateX(40px);
 }
 
 .toast-enter-active {
   opacity: 1;
-  transform: translateY(0);
-  transition: opacity 300ms, transform 300ms;
+  transform: translateX(0);
+  transition: opacity 280ms cubic-bezier(0.16, 1, 0.3, 1),
+              transform 280ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .toast-exit {
   opacity: 1;
-  transform: translateY(0);
+  transform: translateX(0);
 }
 
 .toast-exit-active {
   opacity: 0;
-  transform: translateY(10px);
-  transition: opacity 300ms, transform 300ms;
-/* invisible change */
+  transform: translateX(40px);
+  transition: opacity 220ms ease-in,
+              transform 220ms ease-in;
+}
+
+@keyframes toast-loading {
+  0%   { transform: translateX(-100%); }
+  50%  { transform: translateX(100%); }
+  100% { transform: translateX(-100%); }
 }

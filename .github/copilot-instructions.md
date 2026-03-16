@@ -409,6 +409,17 @@ Every Area of Work indicator across the app MUST use these exact tokens. No RGB 
 - Avoid logging secrets, tokens, or PII.
 - Use env vars or Key Vault (DefaultAzureCredential) for sensitive data.
 
+## Copilot Data Handling (CRITICAL)
+
+- Assume anything pasted into Copilot chat may be processed externally; treat chat as **untrusted for raw client PII**.
+- Do **not** paste raw names, emails, phone numbers, addresses, DOBs, payment refs, or free-text client notes into chat.
+- For AI-assisted debugging, share only: schema, field names, redacted samples, aggregate counts, and error messages without identifying data.
+- For restore/migration tasks, generate scripts using placeholders in chat, then execute locally with real data from secure files/env vars.
+- Never paste full query results from Core/Instructions into chat; summarise with counts/checksums only.
+- If real records must be inspected, do it via local scripts/terminal and keep outputs masked by default.
+- `.copilotignore` is not a reliable privacy control in VS Code; rely on settings/policy and operator discipline.
+- When uncertain, prefer asking for redacted input rather than proceeding with potentially sensitive data.
+
 ## Data Schema
 
 - Prefer new schema: snake_case/UPPERCASE fields.

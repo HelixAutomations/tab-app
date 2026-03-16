@@ -20,6 +20,7 @@ This platform is evolving into **Helix CRM** — the single source of truth for 
 
 ## High Priority
 
+- [ ] **Staged app boot + deep-link routing plan** — First entry still blocks on heavyweight data fetches and the current navigation model is split across `activeTab`, custom events, and `localStorage` handoffs (`navigateToEnquiryId`, `navigateToInstructions`, `navigateToMatter`). Continue in small stages: (1) finish staged boot so Home paints before prospects/matters payloads complete, (2) profile production first-load request waterfall for `/api/enquiries-unified`, `/api/matters-unified`, `Home.tsx` parallel fetches, and `Enquiries.tsx` eager enrichment/pulse polling, (3) introduce a route state layer that can express tab + entity + subview, e.g. prospects workbench + pipeline pill, while still working inside Teams and browser entry.
 - [ ] **Prospects component optimisation** — `src/tabs/enquiries/Enquiries.tsx` is 11,349 lines with 222+ hooks. Decompose in safe, incremental stages. See dedicated section below: **[Prospects Optimisation Plan](#prospects-optimisation-plan)**.
 - [ ] **Data Centre → Helix CRM Control Plane** — The Data Centre is the operational backbone. Current state: 3-layer OperationValidator, audit trail with user attribution, post-sync auto-validation. **Next steps**:
   - [ ] Drift alerts — compare today's sums against yesterday's and flag anomalies
@@ -129,6 +130,7 @@ Full pipeline architecture documented in `.github/instructions/PIPELINE_ARCHITEC
 
 ## Medium Priority
 
+- [ ] **Year Comparison Report** — New report tab: 5-year financial-year bar charts for WIP, Collected, and Matters Opened. Compares same date window (1 Apr → today's equivalent) across current FY + 4 prior. Needs: (1) confirm historical WIP data source in SQL (current Clio API only serves live week), (2) server endpoint `/api/reporting/year-comparison` querying collected_time, wip, matters tables with FY date bounds, (3) React component `YearComparisonReport.tsx` with 3 grouped bar charts + date-range picker. Add as `draft: true` tab in `REPORT_NAV_TABS` until validated with real data.
 - [ ] **Matter one-off hardening** — Prevent repeat failures where `Deals.AreaOfWork` bucket values (e.g. `construction`) are not valid Clio `PRACTICE_AREAS` labels. Add canonical mapping layer before `/api/clio-matters`, and add server-side guard to refuse creating a new `MatterRequest` placeholder when an unresolved one already exists for the same instruction.
 - [ ] **Opponent pipeline tracking** — Add opponent completion status to pipeline chips and workbench. Backend: include `Opponents` table data (via `Matters.OpponentID`/`OpponentSolicitorID` FK) in the instruction/pipeline data fetch. Frontend: add pipeline chip (states: pending/partial/complete) between Risk and Matter chips. Workbench: add opponent tab/section for post-opening completion of missing fields (contact, address). `Opponents` table schema already supports this. Also see `src/utils/opponentDataTracker.ts` for client-side field tracking. Server route: `server/routes/opponents.js` already has standalone `POST /api/opponents` endpoint.
 - [ ] **Transition: Instructions/Clients → Prospects + Client Matters** — Move instruction workspace concepts (chips/ID/PAY/DOCS/MATTER/workbench) into the Enquiries/Prospect space; rename "Instructions/Clients" to "Client Matters" and retire the separate Matters tab.
@@ -141,9 +143,10 @@ Full pipeline architecture documented in `.github/instructions/PIPELINE_ARCHITEC
 - [ ] **Metric details modal redesign** — Replace current horizontal-bar card layout in `MetricDetailsModal.tsx` with InlineWorkbench-style structure. See `InlineWorkbench.tsx` for reference patterns.
 - [ ] **Upstream instruct-pitch changes** — Apply pending changes in `HelixAutomations/instruct-pitch` (CC/BCC support in sendEmail, payment fetch in fetchInstructionData, logging config updates).
 - [ ] **Dead code cleanup sweep** — Generate ESLint unused-vars inventory, then use reference searches to remove genuinely unused helpers/components across `src/**` (skip hook-deps changes initially; avoid submodules).
+- [ ] **Retire Home CCL demo surfaces** — `src/components/modern/OperationsDashboard.tsx` still carries unreachable inspector/letter-preview/demo-AI CCL code after the Mar 2026 backend-workbench refactor. Remove the old modal/state stack once Matter-side workbench validation is complete so Home stays visibility-only.
 - [ ] **Consolidate duplicate SQL patterns** — Multiple files do similar DB queries differently. Standardise around `withRequest` from `server/utils/db.js`.
 - [ ] **Standardise error handling** — Mix of patterns across server routes. Adopt consistent try/catch with structured JSON error responses.
-- [ ] **Clean console.logs** — Replace debug `console.log` with proper logging where needed; remove in production paths.
+- [x] **Clean console.logs** — Removed `[MATTER-DEBUG]` production logs from EnquiryTimeline.tsx (Mar 2026). Further cleanup may be needed in other files.
 - [ ] **Realtime: POID + outstanding balances** — Identify cross-user actions that rely on cached reads and manual refresh; add SSE notification + refetch or targeted cache invalidation.
 
 ## Low Priority

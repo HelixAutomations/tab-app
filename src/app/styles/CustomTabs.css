@@ -180,6 +180,36 @@
   outline-offset: 2px;
 }
 
+/* ─── Draft tabs (visually muted, dashed underline) ─── */
+.enquiry-sub-tab[data-draft='true'] {
+  font-style: italic;
+}
+
+.enquiry-sub-tab[data-draft='true']::after {
+  border-bottom: 2px dashed #A0A0A0;
+  background-color: transparent;
+  height: 0;
+}
+
+.enquiry-sub-tab[data-draft='true']:hover::after {
+  transform: scaleX(0.35);
+  opacity: 0.35;
+}
+
+.enquiry-sub-tab[data-draft='true'][data-active='true'] {
+  color: #A0A0A0;
+  font-weight: 500;
+}
+
+.theme-dark .enquiry-sub-tab[data-draft='true'][data-active='true'] {
+  color: #A0A0A0;
+}
+
+.enquiry-sub-tab[data-draft='true'][data-active='true']::after {
+  transform: scaleX(1);
+  opacity: 0.6;
+}
+
 /* ─── Mobile ──────────────────────────────────────────── */
 
 @media (max-width: 640px) {

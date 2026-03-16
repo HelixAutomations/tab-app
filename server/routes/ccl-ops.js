@@ -346,10 +346,25 @@ router.post('/upload-clio', async (req, res) => {
     }
     if (draftJson) {
       console.log('[CCL Upload Clio] Regenerating docx from', regenSource, 'fields before upload...');
-      await generateWordFromJson(draftJson, docxPath);
+      const generationMeta = await generateWordFromJson(draftJson, docxPath);
+      const unresolvedPlaceholders = generationMeta?.unresolvedPlaceholders || [];
       // Also persist the merged JSON so disk stays in sync
       fs.writeFileSync(jsonFilePath, JSON.stringify(draftJson, null, 2));
       console.log('[CCL Upload Clio] Docx regenerated successfully from', regenSource, 'fields.');
+
+      if (unresolvedPlaceholders.length > 0) {
+        trackEvent('CCL.Upload.Clio.BlockedUnresolvedPlaceholders', {
+          matterId: matterDisplayNumber || matterId,
+          unresolvedCount: String(unresolvedPlaceholders.length),
+          unresolvedFields: unresolvedPlaceholders.join(', '),
+        });
+        return res.status(400).json({
+          ok: false,
+          error: 'Cannot upload yet: unresolved fields remain in the Client Care Letter.',
+          unresolvedPlaceholders,
+          unresolvedCount: unresolvedPlaceholders.length,
+        });
+      }
     }
   } catch (regenErr) {
     console.warn('[CCL Upload Clio] Docx regeneration failed, will upload existing file if available:', regenErr.message);

@@ -91,12 +91,17 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
 
   // Colors
   const headerText = isDark ? colours.subtleGrey : colours.greyText;
+  const interactiveAccent = isDark ? colours.accent : colours.blue;
+  const interactiveHoverBg = `${interactiveAccent}${isDark ? '1A' : '14'}`;
 
   // Empty state
   if (immediateActionsReady && allowEmptyState && actions.length === 0) {
+    if (emptyCollapsed) {
+      return null;
+    }
+
     return (
-      <Section isDark={isDark} seamless={seamless}>
-        <Header text={headerText}>To Do</Header>
+      <Section isDark={isDark} seamless={seamless} quiet>
         <EmptyState isDark={isDark} collapsed={emptyCollapsed}>All caught up</EmptyState>
       </Section>
     );
@@ -106,55 +111,57 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
 
   return (
     <Section isDark={isDark} seamless={seamless} highlighted={highlighted}>
-      <Header text={headerText}>
+      <HeaderRow>
         <CollapseChevron 
           isCollapsed={isCollapsed} 
           onClick={toggleCollapse} 
           isDark={isDark}
+          accent={interactiveAccent}
+          hoverBg={interactiveHoverBg}
         />
-        To Do
         {actions.length > 0 && <CountBadge isDark={isDark}>{totalCount}</CountBadge>}
         {!immediateActionsReady && <Spinner isDark={isDark} />}
         {showSuccess && <SuccessCheck />}
-      </Header>
+      </HeaderRow>
 
       {!isCollapsed && (
-      <div className="iab-chip-grid" style={{ 
-        display: 'flex', 
-        flexWrap: 'wrap',
-        gap: 4,
-        paddingTop: 2,
-        position: 'relative',
-      }}>
-        {loading && (
-          <>
-            <SkeletonChip isDark={isDark} />
-            <SkeletonChip isDark={isDark} />
-            <SkeletonChip isDark={isDark} />
-          </>
-        )}
+        <div className="iab-chip-grid" style={{ 
+          display: 'flex', 
+          alignItems: 'stretch',
+          flexWrap: 'wrap',
+          width: '100%',
+          minWidth: 0,
+          gap: 8,
+          paddingLeft: 12,
+          paddingTop: 4,
+          position: 'relative',
+        }}>
+          {loading && (
+            <>
+              <SkeletonChip isDark={isDark} />
+              <SkeletonChip isDark={isDark} />
+              <SkeletonChip isDark={isDark} />
+            </>
+          )}
 
-        {!loading && actions.map((action, idx) => (
-          <div 
-            key={`${action.title}-${idx}`} 
-
-            style={{ position: 'relative' }}
-          >
-            <ImmediateActionChip
-              title={action.title}
-              icon={action.icon}
-              category={action.category}
-              count={action.count}
-              totalCount={action.totalCount}
-              subtitle={action.subtitle}
-              onClick={action.onClick}
-              disabled={action.disabled}
-              isDarkMode={isDark}
-            />
-
-          </div>
-        ))}
-      </div>
+          {!loading && actions.map((action, idx) => (
+            <div 
+              key={`${action.title}-${idx}`} 
+              style={{ position: 'relative', animation: `iabChipIn 0.22s ease ${idx * 0.035}s both` }}
+            >
+              <ImmediateActionChip
+                title={action.title}
+                icon={action.icon}
+                category={action.category}
+                count={action.count}
+                totalCount={action.totalCount}
+                onClick={action.onClick}
+                disabled={action.disabled}
+                isDarkMode={isDark}
+              />
+            </div>
+          ))}
+        </div>
       )}
     </Section>
   );
@@ -164,10 +171,10 @@ const SkeletonChip: React.FC<{ isDark: boolean }> = ({ isDark }) => (
   <div
     className="skeleton-shimmer"
     style={{
-      height: 26,
-      minWidth: 120,
+      height: 28,
+      minWidth: 140,
       borderRadius: 2,
-      background: isDark ? 'rgba(54, 144, 206, 0.08)' : colours.grey,
+      background: isDark ? 'rgba(13, 47, 96, 0.32)' : 'rgba(214, 232, 255, 0.7)',
     }}
   />
 );
@@ -176,15 +183,20 @@ const SkeletonChip: React.FC<{ isDark: boolean }> = ({ isDark }) => (
 // Sub-components
 // ─────────────────────────────────────────────────────────────────────────────
 
-const Section: React.FC<{ isDark: boolean; seamless?: boolean; highlighted?: boolean; children: React.ReactNode }> = ({ 
+const Section: React.FC<{ isDark: boolean; seamless?: boolean; highlighted?: boolean; quiet?: boolean; children: React.ReactNode }> = ({ 
   isDark, 
   seamless = false,
   highlighted = false,
+  quiet = false,
   children 
 }) => (
   <section style={{
-    padding: seamless ? '4px 0' : '6px 0',
-    background: 'transparent',
+    padding: seamless ? '8px 0 10px' : quiet ? '6px 0 8px' : '8px 0 10px',
+    background: isDark ? colours.websiteBlue : colours.light.background,
+    border: 'none',
+    borderBottom: `1px solid ${isDark ? 'rgba(75, 85, 99, 0.22)' : 'rgba(6, 23, 51, 0.06)'}`,
+    boxShadow: 'none',
+    paddingInline: quiet ? '16px' : '20px',
     marginBottom: 0,
     transition: 'all 0.15s ease',
   }}>
@@ -192,17 +204,14 @@ const Section: React.FC<{ isDark: boolean; seamless?: boolean; highlighted?: boo
   </section>
 );
 
-const Header: React.FC<{ text: string; children: React.ReactNode }> = ({ text, children }) => (
+const HeaderRow: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <div style={{
     display: 'flex',
     alignItems: 'center',
-    gap: 6,
-    marginBottom: 4,
-    fontSize: 10,
-    fontWeight: 700,
-    textTransform: 'uppercase',
-    letterSpacing: '0.06em',
-    color: text,
+    gap: 8,
+    width: '100%',
+    minWidth: 0,
+    marginBottom: 2,
   }}>
     {children}
   </div>
@@ -212,7 +221,9 @@ const CollapseChevron: React.FC<{
   isCollapsed: boolean; 
   onClick: () => void; 
   isDark: boolean;
-}> = ({ isCollapsed, onClick, isDark }) => {
+  accent: string;
+  hoverBg: string;
+}> = ({ isCollapsed, onClick, isDark, accent, hoverBg }) => {
   const [hovered, setHovered] = useState(false);
   
   return (
@@ -226,30 +237,33 @@ const CollapseChevron: React.FC<{
         display: 'inline-flex',
         alignItems: 'center',
         justifyContent: 'center',
-        width: 16,
-        height: 16,
-        padding: 0,
+        gap: 5,
+        height: 22,
+        padding: '0 7px 0 5px',
         border: 'none',
         borderRadius: 2,
-        background: hovered 
-          ? (isDark ? 'rgba(135, 243, 243, 0.1)' : 'rgba(0, 0, 0, 0.05)')
-          : 'transparent',
+        background: hovered ? hoverBg : 'transparent',
         cursor: 'pointer',
         transition: 'all 0.2s ease',
-        marginRight: 2,
+        marginRight: 0,
+        color: hovered ? accent : (isDark ? colours.subtleGrey : colours.greyText),
+        fontSize: 10,
+        fontWeight: 600,
+        whiteSpace: 'nowrap',
+        letterSpacing: '0.04em',
+        textTransform: 'none',
       }}
     >
       <Icon 
-        iconName={isCollapsed ? 'ChevronRight' : 'ChevronDown'}
+        iconName="ChevronRight"
         style={{
-          fontSize: 9,
-          color: hovered 
-            ? (isDark ? colours.accent : colours.highlight)
-            : (isDark ? colours.subtleGrey : colours.greyText),
-          transition: 'color 0.2s ease, transform 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-          transform: hovered ? 'scale(1.1)' : 'scale(1)',
+          fontSize: 8,
+          color: hovered ? accent : (isDark ? colours.subtleGrey : colours.greyText),
+          transition: 'transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), color 0.2s ease',
+          transform: isCollapsed ? 'rotate(0deg)' : 'rotate(90deg)',
         }}
       />
+      <span>To Do</span>
     </button>
   );
 };
@@ -259,8 +273,8 @@ const CountBadge: React.FC<{ isDark: boolean; children: React.ReactNode }> = ({ 
     minWidth: 16,
     height: 16,
     padding: '0 5px',
-    background: isDark ? 'rgba(214, 85, 65, 0.12)' : 'rgba(214, 85, 65, 0.08)',
-    color: isDark ? '#f0a090' : '#d65541',
+    background: isDark ? 'rgba(135, 243, 243, 0.1)' : 'rgba(54, 144, 206, 0.08)',
+    color: isDark ? colours.accent : colours.highlight,
     fontSize: 9,
     fontWeight: 700,
     display: 'inline-flex',
@@ -274,7 +288,7 @@ const CountBadge: React.FC<{ isDark: boolean; children: React.ReactNode }> = ({ 
 
 const EmptyState: React.FC<{ isDark: boolean; collapsed?: boolean; children: React.ReactNode }> = ({ isDark, collapsed = false, children }) => (
   <div style={{
-    maxHeight: collapsed ? 0 : 160,
+    maxHeight: collapsed ? 0 : 48,
     opacity: collapsed ? 0 : 1,
     transform: collapsed ? 'translateY(-4px)' : 'translateY(0)',
     overflow: 'hidden',
@@ -282,38 +296,33 @@ const EmptyState: React.FC<{ isDark: boolean; collapsed?: boolean; children: Rea
   }} aria-hidden={collapsed}>
     <div style={{
       display: 'flex',
-      flexDirection: 'column',
       alignItems: 'center',
-      justifyContent: 'center',
-      padding: '24px 16px',
-      background: isDark ? 'rgba(32, 178, 108, 0.04)' : 'rgba(32, 178, 108, 0.06)',
+      justifyContent: 'flex-start',
+      gap: 8,
+      padding: '8px 0 2px',
+      background: 'transparent',
       borderRadius: '2px',
-      border: `1px dashed ${isDark ? 'rgba(32, 178, 108, 0.2)' : 'rgba(32, 178, 108, 0.25)'}`,
+      border: 'none',
     }}>
       <svg 
-        width="28" 
-        height="28" 
+        width="12" 
+        height="12" 
         viewBox="0 0 24 24" 
         fill="none" 
         stroke={colours.green}
         strokeWidth="2" 
         strokeLinecap="round"
         strokeLinejoin="round"
-        style={{ marginBottom: 10, opacity: 0.7 }}
+        style={{ opacity: 0.75, flexShrink: 0 }}
       >
         <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
         <polyline points="22 4 12 14.01 9 11.01" />
       </svg>
       <div style={{
-        fontSize: 13,
-        fontWeight: 600,
-        color: colours.green,
-        marginBottom: 2,
-      }}>{children}</div>
-      <div style={{
         fontSize: 11,
-        color: isDark ? 'rgba(32, 178, 108, 0.5)' : 'rgba(32, 178, 108, 0.6)',
-      }}>Nothing needs your attention</div>
+        fontWeight: 600,
+        color: isDark ? 'rgba(209, 213, 219, 0.82)' : colours.greyText,
+      }}>{children}</div>
     </div>
   </div>
 );
@@ -336,9 +345,18 @@ if (typeof document !== 'undefined' && !document.head.querySelector(`style[data-
   const s = document.createElement('style');
   s.setAttribute(`data-${iabResponsiveId}`, '');
   s.textContent = `
+    @keyframes iabChipIn {
+      from { opacity: 0; transform: translateX(-6px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+    .iab-chip-grid > div {
+      flex: 1 1 180px;
+      min-width: 0;
+      max-width: 260px;
+    }
     @media (max-width: 640px) {
-      .iab-chip-grid { gap: 3px !important; padding-top: 1px !important; }
-      .iab-chip-grid > div { flex: 1 1 calc(50% - 3px) !important; min-width: 0 !important; }
+      .iab-chip-grid { gap: 4px !important; padding-left: 8px !important; }
+      .iab-chip-grid > div { flex: 1 1 100% !important; min-width: 0 !important; max-width: none !important; }
     }
     @media (max-width: 420px) {
       .iab-chip-grid > div { flex: 1 1 100% !important; }

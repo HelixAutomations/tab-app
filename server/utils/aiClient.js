@@ -155,4 +155,64 @@ async function chatCompletion(systemPrompt, userPrompt, options = {}) {
     }
 }
 
-module.exports = { getAIClient, chatCompletion, DEPLOYMENT, ENDPOINT };
+/**
+ * Streaming chat completion — returns an async iterable of string chunks.
+ * Uses the same request shape but with `stream: true`.
+ *
+ * @param {string} systemPrompt
+ * @param {string} userPrompt
+ * @param {object} [options] - temperature, max_tokens, deployment
+ * @returns {AsyncIterable<string>} Token chunks as they arrive
+ */
+async function* chatCompletionStream(systemPrompt, userPrompt, options = {}) {
+    const client = await getAIClient();
+    const deployment = options.deployment || DEPLOYMENT;
+    const trackingId = Math.random().toString(36).slice(2, 10);
+    const startMs = Date.now();
+
+    trackEvent('AI.ChatCompletionStream.Started', {
+        trackingId,
+        deployment,
+        systemPromptLength: String(systemPrompt.length),
+        userPromptLength: String(userPrompt.length),
+    });
+
+    const requestBody = {
+        model: deployment,
+        messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+        ],
+        temperature: options.temperature ?? 0.2,
+        response_format: { type: 'json_object' },
+        stream: true,
+    };
+
+    if (options.max_tokens) {
+        const deploymentText = String(deployment || '');
+        if (/^gpt-5(\.|-|$)/i.test(deploymentText)) {
+            requestBody.max_completion_tokens = options.max_tokens;
+        } else {
+            requestBody.max_tokens = options.max_tokens;
+        }
+    }
+
+    const stream = await client.chat.completions.create(requestBody);
+
+    let totalChunks = 0;
+    for await (const chunk of stream) {
+        const delta = chunk.choices?.[0]?.delta?.content;
+        if (delta) {
+            totalChunks++;
+            yield delta;
+        }
+    }
+
+    const durationMs = Date.now() - startMs;
+    trackEvent('AI.ChatCompletionStream.Completed', {
+        trackingId, deployment, durationMs: String(durationMs), totalChunks: String(totalChunks),
+    });
+    trackMetric('AI.ChatCompletionStream.Duration', durationMs, { deployment });
+}
+
+module.exports = { getAIClient, chatCompletion, chatCompletionStream, DEPLOYMENT, ENDPOINT };

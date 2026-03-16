@@ -25,6 +25,9 @@ let cachedCredential = null;
 let lastTokenExpiry = 0;
 const TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000; // Refresh 5 minutes before expiry
 
+// Timeout for individual Redis operations so a reconnecting client doesn't block callers.
+const REDIS_OP_TIMEOUT_MS = 3000;
+
 // Cache configuration
 const CACHE_CONFIG = {
   // TTL values in seconds
@@ -393,23 +396,19 @@ function generateCacheKey(prefix, type, ...params) {
  */
 async function getCache(key) {
   try {
-    const client = await initRedisClient();
-    if (!client || !isConnected) {
-      const maskedKey = maskCacheKeyForLogging(key);
-      log.debug(`⚠️  Redis client unavailable for key: ${maskedKey}`);
-      return null;
-    }
-
-    const data = await client.get(key);
-    if (!data) {
-      const maskedKey = maskCacheKeyForLogging(key);
-      log.debug(`🚫 Cache MISS: ${maskedKey} (key not found)`);
-      return null;
-    }
-
-    const parsed = JSON.parse(data);
-    return parsed;
-
+    // Race the Redis operation against a timeout so a reconnecting client
+    // doesn't block callers for 6+ seconds.
+    const result = await Promise.race([
+      (async () => {
+        const client = await initRedisClient();
+        if (!client || !isConnected) return null;
+        const data = await client.get(key);
+        if (!data) return null;
+        return JSON.parse(data);
+      })(),
+      new Promise((resolve) => setTimeout(() => resolve(null), REDIS_OP_TIMEOUT_MS)),
+    ]);
+    return result;
   } catch (error) {
     const maskedKey = maskCacheKeyForLogging(key);
     log.error(`Cache GET error for key ${maskedKey}:`, error);
@@ -426,20 +425,25 @@ async function getCache(key) {
  */
 async function setCache(key, data, ttl = CACHE_CONFIG.TTL.UNIFIED) {
   try {
-    const client = await initRedisClient();
-    if (!client || !isConnected) return false;
+    const result = await Promise.race([
+      (async () => {
+        const client = await initRedisClient();
+        if (!client || !isConnected) return false;
 
-    const serialized = JSON.stringify({
-      data,
-      cached_at: new Date().toISOString(),
-      ttl
-    });
+        const serialized = JSON.stringify({
+          data,
+          cached_at: new Date().toISOString(),
+          ttl
+        });
 
-    await client.setEx(key, ttl, serialized);
-    const maskedKey = maskCacheKeyForLogging(key);
-    log.debug(`💾 Cache SET: ${maskedKey} (TTL: ${ttl}s)`);
-    return true;
-
+        await client.setEx(key, ttl, serialized);
+        const maskedKey = maskCacheKeyForLogging(key);
+        log.debug(`💾 Cache SET: ${maskedKey} (TTL: ${ttl}s)`);
+        return true;
+      })(),
+      new Promise((resolve) => setTimeout(() => resolve(false), REDIS_OP_TIMEOUT_MS)),
+    ]);
+    return result;
   } catch (error) {
     const maskedKey = maskCacheKeyForLogging(key);
     log.error(`Cache SET error for key ${maskedKey}:`, error);

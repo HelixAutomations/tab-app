@@ -15,7 +15,7 @@ router.post('/preheat', async (req, res) => {
   try {
     const redisClient = await getRedisClient();
     if (!redisClient) {
-      return res.status(500).json({ success: false, error: 'Redis not available' });
+      return res.json({ success: false, skipped: true, reason: 'Redis not available', results: [] });
     }
 
     const { datasets = ['enquiries', 'allMatters', 'wip', 'teamData'], entraId } = req.body;
@@ -70,7 +70,7 @@ router.post('/warm', async (req, res) => {
   try {
     const redisClient = await getRedisClient();
     if (!redisClient) {
-      return res.status(500).json({ success: false, error: 'Redis not available' });
+      return res.json({ success: false, skipped: true, reason: 'Redis not available' });
     }
 
     // Find keys that are about to expire (within 60 seconds)

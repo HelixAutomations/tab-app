@@ -242,8 +242,8 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
         display: 'flex',
         alignItems: 'center',
         gap: isCompact ? 6 : 10,
-        padding: isCompact ? '6px 10px' : '6px 20px',
-        minHeight: isCompact ? 36 : 40,
+        padding: isCompact ? '4px 10px' : '4px 20px',
+        minHeight: isCompact ? 30 : 32,
         background: isDarkMode
             ? colours.darkBlue
           : 'rgba(255, 255, 255, 0.88)',
@@ -267,9 +267,9 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
         style={{
           display: isCompact ? 'none' : 'flex',
           alignItems: 'center',
-          gap: 6,
-          height: 26,
-          padding: '0 8px 0 6px',
+          gap: 5,
+          height: 22,
+          padding: '0 7px 0 5px',
           background: expanded
             ? interactiveHoverBg
             : 'transparent',
@@ -279,7 +279,7 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
           flexShrink: 0,
           transition: 'all 0.2s ease',
           color: expanded ? interactiveAccent : textSecondary,
-          fontSize: 11,
+          fontSize: 10,
           fontWeight: 600,
           whiteSpace: 'nowrap',
           letterSpacing: '0.04em',
@@ -297,6 +297,19 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
         />
         Actions
       </button>
+
+      {/* Separator between label and chips */}
+      {(expanded || isCompact) && (
+        <div style={{
+          width: 1,
+          alignSelf: 'stretch',
+          margin: '4px 2px',
+          background: isDarkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)',
+          flexShrink: 0,
+          transition: 'opacity 0.2s ease',
+          opacity: expanded || isCompact ? 1 : 0,
+        }} />
+      )}
 
       {/* Action chips — revealed on expand (desktop) or always visible icon-only (compact) */}
       <div
@@ -334,8 +347,8 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: isCompact ? 0 : 6,
-                padding: isCompact ? '4px 6px' : '5px 10px',
+                gap: isCompact ? 0 : 5,
+                padding: isCompact ? '3px 6px' : '3px 8px',
                 background: isActive 
                   ? (isDarkMode
                     ? 'linear-gradient(0deg, rgba(54, 144, 206, 0.12), rgba(54, 144, 206, 0.12)), #061733'
@@ -345,11 +358,12 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
                       ? 'linear-gradient(0deg, rgba(54, 144, 206, 0.08), rgba(54, 144, 206, 0.08)), #061733'
                       : interactiveHoverBg)
                     : isDarkMode ? colours.darkBlue : 'transparent',
-                border: isDarkMode ? `1px solid rgba(54, 144, 206, ${isHovered || isActive ? '0.45' : '0.25'})` : 'none',
+                border: isDarkMode ? `0.5px solid rgba(54, 144, 206, ${isHovered || isActive ? '0.35' : '0.18'})` : `0.5px solid ${isHovered ? 'rgba(0,0,0,0.09)' : 'rgba(0,0,0,0.06)'}`,
+                borderLeft: `2px solid ${isActive ? interactiveAccent : (isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.25)')}`,
                 borderRadius: 2,
                 color: isActive ? interactiveAccent : textPrimary,
-                fontSize: 12,
-                fontWeight: 500,
+                fontSize: 10,
+                fontWeight: 600,
                 cursor: isLoading && !isSelected ? 'not-allowed' : 'pointer',
                 opacity: isLoading && !isSelected ? 0.5 : 1,
                 transition: 'all 0.2s ease',
@@ -361,7 +375,7 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
             >
               <IconComponent
                 style={{
-                  fontSize: 14,
+                  fontSize: 10,
                   color: isActive ? interactiveAccent : isHovered ? textPrimary : textSecondary,
                   transition: 'color 0.2s ease',
                 }}
@@ -573,14 +587,14 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
             overflow: visible !important;
             gap: 4px !important;
           }
-          .qa-bar { padding: 4px 12px !important; gap: 6px !important; min-height: 34px !important; }
-          .qa-chips button { padding: 4px 6px !important; font-size: 11px !important; gap: 0 !important; }
-          .qa-icon-btn { width: 24px !important; height: 24px !important; }
+          .qa-bar { padding: 3px 10px !important; gap: 4px !important; min-height: 28px !important; }
+          .qa-chips button { padding: 3px 6px !important; font-size: 9px !important; gap: 0 !important; }
+          .qa-icon-btn { width: 22px !important; height: 22px !important; }
         }
         @media (max-width: 420px) {
-          .qa-bar { padding: 3px 8px !important; gap: 3px !important; min-height: 30px !important; }
-          .qa-chips button { padding: 3px 5px !important; }
-          .qa-icon-btn { width: 22px !important; height: 22px !important; }
+          .qa-bar { padding: 2px 8px !important; gap: 3px !important; min-height: 26px !important; }
+          .qa-chips button { padding: 2px 5px !important; }
+          .qa-icon-btn { width: 20px !important; height: 20px !important; }
         }
       `}</style>
     </div>

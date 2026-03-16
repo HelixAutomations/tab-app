@@ -31,6 +31,7 @@ import {
 } from 'recharts';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import type { Enquiry, TeamData } from '../../app/functionality/types';
+import { buildEnquiryMutationPayload, enquiryReferencesId } from '../../app/functionality/enquiryProcessingModel';
 import { colours } from '../../app/styles/colours';
 import './ManagementDashboard.css';
 import { getNormalizedEnquirySourceLabel, getNormalizedEnquiryMOCLabel } from '../../utils/enquirySource';
@@ -90,6 +91,13 @@ interface ReportingRangeDataset {
   range: string;
   note?: string;
 }
+
+const findEnquiryForMutation = (enquiries: Enquiry[], enquiryId: string): Enquiry | undefined => {
+  const normalisedEnquiryId = String(enquiryId ?? '').trim();
+  if (!normalisedEnquiryId) return undefined;
+
+  return enquiries.find((enquiry) => enquiryReferencesId(enquiry, normalisedEnquiryId));
+};
 
 interface EnquiriesReportProps {
   enquiries: Enquiry[] | null;
@@ -2266,6 +2274,8 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
     const selectedOption = teamMemberOptions.find(option => option.value === selectedValue);
     if (!selectedOption) return;
     
+    const targetEnquiry = findEnquiryForMutation(enquiries || [], reassignmentDropdown.enquiryId);
+
     setIsReassigning(true);
     setReassignmentMessage(null);
     
@@ -2275,10 +2285,9 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          ID: reassignmentDropdown.enquiryId,
-          Point_of_Contact: selectedValue
-        })
+        body: JSON.stringify(buildEnquiryMutationPayload(targetEnquiry, {
+          Point_of_Contact: selectedValue,
+        }))
       });
 
       const result = await response.json();
@@ -2309,7 +2318,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
       // Clear message after 3 seconds
       setTimeout(() => setReassignmentMessage(null), 3000);
     }
-  }, [reassignmentDropdown, triggerRefresh, teamMemberOptions]);
+  }, [reassignmentDropdown, triggerRefresh, teamMemberOptions, enquiries]);
 
   const closeReassignmentDropdown = useCallback(() => {
     setReassignmentDropdown(null);

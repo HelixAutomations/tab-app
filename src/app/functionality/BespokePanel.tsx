@@ -49,7 +49,7 @@ const getOverlayStyle = (offsetTop: number, isClosing: boolean, variant: 'side' 
 const getPanelStyle = (width: string, isClosing: boolean, isDarkMode: boolean, variant: 'side' | 'modal') =>
   mergeStyles({
     background: variant === 'modal'
-      ? (isDarkMode ? 'rgba(5, 21, 37, 0.96)' : 'rgba(255, 255, 255, 0.98)')
+      ? (isDarkMode ? 'rgba(0, 3, 25, 0.985)' : 'rgba(255, 255, 255, 0.98)')
       : (isDarkMode ? colours.dark.background : colours.light.background),
     width: variant === 'side' ? (width || '480px') : (width || 'min(95vw, 1400px)'),
     maxWidth: variant === 'side' ? '90vw' : '95vw',
@@ -59,7 +59,7 @@ const getPanelStyle = (width: string, isClosing: boolean, isDarkMode: boolean, v
     boxShadow: isDarkMode
       ? (variant === 'side' ? '-4px 0 16px rgba(0, 0, 0, 0.3)' : '0 10px 30px rgba(0, 0, 0, 0.35)')
       : (variant === 'side' ? '-4px 0 16px rgba(0, 0, 0, 0.15)' : '0 10px 30px rgba(2, 6, 23, 0.10)'),
-    borderRadius: variant === 'side' ? 0 : 2,
+    borderRadius: 0,
     display: 'flex',
     flexDirection: 'column',
     transform: variant === 'side'
@@ -69,7 +69,7 @@ const getPanelStyle = (width: string, isClosing: boolean, isDarkMode: boolean, v
     overflow: 'hidden',
     margin: variant === 'modal' ? 'auto' : undefined,
     border: variant === 'modal'
-      ? (isDarkMode ? `1px solid ${colours.dark.border}` : `1px solid ${colours.grey}`)
+      ? (isDarkMode ? `1px solid ${colours.dark.borderColor}` : `1px solid ${colours.grey}`)
       : undefined,
     backdropFilter: variant === 'modal' ? 'blur(10px)' : undefined,
     WebkitBackdropFilter: variant === 'modal' ? 'blur(10px)' : undefined,

@@ -7,6 +7,7 @@ import Navigator from '../components/Navigator';
 import { useNavigatorActions } from './functionality/NavigatorContext';
 import FormsModal from '../components/FormsModal';
 import ResourcesModal from '../components/ResourcesModal';
+import DemoPromptsModal from '../components/DemoPromptsModal';
 import { NavigatorProvider } from './functionality/NavigatorContext';
 import { ToastProvider } from '../components/feedback/ToastProvider';
 import { colours } from './styles/colours';
@@ -28,6 +29,54 @@ const Enquiries = lazy(() => import('../tabs/enquiries/Enquiries'));
 const Instructions = lazy(() => import('../tabs/instructions/Instructions'));
 const Matters = lazy(() => import('../tabs/matters/Matters'));
 const ReportingHome = lazy(() => import('../tabs/Reporting/ReportingHome')); // Replace ReportingCode with ReportingHome
+
+function buildInitialPoidData(): POID[] {
+  return (localIdVerifications as any[])
+    .map((v) => ({
+      poid_id: String(v.InternalId),
+      first: v.FirstName,
+      last: v.LastName,
+      email: v.Email,
+      nationality: v.Nationality,
+      nationality_iso: v.NationalityAlpha2,
+      date_of_birth: v.DOB,
+      passport_number: v.PassportNumber,
+      drivers_license_number: v.DriversLicenseNumber,
+      house_building_number: v.HouseNumber,
+      street: v.Street,
+      city: v.City,
+      county: v.County,
+      post_code: v.Postcode,
+      country: v.Country,
+      company_name: v.company_name || v.CompanyName,
+      company_number: v.company_number || v.CompanyNumber,
+      company_house_building_number: v.company_house_building_number || v.CompanyHouseNumber,
+      company_street: v.company_street || v.CompanyStreet,
+      company_city: v.company_city || v.CompanyCity,
+      company_county: v.company_county || v.CompanyCounty,
+      company_post_code: v.company_post_code || v.CompanyPostcode,
+      company_country: v.company_country || v.CompanyCountry,
+      company_country_code: v.company_country_code || v.CompanyCountryCode,
+      stage: v.stage,
+      check_result: v.EIDOverallResult,
+      pep_sanctions_result: v.PEPAndSanctionsCheckResult,
+      address_verification_result: v.AddressVerificationResult,
+      check_expiry: v.CheckExpiry,
+      poc: v.poc,
+      prefix: v.prefix,
+      type: v.type,
+      client_id: v.ClientId,
+      matter_id: v.MatterId,
+    }))
+    .filter((poid) =>
+      poid &&
+      poid.poid_id &&
+      poid.first &&
+      poid.last &&
+      isNaN(Number(poid.first)) &&
+      isNaN(Number(poid.last))
+    );
+}
 
 interface AppProps {
   teamsContext: app.Context | null;
@@ -66,6 +115,9 @@ const App: React.FC<AppProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState('home');
   const [pendingMatterId, setPendingMatterId] = useState<string | null>(null);
+  const [pendingShowCcl, setPendingShowCcl] = useState(false);
+  const [devToolbarOpen, setDevToolbarOpen] = useState(false);
+  const [showDevDemoPrompts, setShowDevDemoPrompts] = useState(false);
   const [demoModeEnabled, setDemoModeEnabled] = useState<boolean>(() => {
     try {
       return localStorage.getItem('demoModeEnabled') === 'true';
@@ -197,54 +249,9 @@ const App: React.FC<AppProps> = ({
     [],
   );
 
-  // Map and validate POID data from localIdVerifications
-  const initialPoidData: POID[] = (localIdVerifications as any[])
-    .map((v) => ({
-      poid_id: String(v.InternalId),
-      first: v.FirstName,
-      last: v.LastName,
-      email: v.Email,
-      nationality: v.Nationality,
-      nationality_iso: v.NationalityAlpha2,
-      date_of_birth: v.DOB,
-      passport_number: v.PassportNumber,
-      drivers_license_number: v.DriversLicenseNumber,
-      house_building_number: v.HouseNumber,
-      street: v.Street,
-      city: v.City,
-      county: v.County,
-      post_code: v.Postcode,
-      country: v.Country,
-      company_name: v.company_name || v.CompanyName,
-      company_number: v.company_number || v.CompanyNumber,
-      company_house_building_number: v.company_house_building_number || v.CompanyHouseNumber,
-      company_street: v.company_street || v.CompanyStreet,
-      company_city: v.company_city || v.CompanyCity,
-      company_county: v.company_county || v.CompanyCounty,
-      company_post_code: v.company_post_code || v.CompanyPostcode,
-      company_country: v.company_country || v.CompanyCountry,
-      company_country_code: v.company_country_code || v.CompanyCountryCode,
-      // Electronic ID verification fields
-      stage: v.stage,
-      check_result: v.EIDOverallResult,
-      pep_sanctions_result: v.PEPAndSanctionsCheckResult,
-      address_verification_result: v.AddressVerificationResult,
-      check_expiry: v.CheckExpiry,
-      poc: v.poc,
-      prefix: v.prefix,
-      type: v.type,
-      client_id: v.ClientId,
-      matter_id: v.MatterId,
-    }))
-    .filter(poid =>
-      poid &&
-      poid.poid_id &&
-      poid.first &&
-      poid.last &&
-      isNaN(Number(poid.first)) &&
-      isNaN(Number(poid.last))
-    );
-  const [poidData, setPoidData] = useState<POID[]>(initialPoidData);
+  const initialPoidData = useMemo(() => buildInitialPoidData(), []);
+
+  const [poidData, setPoidData] = useState<POID[]>(() => initialPoidData);
   const [instructionData, setInstructionData] = useState<InstructionData[]>([]);
   const [allInstructionData, setAllInstructionData] = useState<InstructionData[]>([]); // Admin: all users' instructions
   const [allMattersFromHome, setAllMattersFromHome] = useState<Matter[] | null>(null);
@@ -267,16 +274,33 @@ const App: React.FC<AppProps> = ({
       const saved = localStorage.getItem('featureToggles');
       const parsed = saved ? JSON.parse(saved) : {};
       // rateChangeTracker defaults to false - users opt-in via UserBubble
-      return { rateChangeTracker: false, showPhasedOutCustomTab: false, ...parsed };
+      // showAttendance defaults to true - annual leave visible by default
+      return { rateChangeTracker: false, showPhasedOutCustomTab: false, showAttendance: true, ...parsed };
     } catch {
-      return { rateChangeTracker: false, showPhasedOutCustomTab: false };
+      return { rateChangeTracker: false, showPhasedOutCustomTab: false, showAttendance: true };
     }
   });
 
   const [teamWideEnquiries, setTeamWideEnquiries] = useState<Enquiry[] | null>(null);
   const currentUser = userData?.[0] || null;
   const isProductionPreview = Boolean(featureToggles?.viewAsProd);
-  const showPhasedOutCustomTab = featureToggles?.showPhasedOutCustomTab ?? false;
+  const showPhasedOutCustomTab = isLocalDev && !isProductionPreview && (featureToggles?.showPhasedOutCustomTab ?? false);
+
+  useEffect(() => {
+    if ((isLocalDev && !isProductionPreview) || !featureToggles?.showPhasedOutCustomTab) {
+      return;
+    }
+
+    setFeatureToggles(prev => {
+      if (!prev.showPhasedOutCustomTab) {
+        return prev;
+      }
+
+      const next = { ...prev, showPhasedOutCustomTab: false };
+      localStorage.setItem('featureToggles', JSON.stringify(next));
+      return next;
+    });
+  }, [featureToggles?.showPhasedOutCustomTab, isLocalDev, isProductionPreview]);
   
   const handleFeatureToggle = useCallback((feature: string, enabled: boolean) => {
     setFeatureToggles(prev => {
@@ -521,10 +545,30 @@ const App: React.FC<AppProps> = ({
       }
     };
 
-    if (teamsContext && userData && enquiries && matters) {
+    if (teamsContext && userData && enquiries) {
       closeLoadingScreen();
     }
-  }, [teamsContext, userData, enquiries, matters]);
+  }, [teamsContext, userData, enquiries]);
+
+  // Boot preheat: warm server cache for core reporting datasets on first load.
+  // Only for admin users (Reports tab is admin-only) — avoids unnecessary server load for non-admin users.
+  const bootPreheatFired = React.useRef(false);
+  useEffect(() => {
+    if (bootPreheatFired.current || !userData?.[0]?.EntraID) return;
+    if (!isAdminUser(userData[0])) return;
+    bootPreheatFired.current = true;
+    const timer = setTimeout(() => {
+      fetch('/api/cache-preheater/preheat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          datasets: ['teamData', 'userData', 'enquiries', 'allMatters'],
+          entraId: userData[0].EntraID,
+        }),
+      }).catch(() => { /* fire-and-forget */ });
+    }, 3000); // 3s after boot — let critical UI settle first
+    return () => clearTimeout(timer);
+  }, [userData]);
 
   // Listen for navigation events from child components
   useEffect(() => {
@@ -546,6 +590,7 @@ const App: React.FC<AppProps> = ({
       if (detail?.matterId) {
         setPendingMatterId(detail.matterId);
       }
+      setPendingShowCcl(!!detail?.showCcl);
       setActiveTab('matters');
     };
 
@@ -971,12 +1016,13 @@ const App: React.FC<AppProps> = ({
             enquiries={(teamWideEnquiries && teamWideEnquiries.length > 0) ? teamWideEnquiries : enquiries}
             workbenchByInstructionRef={workbenchByInstructionRef}
             pendingMatterId={pendingMatterId}
-            onPendingMatterHandled={() => setPendingMatterId(null)}
+            pendingShowCcl={pendingShowCcl}
+            onPendingMatterHandled={() => { setPendingMatterId(null); setPendingShowCcl(false); }}
             demoModeEnabled={demoModeEnabled}
           />
         );
       case 'reporting':
-        return <ReportingHome userData={userData} teamData={teamData} demoModeEnabled={demoModeEnabled} />;
+        return <ReportingHome userData={userData} teamData={teamData} demoModeEnabled={demoModeEnabled} featureToggles={featureToggles} />;
       default:
         return (
           <Home
@@ -1001,7 +1047,7 @@ const App: React.FC<AppProps> = ({
     }
   };
 
-  if (!teamsContext || !userData || !enquiries || !matters) {
+  if (!teamsContext || !userData) {
     return (
       <Loading
         message="Loading your workspace..."
@@ -1057,35 +1103,362 @@ const App: React.FC<AppProps> = ({
             <Navigator />
           </div>
           
-          {/* Production Preview Mode Indicator */}
-          {isLocalDev && featureToggles.viewAsProd && (
-            <div
-              style={{
-                position: 'fixed',
-                bottom: 16,
-                left: 16,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '6px 12px',
-                background: 'rgba(234, 179, 8, 0.95)',
-                color: '#000',
-                fontSize: 11,
-                fontWeight: 600,
-                zIndex: 9999,
-                boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
-                cursor: 'pointer',
-              }}
-              onClick={() => handleFeatureToggle('viewAsProd', false)}
-              title="Click to disable Production Preview mode"
-            >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <circle cx="12" cy="12" r="10"/>
-                <path d="M12 8v4M12 16h.01"/>
-              </svg>
-              PRODUCTION PREVIEW
-            </div>
-          )}
+          {/* Dev Toolbar — persistent bottom-left when on localhost */}
+          {isLocalDev && (() => {
+            const activeUsers: UserData[] = (teamData || [])
+              .filter(u => !u.status || u.status.toLowerCase() === 'active')
+              .map(u => ({
+                ...(u as unknown as Record<string, unknown>),
+                FullName: u['Full Name'],
+                First: u['First'],
+                Last: u['Last'],
+                Initials: u['Initials'],
+                Email: u['Email'],
+                status: u.status,
+              } as UserData));
+            const userInitials = currentUser?.Initials?.toUpperCase() || '?';
+            const openDemoProspect = () => {
+              setPendingMatterId(null);
+              setPendingShowCcl(false);
+              setActiveTab('enquiries');
+              setDevToolbarOpen(false);
+              window.setTimeout(() => {
+                window.dispatchEvent(new CustomEvent('selectTestEnquiry'));
+              }, 120);
+            };
+            const openDemoMatter = (showCcl = false) => {
+              setPendingMatterId('DEMO-3311402');
+              setPendingShowCcl(showCcl);
+              setActiveTab('matters');
+              setDevToolbarOpen(false);
+            };
+            return (
+              <>
+                {/* Backdrop — closes panel on outside click */}
+                {devToolbarOpen && (
+                  <div
+                    style={{ position: 'fixed', inset: 0, zIndex: 9998 }}
+                    onClick={() => setDevToolbarOpen(false)}
+                  />
+                )}
+                <div
+                  style={{
+                    position: 'fixed',
+                    bottom: 16,
+                    left: 16,
+                    zIndex: 9999,
+                    userSelect: 'none',
+                    fontFamily: 'Raleway, sans-serif',
+                  }}
+                >
+                  {/* Expanded panel */}
+                  {devToolbarOpen && (
+                    <div style={{
+                      marginBottom: 6,
+                      background: 'rgba(6, 23, 51, 0.96)',
+                      backdropFilter: 'blur(16px)',
+                      border: '1px solid rgba(135, 243, 243, 0.12)',
+                      boxShadow: '0 8px 32px rgba(0,0,0,0.45)',
+                      padding: '9px 10px',
+                      minWidth: 240,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 8,
+                    }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <div
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 8, minHeight: 28, padding: '4px 8px', cursor: 'pointer',
+                            background: featureToggles.viewAsProd ? 'rgba(234, 179, 8, 0.12)' : 'rgba(255,255,255,0.02)',
+                            transition: 'background 150ms ease',
+                          }}
+                          onClick={() => {
+                            const next = !featureToggles.viewAsProd;
+                            handleFeatureToggle('viewAsProd', next);
+                          }}
+                        >
+                          {featureToggles.viewAsProd ? (
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#eab308" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+                          ) : (
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={colours.accent} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+                          )}
+                          <span style={{ flex: 1, fontSize: 10, fontWeight: 700, letterSpacing: '0.45px', color: featureToggles.viewAsProd ? '#eab308' : '#f3f4f6', textTransform: 'uppercase' }}>
+                            Env · {featureToggles.viewAsProd ? 'Prod Preview' : 'Local Dev'}
+                          </span>
+                          <div style={{
+                            width: 24, height: 12, borderRadius: 7, position: 'relative', flexShrink: 0,
+                            background: featureToggles.viewAsProd ? 'rgba(234, 179, 8, 0.35)' : 'rgba(135, 243, 243, 0.18)',
+                            transition: 'background 180ms ease',
+                          }}>
+                            <div style={{
+                              width: 10, height: 10, borderRadius: '50%', position: 'absolute', top: 1,
+                              left: featureToggles.viewAsProd ? 13 : 1,
+                              background: featureToggles.viewAsProd ? '#eab308' : colours.accent,
+                              transition: 'left 180ms ease, background 180ms ease',
+                            }} />
+                          </div>
+                        </div>
+
+                        <div
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 8, minHeight: 28, padding: '4px 8px', cursor: 'pointer',
+                            background: demoModeEnabled ? 'rgba(32, 178, 108, 0.12)' : 'rgba(255,255,255,0.02)',
+                            transition: 'background 150ms ease',
+                          }}
+                          onClick={() => handleToggleDemoMode(!demoModeEnabled)}
+                        >
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={demoModeEnabled ? colours.green : '#A0A0A0'} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+                          </svg>
+                          <span style={{ flex: 1, fontSize: 10, fontWeight: 700, letterSpacing: '0.45px', color: demoModeEnabled ? colours.green : '#f3f4f6', textTransform: 'uppercase' }}>
+                            Demo · {demoModeEnabled ? 'On' : 'Off'}
+                          </span>
+                          <div style={{
+                            width: 24, height: 12, borderRadius: 7, position: 'relative', flexShrink: 0,
+                            background: demoModeEnabled ? 'rgba(32, 178, 108, 0.35)' : 'rgba(255, 255, 255, 0.08)',
+                            transition: 'background 180ms ease',
+                          }}>
+                            <div style={{
+                              width: 10, height: 10, borderRadius: '50%', position: 'absolute', top: 1,
+                              left: demoModeEnabled ? 13 : 1,
+                              background: demoModeEnabled ? colours.green : '#6B6B6B',
+                              transition: 'left 180ms ease, background 180ms ease',
+                            }} />
+                          </div>
+                        </div>
+                      </div>
+
+                      {demoModeEnabled && (
+                        <div>
+                          <div style={{ fontSize: 9, fontWeight: 600, letterSpacing: '0.75px', color: 'rgba(135, 243, 243, 0.6)', textTransform: 'uppercase', marginBottom: 6 }}>Demo Tools</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 4 }}>
+                            <button
+                              type="button"
+                              onClick={openDemoProspect}
+                              style={{
+                                padding: '7px 8px', background: 'rgba(255,255,255,0.03)', color: '#f3f4f6', border: '1px solid rgba(255,255,255,0.07)',
+                                fontSize: 10, fontWeight: 700, letterSpacing: '0.35px', cursor: 'pointer', textTransform: 'uppercase',
+                              }}
+                            >
+                              Prospect
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openDemoMatter(false)}
+                              style={{
+                                padding: '7px 8px', background: 'rgba(255,255,255,0.03)', color: '#f3f4f6', border: '1px solid rgba(255,255,255,0.07)',
+                                fontSize: 10, fontWeight: 700, letterSpacing: '0.35px', cursor: 'pointer', textTransform: 'uppercase',
+                              }}
+                            >
+                              Matter
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openDemoMatter(true)}
+                              style={{
+                                padding: '7px 8px', background: 'rgba(135, 243, 243, 0.08)', color: colours.accent, border: `1px solid ${'rgba(135, 243, 243, 0.16)'}`,
+                                fontSize: 10, fontWeight: 700, letterSpacing: '0.35px', cursor: 'pointer', textTransform: 'uppercase',
+                              }}
+                            >
+                              CCL
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDevToolbarOpen(false);
+                                setShowDevDemoPrompts(true);
+                              }}
+                              style={{
+                                padding: '7px 8px', background: 'rgba(255,255,255,0.03)', color: '#f3f4f6', border: '1px solid rgba(255,255,255,0.07)',
+                                fontSize: 10, fontWeight: 700, letterSpacing: '0.35px', cursor: 'pointer', textTransform: 'uppercase',
+                              }}
+                            >
+                              Todo
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Section: Switch User */}
+                      {onUserChange && activeUsers.length > 0 && (
+                        <div>
+                          <div style={{ fontSize: 9, fontWeight: 600, letterSpacing: '0.8px', color: 'rgba(135, 243, 243, 0.6)', textTransform: 'uppercase', marginBottom: 6 }}>Switch User</div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                            {activeUsers.map(u => {
+                              const initials = u.Initials?.toUpperCase() || '?';
+                              const isActive = initials === userInitials;
+                              const isSwitchedUser = originalAdminUser && initials === currentUser?.Initials?.toUpperCase();
+                              return (
+                                <div
+                                  key={initials}
+                                  onClick={() => {
+                                    if (!isActive) {
+                                      onUserChange(u);
+                                    }
+                                  }}
+                                  title={u.FullName || `${u.First || ''} ${u.Last || ''}`}
+                                  style={{
+                                    width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    fontSize: 9, fontWeight: 700, letterSpacing: '0.3px',
+                                    cursor: isActive ? 'default' : 'pointer',
+                                    background: isActive
+                                      ? 'rgba(135, 243, 243, 0.18)'
+                                      : isSwitchedUser
+                                        ? 'rgba(54, 144, 206, 0.15)'
+                                        : 'rgba(255, 255, 255, 0.04)',
+                                    color: isActive ? colours.accent : isSwitchedUser ? colours.highlight : '#A0A0A0',
+                                    border: isActive
+                                      ? `1px solid ${colours.accent}`
+                                      : '1px solid rgba(255, 255, 255, 0.06)',
+                                    transition: 'all 150ms ease',
+                                    opacity: isActive ? 1 : 0.85,
+                                  }}
+                                  onMouseEnter={e => {
+                                    if (!isActive) {
+                                      e.currentTarget.style.background = 'rgba(135, 243, 243, 0.1)';
+                                      e.currentTarget.style.color = '#f3f4f6';
+                                      e.currentTarget.style.opacity = '1';
+                                    }
+                                  }}
+                                  onMouseLeave={e => {
+                                    if (!isActive) {
+                                      e.currentTarget.style.background = isSwitchedUser ? 'rgba(54, 144, 206, 0.15)' : 'rgba(255, 255, 255, 0.04)';
+                                      e.currentTarget.style.color = isSwitchedUser ? colours.highlight : '#A0A0A0';
+                                      e.currentTarget.style.opacity = '0.85';
+                                    }
+                                  }}
+                                >
+                                  {initials}
+                                </div>
+                              );
+                            })}
+                          </div>
+                          {originalAdminUser && (
+                            <div
+                              style={{
+                                marginTop: 6, fontSize: 10, color: '#A0A0A0', cursor: 'pointer',
+                                display: 'flex', alignItems: 'center', gap: 4,
+                              }}
+                              onClick={() => {
+                                if (onReturnToAdmin) onReturnToAdmin();
+                              }}
+                              onMouseEnter={e => { e.currentTarget.style.color = colours.accent; }}
+                              onMouseLeave={e => { e.currentTarget.style.color = '#A0A0A0'; }}
+                            >
+                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 14l-4-4 4-4"/><path d="M5 10h11a4 4 0 0 1 0 8h-1"/></svg>
+                              Back to {originalAdminUser.Initials}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Collapsed pill — click to expand */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '4px 10px 4px 6px',
+                      background: devToolbarOpen ? 'rgba(6, 23, 51, 0.96)' : 'rgba(6, 23, 51, 0.88)',
+                      backdropFilter: 'blur(8px)',
+                      border: '1px solid rgba(135, 243, 243, 0.12)',
+                      boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
+                      cursor: 'pointer',
+                      transition: 'all 180ms ease',
+                    }}
+                    onClick={() => setDevToolbarOpen(prev => !prev)}
+                    title="Dev Controls"
+                  >
+                    {/* Chevron */}
+                    <svg
+                      width="8" height="8" viewBox="0 0 24 24" fill="none" stroke={colours.accent} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
+                      style={{ transition: 'transform 180ms ease', transform: devToolbarOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}
+                    >
+                      <path d="M18 15l-6-6-6 6"/>
+                    </svg>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        const next = !featureToggles.viewAsProd;
+                        handleFeatureToggle('viewAsProd', next);
+                      }}
+                      title={featureToggles.viewAsProd ? 'Switch back to dev view' : 'View as production'}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        padding: '2px 6px',
+                        border: featureToggles.viewAsProd ? '1px solid #eab308' : '1px solid rgba(255, 255, 255, 0.08)',
+                        background: featureToggles.viewAsProd ? 'rgba(234, 179, 8, 0.12)' : 'rgba(255, 255, 255, 0.04)',
+                        color: featureToggles.viewAsProd ? '#eab308' : '#d1d5db',
+                        cursor: 'pointer',
+                        fontSize: 9,
+                        fontWeight: 700,
+                        letterSpacing: '0.35px',
+                        textTransform: 'uppercase',
+                        fontFamily: 'inherit',
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: 6,
+                          height: 6,
+                          borderRadius: '50%',
+                          background: featureToggles.viewAsProd ? '#eab308' : '#4b5563',
+                          transition: 'background 180ms ease',
+                        }}
+                      />
+                      <span>Prod</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        handleToggleDemoMode(!demoModeEnabled);
+                      }}
+                      title={demoModeEnabled ? 'Turn demo mode off' : 'Turn demo mode on'}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        padding: '2px 6px',
+                        border: demoModeEnabled ? `1px solid ${colours.green}` : '1px solid rgba(255, 255, 255, 0.08)',
+                        background: demoModeEnabled ? 'rgba(32, 178, 108, 0.12)' : 'rgba(255, 255, 255, 0.04)',
+                        color: demoModeEnabled ? colours.green : '#d1d5db',
+                        cursor: 'pointer',
+                        fontSize: 9,
+                        fontWeight: 700,
+                        letterSpacing: '0.35px',
+                        textTransform: 'uppercase',
+                        fontFamily: 'inherit',
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: 6,
+                          height: 6,
+                          borderRadius: '50%',
+                          background: demoModeEnabled ? colours.green : '#4b5563',
+                          transition: 'background 180ms ease',
+                        }}
+                      />
+                      <span>Demo</span>
+                    </button>
+                    {/* Status dots */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <div style={{ width: 6, height: 6, borderRadius: '50%', background: featureToggles.viewAsProd ? '#eab308' : colours.accent, transition: 'background 180ms ease' }} title={featureToggles.viewAsProd ? 'Prod view' : 'Dev'} />
+                      <div style={{ width: 6, height: 6, borderRadius: '50%', background: demoModeEnabled ? colours.green : '#4b5563', transition: 'background 180ms ease' }} title={demoModeEnabled ? 'Demo ON' : 'Demo OFF'} />
+                    </div>
+                    {/* Current user chip */}
+                    <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.4px', color: colours.accent }}>{userInitials}</span>
+                  </div>
+                </div>
+              </>
+            );
+          })()}
           
           {/* App-level Immediate Actions Bar */}
           {activeTab === 'home' && (
@@ -1095,7 +1468,9 @@ const App: React.FC<AppProps> = ({
               style={{
                 position: 'relative',
                 zIndex: 1,
-                paddingInline: '16px',
+                width: '100%',
+                minWidth: 0,
+                boxSizing: 'border-box',
                 color: 'inherit',
               } as React.CSSProperties}
             />
@@ -1117,9 +1492,17 @@ const App: React.FC<AppProps> = ({
             isLocalDev={isLocalDev}
             viewAsProd={Boolean(featureToggles?.viewAsProd)}
           />
+          {isLocalDev && showDevDemoPrompts && (
+            <DemoPromptsModal
+              isOpen={showDevDemoPrompts}
+              onClose={() => setShowDevDemoPrompts(false)}
+            />
+          )}
           
           <MaintenanceNotice
-            state={serviceHealth}
+            state={demoModeEnabled
+              ? { isUnavailable: true, lastStatus: 503, lastUrl: '/api/cache/clear-cache', lastError: 'Service Unavailable', lastChecked: new Date(), consecutiveFailures: 3 }
+              : serviceHealth}
             isDarkMode={Boolean(isDarkMode)}
             onDismiss={dismissMaintenance}
           />

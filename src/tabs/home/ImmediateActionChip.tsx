@@ -12,6 +12,7 @@ import {
   FaEdit,
   FaFileInvoiceDollar,
   FaClock,
+  FaFileAlt,
 } from 'react-icons/fa';
 import {
   MdArticle,
@@ -66,6 +67,8 @@ const chipIconMap: Record<string, IconComponent> = {
   Room: MdEventSeat,
   Attendance: MdLocationOn,
   Timer: FaClock,
+  CCL: FaFileAlt,
+  DocumentSet: FaFileAlt,
 };
 
 const getChipIcon = (name: string): React.ComponentType<any> => chipIconMap[name] || FaFolder;
@@ -76,7 +79,6 @@ export const ImmediateActionChip: React.FC<ImmediateActionChipProps> = ({
   isDarkMode: propDarkMode,
   onClick,
   disabled = false,
-  subtitle,
   count,
   totalCount,
   category = 'critical',
@@ -88,10 +90,7 @@ export const ImmediateActionChip: React.FC<ImmediateActionChipProps> = ({
 
   const text = isDark ? colours.dark.text : colours.light.text;
   const textMuted = isDark ? colours.subtleGrey : colours.greyText;
-  const textSubtle = isDark ? colours.greyText : colours.subtleGrey;
-
-  // All chips are equal-importance "to do" items — one consistent accent
-  const accentColor = colours.highlight;
+  const categoryAccent = colours.cta;
 
   const hovered = isHovered && !disabled;
 
@@ -106,29 +105,33 @@ export const ImmediateActionChip: React.FC<ImmediateActionChipProps> = ({
         display: 'inline-flex',
         alignItems: 'center',
         gap: 7,
-        padding: '5px 10px',
-        minWidth: 100,
-        maxWidth: 280,
         width: '100%',
+        minHeight: 30,
+        padding: '3px 10px 3px 14px',
+        minWidth: 0,
+        maxWidth: 260,
         boxSizing: 'border-box' as const,
         background: hovered 
-          ? (isDark ? 'linear-gradient(0deg, rgba(54, 144, 206, 0.08), rgba(54, 144, 206, 0.08)), #061733' : '#FFFFFF')
-          : (isDark ? colours.darkBlue : colours.grey),
+          ? (isDark
+            ? `${categoryAccent}10`
+            : `${categoryAccent}08`)
+          : (isDark ? 'rgba(255, 255, 255, 0.02)' : 'rgba(255, 255, 255, 0.35)'),
         color: text,
-        border: `0.5px solid ${hovered 
-          ? (isDark ? 'rgba(135, 243, 243, 0.15)' : 'rgba(0,0,0,0.09)') 
-          : (isDark ? 'rgba(54, 144, 206, 0.18)' : 'rgba(0,0,0,0.06)')}`,
-        borderLeft: `2px solid ${colours.cta}`,
+        border: `1px solid ${hovered 
+          ? categoryAccent
+          : `${categoryAccent}30`}`,
+        borderLeft: `2px solid ${categoryAccent}`,
         borderRadius: 2,
-        boxShadow: hovered
-          ? (isDark ? '0 2px 12px rgba(0, 3, 25, 0.4)' : '0 2px 12px rgba(0,0,0,0.06)')
-          : (isDark ? '0 1px 4px rgba(0, 3, 25, 0.3)' : '0 1px 4px rgba(0,0,0,0.03)'),
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.5 : 1,
         transition: 'all 0.15s ease',
+        boxShadow: 'none',
         transform: hovered && !disabled ? 'translateY(-0.5px)' : 'none',
         position: 'relative',
         textAlign: 'left',
+        overflow: 'hidden',
+        backdropFilter: 'blur(12px)',
+        WebkitBackdropFilter: 'blur(12px)',
       }}
       onMouseEnter={() => !disabled && setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
@@ -137,40 +140,40 @@ export const ImmediateActionChip: React.FC<ImmediateActionChipProps> = ({
     >
       {/* Icon */}
       <div style={{
-        width: 18,
-        height: 18,
+        width: 16,
+        height: 16,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         flexShrink: 0,
-        color: isDark ? 'rgba(243, 244, 246, 0.65)' : accentColor,
-        background: isDark ? 'rgba(135, 243, 243, 0.1)' : '#FFFFFF',
+        color: hovered ? text : categoryAccent,
+        background: 'transparent',
         borderRadius: 2,
-        transition: 'transform 0.15s ease',
-        transform: hovered ? 'scale(1.05)' : 'scale(1)',
+        transition: 'color 0.2s ease',
       }}>
-        <ChipIcon style={{ fontSize: 11 }} />
+        <ChipIcon style={{ fontSize: 8 }} />
       </div>
 
-      {/* Title + Subtitle */}
+      {/* Title */}
       <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
         <div style={{
           fontSize: 11,
           fontWeight: 600,
-          lineHeight: 1.3,
+          lineHeight: 1.2,
           overflow: 'hidden',
           textOverflow: 'ellipsis',
           whiteSpace: 'nowrap',
+          color: hovered ? text : text,
         }}>
           {title}
           {typeof count === 'number' && count > 0 && (
             <span style={{
               marginLeft: 6,
-              padding: '2px 6px',
-              background: isDark ? 'rgba(54, 144, 206, 0.08)' : 'rgba(0,0,0,0.04)',
-              color: isDark ? colours.subtleGrey : colours.greyText,
-              fontSize: 10,
-              fontWeight: 600,
+              padding: '1px 5px',
+              background: isDark ? `${categoryAccent}12` : `${categoryAccent}10`,
+              color: categoryAccent,
+              fontSize: 7,
+              fontWeight: 700,
               verticalAlign: 'middle',
               borderRadius: 2,
             }}>
@@ -178,20 +181,6 @@ export const ImmediateActionChip: React.FC<ImmediateActionChipProps> = ({
             </span>
           )}
         </div>
-        {subtitle && (
-          <div style={{
-            fontSize: 10,
-            fontWeight: 400,
-            color: textSubtle,
-            lineHeight: 1.3,
-            marginTop: 2,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }}>
-            {subtitle}
-          </div>
-        )}
       </div>
 
       {/* Chevron */}
@@ -202,7 +191,7 @@ export const ImmediateActionChip: React.FC<ImmediateActionChipProps> = ({
         fill="none" 
         stroke={textMuted}
         strokeWidth="2"
-        style={{ flexShrink: 0, opacity: 0.4 }}
+        style={{ flexShrink: 0, opacity: hovered ? 0.5 : 0.32 }}
       >
         <path d="M9 18l6-6-6-6" />
       </svg>
@@ -217,12 +206,12 @@ if (typeof document !== 'undefined' && !document.head.querySelector(`style[data-
   s.setAttribute(`data-${iacResponsiveId}`, '');
   s.textContent = `
     @media (max-width: 640px) {
-      .iab-chip { padding: 5px 8px !important; gap: 6px !important; min-width: 0 !important; font-size: 10px !important; }
-      .iab-chip > div:first-child { width: 18px !important; height: 18px !important; }
+      .iab-chip { padding: 3px 10px 3px 14px !important; gap: 7px !important; min-width: 0 !important; font-size: 9px !important; }
+      .iab-chip > div:first-child { width: 16px !important; height: 16px !important; }
       .iab-chip svg:last-child { display: none !important; }
     }
     @media (max-width: 420px) {
-      .iab-chip { padding: 4px 6px !important; gap: 4px !important; }
+      .iab-chip { padding: 3px 10px 3px 14px !important; gap: 6px !important; }
     }
   `;
   document.head.appendChild(s);

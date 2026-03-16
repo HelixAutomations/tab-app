@@ -3131,10 +3131,16 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
 
       if (response.ok) {
         const data = await response.json();
-        if (data?.passcode) {
-          const norm = normalizePasscode(data.passcode, enquiry?.ID);
+        const responsePasscode =
+          (typeof data?.passcode === 'string' ? data.passcode : '') ||
+          (typeof data?.Passcode === 'string' ? data.Passcode : '') ||
+          (typeof data?.instructionRef === 'string' ? data.instructionRef : '') ||
+          (typeof data?.InstructionRef === 'string' ? data.InstructionRef : '');
+        const norm = normalizePasscode(responsePasscode, enquiry?.ID);
+
+        if (norm) {
           // Validate server passcode matches our pre-generated one, or use the one we sent
-          if (norm && norm !== dealPasscode) {
+          if (norm !== dealPasscode) {
             setDealPasscode(norm);
           }
           
@@ -3154,8 +3160,27 @@ const PitchBuilder: React.FC<PitchBuilderProps> = ({ enquiry, userData, showDeal
           // ✅ Trigger same confirmation message as draft/send
           setIsDraftConfirmed(true);
           setTimeout(() => setIsDraftConfirmed(false), 3000);
-          return norm || data.passcode; // Return normalized (or raw fallback)
+          return norm;
         } else {
+          const hasDealId = Boolean(data?.dealId || data?.DealId);
+          const hasInstructionRef = Boolean(data?.instructionRef || data?.InstructionRef);
+          const fallbackPasscode = hasDealId || hasInstructionRef ? normalizePasscode(dealPasscode, enquiry?.ID) : null;
+
+          if (fallbackPasscode) {
+            if (!options?.background) {
+              setDealStatus('ready');
+              showToast('Deal captured successfully!', 'success', {
+                details: `Passcode ${fallbackPasscode} created • Instruction link ready`,
+                icon: 'CompletedSolid',
+                duration: 4000
+              });
+            }
+
+            setIsDraftConfirmed(true);
+            setTimeout(() => setIsDraftConfirmed(false), 3000);
+            return fallbackPasscode;
+          }
+
           console.warn('⚠️ No passcode in response data');
           if (!options?.background) {
             setDealStatus('error');

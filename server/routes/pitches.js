@@ -11,6 +11,12 @@ router.get('/:enquiryId', async (req, res) => {
         return res.status(400).json({ error: 'Missing enquiryId parameter' });
     }
 
+    // ProspectId is an int column — non-numeric IDs (demo/synthetic) can't match
+    const numericId = Number(enquiryId);
+    if (!Number.isFinite(numericId) || numericId <= 0) {
+        return res.json({ pitches: [] });
+    }
+
     try {
         // Use instructions database connection string
         const connectionString = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;

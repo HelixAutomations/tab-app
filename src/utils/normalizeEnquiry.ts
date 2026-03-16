@@ -49,6 +49,7 @@ export function normalizeEnquiry(raw: Record<string, unknown>): NormalizedEnquir
     claim: raw.claim ?? null,
     // Map Ultimate_Source to source field for enquiry cards
     source: raw.source || raw.Ultimate_Source || null,
+    shared_with: raw.shared_with || raw.Shared_With || null,
     __sourceType: sourceType,
   } as unknown as NormalizedEnquiry;
 }

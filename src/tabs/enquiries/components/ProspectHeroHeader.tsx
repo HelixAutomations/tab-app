@@ -19,6 +19,7 @@ import {
   FaEnvelope,
   FaFolderOpen,
   FaPhone,
+  FaUserPlus,
 } from 'react-icons/fa';
 
 const FONT_STACK = "'Raleway', 'Segoe UI', sans-serif";
@@ -57,6 +58,8 @@ interface ProspectHeroHeaderProps {
   onOpenPitchBuilder: () => void;
   onOpenExistingWorkspace: (workspaceItem: TimelineLikeItem) => void;
   onRequestDocs: () => void;
+  onShareEnquiry?: () => void;
+  inlineWorkbenchItem?: any;
 }
 
 /* ── Helpers ─────────────────────────────────────────────── */
@@ -106,13 +109,19 @@ const ProspectHeroHeader: React.FC<ProspectHeroHeaderProps> = ({
   onOpenPitchBuilder,
   onOpenExistingWorkspace,
   onRequestDocs,
+  onShareEnquiry,
+  inlineWorkbenchItem,
 }) => {
   const areaColour = getAreaColour(displayAreaOfWork);
 
+  // Enrich from instruction when enquiry name is incomplete
+  const instr = inlineWorkbenchItem?.instruction;
+  const enrichedFirst = (enquiry.First_Name && enquiry.Last_Name) ? enquiry.First_Name : (instr?.FirstName || enquiry.First_Name);
+  const enrichedLast = (enquiry.First_Name && enquiry.Last_Name) ? enquiry.Last_Name : (instr?.LastName || enquiry.Last_Name);
   const clientDisplayName =
-    enquiry.First_Name && enquiry.Last_Name
-      ? `${enquiry.First_Name} ${enquiry.Last_Name}`
-      : enquiry.First_Name || enquiry.Last_Name || 'New Prospect';
+    enrichedFirst && enrichedLast
+      ? `${enrichedFirst} ${enrichedLast}`
+      : enrichedFirst || enrichedLast || 'New Prospect';
 
   // Surface tokens
   const cardBg = isDarkMode ? colours.darkBlue : colours.light.cardBackground;
@@ -134,10 +143,11 @@ const ProspectHeroHeader: React.FC<ProspectHeroHeaderProps> = ({
   const activeCampaignWhiteFilter = 'brightness(0) invert(1)';
 
   const metaItems: Array<{ icon: React.ReactNode; text: string; copyLabel: string }> = [];
-  if (enquiry.ID) {
+  const displayId = instr?.InstructionRef || (enquiry.ID ? String(enquiry.ID) : '');
+  if (displayId) {
     metaItems.push({
       icon: <img src={activecampaignIcon} alt="AC" style={{ width: 10, height: 10, filter: activeCampaignWhiteFilter }} />,
-      text: String(enquiry.ID),
+      text: displayId,
       copyLabel: 'ID',
     });
   }
@@ -343,6 +353,33 @@ const ProspectHeroHeader: React.FC<ProspectHeroHeaderProps> = ({
 
         {/* ── CTA buttons ── */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, marginLeft: 2 }}>
+          <button
+            type="button"
+            onClick={() => onShareEnquiry?.()}
+            disabled={!onShareEnquiry}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 4,
+              padding: '4px 10px',
+              border: `1px solid ${isDarkMode ? `${colours.highlight}25` : `${colours.highlight}18`}`,
+              borderRadius: 0,
+              background: isDarkMode ? `${colours.highlight}0a` : `${colours.highlight}06`,
+              color: colours.highlight, fontSize: 10, fontWeight: 700,
+              cursor: onShareEnquiry ? 'pointer' : 'default',
+              fontFamily: 'inherit', whiteSpace: 'nowrap', opacity: onShareEnquiry ? 1 : 0.5,
+              transition: 'all 0.15s ease',
+            }}
+            onMouseEnter={(e) => {
+              if (!onShareEnquiry) return;
+              e.currentTarget.style.background = isDarkMode ? `${colours.highlight}18` : `${colours.highlight}10`;
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = isDarkMode ? `${colours.highlight}0a` : `${colours.highlight}06`;
+            }}
+          >
+            <FaUserPlus size={8} />
+            <span>Share</span>
+          </button>
+
           <button
             onClick={onOpenPitchBuilder}
             style={{

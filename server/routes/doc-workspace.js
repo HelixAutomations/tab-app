@@ -641,58 +641,64 @@ router.get('/documents', async (req, res) => {
  * Returns a list of enquiries with files in Holding folder that need allocation.
  * Query params:
  * - enquiryIds: comma-separated list of enquiry IDs to check (optional, limits scope)
+ *
+ * Blob iteration is expensive (~10s). Results are cached in-memory for 60s.
  */
+let _pendingActionsCache = { data: null, expires: 0 };
+const PENDING_ACTIONS_TTL_MS = 60_000;
+
 router.get('/pending-actions', async (req, res) => {
   try {
-    const svc = getBlobServiceClient();
-    const containerClient = svc.getContainerClient(PROSPECT_CONTAINER);
-
     // Parse optional enquiry IDs filter
     const enquiryIdsParam = String(req.query?.enquiryIds || '').trim();
     const filterIds = enquiryIdsParam ? enquiryIdsParam.split(',').map(id => id.trim()).filter(Boolean) : null;
 
-    const pendingActions = [];
-    const seenEnquiries = new Set();
+    // Use cached full scan when available (filter is applied client-side after cache)
+    const now = Date.now();
+    let allActions = _pendingActionsCache.data;
+    if (!allActions || _pendingActionsCache.expires <= now) {
+      const svc = getBlobServiceClient();
+      const containerClient = svc.getContainerClient(PROSPECT_CONTAINER);
+      const pendingActions = [];
+      const seenEnquiries = new Set();
 
-    // List all blobs and find those in /Holding/ folders
-    for await (const blob of containerClient.listBlobsFlat({ prefix: 'enquiries/' })) {
-      const blobName = blob.name;
-      
-      // Pattern: enquiries/{enquiryId}/{passcode}/Holding/{filename}
-      const match = blobName.match(/^enquiries\/(\d+)\/([^/]+)\/Holding\/(.+)$/);
-      if (!match) continue;
+      for await (const blob of containerClient.listBlobsFlat({ prefix: 'enquiries/' })) {
+        const blobName = blob.name;
+        const match = blobName.match(/^enquiries\/(\d+)\/([^/]+)\/Holding\/(.+)$/);
+        if (!match) continue;
 
-      const [, enquiryId, passcode, filename] = match;
-      
-      // Skip .folder marker files
-      if (filename === '.folder') continue;
-      
-      // Filter by enquiry IDs if provided
-      if (filterIds && !filterIds.includes(enquiryId)) continue;
+        const [, enquiryId, passcode, filename] = match;
+        if (filename === '.folder') continue;
 
-      // Track unique enquiry+passcode combinations
-      const key = `${enquiryId}:${passcode}`;
-      if (seenEnquiries.has(key)) {
-        // Increment count for existing entry
-        const existing = pendingActions.find(a => a.enquiryId === enquiryId && a.passcode === passcode);
-        if (existing) existing.holdingCount += 1;
-        continue;
+        const key = `${enquiryId}:${passcode}`;
+        if (seenEnquiries.has(key)) {
+          const existing = pendingActions.find(a => a.enquiryId === enquiryId && a.passcode === passcode);
+          if (existing) existing.holdingCount += 1;
+          continue;
+        }
+
+        seenEnquiries.add(key);
+        pendingActions.push({
+          enquiryId,
+          passcode,
+          holdingCount: 1,
+          actionType: 'allocate_documents',
+          actionLabel: 'Files need allocation',
+        });
       }
 
-      seenEnquiries.add(key);
-      pendingActions.push({
-        enquiryId,
-        passcode,
-        holdingCount: 1,
-        actionType: 'allocate_documents',
-        actionLabel: 'Files need allocation',
-      });
+      allActions = pendingActions;
+      _pendingActionsCache = { data: allActions, expires: now + PENDING_ACTIONS_TTL_MS };
     }
 
+    const filtered = filterIds
+      ? allActions.filter(a => filterIds.includes(a.enquiryId))
+      : allActions;
+
     return res.json({
-      pendingActions,
-      total: pendingActions.length,
-      totalFiles: pendingActions.reduce((sum, a) => sum + a.holdingCount, 0),
+      pendingActions: filtered,
+      total: filtered.length,
+      totalFiles: filtered.reduce((sum, a) => sum + a.holdingCount, 0),
     });
   } catch (err) {
     console.error('doc-workspace/pending-actions failed', {

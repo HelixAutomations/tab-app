@@ -340,7 +340,9 @@ router.post('/:instructionRef/request-documents', async (req, res) => {
     }
 
     try {
-      await sendDocumentRequestEmail(instructionRef, instruction.Email, clientFirstName, sendingContact);
+      await sendDocumentRequestEmail(instructionRef, instruction.Email, clientFirstName, sendingContact, {
+        requestOrigin: `${req.protocol}://${req.get('host')}`
+      });
 
       await runInstructionQuery((request, s) =>
         request
@@ -367,7 +369,7 @@ router.post('/:instructionRef/request-documents', async (req, res) => {
         message: 'Document request email sent successfully',
         instructionRef,
         emailSent: true,
-        recipient: 'lz@helix-law.com'
+        recipient: instruction.Email
       });
     } catch (emailError) {
       console.error('Failed to send document request email:', emailError);
@@ -408,9 +410,11 @@ router.post('/:instructionRef/approve', async (req, res) => {
         i.LastName,
         i.Email,
         i.HelixContact,
-        d.PitchedBy
+        d.PitchedBy,
+        v.EIDOverallResult
       FROM Instructions i
       LEFT JOIN Deals d ON i.InstructionRef = d.InstructionRef
+      LEFT JOIN IDVerifications v ON i.InstructionRef = v.InstructionRef
       WHERE i.InstructionRef = @instructionRef
     `;
 
@@ -479,11 +483,10 @@ router.post('/:instructionRef/approve', async (req, res) => {
 /**
  * Sends document request email to client using Microsoft Graph API
  */
-async function sendDocumentRequestEmail(instructionRef, clientEmail, clientFirstName, sendingContact) {
-  const axios = require('axios');
-  const { getSecret } = require('../utils/getSecret');
-
+async function sendDocumentRequestEmail(instructionRef, clientEmail, clientFirstName, sendingContact, options = {}) {
   console.log(`[verify-id] Sending document request email to ${clientEmail} for ${instructionRef} from ${sendingContact}`);
+  const ccEmail = typeof options.ccEmail === 'string' ? options.ccEmail.trim() : '';
+  const requestOrigin = typeof options.requestOrigin === 'string' ? options.requestOrigin.trim() : '';
 
   // Get team data from cache/API
   const teamData = await getTeamData();
@@ -507,9 +510,9 @@ async function sendDocumentRequestEmail(instructionRef, clientEmail, clientFirst
 
   console.log(`[verify-id] Contact lookup for '${sendingContact}':`, contactDetails);
 
-  const contactName = contactDetails ? contactDetails['Full Name'] : sendingContact;
   const contactFirstName = contactDetails ? contactDetails['First'] : sendingContact;
   const contactRole = contactDetails ? contactDetails.Role : 'Legal Assistant';
+  const contactInitials = String(contactDetails?.Initials || '').trim().toUpperCase();
 
   console.log(`[verify-id] Using contact: ${contactFirstName} (${contactRole})`);
 
@@ -555,302 +558,37 @@ async function sendDocumentRequestEmail(instructionRef, clientEmail, clientFirst
     </div>
   `;
 
-  // Generate full email with Helix Law signature
-  const fullEmailHtml = `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <title>Helix Email</title>
-</head>
-<body style="margin:0; padding:0; font-family: Raleway, sans-serif; font-size:10pt; line-height:1.4; color:#000;">
-  <table width="100%" border="0" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
-    <tr>
-      <td style="padding:10px; font-family:Raleway, sans-serif; font-size:10pt; color:#000;">
-        ${emailBody}
-        <p style="font-family: Raleway, sans-serif; font-size:10pt; line-height:1.4; color:#000; margin:16px 0 8px;">${contactFirstName}</p>
-        <table border="0" cellpadding="0" cellspacing="0" style="border-collapse:collapse; margin:0; padding:0; width:auto; font-family: Raleway, sans-serif; font-size:10pt; line-height:1.4; color:#000;">
-          <tr>
-            <td style="padding-bottom: 8px; font-family: Raleway, sans-serif; font-size:10pt; line-height:1.4; color:#000;">
-              ${contactFirstName}<br />${contactRole}
-            </td>
-          </tr>
-          <tr>
-            <td style="padding-bottom: 8px; font-family: Raleway, sans-serif; color:#000;">
-              <img src="https://helix-law.co.uk/wp-content/uploads/2025/01/50px-logo.png" alt="Helix Law Logo" style="height:50px; display:block; margin:15px 0;" />
-            </td>
-          </tr>
-          <tr>
-            <td style="padding-top: 8px; padding-bottom: 8px; font-family: Raleway, sans-serif; font-size:10pt; line-height:1.4; color:#000;">
-              <table border="0" cellpadding="0" cellspacing="0" style="border-collapse: collapse; font-size:10pt; line-height:1.4;">
-                <tr>
-                  <td style="padding-right:4px; vertical-align:middle;">
-                    <img src="https://helix-law.co.uk/wp-content/uploads/2025/01/email.png" alt="Email Icon" style="height:12px; vertical-align:middle;" />
-                  </td>
-                  <td style="padding-right:15px; vertical-align:middle; font-family: Raleway, sans-serif; font-size:10pt; line-height:1.4;">
-                    <a href="mailto:${senderEmail}" style="color:#3690CE; text-decoration:none;">
-                      ${senderEmail}
-                    </a>
-                  </td>
-                  <td style="padding-right:4px; vertical-align:middle;">
-                    <img src="https://helix-law.co.uk/wp-content/uploads/2025/01/phone.png" alt="Phone Icon" style="height:12px; vertical-align:middle;" />
-                  </td>
-                  <td style="padding-right:15px; vertical-align:middle; font-family: Raleway, sans-serif; font-size:10pt; line-height:1.4;">
-                    <a href="tel:+443453142044" style="color:#0D2F60; text-decoration:none;">
-                      0345 314 2044
-                    </a>
-                  </td>
-                  <td style="padding-right:4px; vertical-align:middle;">
-                    <img src="https://helix-law.co.uk/wp-content/uploads/2025/01/website.png" alt="Website Icon" style="height:12px; vertical-align:middle;" />
-                  </td>
-                  <td style="padding-right:0; vertical-align:middle; font-family: Raleway, sans-serif; font-size:10pt; line-height:1.4;">
-                    <a href="https://www.helix-law.com/" style="color:#3690CE; text-decoration:none;">
-                      www.helix-law.com
-                    </a>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding-top:8px; padding-bottom: 8px; font-family: Raleway, sans-serif; font-size:10pt; line-height:1.4;">
-              <table border="0" cellpadding="0" cellspacing="0" style="border-collapse: collapse; font-size:10pt; line-height:1.4;">
-                <tr>
-                  <td style="padding-right:4px; vertical-align:middle;">
-                    <img src="https://helix-law.co.uk/wp-content/uploads/2025/01/location.png" alt="Location Icon" style="height:12px; vertical-align:middle;" />
-                  </td>
-                  <td style="vertical-align:middle; color:#0D2F60; font-family: Raleway, sans-serif; font-size:10pt; line-height:1.4;">
-                    Helix Law Ltd, Second Floor, Britannia House, 21 Station Street, Brighton, BN1 4DE
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding-top:8px; color:#D65541; font-size:7pt; line-height:1.5; font-family: Raleway, sans-serif;">
-              DISCLAIMER: Please be aware of cyber-crime. Our bank account details will NOT change during the course of a transaction.
-              Helix Law Limited will not be liable if you transfer money to an incorrect account.
-              We accept no responsibility or liability for malicious or fraudulent emails purportedly coming from our firm,
-              and it is your responsibility to ensure that any emails coming from us are genuine before relying on anything contained within them.
-            </td>
-          </tr>
-          <tr>
-            <td style="padding-top:8px; font-style:italic; font-size:7pt; line-height:1.5; color:#444; font-family: Raleway, sans-serif;">
-              Helix Law Limited is a limited liability company registered in England and Wales. Registration Number 07845461. A list of Directors is available for inspection at the Registered Office: Second Floor, Britannia House, 21 Station Street, Brighton, BN1 4DE. Authorised and regulated by the Solicitors Regulation Authority. The term partner is a reference to a Director or senior solicitor of Helix Law Limited. Helix Law Limited does not accept service by email. This email is sent by and on behalf of Helix Law Limited. It may be confidential and may also be legally privileged. It is intended only for the stated addressee(s) and access to it by any other person is unauthorised. If you are not an addressee, you must not disclose, copy, circulate or in any other way use or rely on the information contained in this email. If you have received it in error, please inform us immediately and delete all copies. All copyright is reserved entirely on behalf of Helix Law Limited. Helix Law and applicable logo are exclusively owned trademarks of Helix Law Limited, registered with the Intellectual Property Office under numbers UK00003984532 and UK00003984535. The trademarks should not be used, copied or replicated without consent first obtained in writing.
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>
-`;
-
   try {
-    // Get Microsoft Graph API credentials from Key Vault
-    const clientId = await getSecret('graph-pitchbuilderemailprovider-clientid');
-    const clientSecret = await getSecret('graph-pitchbuilderemailprovider-clientsecret');
-    const tenantId = '7fbc252f-3ce5-460f-9740-4e1cb8bf78b8'; // Same as used in other functions
-
-    // Get access token
-    const tokenResponse = await axios.post(
-      `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`,
-      new URLSearchParams({
-        client_id: clientId,
-        client_secret: clientSecret,
-        scope: 'https://graph.microsoft.com/.default',
-        grant_type: 'client_credentials'
-      }).toString(),
-      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
-    );
-
-    const accessToken = tokenResponse.data.access_token;
-
-    // Send email via Microsoft Graph API
-    const messagePayload = {
-      message: {
-        subject: `Additional Documents Required - ${instructionRef}`,
-        body: {
-          contentType: 'HTML',
-          content: fullEmailHtml
-        },
-        toRecipients: [{ emailAddress: { address: 'lz@helix-law.com' } }], // Test delivery only
-        from: { emailAddress: { address: senderEmail } },
-        ccRecipients: [{ emailAddress: { address: senderEmail } }] // CC the contact for testing
-      },
-      saveToSentItems: 'false'
-    };
-
-    const graphResponse = await axios.post(
-      `https://graph.microsoft.com/v1.0/users/${senderEmail}/sendMail`,
-      messagePayload,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json'
-        }
-      }
-    );
-
-    if (graphResponse.status === 202) {
-      console.log(`[verify-id] Document request email sent successfully to ${clientEmail}`);
-      return true;
-    } else {
-      throw new Error(`Unexpected Graph API status: ${graphResponse.status}`);
+    if (!requestOrigin) {
+      throw new Error('Missing request origin for sendEmail relay');
     }
+
+    const relayResponse = await fetch(`${requestOrigin}/api/sendEmail`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        body_html: `${emailBody}<p>${contactFirstName}</p>`,
+        use_personal_signature: true,
+        signature_initials: contactInitials,
+        user_email: clientEmail,
+        subject: `Additional Documents Required - ${instructionRef}`,
+        from_email: senderEmail,
+        cc_emails: ccEmail || senderEmail,
+        saveToSentItems: true,
+      })
+    });
+
+    if (!relayResponse.ok) {
+      const relayError = await relayResponse.text();
+      throw new Error(relayError || `Relay failed: ${relayResponse.status}`);
+    }
+
+    console.log(`[verify-id] Document request email sent successfully to ${clientEmail}`);
+    return true;
   } catch (error) {
     console.error(`[verify-id] Failed to send document request email:`, error);
-    throw error;
-  }
-}
-
-/**
- * Sends draft document request email to fee earner for manual sending
- */
-async function sendDraftDocumentRequestEmail(instructionRef, feeEarnerContact, clientFirstName, clientName, clientEmail) {
-  const axios = require('axios');
-  const { getSecret } = require('../utils/getSecret');
-
-  console.log(`[verify-id] Sending draft document request to fee earner ${feeEarnerContact} for ${instructionRef}`);
-
-  // Get team data from cache/API
-  const teamData = await getTeamData();
-
-  // Get the fee earner email address
-  const feeEarnerEmail = getContactEmail(feeEarnerContact, teamData);
-  console.log(`[verify-id] Sending draft to fee earner email: ${feeEarnerEmail}`);
-  
-  // Get contact details for the draft
-  const contactDetails = teamData.find(person => {
-    const fullName = person['Full Name'] || '';
-    const initials = person.Initials || '';
-    const firstName = person.First || '';
-    const nickname = person.Nickname || '';
-    
-    return fullName === feeEarnerContact ||
-           initials === feeEarnerContact.toUpperCase() ||
-           firstName === feeEarnerContact ||
-           nickname === feeEarnerContact;
-  });
-
-  const contactName = contactDetails ? contactDetails['Full Name'] : feeEarnerContact;
-  const contactFirstName = contactDetails ? contactDetails['First'] : feeEarnerContact;
-  const contactRole = contactDetails ? contactDetails.Role : 'Legal Assistant';
-
-  // Draft email HTML for fee earner to manually send
-  const draftEmailBody = `
-    <div style="font-family: Raleway, sans-serif; color: #000;">
-      <p><strong>DRAFT EMAIL FOR MANUAL SENDING</strong></p>
-      <p><strong>Instruction Reference:</strong> ${instructionRef}</p>
-      <p><strong>Client:</strong> ${clientName}</p>
-      <p><strong>Client Email:</strong> ${clientEmail}</p>
-      
-      <hr style="margin: 20px 0; border: 1px solid #ccc;"/>
-      
-      <p><strong>Subject:</strong> Additional Documents Required - ${instructionRef}</p>
-      
-      <div style="border: 2px dashed #3690CE; padding: 15px; margin: 20px 0; background-color: #f8f9fa;">
-        <p><em>Copy the content below and send directly to the client:</em></p>
-        
-        <div style="background: white; padding: 15px; border: 1px solid #ddd;">
-          <p>Dear ${clientFirstName || 'Client'},</p>
-          
-          <p>Thank you for submitting your proof of identity form. We initially aim to verify identities electronically.</p>
-          
-          <p>Unfortunately, we were unable to verify your identity through electronic means. Please be assured that this is a common occurrence and can result from various factors, such as recent relocation or a limited history at your current residence.</p>
-          
-          <p>To comply with anti-money laundering regulations and our know-your-client requirements, we kindly ask you to provide additional documents.</p>
-          
-          <p>Completing these steps is necessary for us to proceed with substantive actions on your behalf.</p>
-          
-          <p>We appreciate your cooperation and understanding in this matter.</p>
-          
-          <p><strong>Please provide 1 item from Section A and 1 item from Section B below:</strong></p>
-          
-          <p><strong>Section A</strong></p>
-          <ul>
-            <li>Passport (current and valid)</li>
-            <li>Driving Licence</li>
-            <li>Employer Identity Card</li>
-            <li>Other Item showing your name, signature and address</li>
-          </ul>
-          
-          <p><strong>Section B</strong></p>
-          <ul>
-            <li>Recent utility bill (not more than 3 months old)</li>
-            <li>Recent Council Tax Bill</li>
-            <li>Mortgage Statement (not more than 3 months old)</li>
-            <li>Bank or Credit Card Statement (not more than 3 months old)</li>
-            <li>Other item linking your name to your current address</li>
-          </ul>
-          
-          <p>Please reply to this email with the requested documents attached as clear photographs or scanned copies.</p>
-          
-          <p>If you have any questions about these requirements, please don't hesitate to contact us.</p>
-          
-          <p>Best regards,</p>
-          <p>${contactFirstName}</p>
-        </div>
-      </div>
-      
-      <p><em>This draft email has been prepared for instruction ${instructionRef}. Please review and send directly to the client when appropriate.</em></p>
-    </div>
-  `;
-
-  try {
-    // Get Microsoft Graph API credentials from Key Vault
-    const clientId = await getSecret('graph-pitchbuilderemailprovider-clientid');
-    const clientSecret = await getSecret('graph-pitchbuilderemailprovider-clientsecret');
-    const tenantId = '7fbc252f-3ce5-460f-9740-4e1cb8bf78b8';
-
-    // Get access token
-    const tokenResponse = await axios.post(
-      `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`,
-      new URLSearchParams({
-        client_id: clientId,
-        client_secret: clientSecret,
-        scope: 'https://graph.microsoft.com/.default',
-        grant_type: 'client_credentials'
-      }).toString(),
-      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
-    );
-
-    const accessToken = tokenResponse.data.access_token;
-
-    // Send draft email to fee earner
-    const messagePayload = {
-      message: {
-        subject: `DRAFT: Document Request for ${clientName} (${instructionRef})`,
-        body: {
-          contentType: 'HTML',
-          content: draftEmailBody
-        },
-        toRecipients: [{ emailAddress: { address: feeEarnerEmail } }],
-        from: { emailAddress: { address: feeEarnerEmail } }
-      },
-      saveToSentItems: 'false'
-    };
-
-    const graphResponse = await axios.post(
-      `https://graph.microsoft.com/v1.0/users/${feeEarnerEmail}/sendMail`,
-      messagePayload,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json'
-        }
-      }
-    );
-
-    if (graphResponse.status === 202) {
-      console.log(`[verify-id] Draft document request email sent to fee earner ${feeEarnerEmail}`);
-      return true;
-    } else {
-      throw new Error(`Unexpected Graph API status: ${graphResponse.status}`);
-    }
-  } catch (error) {
-    console.error(`[verify-id] Failed to send draft document request email:`, error);
     throw error;
   }
 }
@@ -1045,11 +783,13 @@ router.post('/:instructionRef/test-state', async (req, res) => {
 });
 
 /**
- * Send draft document request email to fee earner
+ * Send document request email from fee earner to client
  * POST /api/verify-id/:instructionRef/draft-request
  */
 router.post('/:instructionRef/draft-request', async (req, res) => {
   const { instructionRef } = req.params;
+  const toEmail = typeof req.body?.toEmail === 'string' ? req.body.toEmail.trim() : '';
+  const ccEmail = typeof req.body?.ccEmail === 'string' ? req.body.ccEmail.trim() : '';
   
   console.log(`[verify-id] DRAFT REQUEST - Received request for instructionRef: ${instructionRef}`);
   console.log(`[verify-id] DRAFT REQUEST - Request method: ${req.method}`);
@@ -1060,7 +800,7 @@ router.post('/:instructionRef/draft-request', async (req, res) => {
     return res.status(400).json({ error: 'Missing instructionRef' });
   }
 
-  console.log(`[verify-id] Sending draft document request for ${instructionRef}`);
+  console.log(`[verify-id] Sending document request for ${instructionRef}`);
 
   try {
     const connectionString = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
@@ -1078,9 +818,11 @@ router.post('/:instructionRef/draft-request', async (req, res) => {
         i.LastName,
         i.Email,
         i.HelixContact,
-        d.PitchedBy
+        d.PitchedBy,
+        v.EIDOverallResult
       FROM Instructions i
       LEFT JOIN Deals d ON i.InstructionRef = d.InstructionRef
+      LEFT JOIN IDVerifications v ON i.InstructionRef = v.InstructionRef
       WHERE i.InstructionRef = @instructionRef
     `;
 
@@ -1094,7 +836,6 @@ router.post('/:instructionRef/draft-request', async (req, res) => {
     }
 
     const instruction = instructionResult.recordset[0];
-    const clientName = `${instruction.FirstName || ''} ${instruction.LastName || ''}`.trim();
     const clientFirstName = instruction.FirstName || 'Client';
 
     // Determine the sending contact (fee earner)
@@ -1103,20 +844,55 @@ router.post('/:instructionRef/draft-request', async (req, res) => {
       return res.status(400).json({ error: 'No Helix contact found for this instruction' });
     }
 
-    // Send draft email to fee earner instead of client
+    const recipientEmail = toEmail || instruction.Email;
+    if (!recipientEmail) {
+      return res.status(400).json({ error: 'No recipient email found for this instruction' });
+    }
+
+    if (instruction.EIDOverallResult === 'Documents Requested') {
+      return res.status(400).json({
+        error: 'Documents have already been requested for this instruction',
+        alreadyRequested: true
+      });
+    }
+
+    // Send final email to client from fee earner mailbox
     try {
-      await sendDraftDocumentRequestEmail(instructionRef, feeEarner, clientFirstName, clientName, instruction.Email);
+      await sendDocumentRequestEmail(instructionRef, recipientEmail, clientFirstName, feeEarner, {
+        ccEmail,
+        requestOrigin: `${req.protocol}://${req.get('host')}`
+      });
+
+      await runInstructionQuery((request, s) =>
+        request
+          .input('instructionRef', s.VarChar(50), instructionRef)
+          .query(`
+            UPDATE IDVerifications 
+            SET EIDOverallResult = 'Documents Requested'
+            WHERE InstructionRef = @instructionRef
+          `)
+      );
+
+      try {
+        await Promise.all([
+          deleteCachePattern(`${CACHE_CONFIG.PREFIXES.UNIFIED}:*`),
+          deleteCachePattern(`${CACHE_CONFIG.PREFIXES.INSTRUCTIONS}:*`)
+        ]);
+      } catch (e) {
+        console.warn('[verify-id] Cache invalidation failed (draft-request/send):', e?.message || e);
+      }
       
       res.json({
         success: true,
-        message: 'Draft document request email sent to fee earner',
+        message: 'Document request email sent successfully',
         instructionRef,
         emailSent: true,
-        recipient: feeEarner
+        recipient: recipientEmail,
+        cc: ccEmail || null
       });
       
     } catch (emailError) {
-      console.error('Failed to send draft document request email:', emailError);
+      console.error('Failed to send document request email:', emailError);
       res.status(500).json({ 
         error: 'Failed to send email',
         details: emailError.message 
@@ -1124,7 +900,7 @@ router.post('/:instructionRef/draft-request', async (req, res) => {
     }
 
   } catch (error) {
-    console.error('[verify-id] Error sending draft document request:', error);
+    console.error('[verify-id] Error sending document request:', error);
     res.status(500).json({ 
       error: 'Internal server error',
       details: error.message

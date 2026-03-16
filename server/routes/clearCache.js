@@ -13,10 +13,15 @@ router.post('/clear-cache', async (req, res) => {
     
     const redisClient = await getRedisClient();
     if (!redisClient) {
-      return res.status(503).json({ 
-        success: false, 
+      log.warn('cache:clear skipped - Redis unavailable', { scope });
+      return res.json({ 
+        success: true,
+        skipped: true,
+        degraded: true,
         error: 'Redis not available',
-        message: 'Cache clearing skipped - Redis client unavailable'
+        message: 'Cache clearing skipped - Redis client unavailable',
+        clearedKeys: 0,
+        scope,
       });
     }
 

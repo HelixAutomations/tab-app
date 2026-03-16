@@ -352,7 +352,8 @@ async function fetchAllMatters({ connectionString, range }) {
 }
 
 async function fetchWip({ connectionString }) {
-  // IMPORTANT: Exclude current week; current week comes from Clio function and is merged by this route
+  // Exclude current week: DB has no current-week rows (syncWip skips them).
+  // Current week is sourced live from Clio via wipClioCurrentWeek.
   const { from, to } = getLast24MonthsExcludingCurrentWeek();
   return withRequest(connectionString, async (request, sqlClient) => {
     request.input('dateFrom', sqlClient.Date, formatDateOnly(from));
@@ -767,11 +768,10 @@ async function fetchWipClioCurrentWeek({ connectionString, entraId }) {
       };
     }
   } catch (error) {
-    console.error('Failed to fetch user WIP from Clio:', error.message);
-    return {
-      current_week: { daily_data: {}, activities: [] },
-      last_week: { daily_data: {}, activities: [] },
-    };
+    console.error('Failed to fetch WIP from Clio:', error.message);
+    // Propagate the error so the streaming handler can send dataset-error
+    // instead of caching an empty result as 'ready' for 30 minutes.
+    throw error;
   } finally {
     const ms = Date.now() - startedAt;
     // Only warn if extremely slow (>30s)
@@ -997,12 +997,17 @@ async function fetchRecoveredFeesSummary({ connectionString, entraId, clioId }) 
 
     const currentTotal = Number(record.current_total) || 0;
     const previousTotal = Number(record.prev_total) || 0;
+    // collectedTime tracks payments, not time entries — hours not available from this table
+    const currentHours = 0;
+    const previousHours = 0;
 
-    console.log(`[RecoveredFees] Results for Clio ID ${effectiveClioId}: Current=${currentTotal}, Previous=${previousTotal}`);
+    console.log(`[RecoveredFees] Results for Clio ID ${effectiveClioId}: Current=${currentTotal} (${currentHours}h), Previous=${previousTotal} (${previousHours}h)`);
 
     return {
       currentMonthTotal: currentTotal,
       previousMonthTotal: previousTotal,
+      currentMonthHours: currentHours,
+      previousMonthHours: previousHours,
     };
   });
 }

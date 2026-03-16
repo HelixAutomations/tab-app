@@ -133,10 +133,10 @@ const AppLoadingScreen: React.FC<AppLoadingScreenProps> = ({
           justifyContent: 'center',
           width: 80,
           height: 80,
-          borderRadius: 16,
-          background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-          border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'}`,
-          color: colours.highlight,
+          borderRadius: 0,
+          background: isDarkMode ? colours.darkBlue : colours.light.cardBackground,
+          border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : colours.light.border}`,
+          color: isDarkMode ? colours.accent : colours.highlight,
           animation: 'gentlePulse 3s ease-in-out infinite',
           marginBottom: 32
         }}>
@@ -169,9 +169,8 @@ const AppLoadingScreen: React.FC<AppLoadingScreenProps> = ({
             </div>
             <div style={{
               fontSize: 12,
-              color: isDarkMode ? '#94a3b8' : '#64748b',
+              color: isDarkMode ? colours.subtleGrey : colours.greyText,
               fontWeight: '500',
-              opacity: 0.9,
               marginBottom: 10
             }}>
               {getStageSubMessage()}
@@ -191,11 +190,11 @@ const AppLoadingScreen: React.FC<AppLoadingScreenProps> = ({
                     height: 5,
                     borderRadius: '50%',
                     background: microProcessIndex >= i 
-                      ? colours.highlight
-                      : (isDarkMode ? '#475569' : '#e2e8f0'),
+                      ? (isDarkMode ? colours.accent : colours.highlight)
+                      : (isDarkMode ? 'rgba(54, 144, 206, 0.25)' : colours.light.border),
                     transform: microProcessIndex === i ? 'scale(1.3)' : 'scale(1)',
                     transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
-                    opacity: microProcessIndex === i ? 1 : 0.6
+                    opacity: microProcessIndex === i ? 1 : 0.8
                   }}
                 />
               ))}
@@ -206,15 +205,15 @@ const AppLoadingScreen: React.FC<AppLoadingScreenProps> = ({
           <div style={{
             width: '100%',
             height: 2,
-            background: isDarkMode ? '#334155' : '#e2e8f0',
-            borderRadius: 2,
+            background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : colours.light.border,
+            borderRadius: 0,
             overflow: 'hidden',
             position: 'relative'
           }}>
             <div style={{
               height: '100%',
-              background: colours.highlight,
-              borderRadius: 2,
+              background: isDarkMode ? colours.accent : colours.highlight,
+              borderRadius: 0,
               width: `${Math.max(5, animatedProgress)}%`,
               transition: 'width 0.8s cubic-bezier(0.4, 0, 0.2, 1)'
             }} />

@@ -228,7 +228,7 @@ router.get('/stream-datasets', async (req, res) => {
           // For heavy datasets, DON'T abort on client disconnect - continue fetching and cache the result
           // This ensures the next request gets a cache hit instead of starting another slow fetch
           const racePromises = [
-            fetchDatasetByName(datasetName, { connectionString, instructionsConnectionString, entraId, rangeOverrides: datasetRangeOverrides }),
+            fetchDatasetByName(datasetName, { connectionString, instructionsConnectionString, entraId, rangeOverrides: datasetRangeOverrides, bypassCache }),
             new Promise((_, reject) => setTimeout(() => reject(new Error(`Query timeout after ${timeoutMs}ms`)), timeoutMs))
           ];
           
@@ -376,7 +376,7 @@ router.get('/stream-datasets', async (req, res) => {
 });
 
 // Dataset fetcher dispatcher
-async function fetchDatasetByName(datasetName, { connectionString, instructionsConnectionString, entraId, clioId, rangeOverrides = {} }) {
+async function fetchDatasetByName(datasetName, { connectionString, instructionsConnectionString, entraId, clioId, rangeOverrides = {}, bypassCache = false }) {
   switch (datasetName) {
     case 'userData':
       return fetchUserData({ connectionString, entraId });
@@ -410,7 +410,7 @@ async function fetchDatasetByName(datasetName, { connectionString, instructionsC
     }
     case 'metaMetrics': {
       const daysBack = sanitizeDays(rangeOverrides.metaMetrics, 90) ?? 30;
-      return fetchMetaMetrics(daysBack);
+      return fetchMetaMetrics(daysBack, bypassCache);
     }
     case 'deals':
       return fetchDeals({ connectionString, range: rangeOverrides.deals });
@@ -602,6 +602,8 @@ async function fetchAllMatters({ connectionString, range }) {
 }
 
 async function fetchWip({ connectionString, range }) {
+  // Exclude current week: DB has no current-week rows (syncWip skips them).
+  // Current week is sourced live from Clio via wipClioCurrentWeek.
   const resolvedRange = range
     ? { from: new Date(range.from), to: new Date(range.to) }
     : getLast24MonthsExcludingCurrentWeek();
@@ -745,20 +747,17 @@ async function fetchPoidData({ connectionString }) {
 async function fetchWipClioCurrentWeek({ connectionString, entraId }) {
   // Management dashboard requires TEAM-WIDE current-week data.
   // Force team scope here regardless of entraId so we don't accidentally fetch only the current user.
-  try {
-    if (typeof fetchWipClioCurrentWeekDirect === 'function') {
-      const result = await fetchWipClioCurrentWeekDirect({ connectionString, entraId: null });
-      const activityCount = result?.current_week?.activities?.length ?? 0;
-      log.info(`✅ wipClioCurrentWeek: fetched ${activityCount} activities from Clio API`);
-      return result;
-    }
-    log.warn('wipClioCurrentWeek: fetchWipClioCurrentWeekDirect not available');
-  } catch (e) {
-    log.warn('Direct Clio current-week fetch failed in streaming route:', e.message);
+  if (typeof fetchWipClioCurrentWeekDirect !== 'function') {
+    throw new Error('wipClioCurrentWeek: fetchWipClioCurrentWeekDirect not available');
   }
-  // Safe empty struct on failure
-  log.warn('wipClioCurrentWeek: returning empty fallback');
-  return { current_week: { daily_data: {}, activities: [] }, last_week: { daily_data: {}, activities: [] } };
+
+  // Let errors propagate so the streaming handler sends 'error' status
+  // and the frontend falls back to wipDbCurrentWeek instead of caching
+  // an empty result as 'ready'.
+  const result = await fetchWipClioCurrentWeekDirect({ connectionString, entraId: null });
+  const activityCount = result?.current_week?.activities?.length ?? 0;
+  log.info(`✅ wipClioCurrentWeek: fetched ${activityCount} activities from Clio API`);
+  return result;
 }
 
 async function fetchWipDbLastWeek({ connectionString }) {
@@ -1085,12 +1084,13 @@ async function fetchGoogleAdsData(months = 3) {
   });
 }
 
-async function fetchMetaMetrics(daysBack = 30) {
+async function fetchMetaMetrics(daysBack = 30, bypassCache = false) {
   const http = require('http');
   const querystring = require('querystring');
   
   const params = querystring.stringify({
-    daysBack: daysBack
+    daysBack: daysBack,
+    ...(bypassCache ? { bypassCache: 'true' } : {}),
   });
 
   // Retry configuration for connection stability

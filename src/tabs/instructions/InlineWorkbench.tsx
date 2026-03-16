@@ -6,7 +6,9 @@ import { RALEWAY_REGULAR_B64, RALEWAY_BOLD_B64, HELIX_LOGO_WHITE_B64 } from '../
 import type { TeamData } from '../../app/functionality/types';
 import { colours } from '../../app/styles/colours';
 import { getAreaOfWorkIcon as getAreaOfWorkEmoji } from '../enquiries/components/prospectDisplayUtils';
+import PortalLaunchModal from '../../components/portal/PortalLaunchModal';
 import { useToast } from '../../components/feedback/ToastProvider';
+import { buildPortalLaunchModel, type PortalLaunchModel } from '../../utils/portalLaunch';
 import { resolveActiveCampaignContactId } from '../../utils/resolveActiveCampaignContactId';
 import activecampaignIcon from '../../assets/activecampaign.svg';
 import clioLogo from '../../assets/clio.svg';
@@ -44,9 +46,11 @@ import {
   FaTimes,
   FaTimesCircle,
   FaUser,
+  FaUserTie,
   FaEdit,
   FaCode,
   FaExternalLinkAlt,
+  FaKey,
 } from 'react-icons/fa';
 import type { RiskCore } from '../../components/RiskAssessment';
 import DocumentUploadZone from '../../components/DocumentUploadZone';
@@ -54,14 +58,42 @@ import FlatMatterOpening from './MatterOpening/FlatMatterOpening';
 import CompactMatterWizard from './MatterOpening/CompactMatterWizard';
 import type { POID } from '../../app/functionality/types';
 
-type StageStatus = 'pending' | 'processing' | 'review' | 'complete' | 'neutral';
+type StageStatus = 'pending' | 'processing' | 'warning' | 'review' | 'complete' | 'neutral';
 type WorkbenchTab = 'details' | 'identity' | 'payment' | 'risk' | 'matter' | 'documents';
 type ContextStageKey = 'enquiry' | 'pitch' | 'instructed';
+type MatterClientTypeOption = 'Individual' | 'Company' | 'Multiple Individuals' | 'Existing Client';
+
+type MatterClientCandidate = {
+  key: string;
+  label: string;
+  clientId?: string;
+  isCompany?: boolean;
+};
+
+const inferMatterClientType = (instruction: any): MatterClientTypeOption | null => {
+  const raw = String(instruction?.ClientType || instruction?.client_type || '').trim().toLowerCase();
+  if (raw.includes('existing')) return 'Existing Client';
+  if (raw.includes('multiple')) return 'Multiple Individuals';
+  if (raw.includes('company')) return 'Company';
+  if (raw.includes('individual')) return 'Individual';
+  if (instruction?.CompanyName || instruction?.company_name) return 'Company';
+  return null;
+};
+
+const getCandidateName = (record: any): string => {
+  const companyName = String(record?.CompanyName || record?.company_name || '').trim();
+  if (companyName) return companyName;
+  const first = String(record?.FirstName || record?.Forename || record?.first_name || '').trim();
+  const last = String(record?.LastName || record?.Surname || record?.last_name || '').trim();
+  const full = `${first} ${last}`.trim();
+  return full || 'Unnamed client';
+};
 
 type VerificationDetails = {
   instructionRef: string;
   clientName: string;
   clientEmail: string;
+  email?: string;
   overallResult: string;
   pepResult: string;
   addressResult: string;
@@ -88,6 +120,7 @@ type InlineWorkbenchProps = {
   onTriggerEID?: (instructionRef: string) => void | Promise<void>;
   onOpenIdReview?: (instructionRef: string) => void;
   onConfirmBankPayment?: (paymentId: string, confirmedDate: string) => void | Promise<void>;
+  onOpenEnquiryRating?: (enquiryId: string) => void;
   onRefreshData?: (instructionRef?: string) => void | Promise<void>;
   onClose?: () => void;
   currentUser?: { FullName?: string; Email?: string } | null;
@@ -95,6 +128,7 @@ type InlineWorkbenchProps = {
   demoModeEnabled?: boolean;
   flatEmbedMode?: boolean;
 };
+const workbenchEntryMotionLastPlayedAt = new Map<string, number>();
 
 const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   item,
@@ -112,6 +146,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   onTriggerEID,
   onOpenIdReview,
   onConfirmBankPayment,
+  onOpenEnquiryRating,
   onRefreshData,
   onClose,
   currentUser,
@@ -123,6 +158,9 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   const [showLocalRiskModal, setShowLocalRiskModal] = useState(false);
   const [riskEditMode, setRiskEditMode] = useState(false);
   const [showLocalMatterModal, setShowLocalMatterModal] = useState(false);
+  const [isEnterMotionActive, setIsEnterMotionActive] = useState(false);
+  const [isTabMotionActive, setIsTabMotionActive] = useState(false);
+  const [isAutoRefreshing, setIsAutoRefreshing] = useState(false);
   const [localPoidData, setLocalPoidData] = useState<POID[]>([]);
   const [activeContextStage, setActiveContextStage] = useState<ContextStageKey | null>(initialContextStage);
   const [expandedPayment, setExpandedPayment] = useState<string | null>(null);
@@ -133,6 +171,16 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   const [verificationDetailsError, setVerificationDetailsError] = useState<string | null>(null);
   const [isEidDetailsExpanded, setIsEidDetailsExpanded] = useState(true);
   const [isEnquiryNotesExpanded, setIsEnquiryNotesExpanded] = useState(false);
+  const isLocalDev = (() => {
+    const actuallyLocal = typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname);
+    if (!actuallyLocal) return false;
+    try {
+      const saved = localStorage.getItem('featureToggles');
+      const parsed = saved ? JSON.parse(saved) : {};
+      if (parsed?.viewAsProd) return false;
+    } catch { /* ignore */ }
+    return true;
+  })();
   const [isPitchContentExpanded, setIsPitchContentExpanded] = useState(false);
   const [isRawRecordExpanded, setIsRawRecordExpanded] = useState(false);
   const [isVerificationDataExpanded, setIsVerificationDataExpanded] = useState(false);
@@ -167,6 +215,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   // Hub-side document management state
   const [hubDocuments, setHubDocuments] = useState<any[]>([]);
   const [hubDocsLoaded, setHubDocsLoaded] = useState(false);
+  const [hubDocsChecked, setHubDocsChecked] = useState(false);
   
   // Payment Link Request state
   const [showPaymentLinkModal, setShowPaymentLinkModal] = useState(false);
@@ -175,6 +224,24 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   const [paymentLinkIncludesVat, setPaymentLinkIncludesVat] = useState(true);
   const [isCreatingPaymentLink, setIsCreatingPaymentLink] = useState(false);
   const [createdPaymentLink, setCreatedPaymentLink] = useState<string | null>(null);
+  const [matterOpenClientType, setMatterOpenClientType] = useState<MatterClientTypeOption | null>(null);
+  const [matterOpenCompanyName, setMatterOpenCompanyName] = useState<string>('');
+  const [matterOpenCompanyRelationship, setMatterOpenCompanyRelationship] = useState<string>('Director');
+  const [matterOpenMainClientKey, setMatterOpenMainClientKey] = useState<string>('');
+  const [matterOpenDescription, setMatterOpenDescription] = useState<string>('');
+  const [showMatterOpeningWizard, setShowMatterOpeningWizard] = useState<boolean>(false);
+  const [portalLaunchModel, setPortalLaunchModel] = useState<PortalLaunchModel | null>(null);
+  const [isPortalLaunchOpen, setIsPortalLaunchOpen] = useState(false);
+  const [matterWizardStage, setMatterWizardStage] = useState<'form' | 'review' | 'processing' | 'complete' | 'error'>('form');
+  const [matterJointClientKeys, setMatterJointClientKeys] = useState<string[]>([]);
+  const [optimisticMatterOpen, setOptimisticMatterOpen] = useState<{ openedAt: string; matterId: string | null } | null>(null);
+  const matterWizardAnchorRef = React.useRef<HTMLDivElement | null>(null);
+  const refreshNextAtRef = React.useRef(0);
+  const refreshInFlightRef = React.useRef(false);
+  const refreshIndicatorRef = React.useRef<HTMLSpanElement>(null);
+  const matterBreadcrumbRef = React.useRef<HTMLDivElement | null>(null);
+  const matterPreflightPageRef = React.useRef<HTMLDivElement | null>(null);
+  const matterWizardPageRef = React.useRef<HTMLDivElement | null>(null);
   const isCompactIdentityView = flatEmbedMode;
 
   const safeCopy = React.useCallback(async (text?: string | null) => {
@@ -378,15 +445,20 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   const fetchDocuments = useCallback(async () => {
     const ref = inst?.InstructionRef || deal?.InstructionRef;
     if (!ref) return;
+    setHubDocsChecked(false);
     try {
       const res = await fetch(`/api/documents/${encodeURIComponent(ref)}`);
       if (res.ok) {
         const data = await res.json();
-        setHubDocuments(data.documents || []);
+        // Support both { documents: [...] } wrapper and legacy flat array
+        const docs = Array.isArray(data) ? data : (data.documents || []);
+        setHubDocuments(docs);
         setHubDocsLoaded(true);
       }
     } catch {
       // Silently fall back to parent-passed documents
+    } finally {
+      setHubDocsChecked(true);
     }
   }, [inst?.InstructionRef, deal?.InstructionRef]);
 
@@ -394,19 +466,56 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     if (inst?.InstructionRef || deal?.InstructionRef) {
       fetchDocuments();
     }
-    return () => { setHubDocuments([]); setHubDocsLoaded(false); };
+    return () => { setHubDocuments([]); setHubDocsLoaded(false); setHubDocsChecked(false); };
   }, [inst?.InstructionRef, deal?.InstructionRef, fetchDocuments]);
 
   // Use hub-fetched docs when available, fall back to parent-passed
   const documents = hubDocsLoaded ? hubDocuments : parentDocuments;
 
+  const getDocumentFileName = (doc: any): string => String(
+    doc?.FileName ||
+    doc?.fileName ||
+    doc?.filename ||
+    doc?.originalFilename ||
+    doc?.original_filename ||
+    doc?.Name ||
+    doc?.name ||
+    ''
+  ).trim();
+
+  const getDocumentUploadedAt = (doc: any): string | null => {
+    const value = doc?.UploadedAt || doc?.uploadedAt || doc?.UploadDate || doc?.uploadDate || doc?.created_at || doc?.createdAt || doc?.date || null;
+    return value ? String(value) : null;
+  };
+
+  const allKnownDocuments = useMemo(() => {
+    const combined = [...(hubDocuments || []), ...(parentDocuments || [])];
+    const seen = new Set<string>();
+    const deduped: any[] = [];
+    for (const doc of combined) {
+      const id = String(doc?.DocumentId || doc?.documentId || '').trim();
+      const fileName = getDocumentFileName(doc).toLowerCase();
+      const uploadedAt = (getDocumentUploadedAt(doc) || '').toLowerCase();
+      const key = id || `${fileName}|${uploadedAt}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      deduped.push(doc);
+    }
+    return deduped;
+  }, [hubDocuments, parentDocuments]);
+
   // Check if an EID PDF already exists in instruction documents
   const existingEidPdfDoc = useMemo(() => {
-    if (!documents?.length) return null;
-    return documents.find((d: any) =>
-      d.FileName && /eid-raw-record/i.test(d.FileName) && /\.pdf$/i.test(d.FileName)
-    ) || null;
-  }, [documents]);
+    if (!allKnownDocuments.length) return null;
+    return allKnownDocuments.find((d: any) => {
+      const fileName = getDocumentFileName(d);
+      const blobRef = String(d?.BlobUrl || d?.blobUrl || d?.url || '').trim();
+      const haystack = `${fileName} ${blobRef}`.toLowerCase();
+      const isEidReport = haystack.includes('eid-raw-record') || (haystack.includes('eid') && haystack.includes('raw') && haystack.includes('record'));
+      const isPdf = /\.pdf$/i.test(fileName) || haystack.includes('.pdf');
+      return isEidReport && isPdf;
+    }) || null;
+  }, [allKnownDocuments]);
 
   // Find matching matter for this instruction
   const matter = useMemo(() => {
@@ -584,6 +693,133 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   // Derive values
   // NOTE: keep instructionRef sourced from instruction/deal (used for actions like ID/EID)
   const instructionRef = resolvedInstruction?.InstructionRef || resolvedInstruction?.instructionRef || deal?.InstructionRef || deal?.instructionRef || '';
+  // Motion key: use only enquiry ID (stable from mount). instructionRef resolves
+  // async and would cause the animation to fire twice if included.
+  const enquiryIdForMotion = String((item as any)?.enquiry?.ID || (item as any)?.enquiry?.id || (item as any)?.prospectId || '');
+  const tabMotionKey = `${activeTab}:${activeContextStage || 'default'}`;
+  const hasMountedTabMotionRef = React.useRef(false);
+  const lastMotionIdRef = React.useRef<string>('');
+  const suppressTabMotionUntilRef = React.useRef<number>(0);
+
+  useEffect(() => {
+    if (!enquiryIdForMotion) {
+      setIsEnterMotionActive(false);
+      return;
+    }
+    // Skip if same enquiry (prevents double-fire from async data loading)
+    if (lastMotionIdRef.current === enquiryIdForMotion) return;
+    const now = Date.now();
+    const lastPlayedAt = workbenchEntryMotionLastPlayedAt.get(enquiryIdForMotion) ?? 0;
+    if (now - lastPlayedAt < 1200) {
+      lastMotionIdRef.current = enquiryIdForMotion;
+      setIsEnterMotionActive(false);
+      return;
+    }
+    workbenchEntryMotionLastPlayedAt.set(enquiryIdForMotion, now);
+    lastMotionIdRef.current = enquiryIdForMotion;
+
+    setIsTabMotionActive(false);
+    suppressTabMotionUntilRef.current = Date.now() + 360;
+    setIsEnterMotionActive(true);
+    const timer = window.setTimeout(() => setIsEnterMotionActive(false), 300);
+    return () => window.clearTimeout(timer);
+  }, [enquiryIdForMotion]);
+
+  useEffect(() => {
+    if (!hasMountedTabMotionRef.current) {
+      hasMountedTabMotionRef.current = true;
+      return;
+    }
+    if (Date.now() < suppressTabMotionUntilRef.current) {
+      return;
+    }
+    setIsTabMotionActive(true);
+    const timer = window.setTimeout(() => setIsTabMotionActive(false), 420);
+    return () => window.clearTimeout(timer);
+  }, [tabMotionKey]);
+
+  useEffect(() => {
+    if (!onRefreshData) {
+      setIsAutoRefreshing(false);
+      return;
+    }
+
+    const AUTO_REFRESH_MS = 30000;
+    const REFRESH_TICK_MS = 5000;
+    let disposed = false;
+
+    /** Update the indicator text directly on the DOM (no React re-render) */
+    const paintIndicator = (remainingMs: number) => {
+      const el = refreshIndicatorRef.current;
+      if (!el) return;
+      const secs = Math.max(0, Math.ceil(remainingMs / 1000));
+      const deferred = activeTab === 'details' && (activeContextStage ?? 'enquiry') === 'enquiry';
+      el.textContent = deferred
+        ? `Refresh paused · ${secs}s`
+        : `Refresh in ${secs}s`;
+    };
+
+    const resetCountdown = () => {
+      refreshNextAtRef.current = Date.now() + AUTO_REFRESH_MS;
+      paintIndicator(AUTO_REFRESH_MS);
+    };
+
+    const runAutoRefresh = async () => {
+      if (disposed || refreshInFlightRef.current) return;
+      if (typeof document !== 'undefined' && document.hidden) return;
+      const isDetailsEnquiryView = activeTab === 'details' && (activeContextStage ?? 'enquiry') === 'enquiry';
+      if (isDetailsEnquiryView) {
+        resetCountdown();
+        return;
+      }
+
+      refreshInFlightRef.current = true;
+      setIsAutoRefreshing(true);
+      try {
+        await onRefreshData(instructionRef || undefined);
+      } catch {
+        // silent: countdown chip remains informational, not an error surface
+      } finally {
+        refreshInFlightRef.current = false;
+        if (!disposed) {
+          setIsAutoRefreshing(false);
+          resetCountdown();
+        }
+      }
+    };
+
+    resetCountdown();
+
+    const ticker = window.setInterval(() => {
+      const remainingMs = Math.max(0, refreshNextAtRef.current - Date.now());
+      paintIndicator(remainingMs);
+      if (remainingMs <= 0) {
+        void runAutoRefresh();
+      }
+    }, REFRESH_TICK_MS);
+
+    const onVisibilityChange = () => {
+      if (disposed || typeof document === 'undefined') return;
+      if (document.hidden) return;
+      if (refreshNextAtRef.current < Date.now() + 500) {
+        resetCountdown();
+      }
+    };
+
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    return () => {
+      disposed = true;
+      window.clearInterval(ticker);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [activeContextStage, activeTab, instructionRef, onRefreshData]);
+
+  const isRefreshDeferred = activeTab === 'details' && (activeContextStage ?? 'enquiry') === 'enquiry';
+
+  useEffect(() => {
+    setOptimisticMatterOpen(null);
+  }, [instructionRef]);
 
   // Client identity/contact shown in Details should be stage-aware.
   const firstName = getValue(['First_Name', 'FirstName', 'firstName', 'first_name'], '');
@@ -591,7 +827,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   const fullName = `${firstName} ${lastName}`.trim() || 'Unknown';
   const email = getValue(['ClientEmail', 'Email', 'email', 'LeadClientEmail', 'EmailAddress']);
   const phone = getValue(['Phone_Number', 'Telephone', 'Phone', 'phone', 'MobileNumber', 'Mobile']);
-  const areaOfWork = getValue(['Area_of_Work', 'AreaOfWork', 'area', 'Area']);
+  const areaOfWork = getValue(['Area_of_Work', 'AreaOfWork', 'area', 'Area', 'aow', 'pitch']);
   const pointOfContact = getValue(['Point_of_Contact', 'PointOfContact', 'pointOfContact', 'poc', 'Point of Contact']);
   const typeOfWork = getValue(['Type_of_Work', 'TypeOfWork', 'typeOfWork', 'tow', 'Type']);
   const methodOfContact = getValue(['Method_of_Contact', 'MethodOfContact', 'methodOfContact', 'moc', 'Method']);
@@ -641,15 +877,6 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     ],
     ''
   );
-  // DEBUG: Log enquiry and notes for troubleshooting
-  React.useEffect(() => {
-    if (enquiry) {
-      console.log('[InlineWorkbench] enquiry object:', enquiry);
-      console.log('[InlineWorkbench] enquiry.notes:', enquiry?.notes);
-      console.log('[InlineWorkbench] enquiry.Initial_first_call_notes:', enquiry?.Initial_first_call_notes);
-      console.log('[InlineWorkbench] enquiryNotesRaw:', enquiryNotesRaw);
-    }
-  }, [enquiry, enquiryNotesRaw]);
   const enquiryNotes = String(enquiryNotesRaw ?? '').replace(/\r\n/g, '\n');
   const hasEnquiryNotes = enquiryNotes.trim().length > 0;
   
@@ -731,12 +958,101 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   const submissionDateRaw = getValue(['Touchpoint_Date', 'Date_Created', 'DateCreated', 'datetime', 'SubmissionDate', 'submission_date', 'DateSubmitted', 'InstructionDate']);
   const submissionDate = formatDate(submissionDateRaw);
 
+  const hasTimeEvidence = (raw: any): boolean => {
+    if (!raw) return false;
+    if (raw instanceof Date || typeof raw === 'number') return true;
+    if (typeof raw !== 'string') return false;
+    const text = raw.trim();
+    if (!text) return false;
+    if (/^\d{10,13}$/.test(text)) return true;
+    return /T\d{2}:\d{2}/.test(text) || /(?:^|\D)\d{1,2}[:.]\d{2}(?::\d{2})?(?:\D|$)/.test(text);
+  };
+
+  const parseClockParts = (raw: any): { hours: number; minutes: number } | null => {
+    if (!raw) return null;
+    if (typeof raw === 'string') {
+      const text = raw.trim();
+      if (!text) return null;
+      const isoMatch = text.match(/T(\d{2}):(\d{2})/);
+      if (isoMatch) {
+        return { hours: Number(isoMatch[1]), minutes: Number(isoMatch[2]) };
+      }
+      const plainMatch = text.match(/(\d{1,2})[:.](\d{2})/);
+      if (plainMatch) {
+        return {
+          hours: Math.max(0, Math.min(23, Number(plainMatch[1]))),
+          minutes: Math.max(0, Math.min(59, Number(plainMatch[2]))),
+        };
+      }
+      return null;
+    }
+    try {
+      const d = new Date(raw);
+      if (Number.isNaN(d.getTime())) return null;
+      return { hours: d.getHours(), minutes: d.getMinutes() };
+    } catch {
+      return null;
+    }
+  };
+
+  const hasMeaningfulClockOnDate = (date: Date | null): boolean => {
+    if (!date) return false;
+    return date.getHours() !== 0 || date.getMinutes() !== 0 || date.getSeconds() !== 0;
+  };
+
+  const parseTimelineDate = (dateRaw: any, timeRaw?: any): Date | null => {
+    if (!dateRaw) return null;
+    try {
+      const date = new Date(dateRaw);
+      if (Number.isNaN(date.getTime())) return null;
+      const clock = parseClockParts(timeRaw);
+      if (clock) {
+        date.setHours(clock.hours, clock.minutes, 0, 0);
+      }
+      return date;
+    } catch {
+      return null;
+    }
+  };
+
+  const formatTimelineStamp = (dateRaw: any, timeRaw?: any): string | null => {
+    const date = parseTimelineDate(dateRaw, timeRaw);
+    if (!date) return null;
+    const includeTime = Boolean(parseClockParts(timeRaw)) || (hasTimeEvidence(dateRaw) && hasMeaningfulClockOnDate(date));
+    const day = formatRelativeDay(date);
+    if (!includeTime) return day;
+    const time = date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    return `${day} ${time}`;
+  };
+
+  const formatTimelineDiff = (fromDateRaw: any, toDateRaw: any, fromTimeRaw?: any, toTimeRaw?: any): string | null => {
+    const from = parseTimelineDate(fromDateRaw, fromTimeRaw);
+    const to = parseTimelineDate(toDateRaw, toTimeRaw);
+    if (!from || !to) return null;
+
+    const fromHasTime = Boolean(parseClockParts(fromTimeRaw)) || (hasTimeEvidence(fromDateRaw) && hasMeaningfulClockOnDate(from));
+    const toHasTime = Boolean(parseClockParts(toTimeRaw)) || (hasTimeEvidence(toDateRaw) && hasMeaningfulClockOnDate(to));
+    if (!fromHasTime || !toHasTime) return null;
+
+    const diffMs = Math.abs(to.getTime() - from.getTime());
+    const mins = Math.floor(diffMs / 60000);
+    if (mins < 60) return `${mins}m`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) {
+      const remMins = mins % 60;
+      return remMins > 0 ? `${hrs}h ${remMins}m` : `${hrs}h`;
+    }
+    const days = Math.floor(hrs / 24);
+    const remHrs = hrs % 24;
+    return remHrs > 0 ? `${days}d ${remHrs}h` : `${days}d`;
+  };
+
   // Timeline dates - include effectivePitch for fetched pitch content
   const pitchDateRaw = deal?.PitchedDate || deal?.pitchedDate || deal?.CreatedDate || deal?.createdDate || effectivePitch?.CreatedAt || effectivePitch?.createdAt || effectivePitch?.pitchedDate || effectivePitch?.PitchedDate || pitch?.CreatedAt || pitch?.createdAt || pitch?.pitchedDate || pitch?.PitchedDate || null;
   const pitchDate = formatDate(pitchDateRaw);
   
   // Matter open date - prioritize matter object from new space
-  const matterOpenDateRaw = matter?.OpenDate || matter?.['Open Date'] || matter?.open_date || matter?.OpenedDate || matter?.opened_at || getValue(['MatterOpenDate', 'matter_open_date', 'MatterCreatedDate', 'OpenedDate', 'opened_at']);
+  const matterOpenDateRaw = matter?.OpenDate || matter?.['Open Date'] || matter?.open_date || matter?.OpenedDate || matter?.opened_at || optimisticMatterOpen?.openedAt || getValue(['MatterOpenDate', 'matter_open_date', 'MatterCreatedDate', 'OpenedDate', 'opened_at']);
   const matterOpenDate = formatDate(matterOpenDateRaw);
   
   // Get first successful payment date
@@ -828,10 +1144,10 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
       return { color: '#D65541', label: 'Expired' }; // Red for expired
     }
     if (diffDays <= 90) {
-      return { color: '#f97316', label: 'Expiring soon' }; // Orange for < 3 months
+      return { color: colours.orange, label: 'Expiring soon' }; // Orange for < 3 months
     }
     if (diffDays <= 365) {
-      return { color: '#eab308', label: '' }; // Yellow for < 1 year
+      return { color: colours.yellow, label: '' }; // Yellow for < 1 year
     }
     
     // Gradient from yellow (1 year) to blue (3 years)
@@ -1077,6 +1393,39 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         const demoClientName = demoFullName && demoFullName !== ' ' ? demoFullName : (inst.CompanyName || 'Demo client');
         const demoEmail = inst.Email || inst.ClientEmail || 'test.client@example.com';
 
+        const toDemoResultLabel = (value: string | undefined, fallback: 'Passed' | 'Review' | 'Failed' = 'Passed'): 'Passed' | 'Review' | 'Failed' => {
+          const normalised = String(value || '').trim().toLowerCase();
+          if (!normalised) return fallback;
+          if (normalised.includes('fail')) return 'Failed';
+          if (normalised.includes('review') || normalised.includes('refer') || normalised.includes('consider')) return 'Review';
+          if (normalised.includes('pass') || normalised.includes('verified') || normalised.includes('clear') || normalised.includes('approved')) return 'Passed';
+          return fallback;
+        };
+
+        const demoOverallResult = toDemoResultLabel(eidResult, 'Passed');
+        const demoPepResult = toDemoResultLabel(pepResult, 'Passed');
+        const demoAddressResult = toDemoResultLabel(addressVerification, 'Passed');
+
+        const demoRawRecord: any = JSON.parse(JSON.stringify(DEMO_EID_RAW_RESPONSE_SAMPLE[0]));
+        if (demoRawRecord?.overallResult) {
+          demoRawRecord.overallResult.result = demoOverallResult;
+        }
+        const demoStatuses = Array.isArray(demoRawRecord?.checkStatuses) ? demoRawRecord.checkStatuses : [];
+        const demoAddressStatus = demoStatuses.find((status: any) => status?.checkTypeId === 1);
+        if (demoAddressStatus?.sourceResults?.result) {
+          demoAddressStatus.sourceResults.result.result = demoAddressResult;
+        }
+        if (demoAddressStatus?.result) {
+          demoAddressStatus.result.result = demoAddressResult;
+        }
+        const demoPepStatus = demoStatuses.find((status: any) => status?.checkTypeId === 2);
+        if (demoPepStatus?.sourceResults?.result) {
+          demoPepStatus.sourceResults.result.result = demoPepResult;
+        }
+        if (demoPepStatus?.result) {
+          demoPepStatus.result.result = demoPepResult;
+        }
+
         setVerificationDetails({
           instructionRef,
           clientName: demoClientName,
@@ -1085,7 +1434,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
           pepResult: pepResult || (eidStatusValue.includes('pending') ? 'pending' : '—'),
           addressResult: addressVerification || (eidStatusValue.includes('pending') ? 'pending' : '—'),
           checkedDate: eidDate,
-          rawResponse: DEMO_EID_RAW_RESPONSE_SAMPLE,
+          rawResponse: [demoRawRecord],
           documentsRequested: false,
           documentsReceived: false,
         });
@@ -1189,6 +1538,9 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     if (!isDemoInstruction) return;
     if (!instructionRef) return;
 
+    const hasParentDocs = Array.isArray(parentDocuments) && parentDocuments.length > 0;
+    if (!hubDocsChecked && !hasParentDocs) return;
+
     if (existingEidPdfDoc) {
       setRawRecordSubmitState('submitted');
       setRawRecordSubmitMessage('Report submitted');
@@ -1201,7 +1553,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
     autoReportSubmitAttemptedRef.current[instructionRef] = true;
     void persistRawRecordPdfRef.current('auto');
-  }, [isDemoInstruction, instructionRef, existingEidPdfDoc, eidStatus]);
+  }, [isDemoInstruction, instructionRef, existingEidPdfDoc, eidStatus, hubDocsChecked, parentDocuments]);
 
   const parseRawResponse = React.useCallback((raw: unknown) => {
     if (typeof raw === 'string') {
@@ -1824,15 +2176,33 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
       const body = await response.json().catch(() => null);
 
       showToast({ type: 'success', title: 'EID Report Saved', message: 'PDF uploaded to instruction documents' });
-      if (source === 'auto') {
-        setRawRecordSubmitState('submitted');
-        setRawRecordSubmitMessage('Report submitted');
-        setRawRecordSubmittedAt(
-          body && typeof body === 'object' && (body as any).uploadedAt
-            ? String((body as any).uploadedAt)
-            : new Date().toISOString()
-        );
-      }
+      setRawRecordSubmitState('submitted');
+      setRawRecordSubmitMessage('Report submitted');
+      const uploadedAt =
+        body && typeof body === 'object' && (body as any).uploadedAt
+          ? String((body as any).uploadedAt)
+          : new Date().toISOString();
+      setRawRecordSubmittedAt(
+        uploadedAt
+      );
+
+      // Optimistically reflect saved report in UI immediately.
+      setHubDocuments((prev: any[]) => {
+        const alreadyPresent = (prev || []).some((doc: any) => {
+          const existingName = getDocumentFileName(doc).toLowerCase();
+          return existingName === fileName.toLowerCase() || (existingName.includes('eid-raw-record') && existingName.endsWith('.pdf'));
+        });
+        if (alreadyPresent) return prev;
+        const optimistic = {
+          DocumentId: `local-${instructionRef}-${Date.now()}`,
+          InstructionRef: instructionRef,
+          FileName: fileName,
+          UploadedAt: uploadedAt,
+        };
+        return [optimistic, ...(prev || [])];
+      });
+      setHubDocsLoaded(true);
+      setHubDocsChecked(true);
 
       // Refresh documents list to show the new file
       if (fetchDocuments) {
@@ -1900,6 +2270,56 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   const isMediumRisk = risk?.RiskAssessmentResult?.toLowerCase().includes('medium');
   const riskLevel = risk?.TransactionRiskLevel || '—';
   const riskAssessor = risk?.RiskAssessor || '—';
+  const riskAssessorDisplay = (() => {
+    const isPlaceholder = (value: string | null | undefined) => {
+      const normalised = String(value || '').trim().toLowerCase();
+      return !normalised || normalised === '—' || normalised === '-' || normalised === 'unknown' || normalised === 'n/a' || normalised === 'na';
+    };
+
+    const resolveFullName = (value: string | null | undefined): string | null => {
+      if (isPlaceholder(value)) return null;
+      const raw = String(value || '').trim();
+      if (!raw) return null;
+
+      const teamMatch = (Array.isArray(teamData) ? teamData : []).find((member: any) => {
+        const fullName = String(member?.['Full Name'] || member?.FullName || '').trim();
+        const initials = String(member?.Initials || '').trim();
+        const email = String(member?.Email || '').trim().toLowerCase();
+        const lowerRaw = raw.toLowerCase();
+        if (!lowerRaw) return false;
+        return (
+          fullName.toLowerCase() === lowerRaw ||
+          initials.toLowerCase() === lowerRaw ||
+          email === lowerRaw ||
+          email.split('@')[0] === lowerRaw
+        );
+      });
+
+      const matchedFullName = String((teamMatch as any)?.['Full Name'] || (teamMatch as any)?.FullName || '').trim();
+      if (matchedFullName) return matchedFullName;
+      return raw;
+    };
+
+    const primary = resolveFullName(riskAssessor);
+    if (primary) return primary;
+
+    const fallbackCandidates = [
+      currentUser?.FullName,
+      inst?.HelixContact,
+      inst?.helixContact,
+      inst?.FeeEarner,
+      inst?.feeEarner,
+      deal?.pitchedBy,
+      deal?.PitchedBy,
+    ];
+
+    for (const candidate of fallbackCandidates) {
+      const resolved = resolveFullName(candidate);
+      if (resolved) return resolved;
+    }
+
+    return '—';
+  })();
   const sourceOfFunds = risk?.SourceOfFunds || '—';
   const sourceOfWealth = risk?.SourceOfWealth || '—';
   const riskResult = risk?.RiskAssessmentResult || '—';
@@ -1998,7 +2418,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
       const payload = {
         MatterId: ref,
         InstructionRef: ref,
-        RiskAssessor: currentUser?.FullName || 'Unknown',
+        RiskAssessor: currentUser?.FullName || '',
         ComplianceDate: compDate.toISOString().split('T')[0],
         ComplianceExpiry: compExpiry.toISOString().split('T')[0],
         ClientType: inlineRiskCore.clientType,
@@ -2044,30 +2464,147 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   }, [isInlineRiskComplete, isRiskSubmitting, inlineRiskCore, inlineLimitationDate, inlineLimitationDateTbc, inlineTransactionRiskLevel, inlineConsideredClientRisk, inlineConsideredTransactionRisk, inlineConsideredFirmWideSanctions, inlineConsideredFirmWideAML, inst, instructionRef, currentUser, onRiskAssessmentSave, onRefreshData, showToast]);
 
   // Matter status - prioritize matter object from Matters table ("new space")
-  const hasMatter = !!(matter || inst?.MatterId || inst?.MatterRef || inst?.DisplayNumber);
+  const hasMatter = !!(matter || inst?.MatterId || inst?.MatterRef || inst?.DisplayNumber || optimisticMatterOpen);
   const matterRef = matter?.DisplayNumber || matter?.['Display Number'] || matter?.display_number || inst?.MatterRef || inst?.DisplayNumber || inst?.MatterId || '—';
-  const matterStatus = matter?.Status || matter?.status || inst?.MatterStatus || inst?.Stage || '—';
+  const matterStatus = matter?.Status || matter?.status || inst?.MatterStatus || inst?.Stage || (optimisticMatterOpen ? 'Active' : '—');
   const matterDescription = matter?.Description || matter?.description || inst?.MatterDescription || getValue(['Description', 'description', 'MatterDescription']) || '—';
   const matterClientName = matter?.ClientName || matter?.['Client Name'] || matter?.client_name || inst?.ClientName || getValue(['ClientName', 'Client Name']) || '—';
   const matterPracticeArea = matter?.PracticeArea || matter?.['Practice Area'] || matter?.practice_area || inst?.PracticeArea || getValue(['PracticeArea', 'practice_area', 'Area']) || areaOfWork;
   const matterResponsibleSolicitor = matter?.ResponsibleSolicitor || matter?.['Responsible Solicitor'] || matter?.responsible_solicitor || inst?.ResponsibleSolicitor || getValue(['ResponsibleSolicitor']) || '—';
   const matterOriginatingSolicitor = matter?.OriginatingSolicitor || matter?.['Originating Solicitor'] || matter?.originating_solicitor || inst?.OriginatingSolicitor || getValue(['OriginatingSolicitor']) || '—';
   const matterValue = matter?.ApproxValue || matter?.['Approx Value'] || matter?.approx_value || inst?.ApproxValue || getValue(['ApproxValue', 'MatterValue']) || '—';
-  const matterClioId = matter?.MatterID || matter?.matter_id || matter?.['Unique ID'] || matter?.UniqueID || inst?.MatterId || '—';
+  const matterClioId = matter?.MatterID || matter?.matter_id || matter?.['Unique ID'] || matter?.UniqueID || inst?.MatterId || optimisticMatterOpen?.matterId || '—';
   const matterInstructionRef = matter?.InstructionRef || matter?.instruction_ref || matter?.['Instruction Ref'] || inst?.InstructionRef || instructionRef || '—';
   const matterClientId = matter?.ClientID || matter?.ClientId || matter?.client_id || inst?.ClientId || inst?.ClientID || getValue(['ClientId', 'ClientID', 'client_id']) || '—';
   const matterClientType = matter?.ClientType || matter?.client_type || inst?.ClientType || getValue(['ClientType', 'client_type']) || '—';
   const matterClientEmail = matter?.ClientEmail || matter?.client_email || inst?.Email || getValue(['Email', 'email', 'ClientEmail']) || '—';
   const matterClientPhone = matter?.ClientPhone || matter?.client_phone || inst?.Phone || getValue(['Phone', 'phone', 'ClientPhone']) || '—';
   const matterClientCompany = matter?.ClientCompany || matter?.client_company || inst?.CompanyName || getValue(['CompanyName', 'Company']) || '—';
+  const matterClientNameDisplay = (() => {
+    const direct = String(matterClientName || '').trim();
+    if (direct && direct !== '—') return direct;
+    const first = String(
+      matter?.FirstName ||
+      matter?.first_name ||
+      inst?.FirstName ||
+      inst?.Forename ||
+      getValue(['FirstName', 'Forename', 'first_name'], '')
+    ).trim();
+    const last = String(
+      matter?.LastName ||
+      matter?.last_name ||
+      inst?.LastName ||
+      inst?.Surname ||
+      getValue(['LastName', 'Surname', 'last_name'], '')
+    ).trim();
+    const full = `${first} ${last}`.trim();
+    if (full) return full;
+    const company = String(matterClientCompany || '').trim();
+    if (company && company !== '—') return company;
+    return '—';
+  })();
+  const isCompanyClient = /company/i.test(String(matterClientType || ''));
+  const matterClientPrimaryDisplay = isCompanyClient && matterClientCompany && matterClientCompany !== '—'
+    ? matterClientCompany
+    : matterClientNameDisplay;
+  const matterLinkedContactName = isCompanyClient && matterClientName && matterClientName !== '—' && matterClientName !== matterClientCompany
+    ? matterClientName
+    : '—';
+  const matterAddress = [
+    matter?.PropertyAddress,
+    matter?.property_address,
+    matter?.MatterAddress,
+    matter?.matter_address,
+    matter?.Address,
+    matter?.address,
+    inst?.PropertyAddress,
+    inst?.Address,
+    getValue(['PropertyAddress', 'property_address', 'MatterAddress', 'matter_address', 'Address', 'address'], ''),
+  ]
+    .map((value) => String(value || '').trim())
+    .find((value) => value && value !== '—') || '—';
   const matterOpenMethod = matter?.OpenMethod || matter?.open_method || matter?.OpeningMethod || matter?.opening_method || '—';
   const feeEarner = matter?.ResponsibleSolicitor || matter?.['Responsible Solicitor'] || getValue(['HelixContact', 'FeeEarner', 'feeEarner', 'ResponsibleSolicitor']);
   const matterOpenedBy = matter?.OpenedBy || matter?.opened_by || matter?.CreatedBy || matter?.created_by || matterResponsibleSolicitor || feeEarner || '—';
   const matterOpenedByDisplay = String(matterOpenedBy || '').trim() || '—';
   const matterOpenTimestampRaw = matter?.OpenedAt || matter?.opened_at || matter?.CreatedAt || matter?.created_at || matter?.OpenDate || matter?.['Open Date'] || null;
-  const matterPortalPasscode = matterClientId && matterClientId !== '—'
-    ? String(matterClientId).trim()
-    : (deal?.Passcode || deal?.passcode || inst?.Passcode || inst?.passcode || '');
+  const matterTimelineInstructionRawCandidates = [
+    inst?.SubmissionDate,
+    inst?.InstructionDate,
+    inst?.DateCreated,
+    inst?.CreatedAt,
+    inst?.createdAt,
+    getValue(['datetime', 'Date_Created', 'DateCreated', 'SubmissionDate', 'submission_date', 'InstructionDate'], ''),
+    submissionDateRaw,
+  ].filter(Boolean);
+  const matterTimelineInstructionRaw = matterTimelineInstructionRawCandidates.find((value) => hasTimeEvidence(value)) || matterTimelineInstructionRawCandidates[0] || null;
+  const matterTimelineInstructionTimeRaw = inst?.SubmissionTime || inst?.submissionTime || inst?.CreatedTime || inst?.createdTime || getValue([
+    'Touchpoint_Time',
+    'touchpoint_time',
+    'SubmissionTime',
+    'submission_time',
+    'InstructionTime',
+    'instruction_time',
+    'Date_Created_Time',
+    'date_created_time',
+    'CreatedTime',
+    'created_time',
+  ], '') || null;
+  const matterTimelineOpenedRawCandidates = [
+    matter?.OpenedAt,
+    matter?.opened_at,
+    matter?.CreatedAt,
+    matter?.created_at,
+    matterOpenTimestampRaw,
+    matterOpenDateRaw,
+    matter?.OpenDate,
+    matter?.['Open Date'],
+    matter?.open_date,
+    getValue(['OpenedAt', 'opened_at', 'CreatedAt', 'created_at', 'MatterOpenDate', 'matter_open_date'], ''),
+  ].filter(Boolean);
+  const matterTimelineOpenedRaw = matterTimelineOpenedRawCandidates.find((value) => hasTimeEvidence(value)) || matterTimelineOpenedRawCandidates[0] || null;
+  const matterTimelineOpenTimeRaw = matter?.OpenTime || matter?.open_time || getValue(['OpenTime', 'open_time', 'OpenedTime', 'opened_time'], '') || null;
+  const formatMatterTimelineStamp = (dateRaw: any, timeRaw?: any): string | null => {
+    const date = parseTimelineDate(dateRaw, timeRaw);
+    if (!date) return null;
+    const includeTime = Boolean(parseClockParts(timeRaw)) || (hasTimeEvidence(dateRaw) && hasMeaningfulClockOnDate(date));
+    const day = formatRelativeDay(date);
+    if (!includeTime) return day;
+    const time = date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    return `${day} ${time}`;
+  };
+  const formatMatterTimelineDiff = (fromDateRaw: any, toDateRaw: any, fromTimeRaw?: any, toTimeRaw?: any): string | null => {
+    const from = parseTimelineDate(fromDateRaw, fromTimeRaw);
+    const to = parseTimelineDate(toDateRaw, toTimeRaw);
+    if (!from || !to) return null;
+    const fromHasTime = Boolean(parseClockParts(fromTimeRaw)) || (hasTimeEvidence(fromDateRaw) && hasMeaningfulClockOnDate(from));
+    const toHasTime = Boolean(parseClockParts(toTimeRaw)) || (hasTimeEvidence(toDateRaw) && hasMeaningfulClockOnDate(to));
+    if (!fromHasTime || !toHasTime) return null;
+    const diffMs = Math.abs(to.getTime() - from.getTime());
+    const mins = Math.floor(diffMs / 60000);
+    if (mins < 60) return `${mins}m`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) {
+      const remMins = mins % 60;
+      return remMins > 0 ? `${hrs}h ${remMins}m` : `${hrs}h`;
+    }
+    const days = Math.floor(hrs / 24);
+    const remHrs = hrs % 24;
+    return remHrs > 0 ? `${days}d ${remHrs}h` : `${days}d`;
+  };
+  const matterInstructionTimelineStamp = formatMatterTimelineStamp(matterTimelineInstructionRaw, matterTimelineInstructionTimeRaw);
+  const matterOpenedTimelineStamp = formatMatterTimelineStamp(matterTimelineOpenedRaw, matterTimelineOpenTimeRaw);
+  const matterInstructionToOpenDuration = formatMatterTimelineDiff(matterTimelineInstructionRaw, matterTimelineOpenedRaw, matterTimelineInstructionTimeRaw, matterTimelineOpenTimeRaw);
+  const splitTimelineStamp = (stamp: string | null): { date: string; time: string | null } => {
+    if (!stamp) return { date: '—', time: null };
+    const match = stamp.match(/^(.*)\s(\d{2}:\d{2})$/);
+    if (match) return { date: match[1], time: match[2] };
+    return { date: stamp, time: null };
+  };
+  const matterInstructionTimelineParts = splitTimelineStamp(matterInstructionTimelineStamp);
+  const matterOpenedTimelineParts = splitTimelineStamp(matterOpenedTimelineStamp);
+  const matterPortalPasscode = deal?.Passcode || deal?.passcode || inst?.Passcode || inst?.passcode || '';
+  const matterPortalPassword = matterClientId && matterClientId !== '—' ? String(matterClientId).trim() : '';
   const matterPortalOpened = Boolean(hasMatter && matterPortalPasscode);
   const matterSupervisingPartner = matter?.SupervisingPartner || matter?.['Supervising Partner'] || matter?.supervising_partner || '—';
   const matterOpenTrail = [
@@ -2147,7 +2684,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
   // Normalised per-tab statuses (prefer pipeline stageStatuses)
   const paymentStatus: StageStatus = (stageStatuses?.payment || (hasSuccessfulPayment ? 'complete' : hasFailedPayment ? 'review' : 'pending')) as StageStatus;
-  const riskStatus: StageStatus = (stageStatuses?.risk || (riskComplete ? ((isHighRisk || isMediumRisk) ? 'review' : 'complete') : 'pending')) as StageStatus;
+  const riskStatus: StageStatus = (stageStatuses?.risk || (riskComplete ? (isHighRisk ? 'review' : isMediumRisk ? 'warning' : 'complete') : 'pending')) as StageStatus;
   const matterStageStatus: StageStatus = (stageStatuses?.matter || (hasMatter ? 'complete' : 'pending')) as StageStatus;
   const documentStatus: StageStatus = (stageStatuses?.documents || (documents.length > 0 ? 'complete' : 'neutral')) as StageStatus;
 
@@ -2173,6 +2710,254 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
       ? 'neutral'
       : documentStatus;
 
+  const matterClientCandidates = useMemo<MatterClientCandidate[]>(() => {
+    const sourceRecords = [inst, ...(Array.isArray(clients) ? clients : [])];
+    const seen = new Set<string>();
+    const output: MatterClientCandidate[] = [];
+
+    sourceRecords.forEach((record: any, index: number) => {
+      if (!record || typeof record !== 'object') return;
+      const label = getCandidateName(record);
+      const clientId = String(record?.ClientId || record?.ClientID || record?.client_id || '').trim();
+      const isCompany = Boolean(record?.CompanyName || record?.company_name || record?.ClientType === 'Company' || record?.client_type === 'Company');
+      const normalizedLabel = String(label || '').trim().toLowerCase().replace(/\s+/g, ' ');
+      const dedupeKey = clientId
+        ? `id:${clientId}`
+        : `name:${normalizedLabel || 'unknown'}:${isCompany ? 'company' : 'individual'}`;
+      if (seen.has(dedupeKey)) return;
+      seen.add(dedupeKey);
+      output.push({ key: dedupeKey, label, clientId: clientId || undefined, isCompany });
+    });
+
+    return output;
+  }, [inst, clients]);
+
+  const matterOpenMainClient = useMemo(() => {
+    return matterClientCandidates.find(c => c.key === matterOpenMainClientKey) || null;
+  }, [matterClientCandidates, matterOpenMainClientKey]);
+
+  const isMultipleMatterSetup = matterOpenClientType === 'Multiple Individuals';
+  const requiresCompanyName = matterOpenClientType === 'Company' || matterOpenClientType === 'Multiple Individuals';
+  const availableJointMatterClients = useMemo(() => {
+    return matterClientCandidates.filter((candidate) => candidate.key !== matterOpenMainClientKey);
+  }, [matterClientCandidates, matterOpenMainClientKey]);
+  const selectedJointMatterClients = useMemo(() => {
+    const selected = new Set(matterJointClientKeys);
+    return availableJointMatterClients.filter((candidate) => selected.has(candidate.key));
+  }, [availableJointMatterClients, matterJointClientKeys]);
+  const hasValidMultipleSelection = !isMultipleMatterSetup || (selectedJointMatterClients.length >= 1 && selectedJointMatterClients.length <= 5);
+  const companyCandidateName = useMemo(() => {
+    return String(matterClientCandidates.find((candidate) => candidate.isCompany)?.label || '').trim();
+  }, [matterClientCandidates]);
+  const hasDemoCompanySeed = Boolean(String(inst?.CompanyName || inst?.company_name || companyCandidateName || '').trim());
+  const disableCompanyToggleForDemo = Boolean(isDemoInstruction && !hasDemoCompanySeed);
+  const resolvedCompanySeed = useMemo(() => {
+    return String(matterOpenCompanyName || inst?.CompanyName || inst?.company_name || companyCandidateName || '').trim();
+  }, [matterOpenCompanyName, inst, companyCandidateName]);
+  const hasRequiredCompanyName = !requiresCompanyName || resolvedCompanySeed.length > 0;
+  const hasMatterDescription = matterOpenDescription.trim().length > 0;
+
+  useEffect(() => {
+    if (disableCompanyToggleForDemo && matterOpenClientType === 'Company') {
+      setMatterOpenClientType('Individual');
+    }
+  }, [disableCompanyToggleForDemo, matterOpenClientType]);
+
+  useEffect(() => {
+    if (!showMatterOpeningWizard) return;
+    const timer = window.setTimeout(() => {
+      // Scroll to the breadcrumb bar (not the wizard body) so the user
+      // sees the step indicator change when entering the wizard.
+      matterBreadcrumbRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 60);
+    return () => window.clearTimeout(timer);
+  }, [showMatterOpeningWizard]);
+
+  useEffect(() => {
+    if (!isLocalDev && matterOpenClientType === 'Multiple Individuals') {
+      setMatterOpenClientType('Individual');
+      setMatterJointClientKeys([]);
+    }
+  }, [isLocalDev, matterOpenClientType]);
+
+  const matterRefSimulation = useMemo(() => {
+    const clientType = matterOpenClientType || inferMatterClientType(inst) || 'Individual';
+    const enteredSeedValue = String(matterOpenCompanyName || '').trim();
+    const company = resolvedCompanySeed;
+    const instructionSurname = String(inst?.LastName || inst?.Surname || '').trim();
+    const fallbackLabel = String(matterOpenMainClient?.label || '').trim();
+    const fallbackSurname = fallbackLabel ? fallbackLabel.split(/\s+/).filter(Boolean).slice(-1)[0] : '';
+    const surnameSeed = instructionSurname || fallbackSurname;
+    const source =
+      clientType === 'Company'
+        ? (enteredSeedValue || company)
+        : clientType === 'Multiple Individuals'
+          ? (enteredSeedValue || company)
+          : surnameSeed;
+    let base = source.replace(/[^A-Za-z]/g, '').toUpperCase().slice(0, 5);
+    if (!base) base = 'CLIENT';
+    while (base.length < 5) base += 'X';
+    const passcodeRaw = String(deal?.Passcode || deal?.passcode || (instructionRef ? String(instructionRef).split('-').pop() : '') || '').replace(/\D/g, '');
+    const digits = passcodeRaw.slice(0, 4).padEnd(4, '0');
+    return `${base}${digits}-00001`;
+  }, [matterOpenClientType, matterOpenCompanyName, resolvedCompanySeed, inst, matterOpenMainClient, deal, instructionRef]);
+
+  const matterPreviewClientName = useMemo(() => {
+    if (matterOpenClientType === 'Company') {
+      return resolvedCompanySeed || '—';
+    }
+    return String(matterOpenMainClient?.label || matterClientCandidates[0]?.label || '').trim() || '—';
+  }, [matterOpenClientType, resolvedCompanySeed, matterOpenMainClient, matterClientCandidates]);
+
+  const matterCompanyContact = useMemo(() => {
+    const direct = String(pointOfContact || '').trim();
+    const looksLikeEmail = direct.includes('@');
+    const nonCompanyCandidate = String(matterClientCandidates.find((candidate) => !candidate.isCompany)?.label || '').trim();
+    if (nonCompanyCandidate && nonCompanyCandidate !== '—') {
+      return { name: nonCompanyCandidate, email: looksLikeEmail ? direct : '' };
+    }
+    if (direct && direct !== '—' && !looksLikeEmail) return { name: direct, email: '' };
+    const mainClientName = String(matterOpenMainClient?.label || '').trim();
+    if (mainClientName && mainClientName !== '—') return { name: mainClientName, email: looksLikeEmail ? direct : '' };
+    const first = String(inst?.FirstName || inst?.Forename || '').trim();
+    const last = String(inst?.LastName || inst?.Surname || '').trim();
+    const full = `${first} ${last}`.trim();
+    if (full) return { name: full, email: looksLikeEmail ? direct : '' };
+    if (looksLikeEmail) return { name: 'Primary contact on file', email: direct };
+    return { name: 'Primary contact', email: '' };
+  }, [pointOfContact, inst, matterOpenMainClient, matterClientCandidates]);
+
+  const previewContactEmail = String(inst?.Email || inst?.email || getValue(['Email', 'email', 'ClientEmail'], '') || '').trim();
+  const previewContactPhone = String(inst?.Phone || inst?.phone || inst?.Phone_Number || getValue(['Phone', 'phone', 'Phone_Number'], '') || '').trim();
+  const previewContactAddress = [displayStreet, displayCity, displayCounty, displayPostcode, displayCountry]
+    .map((value) => String(value || '').trim())
+    .filter((value) => value && value !== '—')
+    .join(', ');
+  const clientAddressForDisplay = [
+    matter?.ClientAddress,
+    matter?.client_address,
+    inst?.Address,
+    getValue(['ClientAddress', 'client_address', 'Address', 'address'], ''),
+    previewContactAddress,
+  ]
+    .map((value) => String(value || '').trim())
+    .find((value) => value && value !== '—') || '—';
+  const previewResponsible = String(feeEarner || '').trim();
+  const previewOriginating = String(matterOriginatingSolicitor || '').trim();
+  const previewPracticeArea = String(matterPracticeArea || areaOfWork || '').trim();
+  const hasMatterAssignmentPreview = Boolean(
+    (previewResponsible && previewResponsible !== '—') ||
+    (previewOriginating && previewOriginating !== '—' && previewOriginating !== previewResponsible)
+  );
+  const hasCoreClientInfo = Boolean(
+    previewContactEmail && previewContactEmail !== '—' &&
+    previewContactPhone && previewContactPhone !== '—' &&
+    previewContactAddress && previewContactAddress !== '—'
+  );
+  const hasCompanyNumberForPreview = Boolean(matterOpenClientType === 'Company' && companyNo && companyNo !== '—');
+  const clientPreviewReady = matterOpenClientType === 'Company'
+    ? (hasCoreClientInfo && hasCompanyNumberForPreview)
+    : hasCoreClientInfo;
+  const hasMatterPreviewDetails = Boolean(
+    matterOpenDescription.trim() ||
+    (previewPracticeArea && previewPracticeArea !== '—') ||
+    (previewResponsible && previewResponsible !== '—') ||
+    (previewOriginating && previewOriginating !== '—')
+  );
+
+  const canLaunchMatterWizard = Boolean(
+    matterOpenClientType &&
+    matterOpenClientType !== 'Existing Client' &&
+    hasRequiredCompanyName &&
+    hasValidMultipleSelection &&
+    hasMatterDescription
+  );
+  const isMatterWizardStepActive = Boolean(showMatterOpeningWizard && canLaunchMatterWizard && matterOpenClientType);
+  const activeMatterStage = matterWizardStage === 'error' ? 'processing' : matterWizardStage;
+  const showMatterBreadcrumbRail = !isMatterWizardStepActive || activeMatterStage === 'form';
+  const matterBreadcrumbSteps = [
+    {
+      id: 'setup',
+      label: 'Client Setup',
+      status: isMatterWizardStepActive ? 'done' : 'active',
+      canGo: isMatterWizardStepActive,
+      onClick: () => {
+        setShowMatterOpeningWizard(false);
+        setMatterWizardStage('form');
+      },
+    },
+    {
+      id: 'form',
+      label: 'Matter Form',
+      status: !isMatterWizardStepActive
+        ? (canLaunchMatterWizard ? 'next' : 'disabled')
+        : activeMatterStage === 'form'
+          ? 'active'
+          : 'done',
+      canGo: false,
+      onClick: () => undefined,
+    },
+    {
+      id: 'review',
+      label: 'Review',
+      status: !isMatterWizardStepActive
+        ? 'disabled'
+        : activeMatterStage === 'review'
+          ? 'active'
+          : (activeMatterStage === 'processing' || activeMatterStage === 'complete')
+            ? 'done'
+            : 'next',
+      canGo: false,
+      onClick: () => undefined,
+    },
+  ] as const;
+
+  useEffect(() => {
+    const target = isMatterWizardStepActive ? matterWizardPageRef.current : matterPreflightPageRef.current;
+    if (!target || typeof target.animate !== 'function') return;
+    target.animate(
+      [
+        { opacity: 0, transform: 'translateY(8px)' },
+        { opacity: 1, transform: 'translateY(0px)' },
+      ],
+      { duration: 170, easing: 'cubic-bezier(0.2, 0, 0, 1)' },
+    );
+  }, [isMatterWizardStepActive]);
+
+  useEffect(() => {
+    if (!isMatterWizardStepActive) return;
+    if (!matterBreadcrumbRef.current) return;
+    const timer = window.setTimeout(() => {
+      matterBreadcrumbRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 40);
+    return () => window.clearTimeout(timer);
+  }, [matterWizardStage, isMatterWizardStepActive]);
+
+  useEffect(() => {
+    if (hasMatter) {
+      setMatterOpenClientType(null);
+      setMatterOpenCompanyName('');
+      setMatterOpenCompanyRelationship('Director');
+      setMatterOpenMainClientKey('');
+      setMatterOpenDescription('');
+      setShowMatterOpeningWizard(false);
+      setMatterWizardStage('form');
+      setMatterJointClientKeys([]);
+      return;
+    }
+    const inferredType = inferMatterClientType(inst);
+    setMatterOpenClientType(inferredType);
+    const inferredCompany = String(inst?.CompanyName || inst?.company_name || '').trim();
+    setMatterOpenCompanyName(inferredCompany);
+    const inferredDescription = String(inst?.ServiceDescription || inst?.service_description || deal?.ServiceDescription || deal?.service_description || '').trim();
+    setMatterOpenDescription(inferredDescription);
+    const leadCandidate = matterClientCandidates.find(c => !c.isCompany) || matterClientCandidates[0] || null;
+    setMatterOpenMainClientKey(leadCandidate?.key || '');
+    setShowMatterOpeningWizard(false);
+    setMatterWizardStage('form');
+    setMatterJointClientKeys([]);
+  }, [hasMatter, instructionRef, inst, matterClientCandidates]);
+
   const getStatusColors = React.useCallback((status: StageStatus) => {
     if (status === 'complete') return { 
       bg: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
@@ -2180,14 +2965,19 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
       text: colours.highlight
     };
     if (status === 'review') return {
-      bg: isDarkMode ? 'rgba(239, 68, 68, 0.12)' : 'rgba(239, 68, 68, 0.08)',
-      border: '#D65541',
-      text: '#D65541'
+      bg: isDarkMode ? 'rgba(214, 85, 65, 0.12)' : 'rgba(214, 85, 65, 0.08)',
+      border: colours.cta,
+      text: colours.cta
+    };
+    if (status === 'warning') return {
+      bg: isDarkMode ? 'rgba(255, 140, 0, 0.12)' : 'rgba(255, 140, 0, 0.08)',
+      border: colours.orange,
+      text: colours.orange
     };
     if (status === 'processing') return {
-      bg: isDarkMode ? 'rgba(251, 191, 36, 0.12)' : 'rgba(251, 191, 36, 0.08)',
-      border: '#f59e0b',
-      text: '#f59e0b'
+      bg: isDarkMode ? 'rgba(255, 140, 0, 0.12)' : 'rgba(255, 140, 0, 0.08)',
+      border: colours.orange,
+      text: colours.orange
     };
     if (status === 'neutral') return {
       bg: isDarkMode ? `${colours.subtleGrey}0f` : `${colours.subtleGrey}0d`,
@@ -2211,7 +3001,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     const colors = getStatusColors(status);
     const headerCueColor = isDarkMode && status === 'complete' ? colours.accent : colors.text;
     return (
-      <div style={{
+      <div className="wb-status-banner" style={{
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
@@ -2311,7 +3101,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         dateRaw: null,
         isComplete: riskComplete && !isHighRisk && !isMediumRisk,
         hasIssue: isHighRisk || isMediumRisk,
-        status: (riskEditMode ? 'processing' : stageStatuses?.risk || (riskComplete ? ((isHighRisk || isMediumRisk) ? 'review' : 'complete') : 'pending')) as StageStatus,
+        status: (riskEditMode ? 'processing' : stageStatuses?.risk || (riskComplete ? (isHighRisk ? 'review' : isMediumRisk ? 'warning' : 'complete') : 'pending')) as StageStatus,
         navigatesTo: 'risk' as WorkbenchTab,
       },
       { 
@@ -2389,16 +3179,22 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
       line: colours.green,
     };
     if (stage.status === 'review') return {
-      bg: isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)',
-      border: isDarkMode ? 'rgba(239, 68, 68, 0.4)' : 'rgba(239, 68, 68, 0.35)',
-      text: '#D65541',
-      line: '#D65541',
+      bg: isDarkMode ? 'rgba(214, 85, 65, 0.15)' : 'rgba(214, 85, 65, 0.1)',
+      border: isDarkMode ? 'rgba(214, 85, 65, 0.4)' : 'rgba(214, 85, 65, 0.35)',
+      text: colours.cta,
+      line: colours.cta,
+    };
+    if (stage.status === 'warning') return {
+      bg: isDarkMode ? 'rgba(255, 140, 0, 0.15)' : 'rgba(255, 140, 0, 0.1)',
+      border: isDarkMode ? 'rgba(255, 140, 0, 0.4)' : 'rgba(255, 140, 0, 0.35)',
+      text: colours.orange,
+      line: colours.orange,
     };
     if (stage.status === 'processing') return {
-      bg: isDarkMode ? 'rgba(251, 191, 36, 0.15)' : 'rgba(251, 191, 36, 0.1)',
-      border: isDarkMode ? 'rgba(251, 191, 36, 0.4)' : 'rgba(251, 191, 36, 0.35)',
-      text: '#f59e0b',
-      line: '#f59e0b',
+      bg: isDarkMode ? 'rgba(255, 140, 0, 0.15)' : 'rgba(255, 140, 0, 0.1)',
+      border: isDarkMode ? 'rgba(255, 140, 0, 0.4)' : 'rgba(255, 140, 0, 0.35)',
+      text: colours.orange,
+      line: colours.orange,
     };
     return {
       bg: isDarkMode ? `${colours.subtleGrey}0f` : `${colours.subtleGrey}0d`,
@@ -2674,14 +3470,42 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
     // Derive overall method from payments
     const hasCard = activePayments.some((p: any) => {
-      const m = (p.payment_method || p.method || p.type || '').toString().toLowerCase();
-      const iid = (p.payment_intent_id || '').toString();
-      return m.includes('card') || m.includes('stripe') || iid.startsWith('pi_');
+      const methodRaw = (p.payment_method || p.payment_type || p.method || p.type || p.paymentMethod || p.PaymentMethod || p.PaymentType || '').toString().toLowerCase();
+      const meta = (() => {
+        if (p?.metadata && typeof p.metadata === 'object') return p.metadata;
+        if (typeof p?.metadata === 'string') {
+          try {
+            return JSON.parse(p.metadata);
+          } catch {
+            return {};
+          }
+        }
+        return {};
+      })();
+      const metaMethod = (meta?.payment_method || meta?.method || meta?.paymentMethod || '').toString().toLowerCase();
+      const iid = (p.payment_intent_id || p.paymentIntentId || '').toString();
+      const intentIsCard = iid.startsWith('pi_');
+      const combined = methodRaw || metaMethod || (intentIsCard ? 'card' : '');
+      return combined.includes('card') || combined.includes('stripe') || combined === 'cc' || intentIsCard;
     });
     const hasBank = activePayments.some((p: any) => {
-      const m = (p.payment_method || p.method || p.type || '').toString().toLowerCase();
-      const iid = (p.payment_intent_id || '').toString();
-      return m.includes('bank') || m.includes('transfer') || m.includes('bacs') || iid.startsWith('bank_');
+      const methodRaw = (p.payment_method || p.payment_type || p.method || p.type || p.paymentMethod || p.PaymentMethod || p.PaymentType || '').toString().toLowerCase();
+      const meta = (() => {
+        if (p?.metadata && typeof p.metadata === 'object') return p.metadata;
+        if (typeof p?.metadata === 'string') {
+          try {
+            return JSON.parse(p.metadata);
+          } catch {
+            return {};
+          }
+        }
+        return {};
+      })();
+      const metaMethod = (meta?.payment_method || meta?.method || meta?.paymentMethod || '').toString().toLowerCase();
+      const iid = (p.payment_intent_id || p.paymentIntentId || '').toString();
+      const intentIsBank = iid.startsWith('bank_') || iid.startsWith('banktransfer_');
+      const combined = methodRaw || metaMethod || (intentIsBank ? 'bank' : '');
+      return combined.includes('bank') || combined.includes('transfer') || combined.includes('bacs') || combined.includes('ach') || intentIsBank;
     });
 
     // Colour helper for border separator
@@ -2703,24 +3527,27 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
             <div style={{
               display: 'flex',
               flexWrap: 'wrap',
+              alignItems: 'center',
               gap: 0,
               fontFamily: 'Raleway, sans-serif',
-              padding: '10px 0',
+              padding: '14px 0',
               background: isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(244, 244, 246, 0.25)',
-              borderRadius: 0,
-              border: `1px solid ${sep}`,
+              borderTop: `1px solid ${sep}`,
+              borderBottom: `1px solid ${sep}`,
+              borderLeft: `1px solid ${sep}`,
+              borderRight: `1px solid ${sep}`,
               marginBottom: 12,
             }}>
               {/* Total Paid */}
               <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-start', minHeight: 34, gap: 4, padding: '0 14px' }}>
                 <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Total Paid</span>
-                <span style={{ fontSize: 12, fontWeight: 600, fontFamily: 'Raleway, sans-serif', color: totalPaid > 0 ? colours.highlight : (isDarkMode ? '#d1d5db' : '#374151'), textAlign: 'left' }}>
+                <span style={{ fontSize: 12, fontWeight: 600, fontFamily: 'Raleway, sans-serif', color: isDarkMode ? '#d1d5db' : '#374151', textAlign: 'left' }}>
                   £{totalPaid.toLocaleString()}
                 </span>
               </div>
 
               {/* Separator */}
-              <div style={{ width: 1, background: sep, margin: '4px 0' }} />
+              <div style={{ width: 1, alignSelf: 'stretch', background: sep, margin: '4px 0' }} />
 
               {/* Deal Amount */}
               {dealAmount > 0 && (
@@ -2731,7 +3558,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                       £{dealAmount.toLocaleString()}
                     </span>
                   </div>
-                  <div style={{ width: 1, background: sep, margin: '4px 0' }} />
+                  <div style={{ width: 1, alignSelf: 'stretch', background: sep, margin: '4px 0' }} />
                 </>
               )}
 
@@ -2744,7 +3571,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
               </div>
 
               {/* Separator */}
-              <div style={{ width: 1, background: sep, margin: '4px 0' }} />
+              <div style={{ width: 1, alignSelf: 'stretch', background: sep, margin: '4px 0' }} />
 
               {/* Last Payment */}
               <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-start', minHeight: 34, gap: 4, padding: '0 14px' }}>
@@ -2755,7 +3582,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
               </div>
 
               {/* Separator */}
-              <div style={{ width: 1, background: sep, margin: '4px 0' }} />
+              <div style={{ width: 1, alignSelf: 'stretch', background: sep, margin: '4px 0' }} />
 
               {/* Method */}
               <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-start', minHeight: 34, gap: 4, padding: '0 14px' }}>
@@ -2878,10 +3705,20 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                 
                 // Determine payment method
                 const methodRaw = (payment.payment_method || payment.payment_type || payment.method || payment.type || payment.paymentMethod || payment.PaymentMethod || payment.PaymentType || '').toString().toLowerCase();
-                const meta = typeof payment.metadata === 'object' ? payment.metadata : {};
+                const meta = (() => {
+                  if (payment?.metadata && typeof payment.metadata === 'object') return payment.metadata;
+                  if (typeof payment?.metadata === 'string') {
+                    try {
+                      return JSON.parse(payment.metadata);
+                    } catch {
+                      return {};
+                    }
+                  }
+                  return {};
+                })();
                 const metaMethod = (meta?.payment_method || meta?.method || meta?.paymentMethod || '').toString().toLowerCase();
                 const intentId = (payment.payment_intent_id || payment.paymentIntentId || '').toString();
-                const intentIsBank = intentId.startsWith('bank_');
+                const intentIsBank = intentId.startsWith('bank_') || intentId.startsWith('banktransfer_');
                 const intentIsCard = intentId.startsWith('pi_');
                 const combinedMethod = methodRaw || metaMethod || (intentIsBank ? 'bank' : intentIsCard ? 'card' : '');
                 const isCard = combinedMethod.includes('card') || combinedMethod.includes('stripe') || combinedMethod === 'cc' || intentIsCard;
@@ -3118,7 +3955,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
   return (
     <div 
-      className="inline-workbench"
+      className={`inline-workbench${isEnterMotionActive ? ' wb-motion-enter' : ''}`}
       data-action-button="true"
       onClick={handleWorkbenchClick}
       onMouseDown={(e) => e.stopPropagation()}
@@ -3227,10 +4064,11 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
               <React.Fragment key={stage.key}>
                 {/* Connector line - lights up green when previous stage is complete */}
                 {idx > 0 && (
-                  <div style={{ 
+                  <div className="wb-connector" style={{ 
                     display: 'flex',
                     alignItems: 'center',
-                  }}>
+                    '--chip-index': idx,
+                  } as React.CSSProperties}>
                     <div style={{
                       height: 2,
                       width: 12,
@@ -3245,6 +4083,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                 
                 <button
                   type="button"
+                  className="wb-chip"
                   onClick={handleClick}
                   onMouseEnter={(e) => {
                     e.currentTarget.style.background = chipHoverBackground;
@@ -3259,6 +4098,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                     e.currentTarget.style.transform = 'translateY(0)';
                   }}
                   style={{
+                    '--chip-index': idx,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -3281,7 +4121,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                     position: 'relative',
                     zIndex: 1,
                     opacity: chipBaseOpacity,
-                  }}
+                  } as React.CSSProperties}
                   title={stage.date ? `${stage.label}: ${stage.date}` : `${stage.label}${stage.status === 'pending' || stage.status === 'neutral' ? ' — no records yet' : ''}`}
                 >
                   <span style={{ 
@@ -3351,8 +4191,41 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
       </div>
       )}
 
+      {onRefreshData && (
+        <div
+          data-action-button="true"
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          className="wb-refresh-indicator"
+          style={{
+            display: 'flex',
+            justifyContent: 'flex-end',
+            alignItems: 'center',
+            padding: '4px 12px 0',
+          }}
+        >
+          <span
+            ref={refreshIndicatorRef}
+            style={{
+              fontSize: 9,
+              fontWeight: 600,
+              letterSpacing: '0.4px',
+              textTransform: 'uppercase',
+              color: isAutoRefreshing
+                ? (isDarkMode ? colours.accent : colours.highlight)
+                : (isDarkMode ? 'rgba(160, 160, 160, 0.82)' : 'rgba(107, 107, 107, 0.85)'),
+              transition: 'color 150ms ease, opacity 150ms ease',
+              opacity: isAutoRefreshing ? 1 : 0.88,
+              userSelect: 'none',
+            }}
+          >
+            {isAutoRefreshing ? 'Refreshing\u2026' : (isRefreshDeferred ? 'Refresh paused' : 'Refresh in 30s')}
+          </span>
+        </div>
+      )}
+
       {/* Tab content - expand as needed */}
-      <div style={{
+      <div className={`wb-tab-content${isTabMotionActive && !isEnterMotionActive ? ' wb-tab-transition' : ''}`} style={{
         padding: '6px 8px 8px 8px',
         minHeight: 96,
         border: 'none',
@@ -3361,12 +4234,10 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         marginTop: 0,
         marginBottom: 0,
         boxShadow: 'none',
-        transform: 'none',
-        transition: 'none',
       }}>
         {/* Details Tab - Client/Entity information landing page */}
         {activeTab === 'details' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div className="wb-tab-stack" key={`details-${activeContextStage || 'instructed'}`} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {(() => {
               // Respect activeContextStage even if chips are hidden
               const contextStage: ContextStageKey = activeContextStage ?? 'enquiry';
@@ -3690,7 +4561,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                           };
 
                           // Data bar column with hover-to-edit
-                          const DataCol = ({ label, value, accent, mono, icon: colIcon, onEdit, maxW }: {
+                          const DataCol = ({ label, value, accent, mono, icon: colIcon, onEdit, maxW, index = 0 }: {
                             label: string;
                             value: string;
                             accent?: string;
@@ -3698,12 +4569,15 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                             icon?: React.ReactNode;
                             onEdit?: () => void;
                             maxW?: number;
+                            index?: number;
                           }) => (
                             <div
+                              className="wb-data-col"
                               style={{
+                                '--wb-col-index': index,
                                 display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-start', minHeight: 34, gap: 4, padding: '0 14px',
                                 position: 'relative', cursor: onEdit ? 'default' : undefined,
-                              }}
+                              } as React.CSSProperties}
                               onMouseEnter={(e) => {
                                 const ed = e.currentTarget.querySelector('[data-edit]') as HTMLElement;
                                 if (ed) ed.style.opacity = '1';
@@ -3740,8 +4614,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                           );
 
                           // Vertical separator
-                          const Sep = () => (
-                            <div style={{ width: 1, alignSelf: 'stretch', background: separatorColor, margin: '4px 0' }} />
+                          const Sep = ({ index = 0 }: { index?: number }) => (
+                            <div className="wb-data-sep" style={{ '--wb-col-index': index, width: 1, alignSelf: 'stretch', background: separatorColor, margin: '4px 0' } as React.CSSProperties} />
                           );
 
                           // Inline action chip (contact / integration)
@@ -3782,7 +4656,6 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                             // Secondary: explicit time fields from enquiry/instruction payloads.
                             const explicitTime =
                               getValue(['Touchpoint_Time', 'touchpoint_time', 'SubmissionTime', 'submission_time', 'Time', 'time'], '') ||
-                              inst?.SubmissionTime || inst?.submissionTime || inst?.CreatedTime || inst?.createdTime ||
                               (enquiry as any)?.Touchpoint_Time || (enquiry as any)?.touchpoint_time || null;
                             const explicitParsed = asTime(explicitTime, true);
                             if (explicitParsed && !shouldHideTouchpointTime(explicitParsed)) return explicitParsed;
@@ -3799,13 +4672,13 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                           const enquiryHeaderDescription = 'Review details below.';
 
                           return (
-                            <div style={{
+                            <div className="wb-enquiry-stack" style={{
                               fontFamily: "'Raleway', 'Segoe UI', sans-serif",
                               display: 'flex',
                               flexDirection: 'column',
                               gap: 8,
                             }}>
-                              <div style={{
+                              <div className="wb-enquiry-header" style={{
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'flex-start',
@@ -3837,19 +4710,20 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                               </div>
 
                               {(submissionDate && submissionDate !== '—') || hasTeamsData ? (
-                                <div style={{
+                                <div className="wb-meta-row" style={{
                                   display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
                                   padding: flatEmbedMode ? '0 0 2px' : '0 14px 2px', minHeight: 36,
                                 }}>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+                                  <div className="wb-meta-rail" style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
                                     {submissionDate && submissionDate !== '—' && (
-                                      <div style={{
+                                      <div className="wb-meta-pill" style={{
+                                        '--wb-pill-index': 0,
                                         display: 'flex', alignItems: 'center', gap: 5,
                                         padding: '5px 10px', borderRadius: 0,
                                         background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0,0,0,0.03)',
                                         border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0,0,0,0.04)'}`,
                                         flexShrink: 0,
-                                      }}>
+                                      } as React.CSSProperties}>
                                         <FaClock size={10} style={{ color: textMuted }} />
                                         <span style={{ fontSize: 10, fontWeight: 600, color: textBody }}>
                                           Touchpoint · {formatRelativeDateOnly(submissionDateRaw)}{submissionTime && <span style={{ color: textMuted, fontWeight: 500 }}> · {submissionTime}</span>}
@@ -3887,6 +4761,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
                                     {hasTeamsData && (
                                       <div
+                                        className="wb-meta-pill"
                                         onClick={(e) => {
                                           e.stopPropagation();
                                           if (effectiveTeamsLink) window.open(effectiveTeamsLink, '_blank');
@@ -3894,6 +4769,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                         }}
                                         title={effectiveTeamsLink ? 'Open Teams Card' : 'Teams activity tracked'}
                                         style={{
+                                          '--wb-pill-index': 1,
                                           display: 'flex', alignItems: 'center', gap: 6,
                                           padding: '5px 10px', borderRadius: 0,
                                           background: isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.08)',
@@ -3901,7 +4777,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                           cursor: effectiveTeamsLink ? 'pointer' : 'default',
                                           transition: 'all 0.15s ease',
                                           flexShrink: 0,
-                                        }}
+                                        } as React.CSSProperties}
                                       >
                                         <Icon iconName="TeamsLogo" styles={{ root: { fontSize: 12, color: colours.green } }} />
                                         {claimedDateTime ? (
@@ -3917,22 +4793,31 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                   </div>
 
                                   <div
+                                    className="wb-meta-pill"
                                     onClick={() => {
+                                      const eid = enquiry?.ID || enquiry?.id;
+                                      if (!eid) return;
+
+                                      if (onOpenEnquiryRating) {
+                                        onOpenEnquiryRating(String(eid));
+                                        return;
+                                      }
+
                                       if (!enquiryRating || enquiryRating === '—') {
-                                        const eid = enquiry?.ID || enquiry?.id;
-                                        if (eid) window.dispatchEvent(new CustomEvent('helix:rate-enquiry', { detail: { enquiryId: String(eid) } }));
+                                        window.dispatchEvent(new CustomEvent('helix:rate-enquiry', { detail: { enquiryId: String(eid) } }));
                                       }
                                     }}
-                                    title={!enquiryRating || enquiryRating === '—' ? 'Click to rate this enquiry' : `Rated: ${enquiryRating}`}
+                                    title={!enquiryRating || enquiryRating === '—' ? 'Click to rate this enquiry' : `Rating: ${enquiryRating} · Click to change`}
                                     style={{
+                                      '--wb-pill-index': 2,
                                       display: 'flex', alignItems: 'center', gap: 5,
                                       padding: '5px 10px', borderRadius: 0,
                                       background: isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(0,0,0,0.02)',
                                       border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0,0,0,0.04)'}`,
-                                      cursor: (!enquiryRating || enquiryRating === '—') ? 'pointer' : 'default',
+                                      cursor: onOpenEnquiryRating || !enquiryRating || enquiryRating === '—' ? 'pointer' : 'default',
                                       transition: 'all 0.15s ease',
                                       flexShrink: 0,
-                                    }}
+                                    } as React.CSSProperties}
                                   >
                                     {enquiryRating === 'Good' ? <Icon iconName="Like" styles={{ root: { fontSize: 11, color: ratingColor } }} />
                                     : enquiryRating === 'Poor' ? <Icon iconName="Dislike" styles={{ root: { fontSize: 11, color: ratingColor } }} />
@@ -3942,7 +4827,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                 </div>
                               ) : null}
 
-                              <div style={{
+                              <div className="wb-data-shell" style={{
                                 display: 'flex',
                                 flexDirection: 'column',
                                 gap: 10,
@@ -3953,14 +4838,16 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                               }}>
 
                               {/* ── Data bar: horizontal columns with vertical separators ── */}
-                              <div style={{
+                              <div className="wb-data-bar" style={{
                                 display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 0,
                                 padding: '14px 0',
                                 border: `1px solid ${separatorColor}`,
                                 background: isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(244, 244, 246, 0.4)',
                               }}>
                                 <DataCol
-                                  label="Area" value={areaOfWork ? areaOfWork.charAt(0).toUpperCase() + areaOfWork.slice(1) : '—'}
+                                  label="Area"
+                                  value={areaOfWork ? areaOfWork.charAt(0).toUpperCase() + areaOfWork.slice(1) : '—'}
+                                  index={0}
                                   icon={
                                     <span
                                       style={{
@@ -3977,11 +4864,12 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                   onEdit={() => dispatchEdit('Area_of_Work')}
                                 />
                                 {isMeaningful(typeOfWork) && (
-                                  <><Sep /><DataCol label="Type" value={String(typeOfWork)} onEdit={() => dispatchEdit('Type_of_Work')} /></>
+                                  <><Sep index={1} /><DataCol label="Type" index={1} value={String(typeOfWork)} onEdit={() => dispatchEdit('Type_of_Work')} /></>
                                 )}
-                                <Sep />
+                                <Sep index={2} />
                                 <DataCol
                                   label="Claimed By"
+                                  index={2}
                                   value={(() => {
                                     if (!pointOfContact) return 'Unclaimed';
                                     if (teamData) {
@@ -3997,21 +4885,24 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                     return pointOfContact;
                                   })()}
                                 />
-                                <Sep />
+                                <Sep index={3} />
                                 <DataCol
                                   label="Value"
+                                  index={3}
                                   value={isMeaningful(enquiryValue) ? String(enquiryValue) : '—'}
                                   onEdit={() => dispatchEdit('Value')}
                                 />
-                                <Sep />
+                                <Sep index={4} />
                                 <DataCol
                                   label="Channel"
+                                  index={4}
                                   value={isMeaningful(methodOfContact) ? String(methodOfContact) : '—'}
                                   onEdit={() => dispatchEdit('Method_of_Contact')}
                                 />
-                                <Sep />
+                                <Sep index={5} />
                                 <DataCol
                                   label="Source"
+                                  index={5}
                                   value={isMeaningful(enquirySourceSummary) ? String(enquirySourceSummary) : '—'}
                                   onEdit={() => dispatchEdit('Source')}
                                   maxW={120}
@@ -4020,7 +4911,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
                               {/* ── Notes (full-width footer) ── */}
                               {hasEnquiryNotes && (
-                                <div>
+                                <div className="wb-notes-block">
                                   <div style={{
                                     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                                     padding: '4px 0 3px',
@@ -4042,7 +4933,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                       <Icon iconName="Edit" styles={{ root: { fontSize: 10, color: textMuted } }} />
                                     </span>
                                   </div>
-                                  <div style={{
+                                  <div className="wb-notes-body" style={{
                                     fontSize: 12, lineHeight: 1.6, color: textBody,
                                     whiteSpace: 'pre-wrap', maxHeight: 180, overflowY: 'auto',
                                     padding: '8px 14px',
@@ -4149,9 +5040,10 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                           
                           // Combine PitchedDate and PitchedTime for accurate datetime
                           const pitchedDateRaw = deal?.PitchedDate || deal?.pitchedDate || effectivePitch?.CreatedAt || effectivePitch?.createdAt;
+                          const pitchedTimelineTimeRaw = deal?.PitchedTime || deal?.pitchedTime || null;
                           const pitchedDateTime = (() => {
                             const dateRaw = pitchedDateRaw;
-                            const timeRaw = deal?.PitchedTime || deal?.pitchedTime;
+                            const timeRaw = pitchedTimelineTimeRaw;
                             if (!dateRaw) return null;
                             try {
                               const d = new Date(dateRaw);
@@ -4229,21 +5121,10 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                           };
 
                           const pitchedDateObj = (() => {
-                            if (!pitchedDateRaw) return null;
-                            const date = new Date(pitchedDateRaw);
-                            return Number.isNaN(date.getTime()) ? null : date;
+                            return parseTimelineDate(pitchedDateRaw, pitchedTimelineTimeRaw);
                           })();
                           const instructedDateObj = (() => {
-                            const instructedRaw = instructedTimelineRaw && instructedTimelineRaw !== '—' ? instructedTimelineRaw : null;
-                            if (!instructedRaw) return null;
-                            const date = new Date(instructedRaw);
-                            if (!Number.isNaN(date.getTime()) && instructedTimelineTimeRaw) {
-                              const t = new Date(instructedTimelineTimeRaw);
-                              if (!Number.isNaN(t.getTime())) {
-                                date.setHours(t.getHours(), t.getMinutes(), 0, 0);
-                              }
-                            }
-                            return Number.isNaN(date.getTime()) ? null : date;
+                            return parseTimelineDate(instructedTimelineRaw, instructedTimelineTimeRaw);
                           })();
                           const expiryDateObj = (() => {
                             if (!pitchExpiryRaw) return null;
@@ -4252,10 +5133,15 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                           })();
 
                           const pitchToInstructCue = (() => {
-                            if (!pitchedDateObj || !instructedDateObj) return null;
-                            const diffMs = Math.abs(instructedDateObj.getTime() - pitchedDateObj.getTime());
+                            const diffLabel = formatTimelineDiff(
+                              pitchedDateRaw,
+                              instructedTimelineRaw,
+                              pitchedTimelineTimeRaw,
+                              instructedTimelineTimeRaw,
+                            );
+                            if (!diffLabel) return null;
                             return {
-                              label: formatShortDuration(diffMs),
+                              label: diffLabel,
                               color: isDarkMode ? colours.accent : colours.highlight,
                             };
                           })();
@@ -4328,12 +5214,15 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
                           // Data bar column (same pattern as enquiry section)
                           const isEmptyVal = (v: string) => !v || v === '\u2014' || v === '\ufffd';
+                          let pitchColIdx = 0;
                           const DataCol = ({ label, value, accent, mono, icon: colIcon, maxW, isStruck }: {
                             label: string; value: string; accent?: string; mono?: boolean;
                             icon?: React.ReactNode; maxW?: number;
                             isStruck?: boolean;
-                          }) => (
-                            <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-start', minHeight: 34, gap: 4, padding: '0 14px' }}>
+                          }) => {
+                            const idx = pitchColIdx++;
+                            return (
+                            <div className="wb-data-col" style={{ '--wb-col-index': idx, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-start', minHeight: 34, gap: 4, padding: '0 14px' } as React.CSSProperties}>
                               <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: textMuted }}>{label}</span>
                               <span style={{
                                 fontSize: 12, fontWeight: !isEmptyVal(value) ? 500 : 400,
@@ -4347,10 +5236,12 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                 {colIcon}{isEmptyVal(value) ? '\u2014' : value}
                               </span>
                             </div>
-                          );
-                          const Sep = () => (
-                            <div style={{ width: 1, alignSelf: 'stretch', background: separatorColor, margin: '4px 0' }} />
-                          );
+                          );};
+                          const Sep = () => {
+                            const idx = pitchColIdx;
+                            return (
+                            <div className="wb-data-sep" style={{ '--wb-col-index': idx, width: 1, alignSelf: 'stretch', background: separatorColor, margin: '4px 0' } as React.CSSProperties} />
+                          );};
 
                           // Show loading state while fetching pitch content
                           if (isFetchingPitchContent) {
@@ -4392,13 +5283,13 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                               : 'Review details below.';
 
                           return (
-                            <div style={{
+                            <div className="wb-enquiry-stack" style={{
                               fontFamily: "'Raleway', 'Segoe UI', sans-serif",
                               display: 'flex',
                               flexDirection: 'column',
                               gap: 8,
                             }}>
-                              <div style={{
+                              <div className="wb-enquiry-header" style={{
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'flex-start',
@@ -4429,13 +5320,13 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                 </div>
                               </div>
 
-                              <div style={{
+                              <div className="wb-meta-row" style={{
                                 display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 8,
                                 padding: flatEmbedMode ? '0 0 2px' : '0 14px 2px', minHeight: 36,
                               }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+                                <div className="wb-meta-rail" style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
                                   {hasPitchedChip && (
-                                    <div style={{
+                                    <div className="wb-meta-pill" style={{
                                       display: 'flex', alignItems: 'center', gap: 5,
                                       padding: '5px 10px', borderRadius: 0,
                                       background: isDarkMode ? 'rgba(160, 160, 160, 0.08)' : 'rgba(0,0,0,0.03)',
@@ -4451,7 +5342,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                   )}
 
                                   {hasPitchedChip && hasInstructedChip && (
-                                    <div style={{
+                                    <div className="wb-meta-link" style={{
                                       display: 'flex', alignItems: 'center', width: pitchToInstructCue?.label ? 'auto' : 60,
                                       margin: '0 2px',
                                     }}>
@@ -4479,7 +5370,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                   )}
 
                                   {hasInstructedChip && (
-                                    <div style={{
+                                    <div className="wb-meta-pill" style={{
                                       display: 'flex', alignItems: 'center', gap: 5,
                                       padding: '5px 10px', borderRadius: 0,
                                       background: `${instructedTimelineColour}12`,
@@ -4498,7 +5389,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                   )}
 
                                   {!hasInstructedChip && pitchExpiry && (
-                                    <div style={{
+                                    <div className="wb-meta-link" style={{
                                       display: 'flex', alignItems: 'center', width: (instructToExpiryCue?.label && !strikeExpiryChip) ? 'auto' : 44,
                                       margin: '0 2px',
                                     }}>
@@ -4526,7 +5417,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                   )}
 
                                   {!hasInstructedChip && pitchExpiry && (
-                                    <div style={{
+                                    <div className="wb-meta-pill" style={{
                                       display: 'flex', alignItems: 'center', gap: 5,
                                       padding: '5px 10px', borderRadius: 0,
                                       background: strikeExpiryChip
@@ -4565,14 +5456,15 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                               }}>
 
                               {/* ── Data bar: horizontal columns with vertical separators ── */}
-                              <div style={{
+                              <div className="wb-data-bar" style={{
                                 display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 0,
                                 padding: '14px 0',
                                 border: `1px solid ${separatorColor}`,
                                 background: isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(244, 244, 246, 0.4)',
                               }}>
                                 <DataCol
-                                  label="Area" value={areaOfWork ? areaOfWork.charAt(0).toUpperCase() + areaOfWork.slice(1) : '\u2014'}
+                                  label="Area"
+                                  value={areaOfWork ? areaOfWork.charAt(0).toUpperCase() + areaOfWork.slice(1) : '\u2014'}
                                   icon={
                                     <span
                                       style={{
@@ -4672,7 +5564,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                       : isPitchExpired
                                         ? colours.cta
                                         : (isDarkMode ? colours.accent : colours.highlight);
-                                    const checkoutLabel = hasPitchContent ? 'Pitch Link' : 'Checkout Link (via link)';
+                                    const checkoutLabel = hasPitchContent ? 'Pitch Link' : 'Checkout Link';
                                     return (
                                       <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                                         <span style={{
@@ -4688,18 +5580,23 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                           {checkoutLabel}
                                         </span>
 
-                                        <a
-                                          href={`https://instruct.helix-law.com/pitch/${resolvedPitchPasscode}`}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
+                                        <button
+                                          type="button"
                                           onClick={(e) => {
                                             e.stopPropagation();
-                                            showToast({ type: 'success', message: 'Opening pitch link' });
+                                            setPortalLaunchModel(buildPortalLaunchModel({
+                                              passcode: resolvedPitchPasscode,
+                                              instructionRef: pitchInstructionRef,
+                                              hasInstruction: hasInstructedChip,
+                                              entryLabel: 'Inline workbench → Pitch / checkout',
+                                            }));
+                                            setIsPortalLaunchOpen(true);
                                           }}
                                           title={`Open pitch page: instruct.helix-law.com/pitch/${resolvedPitchPasscode}`}
                                           style={{
                                             display: 'inline-flex', alignItems: 'center', gap: 6,
                                             padding: '5px 10px', borderRadius: 0,
+                                            fontFamily: 'inherit',
                                             background: hasInstructedChip
                                               ? (isDarkMode ? 'rgba(32, 178, 108, 0.08)' : 'rgba(32, 178, 108, 0.05)')
                                               : isPitchExpired
@@ -4727,7 +5624,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                           }}
                                         >
                                           <span style={{ fontFamily: 'Raleway, sans-serif', opacity: 0.95 }}>instruct.helix-law.com/pitch/{resolvedPitchPasscode}</span>
-                                        </a>
+                                        </button>
 
 
                                         <button
@@ -4950,26 +5847,14 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                         const instPasscode = deal?.Passcode || deal?.passcode || inst?.Passcode || inst?.passcode || '';
                         const checkoutUrl = instPasscode ? `https://instruct.helix-law.com/pitch/${instPasscode}` : '';
                         
+                        const pitchedTimelineRaw = pitchDateRaw || null;
+                        const pitchedTimelineTimeRaw = deal?.PitchedTime || deal?.pitchedTime || null;
+                        const instructedTimelineRaw = inst?.SubmissionDate || inst?.InstructionDate || inst?.DateCreated || inst?.CreatedAt || inst?.createdAt || null;
+                        const instructedTimelineTimeRaw = inst?.SubmissionTime || inst?.submissionTime || inst?.CreatedTime || inst?.createdTime || null;
+
                         // Instruction datetime
-                        const instructionDateTime = (() => {
-                          const dateRaw = inst?.SubmissionDate || inst?.InstructionDate || inst?.DateCreated || inst?.CreatedAt || inst?.createdAt || null;
-                          if (!dateRaw) return null;
-                          try {
-                            const d = new Date(dateRaw);
-                            if (Number.isNaN(d.getTime())) return null;
-                            const timeRaw = inst?.SubmissionTime || inst?.submissionTime || inst?.CreatedTime || inst?.createdTime || null;
-                            if (timeRaw) {
-                              const t = new Date(timeRaw);
-                              if (!Number.isNaN(t.getTime())) {
-                                const time = t.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-                                return `${formatRelativeDay(d)} ${time}`;
-                              }
-                            }
-                            return formatRelativeDay(d);
-                          } catch {
-                            return null;
-                          }
-                        })();
+                        const instructionDateTime = formatTimelineStamp(instructedTimelineRaw, instructedTimelineTimeRaw);
+                        const pitchedDateTime = formatTimelineStamp(pitchedTimelineRaw, pitchedTimelineTimeRaw);
                         
                         // Determine instruction status label (instruction-specific stage, not matter status)
                         const instStatusLabel = (() => {
@@ -5003,15 +5888,43 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                             instPayment.payment_method || instPayment.payment_type || instPayment.method || 
                             instPayment.type || instPayment.paymentMethod || instPayment.PaymentMethod || instPayment.PaymentType || ''
                           ).toString().toLowerCase();
-                          const meta = typeof instPayment.metadata === 'object' ? instPayment.metadata : {};
+                          const meta = (() => {
+                            if (instPayment?.metadata && typeof instPayment.metadata === 'object') return instPayment.metadata;
+                            if (typeof instPayment?.metadata === 'string') {
+                              try {
+                                return JSON.parse(instPayment.metadata);
+                              } catch {
+                                return {};
+                              }
+                            }
+                            return {};
+                          })();
                           const metaMethod = (meta?.payment_method || meta?.method || meta?.paymentMethod || '').toString().toLowerCase();
                           const intentId = (instPayment.payment_intent_id || instPayment.paymentIntentId || '').toString();
-                          const intentIsBank = intentId.startsWith('bank_');
+                          const intentIsBank = intentId.startsWith('bank_') || intentId.startsWith('banktransfer_');
                           const intentIsCard = intentId.startsWith('pi_');
                           return methodRaw || metaMethod || (intentIsBank ? 'bank' : intentIsCard ? 'card' : '');
                         })();
                         const instPaymentIsCard = instPaymentMethodRaw.includes('card') || instPaymentMethodRaw.includes('stripe') || instPaymentMethodRaw === 'cc' || (instPayment?.payment_intent_id || '').startsWith('pi_');
-                        const instPaymentIsBank = instPaymentMethodRaw.includes('bank') || instPaymentMethodRaw.includes('transfer') || instPaymentMethodRaw.includes('bacs') || instPaymentMethodRaw.includes('ach') || (instPayment?.payment_intent_id || '').startsWith('bank_');
+                        const instPaymentIsBank = instPaymentMethodRaw.includes('bank') || instPaymentMethodRaw.includes('transfer') || instPaymentMethodRaw.includes('bacs') || instPaymentMethodRaw.includes('ach') || (instPayment?.payment_intent_id || '').startsWith('bank_') || (instPayment?.payment_intent_id || '').startsWith('banktransfer_');
+
+                        const instructedClientDisplay = clientType && (clientType.toLowerCase().includes('company') || clientType.toLowerCase().includes('business') || clientType.toLowerCase().includes('corporate'))
+                          ? (instCompanyName || instFullName || '—')
+                          : (instFullName || '—');
+
+                        const isPlaceholderSummaryValue = (value: unknown): boolean => {
+                          const normalised = String(value ?? '').trim().toLowerCase();
+                          return (
+                            !normalised ||
+                            normalised === '—' ||
+                            normalised === '-' ||
+                            normalised === 'unknown' ||
+                            normalised === 'n/a' ||
+                            normalised === 'na' ||
+                            normalised === 'unpaid' ||
+                            normalised === 'given'
+                          );
+                        };
 
                         // Amount + Service (same source chain as pitch)
                         const instAmount = inst?.Amount || inst?.amount || deal?.Amount || deal?.amount || deal?.FeeAmount || deal?.feeAmount || effectivePitch?.Amount || effectivePitch?.amount || '';
@@ -5023,12 +5936,15 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                         const separatorColor = isDarkMode ? `${colours.dark.border}40` : colours.highlightNeutral;
 
                         // DataCol + Sep (same pattern as enquiry/pitch)
-                        const isEmptyVal = (v: string) => !v || v === '\u2014' || v === '\ufffd';
+                        const isEmptyVal = (v: string) => !v || v === '\ufffd' || isPlaceholderSummaryValue(v);
+                        let instColIdx = 0;
                         const DataCol = ({ label, value, accent, mono, icon: colIcon, maxW }: {
                           label: string; value: string; accent?: string; mono?: boolean;
                           icon?: React.ReactNode; maxW?: number;
-                        }) => (
-                          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-start', minHeight: 34, gap: 4, padding: '0 14px' }}>
+                        }) => {
+                          const idx = instColIdx++;
+                          return (
+                          <div className="wb-data-col" style={{ '--wb-col-index': idx, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-start', minHeight: 34, gap: 4, padding: '0 14px' } as React.CSSProperties}>
                             <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: textMuted }}>{label}</span>
                             <span style={{
                               fontSize: 12, fontWeight: !isEmptyVal(value) ? 500 : 400,
@@ -5041,46 +5957,34 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                               {colIcon}{isEmptyVal(value) ? '\u2014' : value}
                             </span>
                           </div>
-                        );
-                        const Sep = () => (
-                          <div style={{ width: 1, alignSelf: 'stretch', background: separatorColor, margin: '4px 0' }} />
-                        );
+                        );};
+                        const Sep = () => {
+                          const idx = instColIdx;
+                          return (
+                          <div className="wb-data-sep" style={{ '--wb-col-index': idx, width: 1, alignSelf: 'stretch', background: separatorColor, margin: '4px 0' } as React.CSSProperties} />
+                        );};
 
                         // Elapsed duration: pitch → instruction
-                        const pitchToInstElapsed = (() => {
-                          const instDateRaw = inst?.SubmissionDate || inst?.InstructionDate || inst?.DateCreated || inst?.CreatedAt || inst?.createdAt || null;
-                          if (!pitchDateRaw || !instDateRaw) return null;
-                          try {
-                            const start = new Date(pitchDateRaw);
-                            const end = new Date(instDateRaw);
-                            if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
-                            const diffMs = end.getTime() - start.getTime();
-                            if (diffMs < 0) return null;
-                            const mins = Math.floor(diffMs / 60000);
-                            if (mins < 1) return '<1m';
-                            if (mins < 60) return `${mins}m`;
-                            const hrs = Math.floor(mins / 60);
-                            const remMins = mins % 60;
-                            if (hrs < 24) return remMins > 0 ? `${hrs}h ${remMins}m` : `${hrs}h`;
-                            const days = Math.floor(hrs / 24);
-                            const remHrs = hrs % 24;
-                            return remHrs > 0 ? `${days}d ${remHrs}h` : `${days}d`;
-                          } catch { return null; }
-                        })();
-                        const hasPitchedTimelineChip = Boolean(pitchDate && pitchDate !== '\u2014' && pitchDate !== '\ufffd');
+                        const pitchToInstElapsed = formatTimelineDiff(
+                          pitchedTimelineRaw,
+                          instructedTimelineRaw,
+                          pitchedTimelineTimeRaw,
+                          instructedTimelineTimeRaw,
+                        );
+                        const hasPitchedTimelineChip = Boolean(pitchedDateTime && pitchedDateTime !== '\u2014' && pitchedDateTime !== '\ufffd');
                         const hasInstructionTimelineChip = Boolean(instructionDateTime);
                         const showPitchToInstructionConnector = hasPitchedTimelineChip && hasInstructionTimelineChip;
 
                         const instructionHeaderPrompt = 'Review details below.';
 
                         return (
-                          <div style={{
+                          <div className="wb-enquiry-stack" style={{
                             fontFamily: "'Raleway', 'Segoe UI', sans-serif",
                             display: 'flex',
                             flexDirection: 'column',
                             gap: 8,
                           }}>
-                            <div style={{
+                            <div className="wb-enquiry-header" style={{
                               display: 'flex',
                               alignItems: 'center',
                               justifyContent: 'flex-start',
@@ -5111,13 +6015,13 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                               </div>
                             </div>
 
-                            <div style={{
-                              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+                            <div className="wb-meta-row" style={{
+                              display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 8,
                               padding: flatEmbedMode ? '0 0 2px' : '0 14px 2px', minHeight: 36,
                             }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+                              <div className="wb-meta-rail" style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
                                 {hasPitchedTimelineChip && (
-                                  <div style={{
+                                          <div className="wb-meta-pill" style={{
                                     display: 'flex', alignItems: 'center', gap: 5,
                                     padding: '5px 10px', borderRadius: 0,
                                     background: isDarkMode ? 'rgba(160, 160, 160, 0.08)' : 'rgba(0,0,0,0.03)',
@@ -5127,13 +6031,13 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                     <FaClock size={10} style={{ color: textMuted }} />
                                     <span style={{ fontSize: 10, fontWeight: 600, color: textBody }}>
                                       Pitched
-                                      <span style={{ color: textMuted, fontWeight: 500 }}> · {pitchDate}</span>
+                                      <span style={{ color: textMuted, fontWeight: 500 }}> · {pitchedDateTime}</span>
                                     </span>
                                   </div>
                                 )}
 
                                 {showPitchToInstructionConnector && (
-                                  <div style={{
+                                  <div className="wb-meta-link" style={{
                                     display: 'flex', alignItems: 'center', width: pitchToInstElapsed ? 'auto' : 60,
                                     margin: '0 2px',
                                   }}>
@@ -5160,7 +6064,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                 )}
 
                                 {instructionDateTime && (
-                                  <div style={{
+                                  <div className="wb-meta-pill" style={{
                                     display: 'flex', alignItems: 'center', gap: 5,
                                     padding: '5px 10px', borderRadius: 0,
                                     background: isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.08)',
@@ -5188,29 +6092,23 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                             }}>
 
                             {/* ── Data bar: horizontal columns with vertical separators ── */}
-                            <div style={{
+                            <div className="wb-data-bar" style={{
                               display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 0,
-                              padding: '14px 0',
-                              borderTop: `1px solid ${separatorColor}`,
-                              borderBottom: `1px solid ${separatorColor}`,
-                              background: isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(244, 244, 246, 0.4)',
+                                padding: '14px 0',
+                                border: `1px solid ${separatorColor}`,
+                                background: isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(244, 244, 246, 0.4)',
                             }}>
                               <DataCol
-                                label="Type" value={clientType || '\u2014'}
+                                label="Type"
+                                value={clientType || '\u2014'}
                                 icon={clientType && clientType !== '\u2014' && (clientType.toLowerCase().includes('company') || clientType.toLowerCase().includes('business') || clientType.toLowerCase().includes('corporate'))
                                   ? <FaBuilding size={10} style={{ opacity: 0.7 }} />
                                   : <FaUser size={10} style={{ opacity: 0.7 }} />}
                               />
                               <Sep />
-                              <DataCol
-                                label="Client"
-                                value={clientType && (clientType.toLowerCase().includes('company') || clientType.toLowerCase().includes('business') || clientType.toLowerCase().includes('corporate'))
-                                  ? (instCompanyName || instFullName || '\u2014')
-                                  : (instFullName || '\u2014')}
-                              />
+                              <DataCol label="Client" value={instructedClientDisplay} />
                               <Sep />
                               {(() => {
-                                // Resolve initials → full name via teamData (also check inst-level fields)
                                 const isMissing = (v: any) => !v || v === '\u2014' || v === '\ufffd' || String(v).trim() === '';
                                 const rawFe = !isMissing(feeEarner)
                                   ? feeEarner
@@ -5267,9 +6165,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                 alignSelf: 'flex-start',
                                 padding: '5px 10px',
                                 borderRadius: 0,
-                                background: isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.04)',
-                                border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(54, 144, 206, 0.15)'}`,
-                                borderLeft: `3px solid ${isDarkMode ? colours.accent : colours.highlight}`,
+                                background: isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(54, 144, 206, 0.07)',
+                                border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.35)' : 'rgba(54, 144, 206, 0.22)'}`,
                                 color: isDarkMode ? 'rgba(243, 244, 246, 0.88)' : '#475569',
                                 fontSize: 10,
                                 fontWeight: 600,
@@ -5283,6 +6180,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                             <div style={{
                               display: 'flex', alignItems: 'stretch', gap: 0,
                               background: isDarkMode ? 'rgba(2, 6, 23, 0.15)' : 'rgba(244, 244, 246, 0.25)',
+                              border: `1px solid ${separatorColor}`,
                             }}>
                               {/* Amount + VAT — left, fixed width with accent stripe */}
                               <div style={{
@@ -5339,16 +6237,16 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                 display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12,
                                 padding: '6px 14px',
                                 background: isDarkMode ? 'rgba(54, 144, 206, 0.04)' : 'rgba(54, 144, 206, 0.03)',
-                                borderTop: `1px solid ${separatorColor}`,
+                                border: `1px solid ${separatorColor}`,
                               }}>
                                 {checkoutUrl && instPasscode && (
                                   <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                                     <span style={{
                                       display: 'inline-flex', alignItems: 'center', gap: 5,
                                       padding: '5px 10px', borderRadius: 0,
-                                      background: isDarkMode ? 'rgba(160, 160, 160, 0.08)' : 'rgba(0,0,0,0.03)',
-                                      border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.12)' : 'rgba(0,0,0,0.06)'}`,
-                                      color: textMuted,
+                                      background: isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(54, 144, 206, 0.08)',
+                                      border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.28)' : 'rgba(54, 144, 206, 0.18)'}`,
+                                      color: isDarkMode ? colours.accent : colours.highlight,
                                       fontSize: 10,
                                       fontWeight: 700,
                                     }}>
@@ -5356,18 +6254,23 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                       Checkout Link
                                     </span>
 
-                                    <a
-                                      href={checkoutUrl}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
+                                    <button
+                                      type="button"
                                       onClick={(e) => {
                                         e.stopPropagation();
-                                        showToast({ type: 'success', message: 'Opening checkout link' });
+                                        setPortalLaunchModel(buildPortalLaunchModel({
+                                          passcode: instPasscode,
+                                          instructionRef: instructionRef,
+                                          hasInstruction: Boolean(instructionRef),
+                                          entryLabel: 'Inline workbench → Instruction view',
+                                        }));
+                                        setIsPortalLaunchOpen(true);
                                       }}
                                       title={`Open instruct page: instruct.helix-law.com/pitch/${instPasscode}`}
                                       style={{
                                         display: 'inline-flex', alignItems: 'center', gap: 6,
                                         padding: '5px 10px', borderRadius: 0,
+                                        fontFamily: 'inherit',
                                         background: isDarkMode ? 'rgba(32, 178, 108, 0.08)' : 'rgba(32, 178, 108, 0.05)',
                                         border: `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.2)' : 'rgba(32, 178, 108, 0.15)'}`,
                                         color: colours.green,
@@ -5387,7 +6290,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                       }}
                                     >
                                       <span style={{ fontFamily: 'Raleway, sans-serif', opacity: 0.95 }}>instruct.helix-law.com/pitch/{instPasscode}</span>
-                                    </a>
+                                    </button>
 
                                     <button
                                       type="button"
@@ -5459,13 +6362,13 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
                             {/* ── Individual section ── */}
                             <div style={{
-                              borderTop: `1px solid ${separatorColor}`,
-                              background: isDarkMode ? 'rgba(2, 6, 23, 0.2)' : 'rgba(244, 244, 246, 0.3)',
+                              border: `1px solid ${separatorColor}`,
+                              background: isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(244, 244, 246, 0.4)',
                             }}>
                                 {/* Header */}
                                 <div style={{
                                   display: 'flex', alignItems: 'center', gap: 5,
-                                  padding: '8px 0 6px',
+                                  padding: '8px 14px 6px',
                                   borderBottom: `1px solid ${separatorColor}`,
                                 }}>
                                   <FaUser size={10} style={{ color: isDarkMode ? colours.accent : colours.highlight }} />
@@ -5532,13 +6435,13 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                             {/* ── Company section ── */}
                             {hasCompanyDetails && (
                               <div style={{
-                                borderTop: `1px solid ${separatorColor}`,
-                                background: isDarkMode ? 'rgba(6, 23, 51, 0.35)' : 'rgba(214, 232, 255, 0.15)',
+                                border: `1px solid ${separatorColor}`,
+                                background: isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(244, 244, 246, 0.4)',
                               }}>
                                   {/* Header */}
                                   <div style={{
                                     display: 'flex', alignItems: 'center', gap: 5,
-                                    padding: '8px 0 6px',
+                                    padding: '8px 14px 6px',
                                     borderBottom: `1px solid ${separatorColor}`,
                                   }}>
                                     <FaBuilding size={10} style={{ color: isDarkMode ? colours.accent : colours.highlight }} />
@@ -5742,7 +6645,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
         {/* Identity Tab - ID Verification */}
         {activeTab === 'identity' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div className="wb-tab-stack" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {renderStatusBanner(
               identityBannerStatus === 'complete' 
                 ? (isManuallyApproved ? 'ID Approved' : 'ID Verified')
@@ -5785,45 +6688,55 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
             {(() => {
               const instructedRaw = inst?.SubmissionDate || inst?.InstructionDate || inst?.DateCreated || inst?.CreatedAt || submissionDateRaw || null;
-              const identityTimelineRaw = eidTileDetails?.overall?.checkedAt || verificationDetails?.checkedDate || eid?.EIDCheckedDate || null;
+              const instructedTimeRaw = inst?.SubmissionTime || inst?.submissionTime || inst?.CreatedTime || inst?.createdTime || null;
+              const identityTimelineRaw = (() => {
+                const raw = verificationDetails ? getPrimaryRawVerificationRecord(verificationDetails.rawResponse) : null;
+                const checkStatuses = Array.isArray(raw?.checkStatuses) ? raw.checkStatuses : [];
+                const timelineFromStatus = checkStatuses.find((status: any) => {
+                  const sourceDate = status?.sourceResults?.date;
+                  const sourceRecorded = Array.isArray(status?.sourceResults?.results)
+                    ? status.sourceResults.results.find((result: any) => result?.recordedDate)?.recordedDate
+                    : null;
+                  return Boolean(
+                    sourceDate ||
+                    sourceRecorded ||
+                    status?.checkedDate ||
+                    status?.checkedAt ||
+                    status?.timestamp ||
+                    status?.createdAt ||
+                    status?.completedAt ||
+                    status?.result?.checkedDate ||
+                    status?.result?.checkedAt ||
+                    status?.result?.timestamp ||
+                    status?.result?.createdAt ||
+                    status?.result?.completedAt
+                  );
+                });
 
-              const parseDate = (raw: any): Date | null => {
-                if (!raw) return null;
-                const d = new Date(raw);
-                return Number.isNaN(d.getTime()) ? null : d;
-              };
+                return (
+                  timelineFromStatus?.sourceResults?.date ||
+                  (Array.isArray(timelineFromStatus?.sourceResults?.results)
+                    ? timelineFromStatus.sourceResults.results.find((result: any) => result?.recordedDate)?.recordedDate
+                    : null) ||
+                  timelineFromStatus?.checkedDate ||
+                  timelineFromStatus?.checkedAt ||
+                  timelineFromStatus?.timestamp ||
+                  timelineFromStatus?.createdAt ||
+                  timelineFromStatus?.completedAt ||
+                  timelineFromStatus?.result?.checkedDate ||
+                  timelineFromStatus?.result?.checkedAt ||
+                  timelineFromStatus?.result?.timestamp ||
+                  timelineFromStatus?.result?.createdAt ||
+                  timelineFromStatus?.result?.completedAt ||
+                  verificationDetails?.checkedDate ||
+                  eid?.EIDCheckedDate ||
+                  null
+                );
+              })();
 
-              const formatStamp = (raw: any): string | null => {
-                const d = parseDate(raw);
-                if (!d) return null;
-                const rawText = typeof raw === 'string' ? raw : '';
-                const hasTime = /T\d{2}:\d{2}/.test(rawText) || /\d{2}:\d{2}/.test(rawText);
-                const date = formatRelativeDay(d);
-                if (!hasTime) return date;
-                const time = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-                return `${date} ${time}`;
-              };
-
-              const formatDiff = (fromRaw: any, toRaw: any): string | null => {
-                const from = parseDate(fromRaw);
-                const to = parseDate(toRaw);
-                if (!from || !to) return null;
-                const diffMs = Math.abs(to.getTime() - from.getTime());
-                const mins = Math.floor(diffMs / 60000);
-                if (mins < 60) return `${mins}m`;
-                const hrs = Math.floor(mins / 60);
-                if (hrs < 24) {
-                  const remMins = mins % 60;
-                  return remMins > 0 ? `${hrs}h ${remMins}m` : `${hrs}h`;
-                }
-                const days = Math.floor(hrs / 24);
-                const remHrs = hrs % 24;
-                return remHrs > 0 ? `${days}d ${remHrs}h` : `${days}d`;
-              };
-
-              const instructedStamp = formatStamp(instructedRaw);
-              const identityStamp = formatStamp(identityTimelineRaw);
-              const elapsed = formatDiff(instructedRaw, identityTimelineRaw);
+              const elapsed = formatTimelineDiff(instructedRaw, identityTimelineRaw, instructedTimeRaw);
+              const instructedStamp = formatTimelineStamp(instructedRaw, instructedTimeRaw);
+              const identityStamp = formatTimelineStamp(identityTimelineRaw);
               const showTimeline = Boolean(instructedStamp || identityStamp);
 
               if (!showTimeline) return null;
@@ -5831,18 +6744,15 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
               return (
                 <div style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
-                  padding: flatEmbedMode ? '8px 10px' : '8px 14px', minHeight: 36,
-                  background: isDarkMode ? 'rgba(2, 6, 23, 0.25)' : 'rgba(244, 244, 246, 0.35)',
-                  border: `1px solid ${isDarkMode ? `${colours.dark.border}40` : colours.highlightNeutral}`,
-                  borderRadius: 0,
+                  padding: flatEmbedMode ? '0 0 2px' : '0 14px 2px', minHeight: 36,
                 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+                  <div className="wb-meta-rail" style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
                     {instructedStamp && (
                       <div style={{
                         display: 'flex', alignItems: 'center', gap: 5,
                         padding: '5px 10px', borderRadius: 0,
                         background: isDarkMode ? 'rgba(160, 160, 160, 0.08)' : 'rgba(0, 0, 0, 0.03)',
-                        border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(0, 0, 0, 0.08)'}`,
+                        border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.12)' : 'rgba(0, 0, 0, 0.06)'}`,
                         flexShrink: 0,
                       }}>
                         <FaClock size={10} style={{ color: isDarkMode ? colours.subtleGrey : colours.greyText }} />
@@ -5918,9 +6828,9 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
             {/* ID Verification Section */}
             <div style={{
-              padding: flatEmbedMode ? '0' : '12px 14px',
-              background: flatEmbedMode ? 'transparent' : (isDarkMode ? 'rgba(2, 6, 23, 0.25)' : 'rgba(244, 244, 246, 0.35)'),
-              border: flatEmbedMode ? 'none' : `1px solid ${isDarkMode ? `${colours.dark.border}40` : colours.highlightNeutral}`,
+              padding: '12px 14px',
+              background: isDarkMode ? 'rgba(6, 23, 51, 0.45)' : 'rgba(255, 255, 255, 0.7)',
+              border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
               borderRadius: 0
             }}>
               {/* Header */}
@@ -5937,42 +6847,42 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                   display: 'flex',
                   flexWrap: 'wrap',
                   gap: 0,
-                  padding: '10px 0',
+                  padding: '14px 0',
                   background: isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(244, 244, 246, 0.25)',
                   borderRadius: 0,
                   border: `1px solid ${isDarkMode ? `${colours.dark.border}40` : colours.highlightNeutral}`,
                   marginBottom: 12
                 }}>
                   {/* Checked Date */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-start', gap: 4, padding: '0 14px', minHeight: 34 }}>
                     <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Checked</span>
-                    <span style={{ fontSize: 12, fontWeight: 500, fontFamily: 'monospace', color: isDarkMode ? '#d1d5db' : '#374151' }}>
+                    <span style={{ fontSize: 12, fontWeight: 500, fontFamily: 'Raleway, sans-serif', color: isDarkMode ? '#d1d5db' : '#374151', textAlign: 'left' }}>
                       {eidTileDetails?.overall?.checkedAt || formatMaybeDate(verificationDetails?.checkedDate) || verificationDetails?.checkedDate || eidDate || '—'}
                     </span>
                   </div>
                   
                   {/* Separator */}
-                  <div style={{ width: 1, background: isDarkMode ? `${colours.dark.border}40` : colours.highlightNeutral, margin: '4px 0' }} />
+                  <div style={{ width: 1, alignSelf: 'stretch', background: isDarkMode ? `${colours.dark.border}40` : colours.highlightNeutral, margin: '4px 0' }} />
                   
                   {/* Document Type */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-start', gap: 4, padding: '0 14px', minHeight: 34 }}>
                     <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
                       Document
                     </span>
-                    <span style={{ fontSize: 12, fontWeight: 500, color: (passport !== '—' || license !== '—') ? (isDarkMode ? '#d1d5db' : '#374151') : (isDarkMode ? colours.subtleGrey : colours.greyText) }}>
+                    <span style={{ fontSize: 12, fontWeight: 500, fontFamily: 'Raleway, sans-serif', color: (passport !== '—' || license !== '—') ? (isDarkMode ? '#d1d5db' : '#374151') : (isDarkMode ? colours.subtleGrey : colours.greyText), textAlign: 'left' }}>
                       {passport !== '—' ? 'Passport' : license !== '—' ? 'Driving License' : '—'}
                     </span>
                   </div>
                   
                   {/* Separator */}
-                  <div style={{ width: 1, background: isDarkMode ? `${colours.dark.border}40` : colours.highlightNeutral, margin: '4px 0' }} />
+                  <div style={{ width: 1, alignSelf: 'stretch', background: isDarkMode ? `${colours.dark.border}40` : colours.highlightNeutral, margin: '4px 0' }} />
                   
                   {/* Provider */}
                   {(
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-start', gap: 4, padding: '0 14px', minHeight: 34 }}>
                       <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Provider</span>
                       <span
-                        style={{ fontSize: 12, fontWeight: 500, color: isDarkMode ? '#d1d5db' : '#374151', cursor: verificationMeta.provider !== '—' ? 'pointer' : 'default' }}
+                        style={{ fontSize: 12, fontWeight: 500, fontFamily: 'Raleway, sans-serif', color: isDarkMode ? '#d1d5db' : '#374151', cursor: verificationMeta.provider !== '—' ? 'pointer' : 'default', textAlign: 'left' }}
                         onClick={(e) => { if (verificationMeta.provider === '—') return; e.stopPropagation(); void safeCopy(verificationMeta.provider); }}
                         title={verificationMeta.provider !== '—' ? 'Click to copy' : undefined}
                       >
@@ -5985,12 +6895,12 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                   {!isCompactIdentityView && verificationMeta.correlationId !== '—' && (
                     <>
                       {/* Separator */}
-                      <div style={{ width: 1, background: isDarkMode ? `${colours.dark.border}40` : colours.highlightNeutral, margin: '4px 0' }} />
+                      <div style={{ width: 1, alignSelf: 'stretch', background: isDarkMode ? `${colours.dark.border}40` : colours.highlightNeutral, margin: '4px 0' }} />
                       
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-start', gap: 4, padding: '0 14px', minHeight: 34 }}>
                         <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Ref</span>
                         <span
-                          style={{ fontSize: 12, fontWeight: 500, fontFamily: 'monospace', color: isDarkMode ? '#d1d5db' : '#374151', cursor: 'pointer', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                          style={{ fontSize: 12, fontWeight: 500, fontFamily: 'Raleway, sans-serif', color: isDarkMode ? '#d1d5db' : '#374151', cursor: 'pointer', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'left' }}
                           onClick={(e) => { e.stopPropagation(); void safeCopy(verificationMeta.correlationId); }}
                           title={`${verificationMeta.correlationId}\n\nClick to copy`}
                         >
@@ -6058,65 +6968,65 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                       display: 'flex',
                       flexWrap: 'wrap',
                       gap: 0,
-                      padding: '10px 0',
+                      padding: '14px 0',
                       background: isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(244, 244, 246, 0.25)',
                       borderRadius: 0,
                       border: `1px solid ${isDarkMode ? `${colours.dark.border}40` : colours.highlightNeutral}`,
                       marginTop: 8
                     }}>
                       {/* Name */}
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-start', minHeight: 34, gap: 4, padding: '0 14px' }}>
                         <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Name</span>
-                        <span style={{ fontSize: 12, fontWeight: 500, color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : '#061733' }}>
+                        <span style={{ fontSize: 12, fontWeight: 500, fontFamily: 'Raleway, sans-serif', color: isDarkMode ? '#d1d5db' : '#374151', textAlign: 'left' }}>
                           {[title, firstName, lastName].filter(Boolean).join(' ') || '—'}
                         </span>
                       </div>
 
                       {/* Separator */}
-                      <div style={{ width: 1, background: isDarkMode ? colours.dark.border : '#e1e1e1', margin: '4px 0' }} />
+                      <div style={{ width: 1, alignSelf: 'stretch', background: isDarkMode ? `${colours.dark.border}40` : colours.highlightNeutral, margin: '4px 0' }} />
 
                       {/* Document Number */}
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-start', minHeight: 34, gap: 4, padding: '0 14px' }}>
                         <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
                           {passport !== '—' ? 'Passport' : license !== '—' ? 'License' : 'Doc No.'}
                         </span>
                         <span 
                           onClick={(passport !== '—' || license !== '—') ? (e) => { e.stopPropagation(); void safeCopy(passport !== '—' ? passport : license); } : undefined}
                           title={(passport !== '—' || license !== '—') ? 'Click to copy' : undefined}
-                          style={{ fontSize: 12, fontWeight: 500, fontFamily: 'monospace', color: (passport !== '—' || license !== '—') ? (isDarkMode ? 'rgba(243, 244, 246, 0.9)' : '#061733') : (isDarkMode ? 'rgba(160, 160, 160, 0.5)' : '#A0A0A0'), cursor: (passport !== '—' || license !== '—') ? 'pointer' : 'default' }}>
+                          style={{ fontSize: 12, fontWeight: 500, fontFamily: 'Raleway, sans-serif', color: (passport !== '—' || license !== '—') ? (isDarkMode ? '#d1d5db' : '#374151') : (isDarkMode ? colours.subtleGrey : colours.greyText), cursor: (passport !== '—' || license !== '—') ? 'pointer' : 'default', textAlign: 'left' }}>
                           {(passport !== '—' ? passport : license !== '—' ? license : '—')}
                         </span>
                       </div>
 
                       {/* Separator */}
-                      <div style={{ width: 1, background: isDarkMode ? colours.dark.border : '#e1e1e1', margin: '4px 0' }} />
+                      <div style={{ width: 1, alignSelf: 'stretch', background: isDarkMode ? `${colours.dark.border}40` : colours.highlightNeutral, margin: '4px 0' }} />
 
                       {/* DOB */}
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-start', minHeight: 34, gap: 4, padding: '0 14px' }}>
                         <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>DOB</span>
-                        <span style={{ fontSize: 12, fontWeight: 500, fontFamily: 'monospace', color: dob !== '—' ? (isDarkMode ? 'rgba(243, 244, 246, 0.9)' : '#061733') : (isDarkMode ? 'rgba(160, 160, 160, 0.5)' : '#A0A0A0') }}>
+                        <span style={{ fontSize: 12, fontWeight: 500, fontFamily: 'Raleway, sans-serif', color: dob !== '—' ? (isDarkMode ? '#d1d5db' : '#374151') : (isDarkMode ? colours.subtleGrey : colours.greyText), textAlign: 'left' }}>
                           {dob}{age !== '—' ? ` (${age})` : ''}
                         </span>
                       </div>
 
                       {/* Separator */}
-                      <div style={{ width: 1, background: isDarkMode ? colours.dark.border : '#e1e1e1', margin: '4px 0' }} />
+                      <div style={{ width: 1, alignSelf: 'stretch', background: isDarkMode ? `${colours.dark.border}40` : colours.highlightNeutral, margin: '4px 0' }} />
 
                       {/* Nationality */}
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-start', minHeight: 34, gap: 4, padding: '0 14px' }}>
                         <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Nationality</span>
-                        <span style={{ fontSize: 12, fontWeight: 500, color: nationalityAlpha !== '—' ? (isDarkMode ? 'rgba(243, 244, 246, 0.9)' : '#061733') : (isDarkMode ? 'rgba(160, 160, 160, 0.5)' : '#A0A0A0') }}>
+                        <span style={{ fontSize: 12, fontWeight: 500, fontFamily: 'Raleway, sans-serif', color: nationalityAlpha !== '—' ? (isDarkMode ? '#d1d5db' : '#374151') : (isDarkMode ? colours.subtleGrey : colours.greyText), textAlign: 'left' }}>
                           {nationalityAlpha}
                         </span>
                       </div>
 
                       {/* Separator */}
-                      <div style={{ width: 1, background: isDarkMode ? colours.dark.border : '#e1e1e1', margin: '4px 0' }} />
+                      <div style={{ width: 1, alignSelf: 'stretch', background: isDarkMode ? `${colours.dark.border}40` : colours.highlightNeutral, margin: '4px 0' }} />
 
                       {/* Address (if available) */}
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px', flex: 1, minWidth: 200 }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-start', minHeight: 34, gap: 4, padding: '0 14px', flex: 1, minWidth: 200 }}>
                         <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Address</span>
-                        <span style={{ fontSize: 12, fontWeight: 500, color: address ? (isDarkMode ? 'rgba(243, 244, 246, 0.9)' : '#061733') : (isDarkMode ? 'rgba(160, 160, 160, 0.5)' : '#A0A0A0'), whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <span style={{ fontSize: 12, fontWeight: 500, fontFamily: 'Raleway, sans-serif', color: address ? (isDarkMode ? '#d1d5db' : '#374151') : (isDarkMode ? colours.subtleGrey : colours.greyText), textAlign: 'left', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           {address || '—'}
                         </span>
                       </div>
@@ -6128,7 +7038,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
               {/* Document Provided sub-section - REMOVED (Redundant with Data Bar) */}
 
                 {/* EID Results - only show when verification has been run */}
-                {eidStatus !== 'pending' ? (
+                {eidStatus !== 'pending' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {/* ── Result Indicator Pills ── */}
                 <div style={{
@@ -6230,7 +7140,12 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                     : (rawCheckResultSnapshot.overall !== '—'
                       ? rawCheckResultSnapshot.overall
                       : (eidResult && eidResult !== '—' ? eidResult : (verificationDetails?.overallResult || '')));
-                  const needsAction = !isManuallyApproved && (overallVal.toLowerCase().includes('review') || overallVal.toLowerCase().includes('refer') || overallVal.toLowerCase().includes('fail'));
+                  const needsAction = !isManuallyApproved && (
+                    overallVal.toLowerCase().includes('review') ||
+                    overallVal.toLowerCase().includes('refer') ||
+                    overallVal.toLowerCase().includes('fail') ||
+                    (isDemoInstruction && (eidStatus === 'review' || eidStatus === 'failed'))
+                  );
                   if (!needsAction) return null;
                   return (
                     <div style={{
@@ -6348,7 +7263,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                   {/* Save to Docs / Saved indicator */}
                   {existingEidPdfDoc ? (
                     <div
-                      title={`Saved: ${existingEidPdfDoc.FileName}\nUploaded: ${existingEidPdfDoc.UploadedAt ? new Date(existingEidPdfDoc.UploadedAt).toLocaleString('en-GB') : '—'}`}
+                      title={`Saved: ${getDocumentFileName(existingEidPdfDoc) || 'EID report'}\nUploaded: ${getDocumentUploadedAt(existingEidPdfDoc) ? new Date(String(getDocumentUploadedAt(existingEidPdfDoc))).toLocaleString('en-GB') : '—'}`}
                       style={{
                         display: 'inline-flex', alignItems: 'center', gap: 4,
                         padding: '4px 8px',
@@ -6363,7 +7278,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                       <FaCheckCircle size={8} />
                       Saved to Docs
                     </div>
-                  ) : !isDemoInstruction ? (
+                  ) : (!isDemoInstruction || rawRecordSubmitState === 'failed') ? (
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); persistRawRecordPdf(); }}
@@ -6386,7 +7301,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                     </button>
                   ) : null}
 
-                  {isDemoInstruction && (
+                  {isDemoInstruction && rawRecordSubmitState !== 'failed' && (
                     <div
                       title={rawRecordSubmittedAt ? `Submitted: ${new Date(rawRecordSubmittedAt).toLocaleString('en-GB')}` : rawRecordSubmitMessage}
                       style={{
@@ -6394,14 +7309,10 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                         padding: '4px 8px',
                         background: rawRecordSubmitState === 'submitting'
                           ? (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)')
-                          : rawRecordSubmitState === 'failed'
-                            ? (isDarkMode ? 'rgba(214, 85, 65, 0.12)' : 'rgba(214, 85, 65, 0.08)')
-                            : rawRecordSubmitState === 'submitted'
+                          : rawRecordSubmitState === 'submitted'
                               ? (isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.08)')
                               : (isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0, 0, 0, 0.04)'),
-                        border: `1px solid ${rawRecordSubmitState === 'failed'
-                          ? (isDarkMode ? 'rgba(214, 85, 65, 0.3)' : 'rgba(214, 85, 65, 0.2)')
-                          : rawRecordSubmitState === 'submitted'
+                        border: `1px solid ${rawRecordSubmitState === 'submitted'
                             ? (isDarkMode ? 'rgba(32, 178, 108, 0.3)' : 'rgba(32, 178, 108, 0.2)')
                             : (isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(0, 0, 0, 0.08)')}`,
                         borderRadius: 999,
@@ -6409,18 +7320,14 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                         fontWeight: 700,
                         color: rawRecordSubmitState === 'submitting'
                           ? colours.highlight
-                          : rawRecordSubmitState === 'failed'
-                            ? colours.cta
-                            : rawRecordSubmitState === 'submitted'
+                          : rawRecordSubmitState === 'submitted'
                               ? colours.green
                               : (isDarkMode ? colours.subtleGrey : colours.greyText),
                       }}
                     >
                       {rawRecordSubmitState === 'submitting'
                         ? 'Auto-submit: Saving…'
-                        : rawRecordSubmitState === 'failed'
-                          ? 'Auto-submit: Failed'
-                          : rawRecordSubmitState === 'submitted'
+                        : rawRecordSubmitState === 'submitted'
                             ? 'Auto-submitted'
                             : 'Auto-submit enabled'}
                     </div>
@@ -6483,18 +7390,18 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                 {/* ── Inline Verification Report Panel ── */}
                 {showEidReportPanel && rawRecordPdfUrl && (
                   <div style={{
-                    border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.12)'}`,
+                    border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
                     borderRadius: 0,
                     overflow: 'hidden',
-                    background: isDarkMode ? colours.dark.sectionBackground : '#ffffff',
+                    background: isDarkMode ? 'rgba(6, 23, 51, 0.45)' : 'rgba(255, 255, 255, 0.7)',
                     transition: 'all 0.2s ease',
                   }}>
                     {/* Thin accent header */}
                     <div style={{
                       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                       padding: '5px 10px',
-                      background: isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.03)',
-                      borderBottom: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)'}`,
+                      background: isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(244, 244, 246, 0.35)',
+                      borderBottom: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
                     }}>
                       <span style={{ fontSize: 10, fontWeight: 700, color: colours.highlight, display: 'flex', alignItems: 'center', gap: 5 }}>
                         <FaFilePdf size={10} />
@@ -6525,7 +7432,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                         style={{
                           border: 'none', width: '100%',
                           height: isCompactIdentityView ? 340 : 420,
-                          background: isDarkMode ? '#1a1a2e' : '#f5f5f5',
+                          background: isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(244, 244, 246, 0.35)',
                         }}
                       >
                         <p style={{ padding: 20, fontSize: 11, color: isDarkMode ? '#d1d5db' : '#374151' }}>
@@ -6592,8 +7499,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                         width: '92%',
                         maxWidth: 920,
                         height: '86vh',
-                        background: isDarkMode ? colours.dark.sectionBackground : '#ffffff',
-                        border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
+                        background: isDarkMode ? 'rgba(6, 23, 51, 0.45)' : 'rgba(255, 255, 255, 0.7)',
+                        border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
                         borderRadius: 0,
                         display: 'flex',
                         flexDirection: 'column',
@@ -6605,7 +7512,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                         alignItems: 'center',
                         justifyContent: 'space-between',
                         padding: '8px 10px',
-                        borderBottom: `1px solid ${isDarkMode ? colours.dark.border : colours.highlightNeutral}`,
+                        background: isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(244, 244, 246, 0.35)',
+                        borderBottom: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
                       }}>
                         <span style={{ fontSize: 11, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text, display: 'flex', alignItems: 'center', gap: 6 }}>
                           <FaFilePdf size={12} color={colours.highlight} />
@@ -6655,7 +7563,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                           data={rawRecordPdfUrl}
                           type="application/pdf"
                           title="Identity Verification Report"
-                          style={{ border: 'none', width: '100%', height: '100%' }}
+                          style={{ border: 'none', width: '100%', height: '100%', background: isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(244, 244, 246, 0.35)' }}
                         >
                           <p style={{ padding: 20, fontSize: 12, color: isDarkMode ? '#d1d5db' : '#374151' }}>
                             PDF preview not available. <a href={rawRecordPdfUrl} download="eid-report.pdf" style={{ color: colours.highlight }}>Download instead</a>.
@@ -6924,7 +7832,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                       cursor: 'pointer',
                                     }}
                                   >
-                                    <option value="">Default fee earner{feeEarnerEmail ? ` (${feeEarnerEmail})` : ''}</option>
+                                    <option value="">Default client{verificationDetails?.clientEmail ? ` (${verificationDetails.clientEmail})` : ''}</option>
                                     {colleagueEmailOptions.map((opt) => (
                                       <option key={opt.email} value={opt.email}>
                                         {opt.label}
@@ -6971,7 +7879,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                         width: 'fit-content',
                                       }}
                                     >
-                                      Pick colleague instead
+                                      Use suggested recipient
                                     </button>
                                   </div>
                                 )}
@@ -7138,7 +8046,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                               <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
                                 <span style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? colours.subtleGrey : colours.greyText, minWidth: 50 }}>Send to</span>
                                 <span style={{ fontSize: 11, fontWeight: 700, color: isDarkMode ? '#e1e1e1' : '#0f172a' }}>
-                                  {emailOverrideTo || feeEarnerEmail || '(no recipient)'}
+                                  {emailOverrideTo || verificationDetails?.clientEmail || '(no recipient)'}
                                 </span>
                               </div>
                               {emailOverrideCc && (
@@ -7152,12 +8060,12 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                               <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
                                 <span style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? colours.subtleGrey : colours.greyText, minWidth: 50 }}>Subject</span>
                                 <span style={{ fontSize: 11, fontWeight: 600, color: isDarkMode ? 'rgba(243, 244, 246, 0.8)' : 'rgba(6, 23, 51, 0.75)' }}>
-                                  ID Documents Required — {verificationDetails?.instructionRef || instructionRef}
+                                  Additional Documents Required - {verificationDetails?.instructionRef || instructionRef}
                                 </span>
                               </div>
                             </div>
                             <div style={{ marginTop: 10, fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText, lineHeight: 1.4 }}>
-                              This creates a <strong>draft only</strong> — the recipient can review, edit, and choose when to send it to the client.
+                              This sends the document request <strong>directly to the client</strong> from the fee earner mailbox.
                             </div>
                           </div>
 
@@ -7186,39 +8094,41 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                             </button>
                             <button
                               type="button"
-                              disabled={isVerificationActionLoading || (!emailOverrideTo && !feeEarnerEmail)}
+                              disabled={isVerificationActionLoading || (!emailOverrideTo && !verificationDetails?.clientEmail)}
                               onClick={async () => {
                                 if (!verificationDetails?.instructionRef) return;
-                                const toEmail = emailOverrideTo || feeEarnerEmail;
+                                const toEmail = emailOverrideTo || verificationDetails?.clientEmail || '';
                                 if (!toEmail) {
                                   showToast({ type: 'warning', message: 'Please enter a recipient email address.' });
                                   return;
                                 }
                                 setIsVerificationActionLoading(true);
                                 try {
-                                  // TODO: Pass toEmail and emailOverrideCc to the API
-                                  await draftVerificationDocumentRequest(verificationDetails.instructionRef);
+                                  await draftVerificationDocumentRequest(
+                                    verificationDetails.instructionRef,
+                                    toEmail,
+                                    emailOverrideCc || undefined
+                                  );
                                   setShowRequestDocsModal(false);
                                   setEmailOverrideTo('');
                                   setEmailOverrideCc('');
-                                  const recipient = emailOverrideTo || feeEarner || 'fee earner';
-                                  showToast({ type: 'success', message: `Draft email created for ${recipient}.` });
+                                  showToast({ type: 'success', message: `Document request email sent to ${toEmail}.` });
                                 } catch (err: unknown) {
                                   const message = err instanceof Error ? err.message : 'Unknown error';
-                                  showToast({ type: 'error', message: `Failed to create draft: ${message}` });
+                                  showToast({ type: 'error', message: `Failed to send email: ${message}` });
                                 } finally {
                                   setIsVerificationActionLoading(false);
                                 }
                               }}
                               style={{
                                 padding: '10px 18px',
-                                background: (!emailOverrideTo && !feeEarnerEmail) ? '#A0A0A0' : colours.green,
+                                background: (!emailOverrideTo && !verificationDetails?.clientEmail) ? '#A0A0A0' : colours.green,
                                 color: '#ffffff',
                                 border: 'none',
                                 borderRadius: 0,
                                 fontSize: 11,
                                 fontWeight: 700,
-                                cursor: (isVerificationActionLoading || (!emailOverrideTo && !feeEarnerEmail)) ? 'default' : 'pointer',
+                                cursor: (isVerificationActionLoading || (!emailOverrideTo && !verificationDetails?.clientEmail)) ? 'default' : 'pointer',
                                 opacity: isVerificationActionLoading ? 0.7 : 1,
                                 display: 'flex',
                                 alignItems: 'center',
@@ -7226,11 +8136,11 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                               }}
                             >
                               {isVerificationActionLoading ? (
-                                'Creating draft…'
+                                'Sending email…'
                               ) : (
                                 <>
                                   <FaCheck size={10} />
-                                  Create Draft (does not send)
+                                  Send Request Email
                                 </>
                               )}
                             </button>
@@ -7239,122 +8149,68 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                       </div>,
                       document.body
                     )}
-                      </>
-                    )}
-                  </div>
+                  </>
                 )}
-                </div>
-                ) : (
-                  /* EID not yet run - show readiness + CTA */
-                  <div style={{ paddingTop: 10, borderTop: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : '#e1e1e1'}` }}>
+              </div>
+            )}
+            </div>
+          )}
 
-                    {/* Processing overlay */}
-                    {eidProcessingState === 'processing' && (
-                      <div style={{
-                        padding: '20px 18px',
-                        background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.05)',
-                        border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.18)'}`,
-                        borderRadius: 0,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        gap: 14,
-                        marginBottom: 12,
-                      }}>
-                        <div style={{
-                          width: 32, height: 32, borderRadius: '50%',
-                          border: `3px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)'}`,
-                          borderTopColor: colours.highlight,
-                          animation: 'spin 0.8s linear infinite',
-                        }} />
-                        <div style={{ textAlign: 'center' }}>
-                          <div style={{ fontSize: 13, fontWeight: 700, color: colours.highlight, marginBottom: 4 }}>
-                            Verification in progress
-                          </div>
-                          <div style={{ fontSize: 11, color: isDarkMode ? 'rgba(243, 244, 246, 0.6)' : 'rgba(6, 23, 51, 0.55)', lineHeight: 1.5 }}>
-                            Checking identity, address and PEP/sanctions.<br />
-                            Results will appear here automatically.
-                          </div>
-                        </div>
-                        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+            {eidStatus === 'pending' && (
+              <div style={{ paddingTop: 10, borderTop: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : '#e1e1e1'}` }}>
+                {eidProcessingState === 'processing' ? (
+                  <div style={{
+                    padding: '20px 18px',
+                    background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.05)',
+                    border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.18)'}`,
+                    borderRadius: 0,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: 14,
+                    marginBottom: 12,
+                  }}>
+                    <div style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: '50%',
+                      border: `3px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)'}`,
+                      borderTopColor: colours.highlight,
+                      animation: 'spin 0.8s linear infinite',
+                    }} />
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: colours.highlight, marginBottom: 4 }}>Verification in progress</div>
+                      <div style={{ fontSize: 11, color: isDarkMode ? 'rgba(243, 244, 246, 0.6)' : 'rgba(6, 23, 51, 0.55)', lineHeight: 1.5 }}>
+                        Checking identity, address and PEP/sanctions.<br />
+                        Results will appear here automatically.
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div style={{
+                      padding: isCompactIdentityView ? '10px 12px' : '12px 14px',
+                      background: isDarkMode ? 'rgba(2, 6, 23, 0.25)' : 'rgba(244, 244, 246, 0.25)',
+                      border: `1px solid ${isDarkMode ? `${colours.dark.border}40` : colours.highlightNeutral}`,
+                      borderRadius: 0,
+                      marginBottom: 10,
+                    }}>
+                      <div style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.4px', color: isDarkMode ? 'rgba(160, 160, 160, 0.5)' : '#A0A0A0', marginBottom: 8 }}>
+                        Readiness
+                      </div>
+                      <div style={{ fontSize: 10, color: isDarkMode ? 'rgba(243, 244, 246, 0.8)' : 'rgba(6, 23, 51, 0.7)', lineHeight: 1.5 }}>
+                        Use <strong>Run Verification</strong> above to start the check.
+                      </div>
+                    </div>
+                    {!onTriggerEID && (
+                      <div style={{ fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+                        Verification is not available for this record.
                       </div>
                     )}
-
-                    {/* Readiness + CTA (hidden while processing) */}
-                    {eidProcessingState !== 'processing' && (
-                      <>
-                        {/* Data readiness checklist */}
-                        {(() => {
-                          const hasName = Boolean(firstName && lastName);
-                          const hasDob = dob !== '—';
-                          const hasAddr = Boolean(address);
-                          const hasIdDoc = hasId;
-                          const allReady = hasName && hasDob && hasAddr && hasIdDoc;
-                          const checks = [
-                            { label: 'Name', ready: hasName, value: hasName ? `${firstName} ${lastName}` : 'Missing' },
-                            { label: 'Date of birth', ready: hasDob, value: hasDob ? dob : 'Missing' },
-                            { label: 'Address', ready: hasAddr, value: hasAddr ? (displayPostcode || 'Provided') : 'Missing' },
-                            { label: 'ID document', ready: hasIdDoc, value: hasIdDoc ? (passport !== '—' ? 'Passport' : 'License') : 'Missing' },
-                          ];
-                          return (
-                            <div style={{
-                              padding: isCompactIdentityView ? '10px 12px' : '12px 14px',
-                              background: isDarkMode ? 'rgba(2, 6, 23, 0.25)' : 'rgba(244, 244, 246, 0.25)',
-                              border: `1px solid ${isDarkMode ? `${colours.dark.border}40` : colours.highlightNeutral}`,
-                              borderRadius: 0,
-                              marginBottom: 10,
-                            }}>
-                              <div style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.4px', color: isDarkMode ? 'rgba(160, 160, 160, 0.5)' : '#A0A0A0', marginBottom: 8 }}>
-                                Readiness
-                              </div>
-                              <div style={{
-                                display: 'grid',
-                                gridTemplateColumns: isCompactIdentityView ? '1fr' : 'repeat(2, minmax(180px, 1fr))',
-                                gap: isCompactIdentityView ? '6px' : '8px 14px',
-                              }}>
-                                {checks.map(c => (
-                                  <div key={c.label} style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                                    <div style={{
-                                      width: 14, height: 14, borderRadius: '50%',
-                                      background: c.ready
-                                        ? (isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)')
-                                        : (isDarkMode ? 'rgba(239, 68, 68, 0.12)' : 'rgba(239, 68, 68, 0.08)'),
-                                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                      flexShrink: 0,
-                                    }}>
-                                      {c.ready
-                                        ? <FaCheck size={7} color={colours.highlight} />
-                                        : <span style={{ width: 6, height: 1.5, background: '#D65541', borderRadius: 1 }} />}
-                                    </div>
-                                    <span style={{ fontSize: 10, fontWeight: 600, minWidth: isCompactIdentityView ? 88 : 96, color: c.ready ? (isDarkMode ? 'rgba(243, 244, 246, 0.8)' : 'rgba(6, 23, 51, 0.7)') : (isDarkMode ? 'rgba(239, 68, 68, 0.7)' : 'rgba(239, 68, 68, 0.6)') }}>
-                                      {c.label}
-                                    </span>
-                                    <span style={{ fontSize: 10, color: isDarkMode ? 'rgba(160, 160, 160, 0.55)' : 'rgba(107, 107, 107, 0.65)', fontFamily: c.ready ? 'inherit' : undefined, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                      {c.value}
-                                    </span>
-                                  </div>
-                                ))}
-                              </div>
-                              {!allReady && (
-                                <div style={{ marginTop: 8, fontSize: 10, color: isDarkMode ? 'rgba(239, 68, 68, 0.6)' : 'rgba(239, 68, 68, 0.55)', lineHeight: 1.4 }}>
-                                  Missing data may cause verification to fail. Complete DOB, address, and ID document before running.
-                                </div>
-                              )}
-                              <div style={{ marginTop: 8, fontSize: 10, color: isDarkMode ? 'rgba(243, 244, 246, 0.58)' : 'rgba(6, 23, 51, 0.58)', lineHeight: 1.4 }}>
-                                Use <strong>Run Verification</strong> above to start the check.
-                              </div>
-                            </div>
-                          );
-                        })()}
-                        {!onTriggerEID && (
-                          <div style={{ fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
-                            Verification is not available for this record.
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </div>
+                  </>
                 )}
+              </div>
+            )}
             </div>
 
             {/* Trigger EID Confirmation Modal - shown before starting verification */}
@@ -7590,7 +8446,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
         {/* Payment Tab */}
         {activeTab === 'payment' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div className="wb-tab-stack" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {renderStatusBanner(
               paymentBannerStatus === 'complete'
                 ? (hasSuccessfulBankPayment ? 'Payment confirmed' : hasSuccessfulCardPayment ? 'Payment received' : 'Payment received')
@@ -7610,64 +8466,31 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
             {(() => {
               const instructedRaw = inst?.SubmissionDate || inst?.InstructionDate || inst?.DateCreated || inst?.CreatedAt || submissionDateRaw || null;
+              const instructedTimeRaw = inst?.SubmissionTime || inst?.submissionTime || inst?.CreatedTime || inst?.createdTime || null;
               const paymentTimelineRaw = (() => {
                 const lastSuccessful = successfulPayments.length > 0 ? successfulPayments[successfulPayments.length - 1] : null;
                 return lastSuccessful?.created_at || lastSuccessful?.date || lastSuccessful?.payment_date || paymentDateRaw || null;
               })();
 
-              const parseDate = (raw: any): Date | null => {
-                if (!raw) return null;
-                const d = new Date(raw);
-                return Number.isNaN(d.getTime()) ? null : d;
-              };
-
-              const formatStamp = (raw: any): string | null => {
-                const d = parseDate(raw);
-                if (!d) return null;
-                const rawText = typeof raw === 'string' ? raw : '';
-                const hasTime = /T\d{2}:\d{2}/.test(rawText) || /\d{2}:\d{2}/.test(rawText);
-                const date = formatRelativeDay(d);
-                if (!hasTime) return date;
-                const time = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-                return `${date} ${time}`;
-              };
-
-              const formatDiff = (fromRaw: any, toRaw: any): string | null => {
-                const from = parseDate(fromRaw);
-                const to = parseDate(toRaw);
-                if (!from || !to) return null;
-                const diffMs = Math.abs(to.getTime() - from.getTime());
-                const mins = Math.floor(diffMs / 60000);
-                if (mins < 60) return `${mins}m`;
-                const hrs = Math.floor(mins / 60);
-                if (hrs < 24) {
-                  const remMins = mins % 60;
-                  return remMins > 0 ? `${hrs}h ${remMins}m` : `${hrs}h`;
-                }
-                const days = Math.floor(hrs / 24);
-                const remHrs = hrs % 24;
-                return remHrs > 0 ? `${days}d ${remHrs}h` : `${days}d`;
-              };
-
-              const instructedStamp = formatStamp(instructedRaw);
-              const paymentStamp = formatStamp(paymentTimelineRaw);
-              const elapsed = formatDiff(instructedRaw, paymentTimelineRaw);
+              const instructedStamp = formatTimelineStamp(instructedRaw, instructedTimeRaw);
+              const paymentStamp = formatTimelineStamp(paymentTimelineRaw);
+              const elapsed = formatTimelineDiff(instructedRaw, paymentTimelineRaw, instructedTimeRaw);
               const showTimeline = Boolean(instructedStamp || paymentStamp);
 
               if (!showTimeline) return null;
 
               return (
-                <div style={{
+                <div className="wb-meta-row" style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
                   padding: flatEmbedMode ? '0 0 2px' : '0 14px 2px', minHeight: 36,
                 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+                  <div className="wb-meta-rail" style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
                     {instructedStamp && (
-                      <div style={{
+                      <div className="wb-meta-pill" style={{
                         display: 'flex', alignItems: 'center', gap: 5,
                         padding: '5px 10px', borderRadius: 0,
                         background: isDarkMode ? 'rgba(160, 160, 160, 0.08)' : 'rgba(0, 0, 0, 0.03)',
-                        border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(0, 0, 0, 0.08)'}`,
+                        border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.12)' : 'rgba(0, 0, 0, 0.06)'}`,
                         flexShrink: 0,
                       }}>
                         <FaClock size={10} style={{ color: isDarkMode ? colours.subtleGrey : colours.greyText }} />
@@ -7706,7 +8529,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                     )}
 
                     {paymentStamp && (
-                      <div style={{
+                      <div className="wb-meta-pill" style={{
                         display: 'flex', alignItems: 'center', gap: 5,
                         padding: '5px 10px', borderRadius: 0,
                         background: hasSuccessfulPayment
@@ -7749,78 +8572,67 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
         {/* Documents Tab */}
         {activeTab === 'documents' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div className="wb-tab-stack" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {renderStatusBanner(
-              documentBannerStatus === 'complete' ? 'Docs on file' : 'Docs pending',
+              documentBannerStatus === 'complete'
+                ? `${documents.length} doc${documents.length !== 1 ? 's' : ''} on file`
+                : 'Docs pending',
               documentBannerStatus,
               documentBannerStatus === 'complete' ? 'Review uploaded files and confirm completeness.' : 'Upload ID, proof of address, or supporting documents.',
               <FaFileAlt size={12} />,
             )}
-            <DocumentUploadZone
-              instructionRef={instructionRef}
-              isDarkMode={isDarkMode}
-              documents={documents}
-              onDocumentsChanged={fetchDocuments}
-              onDocumentPreview={onDocumentPreview}
-            />
+            <div
+              className="wb-section"
+              style={{
+                '--section-index': 0,
+                background: isDarkMode ? 'rgba(6, 23, 51, 0.35)' : 'rgba(255, 255, 255, 0.7)',
+                border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
+                borderRadius: 0,
+                padding: '12px 14px',
+              } as React.CSSProperties}
+            >
+              <DocumentUploadZone
+                instructionRef={instructionRef}
+                isDarkMode={isDarkMode}
+                documents={documents}
+                onDocumentsChanged={fetchDocuments}
+                onDocumentPreview={onDocumentPreview}
+              />
+            </div>
           </div>
         )}
 
         {/* Risk Tab */}
         {activeTab === 'risk' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div className="wb-tab-stack" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {renderStatusBanner(
-              riskBannerStatus === 'complete' ? 'Risk completed' : riskBannerStatus === 'review' ? 'Risk requires review' : 'Risk pending',
+              riskBannerStatus === 'complete'
+                ? 'Risk completed'
+                : riskBannerStatus === 'review'
+                  ? 'High risk requires review'
+                  : riskBannerStatus === 'warning'
+                    ? 'Medium risk flagged'
+                    : 'Risk pending',
               riskBannerStatus,
               riskBannerStatus === 'complete'
                 ? 'Risk assessed and recorded.'
                 : riskBannerStatus === 'review'
                   ? 'High risk flagged. Review assessment and approvals.'
+                  : riskBannerStatus === 'warning'
+                    ? 'Medium risk flagged. Review the assessment before proceeding.'
                   : 'Complete AML risk assessment before proceeding.',
               <FaShieldAlt size={12} />,
             )}
 
             {(() => {
               const instructedRaw = inst?.SubmissionDate || inst?.InstructionDate || inst?.DateCreated || inst?.CreatedAt || submissionDateRaw || null;
+              const instructedTimeRaw = inst?.SubmissionTime || inst?.submissionTime || inst?.CreatedTime || inst?.createdTime || null;
               const riskTimelineRaw = risk?.ComplianceDate || risk?.UpdatedAt || null;
+              const riskTimelineTimeRaw = risk?.ComplianceTime || risk?.complianceTime || risk?.UpdatedTime || risk?.updatedTime || null;
 
-              const parseDate = (raw: any): Date | null => {
-                if (!raw) return null;
-                const d = new Date(raw);
-                return Number.isNaN(d.getTime()) ? null : d;
-              };
-
-              const formatStamp = (raw: any): string | null => {
-                const d = parseDate(raw);
-                if (!d) return null;
-                const rawText = typeof raw === 'string' ? raw : '';
-                const hasTime = /T\d{2}:\d{2}/.test(rawText) || /\d{2}:\d{2}/.test(rawText);
-                const date = formatRelativeDay(d);
-                if (!hasTime) return date;
-                const time = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-                return `${date} ${time}`;
-              };
-
-              const formatDiff = (fromRaw: any, toRaw: any): string | null => {
-                const from = parseDate(fromRaw);
-                const to = parseDate(toRaw);
-                if (!from || !to) return null;
-                const diffMs = Math.abs(to.getTime() - from.getTime());
-                const mins = Math.floor(diffMs / 60000);
-                if (mins < 60) return `${mins}m`;
-                const hrs = Math.floor(mins / 60);
-                if (hrs < 24) {
-                  const remMins = mins % 60;
-                  return remMins > 0 ? `${hrs}h ${remMins}m` : `${hrs}h`;
-                }
-                const days = Math.floor(hrs / 24);
-                const remHrs = hrs % 24;
-                return remHrs > 0 ? `${days}d ${remHrs}h` : `${days}d`;
-              };
-
-              const instructedStamp = formatStamp(instructedRaw);
-              const riskStamp = formatStamp(riskTimelineRaw);
-              const elapsed = formatDiff(instructedRaw, riskTimelineRaw);
+              const instructedStamp = formatTimelineStamp(instructedRaw, instructedTimeRaw);
+              const riskStamp = formatTimelineStamp(riskTimelineRaw, riskTimelineTimeRaw);
+              const elapsed = formatTimelineDiff(instructedRaw, riskTimelineRaw, instructedTimeRaw, riskTimelineTimeRaw);
               const showTimeline = Boolean(instructedStamp || riskStamp || riskComplete);
 
               if (!showTimeline) return null;
@@ -7828,17 +8640,17 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
               const riskColor = isHighRisk ? colours.cta : isMediumRisk ? colours.orange : colours.green;
 
               return (
-                <div style={{
+                <div className="wb-meta-row" style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
                   padding: flatEmbedMode ? '0 0 2px' : '0 14px 2px', minHeight: 36,
                 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+                  <div className="wb-meta-rail" style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
                     {instructedStamp && (
-                      <div style={{
+                      <div className="wb-meta-pill" style={{
                         display: 'flex', alignItems: 'center', gap: 5,
                         padding: '5px 10px', borderRadius: 0,
                         background: isDarkMode ? 'rgba(160, 160, 160, 0.08)' : 'rgba(0, 0, 0, 0.03)',
-                        border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(0, 0, 0, 0.08)'}`,
+                        border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.12)' : 'rgba(0, 0, 0, 0.06)'}`,
                         flexShrink: 0,
                       }}>
                         <FaClock size={10} style={{ color: isDarkMode ? colours.subtleGrey : colours.greyText }} />
@@ -7877,7 +8689,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                     )}
 
                     {(riskStamp || riskComplete) && (
-                      <div style={{
+                      <div className="wb-meta-pill" style={{
                         display: 'flex', alignItems: 'center', gap: 5,
                         padding: '5px 10px', borderRadius: 0,
                         background: riskComplete
@@ -7914,49 +8726,63 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                 background: isDarkMode ? 'rgba(6, 23, 51, 0.35)' : 'rgba(255, 255, 255, 0.7)',
                 border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
                 borderRadius: 0,
-                padding: '10px 12px',
+                padding: '12px 14px',
               }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {/* Row 2: Compliance Confirmations */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
-                      I have considered:
-                    </span>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                    {[
-                      { label: 'Client Risk', ok: !!clientRiskConsidered, docUrl: 'https://drive.google.com/file/d/1_7dX2qSlvuNmOiirQCxQb8NDs6iUSAhT/view?usp=sharing' },
-                      { label: 'Transaction Risk', ok: !!transactionRiskConsidered, docUrl: 'https://drive.google.com/file/d/1sTRII8MFU3JLpMiUcz-Y6KBQ1pP1nKgT/view?usp=sharing' },
-                      { label: 'Sanctions', ok: !!firmWideSanctionsConsidered, docUrl: 'https://drive.google.com/file/d/1y7fTLI_Dody00y9v42ohltQU-hnnYJ9P/view?usp=sharing' },
-                      { label: 'AML Policy', ok: !!firmWideAMLConsidered, docUrl: 'https://drive.google.com/file/d/1opiC3TbEsdEH4ExDjckIhQzzsI3_wYYB/view?usp=sharing' },
-                    ].map((item, idx) => (
-                      <a
-                        key={idx}
-                        href={item.docUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        title={`${item.label} — ${item.ok ? 'Considered' : 'Not confirmed'}. Click to view policy.`}
-                        style={{
-                          display: 'flex', alignItems: 'center', gap: 5,
-                          padding: '4px 10px', borderRadius: 0,
-                          background: item.ok
-                            ? (isDarkMode ? 'rgba(32, 178, 108, 0.08)' : 'rgba(32, 178, 108, 0.05)')
-                            : (isDarkMode ? 'rgba(160, 160, 160, 0.04)' : 'rgba(0,0,0,0.02)'),
-                          border: `1px solid ${item.ok
-                            ? (isDarkMode ? 'rgba(32, 178, 108, 0.2)' : 'rgba(32, 178, 108, 0.12)')
-                            : (isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0,0,0,0.04)')}`,
-                          textDecoration: 'none',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        {item.ok
-                          ? <FaCheckCircle size={9} style={{ color: colours.green, opacity: 0.8 }} />
-                          : <FaTimesCircle size={9} style={{ color: isDarkMode ? colours.subtleGrey : colours.greyText, opacity: 0.5 }} />}
-                        <span style={{ fontSize: 10, fontWeight: 600, color: item.ok ? (isDarkMode ? '#d1d5db' : '#374151') : (isDarkMode ? colours.subtleGrey : colours.greyText) }}>
-                          {item.label}
-                        </span>
-                      </a>
+                  {/* Row 2: Compliance Confirmations (data bar) */}
+                  <div style={{
+                    display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 0,
+                    padding: '14px 0',
+                    border: `1px solid ${isDarkMode ? `${colours.dark.border}40` : (colours.highlightNeutral || 'rgba(0,0,0,0.06)')}`,
+                    background: isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(244, 244, 246, 0.4)',
+                  }}>
+                    {[{
+                      label: 'Assessed By',
+                      value: riskAssessorDisplay,
+                      ok: riskAssessorDisplay !== '—',
+                      icon: <FaUser size={9} style={{ opacity: 0.85 }} />,
+                    }, {
+                      label: 'Client Risk',
+                      value: clientRiskConsidered ? 'Considered' : 'Not confirmed',
+                      ok: !!clientRiskConsidered,
+                      icon: clientRiskConsidered ? <FaCheckCircle size={9} style={{ opacity: 0.85 }} /> : <FaTimesCircle size={9} style={{ opacity: 0.55 }} />,
+                    }, {
+                      label: 'Transaction Risk',
+                      value: transactionRiskConsidered ? 'Considered' : 'Not confirmed',
+                      ok: !!transactionRiskConsidered,
+                      icon: transactionRiskConsidered ? <FaCheckCircle size={9} style={{ opacity: 0.85 }} /> : <FaTimesCircle size={9} style={{ opacity: 0.55 }} />,
+                    }, {
+                      label: 'Sanctions',
+                      value: firmWideSanctionsConsidered ? 'Considered' : 'Not confirmed',
+                      ok: !!firmWideSanctionsConsidered,
+                      icon: firmWideSanctionsConsidered ? <FaCheckCircle size={9} style={{ opacity: 0.85 }} /> : <FaTimesCircle size={9} style={{ opacity: 0.55 }} />,
+                    }, {
+                      label: 'AML Policy',
+                      value: firmWideAMLConsidered ? 'Considered' : 'Not confirmed',
+                      ok: !!firmWideAMLConsidered,
+                      icon: firmWideAMLConsidered ? <FaCheckCircle size={9} style={{ opacity: 0.85 }} /> : <FaTimesCircle size={9} style={{ opacity: 0.55 }} />,
+                    }].map((item, idx, arr) => (
+                      <React.Fragment key={item.label}>
+                        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-start', minHeight: 34, gap: 4, padding: '0 14px' }}>
+                          <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>{item.label}</span>
+                          <span style={{
+                            fontSize: 12,
+                            fontWeight: 500,
+                            color: item.ok ? (isDarkMode ? '#d1d5db' : '#374151') : (isDarkMode ? colours.subtleGrey : colours.greyText),
+                            fontFamily: 'Raleway, sans-serif',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            textAlign: 'left',
+                            whiteSpace: 'nowrap',
+                          }}>
+                            {item.icon}
+                            {item.value}
+                          </span>
+                        </div>
+                        {idx < arr.length - 1 && <div style={{ width: 1, alignSelf: 'stretch', background: isDarkMode ? `${colours.dark.border}40` : (colours.highlightNeutral || 'rgba(0,0,0,0.06)'), margin: '4px 0' }} />}
+                      </React.Fragment>
                     ))}
-                    </div>
                   </div>
 
                   {/* Row 3: Assessment Q&A + Edit button */}
@@ -8368,8 +9194,10 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                     onClick={handleInlineRiskSubmit}
                     disabled={!isInlineRiskComplete() || isRiskSubmitting}
                     style={{
-                      width: '100%',
-                      padding: '8px 0',
+                      alignSelf: 'flex-end',
+                      width: 'auto',
+                      minWidth: 160,
+                      padding: '8px 14px',
                       background: isInlineRiskComplete() ? colours.highlight : (isDarkMode ? 'rgba(6, 23, 51, 0.6)' : colours.grey),
                       border: 'none',
                       borderRadius: 0,
@@ -8399,7 +9227,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
         {/* Matter Tab */}
         {activeTab === 'matter' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div className="wb-tab-stack" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {renderStatusBanner(
               matterBannerStatus === 'complete' ? 'Matter opened' : 'Matter pending',
               matterBannerStatus,
@@ -8407,414 +9235,1196 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
               <FaFolderOpen size={12} />,
             )}
             {!hasMatter ? (
-              <CompactMatterWizard
-                inst={inst}
-                deal={deal}
-                eid={eid}
-                risk={risk}
-                payments={payments}
-                documents={documents}
-                poidData={localPoidData}
-                teamData={teamData ?? null}
-                currentUser={currentUser ?? null}
-                isDarkMode={isDarkMode}
-                feeEarner={feeEarner}
-                areaOfWork={areaOfWork}
-                instructionRef={instructionRef}
-                onMatterSuccess={(mId) => {
-                  if (onRefreshData) onRefreshData(instructionRef);
-                  showToast({
-                    type: 'success',
-                    title: 'Matter Opened',
-                    message: `Matter ${mId} created successfully`,
-                  });
-                }}
-                onCancel={() => setShowLocalMatterModal(true)}
-                showToast={showToast}
-                hideToast={hideToast}
-                demoModeEnabled={demoModeEnabled}
-              />
+              <>
+                {showMatterBreadcrumbRail && (
+                  <div
+                    ref={matterBreadcrumbRef}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 8,
+                      flexWrap: 'wrap',
+                      scrollMarginTop: 80,
+                      padding: '8px 10px',
+                      border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.12)' : 'rgba(0, 0, 0, 0.08)'}`,
+                      background: isDarkMode ? 'rgba(6, 23, 51, 0.28)' : 'rgba(244, 244, 246, 0.45)',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      {matterBreadcrumbSteps.map((step, idx) => {
+                        const isDone = step.status === 'done';
+                        const isActive = step.status === 'active';
+                        const isNext = step.status === 'next';
+                        const activeCrumbColor = isDarkMode ? colours.accent : colours.highlight;
+                        const borderColor = isDone
+                          ? colours.green
+                          : isActive
+                            ? activeCrumbColor
+                            : isNext
+                              ? (isDarkMode ? 'rgba(160, 160, 160, 0.35)' : 'rgba(6, 23, 51, 0.14)')
+                              : (isDarkMode ? 'rgba(75, 85, 99, 0.35)' : 'rgba(6, 23, 51, 0.12)');
+                        const backgroundColor = isDone
+                          ? (isDarkMode ? 'rgba(32, 178, 108, 0.18)' : 'rgba(32, 178, 108, 0.12)')
+                          : isActive
+                            ? (isDarkMode ? 'rgba(54, 144, 206, 0.14)' : 'rgba(54, 144, 206, 0.08)')
+                            : isNext
+                              ? (isDarkMode ? 'rgba(6, 23, 51, 0.28)' : 'rgba(244, 244, 246, 0.55)')
+                              : (isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(244, 244, 246, 0.45)');
+                        const textColor = isDone
+                          ? colours.green
+                          : isActive
+                            ? activeCrumbColor
+                            : (isDarkMode ? colours.subtleGrey : colours.greyText);
+
+                        return (
+                          <React.Fragment key={step.id}>
+                            <button
+                              type="button"
+                              onClick={step.onClick}
+                              disabled={!step.canGo}
+                              style={{
+                                border: `1px solid ${borderColor}`,
+                                background: backgroundColor,
+                                color: textColor,
+                                padding: '5px 9px',
+                                fontSize: 10,
+                                fontWeight: 700,
+                                letterSpacing: '0.35px',
+                                textTransform: 'uppercase',
+                                borderRadius: 0,
+                                cursor: step.canGo ? 'pointer' : 'default',
+                                opacity: step.status === 'disabled' ? 0.7 : 1,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 6,
+                              }}
+                            >
+                                <span
+                                  style={{
+                                    minWidth: 16,
+                                    height: 16,
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    borderRadius: 999,
+                                    border: `1px solid ${borderColor}`,
+                                    background: isDone
+                                      ? (isDarkMode ? 'rgba(32, 178, 108, 0.22)' : 'rgba(32, 178, 108, 0.16)')
+                                      : isActive
+                                        ? (isDarkMode ? 'rgba(54, 144, 206, 0.22)' : 'rgba(54, 144, 206, 0.16)')
+                                        : (isDarkMode ? 'rgba(6, 23, 51, 0.35)' : 'rgba(255, 255, 255, 0.8)'),
+                                    color: textColor,
+                                    fontSize: 9,
+                                    fontWeight: 800,
+                                    lineHeight: 1,
+                                  }}
+                                >
+                                  {idx + 1}
+                                </span>
+                                <span>{step.label}</span>
+                              {isDone && <FaCheck size={8} style={{ opacity: 0.85 }} />}
+                            </button>
+                            {idx < matterBreadcrumbSteps.length - 1 && (
+                              <span style={{ fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>›</span>
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
+                    </div>
+                    {isMatterWizardStepActive && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowMatterOpeningWizard(false);
+                          setMatterWizardStage('form');
+                        }}
+                        style={{
+                          marginLeft: 'auto',
+                          borderRadius: 0,
+                          border: `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.35)' : 'rgba(6, 23, 51, 0.12)'}`,
+                          background: isDarkMode ? 'rgba(2, 6, 23, 0.45)' : '#FFFFFF',
+                          color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                          padding: '5px 8px',
+                          fontSize: 10,
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Back
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {!isMatterWizardStepActive ? (
+                  <>
+                    <div
+                      ref={matterPreflightPageRef}
+                      style={{
+                        background: isDarkMode ? 'rgba(6, 23, 51, 0.35)' : 'rgba(255, 255, 255, 0.7)',
+                        border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
+                        borderRadius: 0,
+                        padding: '10px 12px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 8,
+                      }}
+                    >
+                      <div style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+                        Client Setup
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: isLocalDev ? 'repeat(4, minmax(0, 1fr))' : 'repeat(2, minmax(0, 1fr))', gap: 6 }}>
+                        {([
+                          { key: 'Individual', label: 'Individual', icon: <FaUser size={10} />, note: 'Single person client' },
+                          { key: 'Company', label: 'Company', icon: <FaBuilding size={10} />, note: 'Company with directors' },
+                          ...(isLocalDev ? [{ key: 'Multiple Individuals' as MatterClientTypeOption, label: 'Multiple', icon: <FaUserTie size={10} />, note: 'Two or more people' }] : []),
+                          ...(isLocalDev ? [{ key: 'Existing Client' as MatterClientTypeOption, label: 'Existing', icon: <FaLink size={10} />, note: 'Dev only' }] : []),
+                        ] as Array<{ key: MatterClientTypeOption; label: string; icon: React.ReactNode; note: string }>).map((option) => {
+                          const isSelected = matterOpenClientType === option.key;
+                          const isDisabled =
+                            option.key === 'Existing Client' ||
+                            (option.key === 'Company' && disableCompanyToggleForDemo);
+                          const optionNote =
+                            option.key === 'Company' && disableCompanyToggleForDemo
+                              ? 'Disabled: no company in demo record'
+                              : option.note;
+                          return (
+                            <button
+                              key={option.key}
+                              type="button"
+                              onClick={() => {
+                                if (isDisabled) return;
+                                setMatterOpenClientType(option.key);
+                                setShowMatterOpeningWizard(false);
+                                if (option.key !== 'Multiple Individuals') setMatterJointClientKeys([]);
+                              }}
+                              disabled={isDisabled}
+                              style={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'flex-start',
+                                gap: 4,
+                                padding: '9px 10px',
+                                borderRadius: 0,
+                                border: `1px solid ${isSelected ? colours.highlight : (isDarkMode ? `${colours.dark.border}99` : 'rgba(6, 23, 51, 0.1)')}`,
+                                background: isSelected
+                                  ? (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)')
+                                  : (isDarkMode ? 'rgba(6, 23, 51, 0.35)' : 'rgba(244, 244, 246, 0.45)'),
+                                color: isDisabled
+                                  ? (isDarkMode ? colours.subtleGrey : colours.greyText)
+                                  : (isSelected ? colours.highlight : (isDarkMode ? colours.dark.text : colours.light.text)),
+                                cursor: isDisabled ? 'not-allowed' : 'pointer',
+                                opacity: isDisabled ? 0.55 : 1,
+                                textAlign: 'left',
+                              }}
+                            >
+                              <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700 }}>
+                                {option.icon}
+                                {option.label}
+                              </span>
+                              <span style={{ fontSize: 9, fontWeight: 500, color: isSelected ? colours.highlight : (isDarkMode ? colours.subtleGrey : colours.greyText) }}>
+                                {optionNote}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {matterOpenClientType && matterOpenClientType !== 'Existing Client' && (
+                        <div
+                          style={{
+                            marginTop: 2,
+                            border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.12)' : 'rgba(0, 0, 0, 0.08)'}`,
+                            background: isDarkMode ? 'rgba(2, 6, 23, 0.45)' : 'rgba(244, 244, 246, 0.45)',
+                            padding: '10px 12px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 10,
+                          }}
+                        >
+                      <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+                        gap: 10,
+                        alignItems: 'start',
+                      }}>
+                      {/* ── Contact Record Preview ── */}
+                      <div style={{
+                        border: matterOpenClientType === 'Company'
+                          ? `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.18)' : 'rgba(0, 0, 0, 0.1)'}`
+                          : `1px dashed ${isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(0, 0, 0, 0.12)'}`,
+                        background: isDarkMode ? 'rgba(6, 23, 51, 0.3)' : 'rgba(244, 244, 246, 0.6)',
+                        padding: '10px 12px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 8,
+                      }}>
+                        {/* Standard header */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          {matterOpenClientType === 'Company'
+                            ? <FaBuilding size={9} style={{ color: isDarkMode ? colours.accent : (clientPreviewReady ? colours.green : colours.highlight) }} />
+                            : <FaUser size={9} style={{ color: isDarkMode ? colours.accent : (clientPreviewReady ? colours.green : colours.highlight) }} />}
+                          <span style={{ fontSize: 8, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.45px', color: isDarkMode ? colours.accent : colours.greyText }}>
+                            Matter Client
+                          </span>
+                        </div>
+
+                        {/* Contact name with leading Clio icon */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <img src={clioLogo} alt="" style={{ width: 14, height: 14, objectFit: 'contain', opacity: 0.85, flexShrink: 0, filter: isDarkMode ? 'brightness(0) invert(1)' : 'none' }} />
+                          <span style={{ fontSize: 13, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text }}>
+                            {matterPreviewClientName}
+                          </span>
+                        </div>
+
+                        {/* Client details — compact stacked rows */}
+                        {(
+                          (previewContactEmail && previewContactEmail !== '—') ||
+                          (previewContactPhone && previewContactPhone !== '—') ||
+                          (previewContactAddress && previewContactAddress !== '—') ||
+                          (matterOpenClientType === 'Company' && companyNo && companyNo !== '—')
+                        ) && (
+                          <div style={{
+                            marginTop: 2,
+                            padding: '7px 10px',
+                            background: isDarkMode ? 'rgba(2, 6, 23, 0.34)' : 'rgba(255, 255, 255, 0.76)',
+                            border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.12)' : 'rgba(0, 0, 0, 0.07)'}`,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 6,
+                          }}>
+                            {[
+                              ...(previewContactEmail && previewContactEmail !== '—' ? [{ label: 'Email', value: previewContactEmail }] : []),
+                              ...(previewContactPhone && previewContactPhone !== '—' ? [{ label: 'Phone', value: previewContactPhone }] : []),
+                              ...(previewContactAddress && previewContactAddress !== '—' ? [{ label: 'Address', value: previewContactAddress }] : []),
+                              ...(matterOpenClientType === 'Company' && companyNo && companyNo !== '—' ? [{ label: 'Company Number', value: String(companyNo) }] : []),
+                            ].map((item, idx, arr) => (
+                              <div key={`client-detail-${idx}`} style={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: 2,
+                                paddingBottom: idx < arr.length - 1 ? 6 : 0,
+                                borderBottom: idx < arr.length - 1
+                                  ? `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.12)' : 'rgba(0, 0, 0, 0.06)'}`
+                                  : 'none',
+                              }}>
+                                <span style={{ fontSize: 8, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.4px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+                                  {item.label}
+                                </span>
+                                <span style={{ fontSize: 10, fontWeight: 500, color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : '#374151', lineHeight: 1.45, wordBreak: 'break-word' }}>
+                                  {item.value}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Multiple: lead + joint contacts */}
+                        {matterOpenClientType === 'Multiple Individuals' && selectedJointMatterClients.length > 0 && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginTop: 2 }}>
+                            {selectedJointMatterClients.map((jc, jIdx) => (
+                              <div key={jc.key} style={{
+                                padding: '4px 10px',
+                                background: isDarkMode ? 'rgba(2, 6, 23, 0.35)' : 'rgba(244, 244, 246, 0.5)',
+                                border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
+                                display: 'flex', alignItems: 'center', gap: 8,
+                              }}>
+                                <FaUserTie size={8} style={{ color: isDarkMode ? colours.subtleGrey : colours.greyText }} />
+                                <span style={{ fontSize: 9, fontWeight: 600, color: isDarkMode ? 'rgba(243, 244, 246, 0.8)' : '#374151' }}>{jc.label}</span>
+                                <span style={{ fontSize: 8, color: isDarkMode ? colours.subtleGrey : colours.greyText, marginLeft: 'auto' }}>Joint client {jIdx + 1}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* ── Matter Record Preview ── */}
+                      <div style={{
+                        border: `1px dashed ${isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(0, 0, 0, 0.12)'}`,
+                        borderLeft: `3px solid ${isDarkMode ? colours.accent : colours.highlight}`,
+                        background: isDarkMode ? 'rgba(6, 23, 51, 0.3)' : 'rgba(244, 244, 246, 0.6)',
+                        padding: '10px 12px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 8,
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <FaFolderOpen size={9} style={{ color: isDarkMode ? colours.accent : colours.highlight }} />
+                          <span style={{ fontSize: 8, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.45px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+                            Matter Preview
+                          </span>
+                        </div>
+
+                        <div style={{
+                          border: `1px dotted ${isDarkMode ? 'rgba(160, 160, 160, 0.35)' : 'rgba(107, 107, 107, 0.35)'}`,
+                          background: isDarkMode ? 'rgba(160, 160, 160, 0.04)' : 'rgba(107, 107, 107, 0.03)',
+                          padding: '5px 8px',
+                          width: 'fit-content',
+                        }}>
+                          <span style={{ fontSize: 8, color: isDarkMode ? colours.subtleGrey : colours.greyText, letterSpacing: '0.2px' }}>
+                            {hasMatterPreviewDetails
+                              ? 'Preview only — final matter number is assigned on create.'
+                              : 'Preview placeholder — add matter details to refine this record.'}
+                          </span>
+                        </div>
+
+                        {/* Display Number — reference header */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <img src={clioLogo} alt="" style={{ width: 14, height: 14, objectFit: 'contain', opacity: 0.9, flexShrink: 0, filter: isDarkMode ? 'brightness(0) invert(1)' : 'none' }} />
+                          <span style={{
+                            fontSize: 17, fontWeight: 700, fontFamily: 'monospace', letterSpacing: '0.6px',
+                            color: isDarkMode ? 'rgba(243, 244, 246, 0.82)' : 'rgba(6, 23, 51, 0.7)',
+                          }}>
+                            {matterRefSimulation}
+                          </span>
+                        </div>
+
+                        <span style={{
+                          marginTop: -2,
+                          fontSize: 10,
+                          fontWeight: 500,
+                          lineHeight: 1.45,
+                          color: isDarkMode ? 'rgba(243, 244, 246, 0.88)' : '#374151',
+                          whiteSpace: 'pre-wrap',
+                          wordBreak: 'break-word',
+                        }}>
+                          {matterOpenDescription.trim() || '—'}
+                        </span>
+
+                        {/* Practice area chip */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          {previewPracticeArea && previewPracticeArea !== '—' && (
+                            <div style={{
+                              display: 'inline-flex', alignItems: 'center', gap: 5,
+                              padding: '3px 8px',
+                              background: isDarkMode ? 'rgba(160, 160, 160, 0.06)' : 'rgba(0,0,0,0.02)',
+                              border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.12)' : 'rgba(0,0,0,0.06)'}`,
+                              borderLeft: `3px solid ${isDarkMode ? colours.accent : colours.highlight}`,
+                              borderRadius: 0,
+                            }}>
+                              <span style={{ fontSize: 9, fontWeight: 600, color: isDarkMode ? 'rgba(243, 244, 246, 0.8)' : '#061733' }}>{previewPracticeArea}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Matter description — editable */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                          <span style={{ fontSize: 8, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.4px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Description</span>
+                          <textarea
+                            value={matterOpenDescription}
+                            onChange={(e) => setMatterOpenDescription(e.target.value)}
+                            placeholder="e.g. Residential purchase of 12 Acacia Avenue"
+                            rows={2}
+                            style={{
+                              width: '100%',
+                              padding: '7px 10px',
+                              fontSize: 11,
+                              fontWeight: 500,
+                              fontFamily: 'inherit',
+                              borderRadius: 0,
+                              outline: 'none',
+                              border: `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.35)' : 'rgba(0, 0, 0, 0.1)'}`,
+                              background: isDarkMode ? 'rgba(2, 6, 23, 0.6)' : '#FFFFFF',
+                              color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : '#061733',
+                              resize: 'vertical',
+                              minHeight: 48,
+                            }}
+                          />
+                        </div>
+
+                        {/* Assignment data bar — matches the hasMatter data bar */}
+                        {hasMatterAssignmentPreview && (
+                          <div style={{
+                            display: 'flex', flexWrap: 'wrap', gap: 0,
+                            padding: '6px 0',
+                            borderTop: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
+                            borderLeft: `3px solid ${isDarkMode ? colours.accent : colours.highlight}`,
+                            paddingLeft: 8,
+                          }}>
+                            {[
+                              ...(previewResponsible && previewResponsible !== '—' ? [{ label: 'Responsible', value: previewResponsible }] : []),
+                              ...(previewOriginating && previewOriginating !== '—' && previewOriginating !== previewResponsible ? [{ label: 'Originating', value: previewOriginating }] : []),
+                            ].map((item, idx, arr) => (
+                              <React.Fragment key={`matter-field-${idx}`}>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 1, padding: '0 12px 0 0' }}>
+                                  <span style={{ fontSize: 8, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.4px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>{item.label}</span>
+                                  <span style={{ fontSize: 10, fontWeight: 500, color: isDarkMode ? 'rgba(243, 244, 246, 0.85)' : '#374151' }}>{item.value}</span>
+                                </div>
+                                {idx < arr.length - 1 && (
+                                  <div style={{ width: 1, background: isDarkMode ? 'rgba(160, 160, 160, 0.15)' : 'rgba(0, 0, 0, 0.06)', margin: '0 10px 0 0', alignSelf: 'stretch' }} />
+                                )}
+                              </React.Fragment>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      </div>
+
+                      {matterOpenClientType === 'Company' && (
+                        <div style={{
+                          marginTop: 4,
+                          padding: '12px 14px',
+                          background: isDarkMode ? 'rgba(2, 6, 23, 0.45)' : 'rgba(244, 244, 246, 0.65)',
+                          border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.14)' : 'rgba(0, 0, 0, 0.07)'}`,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 10,
+                        }}>
+                          <div style={{
+                            border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.18)' : 'rgba(0, 0, 0, 0.1)'}`,
+                            background: isDarkMode ? 'rgba(6, 23, 51, 0.3)' : 'rgba(244, 244, 246, 0.6)',
+                            padding: '10px 12px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 8,
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <FaLink size={9} style={{ color: isDarkMode ? colours.accent : colours.highlight, flexShrink: 0 }} />
+                                <span style={{ fontSize: 8, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.4px', color: isDarkMode ? colours.accent : colours.greyText }}>
+                                  Linked Client Contact
+                                </span>
+                              </div>
+                              <span style={{
+                                fontSize: 8,
+                                fontWeight: 700,
+                                textTransform: 'uppercase' as const,
+                                letterSpacing: '0.35px',
+                                padding: '2px 6px',
+                                border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.45)' : 'rgba(54, 144, 206, 0.35)'}`,
+                                background: isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.06)',
+                                color: isDarkMode ? colours.accent : colours.highlight,
+                              }}>
+                                Linked to matter
+                              </span>
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                              <img src={clioLogo} alt="" style={{ width: 14, height: 14, objectFit: 'contain', opacity: 0.85, flexShrink: 0, filter: isDarkMode ? 'brightness(0) invert(1)' : 'none' }} />
+                              <span style={{ fontSize: 13, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text, wordBreak: 'break-word' }}>
+                                {matterCompanyContact.name}
+                              </span>
+                              {(isManuallyApproved || eidStatus === 'verified' || hasId) && (
+                                <span style={{
+                                  fontSize: 8,
+                                  fontWeight: 700,
+                                  textTransform: 'uppercase' as const,
+                                  letterSpacing: '0.35px',
+                                  padding: '2px 6px',
+                                  marginLeft: 'auto',
+                                  border: `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.28)' : 'rgba(32, 178, 108, 0.22)'}`,
+                                  background: isDarkMode ? 'rgba(32, 178, 108, 0.09)' : 'rgba(32, 178, 108, 0.06)',
+                                  color: colours.green,
+                                }}>
+                                  {isManuallyApproved ? 'ID Approved' : 'ID Verified'}
+                                </span>
+                              )}
+                            </div>
+
+                            {(
+                              (matterCompanyContact.email && matterCompanyContact.email !== '—') ||
+                              (previewContactPhone && previewContactPhone !== '—') ||
+                              (previewContactAddress && previewContactAddress !== '—')
+                            ) && (
+                              <div style={{
+                                marginTop: 2,
+                                padding: '7px 10px',
+                                background: isDarkMode ? 'rgba(2, 6, 23, 0.34)' : 'rgba(255, 255, 255, 0.76)',
+                                border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.12)' : 'rgba(0, 0, 0, 0.07)'}`,
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: 6,
+                              }}>
+                                {[
+                                  ...(matterCompanyContact.email && matterCompanyContact.email !== '—' ? [{ label: 'Email', value: matterCompanyContact.email }] : []),
+                                  ...(previewContactPhone && previewContactPhone !== '—' ? [{ label: 'Phone', value: previewContactPhone }] : []),
+                                  ...(previewContactAddress && previewContactAddress !== '—' ? [{ label: 'Address', value: previewContactAddress }] : []),
+                                ].map((item, idx, arr) => (
+                                  <div key={`linked-contact-detail-${idx}`} style={{
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    gap: 2,
+                                    paddingBottom: idx < arr.length - 1 ? 6 : 0,
+                                    borderBottom: idx < arr.length - 1
+                                      ? `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.12)' : 'rgba(0, 0, 0, 0.06)'}`
+                                      : 'none',
+                                  }}>
+                                    <span style={{ fontSize: 8, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.4px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+                                      {item.label}
+                                    </span>
+                                    <span style={{ fontSize: 10, fontWeight: 500, color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : '#374151', lineHeight: 1.45, wordBreak: 'break-word' }}>
+                                      {item.value}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginTop: 3 }}>
+                              <span style={{ fontSize: 8, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.4px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+                                Relationship
+                              </span>
+                              <input
+                                type="text"
+                                list="matter-company-relationship-options"
+                                value={matterOpenCompanyRelationship}
+                                onChange={(e) => setMatterOpenCompanyRelationship(e.target.value)}
+                                placeholder="e.g. Director"
+                                style={{
+                                  fontSize: 10,
+                                  fontWeight: 600,
+                                  fontFamily: 'Raleway, sans-serif',
+                                  padding: '3px 7px',
+                                  background: isDarkMode ? 'rgba(2, 6, 23, 0.6)' : '#fff',
+                                  color: isDarkMode ? colours.dark.text : colours.light.text,
+                                  border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(0, 0, 0, 0.12)'}`,
+                                  borderRadius: 0,
+                                  outline: 'none',
+                                  minWidth: 170,
+                                }}
+                              />
+                              <datalist id="matter-company-relationship-options">
+                                <option value="Director" />
+                                <option value="Shareholder" />
+                                <option value="Secretary" />
+                                <option value="Guarantor" />
+                                <option value="Point of Contact" />
+                                <option value="Trustee" />
+                                <option value="Partner" />
+                                <option value="Officer" />
+                              </datalist>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {requiresCompanyName && !resolvedCompanySeed && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          <label style={{ fontSize: 10, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text }}>
+                            {matterOpenClientType === 'Multiple Individuals' ? 'Reference seed value' : 'Company name'}
+                          </label>
+                          <input
+                            type="text"
+                            value={matterOpenCompanyName}
+                            onChange={(e) => setMatterOpenCompanyName(e.target.value)}
+                            placeholder={matterOpenClientType === 'Multiple Individuals' ? 'Enter seed value (first 5 used)' : 'Enter company name'}
+                            style={{
+                              width: '100%',
+                              padding: '7px 10px',
+                              fontSize: 11,
+                              fontWeight: 500,
+                              fontFamily: 'inherit',
+                              borderRadius: 0,
+                              outline: 'none',
+                              border: `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.35)' : 'rgba(0, 0, 0, 0.1)'}`,
+                              background: isDarkMode ? 'rgba(2, 6, 23, 0.6)' : '#FFFFFF',
+                              color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : '#061733',
+                            }}
+                          />
+                        </div>
+                      )}
+
+                      {matterOpenClientType === 'Multiple Individuals' && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          <label style={{ fontSize: 10, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text }}>
+                            Joint clients (1–5)
+                          </label>
+                          {availableJointMatterClients.length === 0 ? (
+                            <span style={{ fontSize: 9, color: colours.cta }}>
+                              Add/select related person or instruction before opening.
+                            </span>
+                          ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                              {availableJointMatterClients.map((candidate) => {
+                                const checked = matterJointClientKeys.includes(candidate.key);
+                                const atMax = !checked && matterJointClientKeys.length >= 5;
+                                return (
+                                  <label
+                                    key={candidate.key}
+                                    style={{
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: 6,
+                                      fontSize: 10,
+                                      color: isDarkMode ? colours.dark.text : colours.light.text,
+                                      opacity: atMax ? 0.65 : 1,
+                                    }}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={checked}
+                                      disabled={atMax}
+                                      onChange={() => {
+                                        setMatterJointClientKeys((prev) => {
+                                          if (prev.includes(candidate.key)) return prev.filter((key) => key !== candidate.key);
+                                          if (prev.length >= 5) return prev;
+                                          return [...prev, candidate.key];
+                                        });
+                                        setShowMatterOpeningWizard(false);
+                                        setMatterWizardStage('form');
+                                      }}
+                                    />
+                                    {candidate.label}
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          )}
+                          <span style={{ fontSize: 9, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+                            {selectedJointMatterClients.length} selected
+                          </span>
+                        </div>
+                      )}
+
+                          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                              <button
+                                type="button"
+                                disabled={!canLaunchMatterWizard}
+                                onClick={() => {
+                                  setMatterWizardStage('form');
+                                  setShowMatterOpeningWizard(true);
+                                }}
+                                style={{
+                                  borderRadius: 0,
+                                  border: 'none',
+                                  padding: '8px 12px',
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  background: canLaunchMatterWizard ? colours.highlight : (isDarkMode ? 'rgba(6, 23, 51, 0.6)' : colours.grey),
+                                  color: canLaunchMatterWizard ? '#FFFFFF' : (isDarkMode ? colours.subtleGrey : colours.greyText),
+                                  cursor: canLaunchMatterWizard ? 'pointer' : 'not-allowed',
+                                }}
+                              >
+                                Continue to Matter Form
+                              </button>
+                              <span style={{ fontSize: 9, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+                                Next: team, matter setup and checks
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    {matterOpenClientType === 'Existing Client' && (
+                      <div style={{ fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+                        Existing client linking is not live in this flow yet.
+                      </div>
+                    )}
+
+                    {matterOpenClientType && matterOpenClientType !== 'Existing Client' && !canLaunchMatterWizard && (
+                      <div style={{ fontSize: 10, color: isDarkMode ? colours.yellow : colours.orange, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <FaExclamationTriangle size={10} />
+                        {requiresCompanyName && !hasRequiredCompanyName
+                          ? 'Add company name to continue.'
+                          : !hasMatterDescription
+                            ? 'Add matter description to continue.'
+                          : isMultipleMatterSetup
+                            ? 'Select at least one joint client (up to five) to continue.'
+                            : 'Complete required details to continue.'}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div
+                    ref={(node) => {
+                      matterWizardAnchorRef.current = node;
+                      matterWizardPageRef.current = node;
+                    }}
+                    style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+                  >
+                    <CompactMatterWizard
+                      inst={inst}
+                      deal={deal}
+                      eid={eid}
+                      risk={risk}
+                      payments={payments}
+                      documents={documents}
+                      poidData={localPoidData}
+                      teamData={teamData ?? null}
+                      currentUser={currentUser ?? null}
+                      isDarkMode={isDarkMode}
+                      feeEarner={feeEarner}
+                      areaOfWork={areaOfWork}
+                      instructionRef={instructionRef}
+                      initialClientType={matterOpenClientType}
+                      initialCompanyName={matterOpenCompanyName.trim() || undefined}
+                      initialCompanyRelationship={matterOpenClientType === 'Company' ? matterOpenCompanyRelationship : undefined}
+                      initialDescription={matterOpenDescription.trim() || undefined}
+                      mainClientId={matterOpenMainClient?.clientId}
+                      mainClientName={matterOpenMainClient?.label}
+                      mainClientIsCompany={matterOpenMainClient?.isCompany}
+                      onMatterSuccess={(mId) => {
+                        const resolvedMatterId = String(mId || '').trim();
+                        setOptimisticMatterOpen({
+                          openedAt: new Date().toISOString(),
+                          matterId: resolvedMatterId && resolvedMatterId !== 'inline' ? resolvedMatterId : null,
+                        });
+                        if (onRefreshData) onRefreshData(instructionRef);
+                        showToast({
+                          type: 'success',
+                          title: 'Matter Opened',
+                          message: `Matter ${mId} created successfully`,
+                        });
+                      }}
+                      onCancel={() => {
+                        setShowMatterOpeningWizard(false);
+                        setMatterWizardStage('form');
+                      }}
+                      onStageChange={setMatterWizardStage}
+                      showToast={showToast}
+                      hideToast={hideToast}
+                      demoModeEnabled={demoModeEnabled}
+                      skipConfirmedPreview
+                    />
+                  </div>
+                )}
+              </>
             ) : (
               <>
-                {/* Matter Content Card - expanded to match pipeline chip sections */}
+                {/* Row 1: Primary chips — OUTSIDE the card box, like pitched/instructed tabs */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 8, padding: flatEmbedMode ? '0 0 2px' : '0 14px 2px', minHeight: 36, flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 0, flexWrap: 'wrap' }}>
+                    {matterInstructionTimelineStamp && matterInstructionTimelineStamp !== '—' && (
+                      <div
+                        title="Instruction received"
+                        style={{ 
+                          display: 'flex', alignItems: 'center', gap: 5,
+                          padding: '5px 10px', borderRadius: 0,
+                          background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0,0,0,0.03)',
+                          border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0,0,0,0.04)'}`,
+                          flexShrink: 0,
+                        }}
+                      >
+                        <FaClock size={10} style={{ color: isDarkMode ? colours.subtleGrey : colours.greyText }} />
+                        <span style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : '#1f2937' }}>
+                          Instruction · {matterInstructionTimelineParts.date}
+                          {matterInstructionTimelineParts.time && (
+                            <span style={{ color: isDarkMode ? colours.subtleGrey : colours.greyText, fontWeight: 500 }}> · {matterInstructionTimelineParts.time}</span>
+                          )}
+                        </span>
+                      </div>
+                    )}
+
+                    {matterInstructionTimelineStamp && matterInstructionTimelineStamp !== '—' && matterOpenedTimelineStamp && matterOpenedTimelineStamp !== '—' && (
+                      <div style={{ display: 'flex', alignItems: 'center', width: 60, margin: '0 2px' }}>
+                        <div style={{ flex: 1, height: 1, background: isDarkMode ? `${colours.dark.border}60` : '#e2e8f0' }} />
+                        {matterInstructionToOpenDuration && (
+                          <span style={{
+                            fontSize: 9,
+                            fontWeight: isDarkMode ? 700 : 600,
+                            color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                            opacity: isDarkMode ? 1 : 0.72,
+                            padding: '1px 5px',
+                            whiteSpace: 'nowrap',
+                          }}>
+                            {matterInstructionToOpenDuration}
+                          </span>
+                        )}
+                        <div style={{ flex: 1, height: 1, background: isDarkMode ? `${colours.dark.border}60` : '#e2e8f0' }} />
+                      </div>
+                    )}
+
+                    {matterOpenedTimelineStamp && matterOpenedTimelineStamp !== '—' && (
+                      <>
+                        <div
+                          title="Matter opened"
+                          style={{ 
+                            display: 'flex', alignItems: 'center', gap: 5,
+                            padding: '5px 10px', borderRadius: 0,
+                            background: isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.08)',
+                            border: `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.25)' : 'rgba(32, 178, 108, 0.16)'}`,
+                            flexShrink: 0,
+                          }}
+                        >
+                          <FaCheckCircle size={10} style={{ color: colours.green }} />
+                          <span style={{ fontSize: 10, fontWeight: 600, color: colours.green }}>
+                            Opened · {matterOpenedTimelineParts.date}
+                            {matterOpenedTimelineParts.time && (
+                              <span style={{ color: isDarkMode ? 'rgba(32, 178, 108, 0.8)' : 'rgba(32, 178, 108, 0.9)', fontWeight: 500 }}> · {matterOpenedTimelineParts.time}</span>
+                            )}
+                          </span>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* Matter Content Card — two-column grid mirroring the opening confirm screen */}
                 <div style={{
                   background: isDarkMode ? 'rgba(6, 23, 51, 0.45)' : 'rgba(255, 255, 255, 0.7)',
                   border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
                   borderRadius: 0,
                   padding: '12px 14px',
+                  display: 'flex', flexDirection: 'column', gap: 10,
                 }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                    
-                    {/* Row 1: Primary chips */}
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                        {matterOpenDate && matterOpenDate !== '—' && (
-                          <div
-                            title="Matter opened"
-                            style={{ 
-                              display: 'flex', alignItems: 'center', gap: 6,
-                              padding: '5px 10px', borderRadius: 0,
-                              background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
-                              border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.15)'}`,
-                              borderLeft: `3px solid ${colours.highlight}`,
-                            }}
-                          >
-                            <span style={{ fontSize: 10, fontWeight: 600, color: colours.highlight }}>Opened {matterOpenDate}</span>
-                          </div>
-                        )}
-                        
-                        <div
-                          title={`Matter: ${matterRef}`}
-                          style={{ 
-                            display: 'flex', alignItems: 'center', gap: 5,
-                            padding: '5px 10px', borderRadius: 0,
-                            background: isDarkMode ? 'rgba(160, 160, 160, 0.06)' : 'rgba(0,0,0,0.02)',
-                            border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0,0,0,0.04)'}`,
-                            borderLeft: `3px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.65)' : colours.greyText}`,
-                          }}
-                        >
-                          <span style={{ fontSize: 10, fontWeight: 600, fontFamily: 'monospace', color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : '#061733' }}>{matterRef}</span>
-                        </div>
 
-                        <div
-                          title={`Status: ${matterStatus}`}
-                          style={{
-                            display: 'flex', alignItems: 'center', gap: 6,
-                            padding: '5px 10px', borderRadius: 0,
-                            background: isMatterClosed
-                              ? (isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.08)')
-                              : (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)'),
-                            border: `1px solid ${isMatterClosed
-                              ? (isDarkMode ? 'rgba(32, 178, 108, 0.25)' : 'rgba(32, 178, 108, 0.16)')
-                              : (isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.15)')}`,
-                            borderLeft: `3px solid ${isMatterClosed ? colours.green : colours.highlight}`,
-                          }}
-                        >
-                          <span style={{ fontSize: 10, fontWeight: 600, color: isMatterClosed ? colours.green : colours.highlight }}>{matterStatus !== '—' ? matterStatus : 'Active'}</span>
+                  {/* ── Two-column: Client + Matter (mirrors CompactMatterWizard confirm) ── */}
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                    gap: 8,
+                  }}>
+                    {/* ── Client Box ── */}
+                    <div style={{
+                      padding: '10px 12px',
+                      background: isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(244, 244, 246, 0.4)',
+                      border: `1px solid ${isDarkMode ? `${colours.dark.border}40` : 'rgba(6, 23, 51, 0.08)'}`,
+                      borderRadius: 0,
+                      display: 'flex', flexDirection: 'column', gap: 6,
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 2 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          {matterClientType !== '—' && /company/i.test(matterClientType)
+                            ? <FaBuilding size={10} style={{ color: isDarkMode ? colours.accent : colours.highlight }} />
+                            : <FaUser size={10} style={{ color: isDarkMode ? colours.accent : colours.highlight }} />}
+                          <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.6, color: isDarkMode ? colours.accent : colours.highlight }}>
+                            Client
+                          </span>
+                          {matterClientType && matterClientType !== '—' && (
+                            <span style={{ fontSize: 9, fontWeight: 600, padding: '1px 6px', borderRadius: 0, background: isDarkMode ? 'rgba(160, 160, 160, 0.08)' : 'rgba(0,0,0,0.03)', border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.12)' : 'rgba(0,0,0,0.06)'}`, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+                              {matterClientType}
+                            </span>
+                          )}
                         </div>
-
-                        {matterPracticeArea && matterPracticeArea !== '—' && (
-                          <div
-                            title={`Practice area: ${matterPracticeArea}`}
+                        {matterClientId && matterClientId !== '—' && (
+                          <a
+                            href={`https://eu.app.clio.com/nc/#/contacts/${matterClientId}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            title={`Open client ${matterClientId} in Clio`}
                             style={{
-                              display: 'flex', alignItems: 'center', gap: 6,
-                              padding: '5px 10px', borderRadius: 0,
+                              display: 'inline-flex', alignItems: 'center', gap: 5,
+                              padding: '2px 7px', borderRadius: 0,
                               background: isDarkMode ? 'rgba(160, 160, 160, 0.06)' : 'rgba(0,0,0,0.02)',
                               border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0,0,0,0.04)'}`,
-                              borderLeft: `3px solid ${isDarkMode ? colours.accent : colours.highlight}`,
+                              textDecoration: 'none',
+                              cursor: 'pointer',
+                              transition: 'all 0.15s ease',
+                              flexShrink: 0,
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.transform = 'translateY(-1px)';
+                              e.currentTarget.style.boxShadow = isDarkMode ? '0 2px 8px rgba(0,0,0,0.35)' : '0 2px 8px rgba(6,23,51,0.12)';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.transform = 'translateY(0)';
+                              e.currentTarget.style.boxShadow = 'none';
                             }}
                           >
-                            <span style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : '#061733' }}>{matterPracticeArea}</span>
-                          </div>
+                            <img src={clioLogo} alt="" style={{ width: 10, height: 10, filter: isDarkMode ? 'brightness(0) invert(1)' : 'none' }} />
+                            <span style={{ fontSize: 8, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.45px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Client</span>
+                            <span style={{ fontSize: 10, fontWeight: 600, fontFamily: 'monospace', color: isDarkMode ? '#d1d5db' : '#374151' }}>{matterClientId}</span>
+                          </a>
                         )}
                       </div>
-                      
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                        {matterClioId && matterClioId !== '—' && (
-                          <div style={{ 
-                            display: 'flex', alignItems: 'center', gap: 6, 
-                            fontSize: 11, 
-                            color: isDarkMode ? 'rgba(243, 244, 246, 0.85)' : '#475569',
-                            background: isDarkMode ? 'rgba(160, 160, 160, 0.08)' : 'rgba(0,0,0,0.03)',
-                            padding: '4px 10px',
-                            borderRadius: 0,
-                            border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0,0,0,0.04)'}`,
-                            borderLeft: `3px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.65)' : colours.greyText}`,
-                          }}>
-                            <span style={{ fontWeight: 600, fontFamily: 'monospace' }}>{matterClioId}</span>
+
+                      {matterClientPrimaryDisplay && matterClientPrimaryDisplay !== '—' && (
+                        <div style={{ fontSize: 12, fontWeight: 700, color: isDarkMode ? 'rgba(243, 244, 246, 0.95)' : '#061733', lineHeight: 1.3 }}>
+                          {matterClientPrimaryDisplay}
+                        </div>
+                      )}
+
+                      {!isCompanyClient && matterClientCompany && matterClientCompany !== '—' && matterClientCompany !== matterClientPrimaryDisplay && (
+                        <div style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? '#d1d5db' : '#374151' }}>
+                          {matterClientCompany}
+                        </div>
+                      )}
+
+                      {isCompanyClient && matterLinkedContactName !== '—' && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+                            Linked contact
+                          </span>
+                          {matterClientId && matterClientId !== '—' ? (
+                            <a
+                              href={`https://eu.app.clio.com/nc/#/contacts/${matterClientId}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : '#1f2937', textDecoration: 'none' }}
+                              onMouseEnter={(e) => { e.currentTarget.style.textDecoration = 'underline'; }}
+                              onMouseLeave={(e) => { e.currentTarget.style.textDecoration = 'none'; }}
+                            >
+                              {matterLinkedContactName}
+                            </a>
+                          ) : (
+                            <span style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : '#1f2937' }}>
+                              {matterLinkedContactName}
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      <div style={{
+                        display: 'flex', flexDirection: 'column', gap: 4, marginTop: 2,
+                        padding: '6px 0 0',
+                        borderTop: `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.15)' : 'rgba(0,0,0,0.05)'}`,
+                      }}>
+                        {matterClientEmail && matterClientEmail !== '—' && (
+                          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+                            <FaEnvelope size={9} style={{ flexShrink: 0, marginTop: 1, color: isDarkMode ? colours.subtleGrey : colours.greyText }} />
+                            <span style={{ fontSize: 11, fontWeight: 600, color: isDarkMode ? 'rgba(243, 244, 246, 0.92)' : '#1f2937', lineHeight: 1.4, wordBreak: 'break-word' }}>{matterClientEmail}</span>
                           </div>
                         )}
-
-                        {matterInstructionRef && matterInstructionRef !== '—' && (
-                          <div style={{ 
-                            display: 'flex', alignItems: 'center', gap: 6, 
-                            fontSize: 10, 
-                            color: isDarkMode ? 'rgba(243, 244, 246, 0.85)' : '#475569',
-                            background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.04)',
-                            padding: '4px 10px',
-                            borderRadius: 0,
-                            border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.12)'}`,
-                            borderLeft: `3px solid ${colours.highlight}`,
-                          }}>
-                            <span style={{ fontWeight: 700, letterSpacing: '0.4px', fontSize: 8, textTransform: 'uppercase', opacity: 0.8 }}>Instruction</span>
-                            <span style={{ fontWeight: 600, fontFamily: 'monospace' }}>{matterInstructionRef}</span>
+                        {matterClientPhone && matterClientPhone !== '—' && (
+                          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+                            <Icon iconName="Phone" style={{ fontSize: 10, flexShrink: 0, marginTop: 1, color: isDarkMode ? colours.subtleGrey : colours.greyText }} />
+                            <span style={{ fontSize: 11, fontWeight: 600, color: isDarkMode ? 'rgba(243, 244, 246, 0.92)' : '#1f2937', lineHeight: 1.4 }}>{matterClientPhone}</span>
+                          </div>
+                        )}
+                        {clientAddressForDisplay && clientAddressForDisplay !== '—' && (
+                          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+                            <Icon iconName="Home" style={{ fontSize: 10, flexShrink: 0, marginTop: 1, color: isDarkMode ? colours.subtleGrey : colours.greyText }} />
+                            <span style={{ fontSize: 11, fontWeight: 600, color: isDarkMode ? 'rgba(243, 244, 246, 0.92)' : '#1f2937', lineHeight: 1.4, wordBreak: 'break-word' }}>{clientAddressForDisplay}</span>
+                          </div>
+                        )}
+                        {feeEarnerEmail && (
+                          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+                            <FaUserTie size={9} style={{ flexShrink: 0, marginTop: 1, color: isDarkMode ? colours.subtleGrey : colours.greyText }} />
+                            <span style={{ fontSize: 11, fontWeight: 600, color: isDarkMode ? 'rgba(243, 244, 246, 0.92)' : '#1f2937', lineHeight: 1.4, wordBreak: 'break-word' }}>{feeEarnerEmail}</span>
                           </div>
                         )}
                       </div>
                     </div>
 
-                    {/* Matter Portal row (passcode uses Clio Client ID) */}
-                    {(() => {
-                      return matterPortalPasscode ? (
-                        <a
-                          href={`https://instruct.helix-law.com/${matterPortalPasscode}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
+                    {/* ── Matter Box ── */}
+                    <div style={{
+                      padding: '10px 12px',
+                      background: isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(244, 244, 246, 0.4)',
+                      border: `1px solid ${isDarkMode ? `${colours.dark.border}40` : 'rgba(6, 23, 51, 0.08)'}`,
+                      borderRadius: 0,
+                      display: 'flex', flexDirection: 'column', gap: 6,
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 2 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <FaFolderOpen size={10} style={{ color: isDarkMode ? colours.accent : colours.highlight }} />
+                          <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.6, color: isDarkMode ? colours.accent : colours.highlight }}>
+                            Matter
+                          </span>
+                        </div>
+                        {matterClioId && matterClioId !== '—' && (
+                          <a
+                            href={`https://eu.app.clio.com/nc/#/matters/${matterClioId}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            title={`Open matter ${matterClioId} in Clio`}
+                            style={{
+                              display: 'inline-flex', alignItems: 'center', gap: 5,
+                              padding: '2px 7px', borderRadius: 0,
+                              background: isDarkMode ? 'rgba(160, 160, 160, 0.06)' : 'rgba(0,0,0,0.02)',
+                              border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0,0,0,0.04)'}`,
+                              textDecoration: 'none',
+                              cursor: 'pointer',
+                              transition: 'all 0.15s ease',
+                              flexShrink: 0,
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.transform = 'translateY(-1px)';
+                              e.currentTarget.style.boxShadow = isDarkMode ? '0 2px 8px rgba(0,0,0,0.35)' : '0 2px 8px rgba(6,23,51,0.12)';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.transform = 'translateY(0)';
+                              e.currentTarget.style.boxShadow = 'none';
+                            }}
+                          >
+                            <img src={clioLogo} alt="" style={{ width: 10, height: 10, filter: isDarkMode ? 'brightness(0) invert(1)' : 'none' }} />
+                            <span style={{ fontSize: 8, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.45px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Matter</span>
+                            <span style={{ fontSize: 10, fontWeight: 600, fontFamily: 'monospace', color: isDarkMode ? '#d1d5db' : '#374151' }}>{matterClioId}</span>
+                          </a>
+                        )}
+                      </div>
+
+                      {matterRef && matterRef !== '—' && (
+                        <div style={{ fontSize: 12, fontWeight: 700, color: isDarkMode ? 'rgba(243, 244, 246, 0.95)' : '#061733', lineHeight: 1.3, fontFamily: 'monospace' }}>
+                          {matterRef}
+                        </div>
+                      )}
+
+                      <div style={{
+                        display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, marginTop: 2,
+                        padding: '6px 0 0',
+                        borderTop: `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.15)' : 'rgba(0,0,0,0.05)'}`,
+                      }}>
+                        {[
+                          { label: 'Description', value: matterDescription !== '—' ? matterDescription : null },
+                          { label: 'Area', value: matterPracticeArea !== '—' ? matterPracticeArea : areaOfWork !== '—' ? areaOfWork : null },
+                          { label: 'Status', value: matterStatus !== '—' ? matterStatus : null },
+                          { label: 'Address', value: matterAddress !== '—' ? matterAddress : null },
+                          { label: 'Fee Earner', value: matterResponsibleSolicitor !== '—' ? matterResponsibleSolicitor : feeEarner !== '—' ? feeEarner : null },
+                          { label: 'Partner', value: matterSupervisingPartner !== '—' ? matterSupervisingPartner : null },
+                          { label: 'Originator', value: matterOriginatingSolicitor !== '—' && matterOriginatingSolicitor !== matterResponsibleSolicitor ? matterOriginatingSolicitor : null },
+                          { label: 'Source', value: matterSourceDisplay !== '—' ? matterSourceDisplay : null },
+                          { label: 'Referrer', value: matterReferrer !== '—' ? matterReferrer : null },
+                          ...(matterCloseDate && matterCloseDate !== '—' ? [{ label: 'Closed', value: matterCloseDate }] : []),
+                        ].filter(item => item.value).map(({ label, value }) => (
+                          <div key={label}>
+                            <div style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.6, color: isDarkMode ? colours.subtleGrey : colours.greyText, marginBottom: 2 }}>{label}</div>
+                            <div style={{ fontSize: 11, fontWeight: 600, color: isDarkMode ? 'rgba(243, 244, 246, 0.92)' : '#1f2937', lineHeight: 1.4, wordBreak: 'break-word' }}>{value}</div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {matterValue !== '—' && (
+                        <div style={{ marginTop: 2 }}>
+                          <div style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.6, color: isDarkMode ? colours.subtleGrey : colours.greyText, marginBottom: 2 }}>Value</div>
+                          <div style={{ fontSize: 11, fontWeight: 600, color: isDarkMode ? 'rgba(243, 244, 246, 0.92)' : '#1f2937' }}>{matterValue}</div>
+                        </div>
+                      )}
+
+                    </div>
+                  </div>
+
+                  {/* Matter Portal link — checkout-link style, inside card data area */}
+                  {matterPortalPasscode && (
+                    <div style={{
+                      display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12,
+                      padding: '6px 14px',
+                      background: isDarkMode ? 'rgba(54, 144, 206, 0.04)' : 'rgba(54, 144, 206, 0.03)',
+                      border: `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.38)' : 'rgba(0, 0, 0, 0.08)'}`,
+                    }}>
+                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        <span style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 5,
+                          padding: '5px 10px', borderRadius: 0,
+                          background: isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(54, 144, 206, 0.08)',
+                          border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.28)' : 'rgba(54, 144, 206, 0.18)'}`,
+                          color: isDarkMode ? colours.accent : colours.highlight,
+                          fontSize: 10,
+                          fontWeight: 700,
+                        }}>
+                          <FaLink size={10} />
+                          Matter Portal
+                        </span>
+
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPortalLaunchModel(buildPortalLaunchModel({
+                              passcode: matterPortalPasscode,
+                              instructionRef: instructionRef,
+                              matterRef: matterRef,
+                              hasInstruction: Boolean(instructionRef),
+                              hasMatter: true,
+                              entryLabel: 'Inline workbench → Matter portal',
+                            }));
+                            setIsPortalLaunchOpen(true);
+                          }}
+                          title={`Open matter portal: instruct.helix-law.com/pitch/${matterPortalPasscode}`}
                           style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: 6,
-                            padding: '5px 10px',
-                            borderRadius: 0,
+                            display: 'inline-flex', alignItems: 'center', gap: 6,
+                            padding: '5px 10px', borderRadius: 0,
+                            fontFamily: 'inherit',
                             background: isDarkMode ? 'rgba(32, 178, 108, 0.08)' : 'rgba(32, 178, 108, 0.05)',
                             border: `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.2)' : 'rgba(32, 178, 108, 0.15)'}`,
-                            textDecoration: 'none',
                             color: colours.green,
                             fontSize: 10,
                             fontWeight: 600,
                             cursor: 'pointer',
                             transition: 'all 0.15s ease',
+                            textDecoration: 'none',
                           }}
-                          title={`Open Matter Portal: instruct.helix-law.com/${matterPortalPasscode}`}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.transform = 'translateY(-1px)';
+                            e.currentTarget.style.boxShadow = isDarkMode ? '0 2px 8px rgba(0,0,0,0.35)' : '0 2px 8px rgba(6,23,51,0.12)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.transform = 'translateY(0)';
+                            e.currentTarget.style.boxShadow = 'none';
+                          }}
                         >
-                          <img
-                            src={clioLogo}
-                            alt="Clio"
-                            style={{ width: 12, height: 12, objectFit: 'contain', opacity: 0.9 }}
-                          />
-                          <span>Matter Portal</span>
-                          <span style={{ fontFamily: 'monospace', opacity: 0.9 }}>{matterPortalPasscode}</span>
+                          <span style={{ fontFamily: 'Raleway, sans-serif', opacity: 0.95 }}>instruct.helix-law.com/pitch/{matterPortalPasscode}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void safeCopy(`https://instruct.helix-law.com/pitch/${matterPortalPasscode}`);
+                            showToast({ type: 'success', message: 'Matter portal link copied' });
+                          }}
+                          title="Copy matter portal link"
+                          style={{
+                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                            width: 24, height: 24,
+                            borderRadius: 0,
+                            border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.18)' : 'rgba(0,0,0,0.08)'}`,
+                            background: isDarkMode ? 'rgba(160, 160, 160, 0.08)' : 'rgba(0,0,0,0.02)',
+                            color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease',
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.borderColor = colours.green;
+                            e.currentTarget.style.color = colours.green;
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(160, 160, 160, 0.18)' : 'rgba(0,0,0,0.08)';
+                            e.currentTarget.style.color = isDarkMode ? colours.subtleGrey : colours.greyText;
+                          }}
+                        >
+                          <FaCopy size={10} />
+                        </button>
+
+                        {matterPortalPassword && (
                           <span style={{
-                            marginLeft: 2,
-                            fontSize: 9,
-                            fontWeight: 700,
-                            color: matterPortalOpened ? colours.green : colours.cta,
-                            opacity: 0.9,
-                          }}>
-                            {matterPortalOpened ? 'Opened' : 'Pending'}
+                            display: 'inline-flex', alignItems: 'center', gap: 5,
+                            padding: '5px 10px', borderRadius: 0,
+                            background: isDarkMode ? 'rgba(160, 160, 160, 0.06)' : 'rgba(0,0,0,0.02)',
+                            border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.15)' : 'rgba(0,0,0,0.06)'}`,
+                            fontSize: 10, fontWeight: 600,
+                            color: isDarkMode ? '#d1d5db' : '#374151',
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease',
+                          }}
+                            title="Click to copy portal password"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void safeCopy(matterPortalPassword);
+                              showToast({ type: 'success', message: 'Portal password copied' });
+                            }}
+                          >
+                            <FaKey size={9} style={{ opacity: 0.6 }} />
+                            Password: <span style={{ fontFamily: 'monospace', letterSpacing: '0.5px' }}>{matterPortalPassword}</span>
                           </span>
-                        </a>
-                      ) : null;
-                    })()}
-
-                    {/* ND workspace placeholder (intentional stub this session) */}
-                    <div style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 6,
-                      padding: '6px 10px',
-                      borderRadius: 0,
-                      background: isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.03)',
-                      border: `1px dashed ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.18)'}`,
-                      color: isDarkMode ? 'rgba(243, 244, 246, 0.85)' : '#475569',
-                      fontSize: 10,
-                    }}>
-                      <Icon iconName="Cloud" style={{ fontSize: 10, color: colours.highlight }} />
-                      <span style={{ fontWeight: 700 }}>ND Workspace</span>
-                      <span style={{ opacity: 0.8 }}>Detection placeholder (not patched in this session)</span>
+                        )}
+                      </div>
                     </div>
+                  )}
 
-                    {/* Row 2: Assignment data bar */}
-                    <div style={{ 
-                      display: 'flex', flexWrap: 'wrap', gap: 0, 
-                      padding: '10px 0',
-                      background: isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(244, 244, 246, 0.25)',
-                      borderRadius: 0,
-                      border: `1px solid ${isDarkMode ? `${colours.dark.border}40` : (colours.highlightNeutral || 'rgba(0,0,0,0.06)')}`
+                  {/* ── Opening Trail (provenance — who opened, when, how) ── */}
+                  {matterOpenTrail.length > 0 && (
+                    <div style={{
+                      display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 0,
+                      padding: '14px 0',
+                      border: `1px solid ${isDarkMode ? `${colours.dark.border}40` : 'rgba(6, 23, 51, 0.08)'}`,
+                      background: isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(244, 244, 246, 0.4)',
                     }}>
-                      {[
-                        { label: 'Responsible', value: matterResponsibleSolicitor !== '—' ? matterResponsibleSolicitor : feeEarner !== '—' ? feeEarner : null },
-                        { label: 'Responsible Email', value: feeEarnerEmail || null },
-                        { label: 'Practice Area', value: matterPracticeArea !== '—' ? matterPracticeArea : areaOfWork !== '—' ? areaOfWork : null },
-                        { label: 'Status', value: matterStatus !== '—' ? matterStatus : null },
-                        { label: 'Value', value: matterValue !== '—' ? matterValue : null },
-                        { label: 'Supervising', value: matterSupervisingPartner !== '—' ? matterSupervisingPartner : null },
-                        { label: 'Originating', value: matterOriginatingSolicitor !== '—' && matterOriginatingSolicitor !== matterResponsibleSolicitor ? matterOriginatingSolicitor : null },
-                      ].filter(item => item.value).map((item, idx, arr) => (
-                        <React.Fragment key={idx}>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
-                            <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
-                              {item.label}
-                            </span>
-                            <span style={{ 
-                              fontSize: 12, 
-                              fontWeight: 500, 
-                              lineHeight: '18px',
-                              color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : '#061733',
-                            }}>
-                              {item.value}
-                            </span>
-                          </div>
-                          {idx < arr.length - 1 && (
-                            <div style={{ width: 1, background: isDarkMode ? `${colours.dark.border}40` : (colours.highlightNeutral || 'rgba(0,0,0,0.06)'), margin: '4px 0' }} />
+                      {matterOpenTrail.map((item, idx) => (
+                        <React.Fragment key={item.label}>
+                          {idx > 0 && (
+                            <div style={{ width: 1, alignSelf: 'stretch', background: isDarkMode ? `${colours.dark.border}40` : 'rgba(6, 23, 51, 0.08)', margin: '4px 0' }} />
                           )}
+                          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-start', minHeight: 34, gap: 4, padding: '0 14px' }}>
+                            <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>{item.label}</span>
+                            <span style={{ fontSize: 12, fontWeight: 500, color: isDarkMode ? 'rgba(243, 244, 246, 0.92)' : '#061733', fontFamily: 'Raleway, sans-serif' }}>{item.value}</span>
+                          </div>
                         </React.Fragment>
                       ))}
-                      {/* Empty state if no data bar items */}
-                      {![matterResponsibleSolicitor, matterPracticeArea, matterStatus, matterValue, matterSupervisingPartner, feeEarnerEmail].some(v => v && v !== '—') && (
-                        <div style={{ padding: '0 14px', color: isDarkMode ? 'rgba(160, 160, 160, 0.5)' : '#A0A0A0', fontSize: 11 }}>
-                          Matter details pending sync
-                        </div>
-                      )}
                     </div>
+                  )}
 
-                    {/* Row 3: Client + Description section */}
-                    {(matterClientName !== '—' || matterValue !== '—') && (
-                      <div style={{ 
-                        display: 'flex', alignItems: 'stretch', gap: 10,
-                        padding: '10px 14px',
-                        background: isDarkMode ? colours.dark.sectionBackground : colours.grey,
-                        border: `1px solid ${isDarkMode ? `${colours.dark.border}40` : (colours.highlightNeutral || 'rgba(0,0,0,0.06)')}`,
-                        borderRadius: 0,
-                      }}>
-                        {matterClientName !== '—' && (
-                          <>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flexShrink: 0 }}>
-                              <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Client</span>
-                              <span style={{ fontSize: 12, fontWeight: 600, color: colours.highlight }}>{matterClientName}</span>
-                            </div>
-                            {matterDescription !== '—' && (
-                              <div style={{ width: 1, background: isDarkMode ? `${colours.dark.border}40` : (colours.highlightNeutral || 'rgba(0,0,0,0.06)'), alignSelf: 'stretch' }} />
-                            )}
-                          </>
-                        )}
-                        {matterDescription !== '—' && (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1, minWidth: 0 }}>
-                            <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Description</span>
-                            <span style={{ fontSize: 12, fontWeight: 500, lineHeight: 1.5, color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : '#061733' }}>{matterDescription}</span>
-                          </div>
-                        )}
-                        {matterValue !== '—' && (
-                          <>
-                            <div style={{ width: 1, background: isDarkMode ? `${colours.dark.border}40` : (colours.highlightNeutral || 'rgba(0,0,0,0.06)'), alignSelf: 'stretch' }} />
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flexShrink: 0 }}>
-                              <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>Value</span>
-                              <span style={{ fontSize: 12, fontWeight: 600, color: isDarkMode ? 'rgba(243, 244, 246, 0.95)' : '#061733' }}>{matterValue}</span>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Row 4: Lifecycle + Origin */}
-                    {([
-                      matterOpenDate,
-                      matterCloseDate,
-                      matterSourceDisplay,
-                      matterReferrer,
-                    ].some(v => v && v !== '—')) && (
-                      <div style={{
-                        padding: '12px 14px',
-                        background: isDarkMode ? colours.dark.sectionBackground : colours.grey,
-                        border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : '#e1e1e1'}`,
-                        borderRadius: 0,
-                        fontSize: 12,
-                        lineHeight: 1.65,
-                        color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : '#061733',
-                      }}>
-                        <div style={{ fontWeight: 600, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <FaLink size={10} style={{ opacity: 0.6 }} />
-                          Matter Lifecycle & Origin
-                        </div>
-                        <div style={{ opacity: 0.85, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-                          {matterOpenDate && matterOpenDate !== '—' && (
-                            <span><strong style={{ color: isDarkMode ? 'rgba(160, 160, 160, 0.6)' : '#6B6B6B' }}>Opened:</strong> {matterOpenDate}</span>
-                          )}
-                          {matterCloseDate && matterCloseDate !== '—' && (
-                            <span><strong style={{ color: isDarkMode ? 'rgba(160, 160, 160, 0.6)' : '#6B6B6B' }}>Closed:</strong> {matterCloseDate}</span>
-                          )}
-                          {matterSourceDisplay && matterSourceDisplay !== '—' && (
-                            <span><strong style={{ color: isDarkMode ? 'rgba(160, 160, 160, 0.6)' : '#6B6B6B' }}>Source:</strong> {matterSourceDisplay}</span>
-                          )}
-                          {matterReferrer && matterReferrer !== '—' && (
-                            <span><strong style={{ color: isDarkMode ? 'rgba(160, 160, 160, 0.6)' : '#6B6B6B' }}>Referrer:</strong> {matterReferrer}</span>
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Row 5: Opening trail */}
-                    {matterOpenTrail.length > 0 && (
-                      <div style={{
-                        padding: '10px 0',
-                        background: isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(244, 244, 246, 0.25)',
-                        border: `1px solid ${isDarkMode ? `${colours.dark.border}40` : (colours.highlightNeutral || 'rgba(0,0,0,0.06)')}`,
-                        borderRadius: 0,
-                      }}>
-                        <div style={{
-                          fontSize: 9,
-                          fontWeight: 700,
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.5px',
-                          color: isDarkMode ? colours.subtleGrey : colours.greyText,
-                          marginBottom: 8,
-                          padding: '0 14px',
-                        }}>
-                          Opening Trail
-                        </div>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 0 }}>
-                          {matterOpenTrail.map((item, idx, arr) => (
-                            <React.Fragment key={item.label}>
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
-                                <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>{item.label}</span>
-                                <span style={{ fontSize: 12, fontWeight: 500, lineHeight: '18px', color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : '#061733' }}>{item.value}</span>
-                              </div>
-                              {idx < arr.length - 1 && (
-                                <div style={{ width: 1, background: isDarkMode ? `${colours.dark.border}40` : (colours.highlightNeutral || 'rgba(0,0,0,0.06)'), margin: '4px 0' }} />
-                              )}
-                            </React.Fragment>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Row 6: Collected matter/client fields */}
-                    {([
-                      matterClientName,
-                      matterClientId,
-                      matterClientType,
-                      matterClientEmail,
-                      matterClientPhone,
-                      matterClientCompany,
-                      matterDescription,
-                      matterInstructionRef,
-                      matterClioId,
-                      matterOpenTimestampRaw,
-                    ].some(v => v && v !== '—')) && (
-                      <div style={{
-                        padding: '10px 0',
-                        background: isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(244, 244, 246, 0.25)',
-                        border: `1px solid ${isDarkMode ? `${colours.dark.border}40` : (colours.highlightNeutral || 'rgba(0,0,0,0.06)')}`,
-                        borderRadius: 0,
-                      }}>
-                        <div style={{
-                          fontSize: 9,
-                          fontWeight: 700,
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.5px',
-                          color: isDarkMode ? colours.subtleGrey : colours.greyText,
-                          marginBottom: 8,
-                          padding: '0 14px',
-                        }}>
-                          Matter Collected Fields
-                        </div>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 0 }}>
-                          {[
-                            { label: 'Client Name', value: matterClientName !== '—' ? matterClientName : null },
-                            { label: 'Clio Client ID', value: matterClientId !== '—' ? matterClientId : null },
-                            { label: 'Client Type', value: matterClientType !== '—' ? matterClientType : null },
-                            { label: 'Client Email', value: matterClientEmail !== '—' ? matterClientEmail : null },
-                            { label: 'Client Phone', value: matterClientPhone !== '—' ? matterClientPhone : null },
-                            { label: 'Company', value: matterClientCompany !== '—' ? matterClientCompany : null },
-                            { label: 'Matter Description', value: matterDescription !== '—' ? matterDescription : null },
-                            { label: 'Instruction Ref', value: matterInstructionRef !== '—' ? matterInstructionRef : null },
-                            { label: 'Matter ID', value: matterClioId !== '—' ? matterClioId : null },
-                            { label: 'Opened Raw', value: matterOpenTimestampRaw ? String(matterOpenTimestampRaw) : null },
-                          ].filter(item => item.value).map((item, idx, arr) => (
-                            <React.Fragment key={item.label}>
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '0 14px' }}>
-                                <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>{item.label}</span>
-                                <span style={{ fontSize: 12, fontWeight: 500, lineHeight: '18px', color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : '#061733' }}>{item.value}</span>
-                              </div>
-                              {idx < arr.length - 1 && (
-                                <div style={{ width: 1, background: isDarkMode ? `${colours.dark.border}40` : (colours.highlightNeutral || 'rgba(0,0,0,0.06)'), margin: '4px 0' }} />
-                              )}
-                            </React.Fragment>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                  {/* ── Empty state ── */}
+                  {![matterResponsibleSolicitor, matterClientNameDisplay, matterPracticeArea, matterStatus, matterValue, matterSupervisingPartner].some(v => v && v !== '—') && matterOpenTrail.length === 0 && (
+                    <div style={{ padding: '12px 14px', color: isDarkMode ? 'rgba(160, 160, 160, 0.62)' : '#A0A0A0', fontSize: 11, fontStyle: 'italic' }}>
+                      Matter details pending sync
+                    </div>
+                  )}
                 </div>
               </>
             )}
@@ -9284,7 +10894,6 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
       )}
 
       {/* Matter Opening Modal — portalled to body to avoid transform/overflow clipping */}
-      {(() => { if (showLocalMatterModal) console.log('[MATTER-DEBUG] Matter modal guard: showLocalMatterModal =', showLocalMatterModal, ', inst =', !!inst, ', inst?.InstructionRef =', inst?.InstructionRef, ', item?.prospectId =', item?.prospectId); return null; })()}
       {showLocalMatterModal && (inst || item) && createPortal(
         <div
           style={{
@@ -9372,6 +10981,12 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         </div>,
         document.body
       )}
+
+      <PortalLaunchModal
+        isOpen={isPortalLaunchOpen}
+        model={portalLaunchModel}
+        onClose={() => setIsPortalLaunchOpen(false)}
+      />
 
     </div>
   );

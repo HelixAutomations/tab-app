@@ -11,7 +11,7 @@ interface LoadingStateProps {
 }
 
 /**
- * Modern loading state component inspired by communications dashboard
+ * Modern loading state component — Helix brand tokens only.
  */
 const LoadingState: React.FC<LoadingStateProps> = ({
   message = 'Loading...',
@@ -36,7 +36,7 @@ const LoadingState: React.FC<LoadingStateProps> = ({
         display: 'flex',
         alignItems: 'center',
         gap: 10,
-        color: isDarkMode ? '#94a3b8' : '#64748b',
+        color: isDarkMode ? colours.subtleGrey : colours.greyText,
         fontSize: fontSize,
         fontFamily: "'Raleway', -apple-system, BlinkMacSystemFont, sans-serif",
         fontWeight: '500'
@@ -44,7 +44,7 @@ const LoadingState: React.FC<LoadingStateProps> = ({
         <div style={{
           width: spinner,
           height: spinner,
-          border: `2px solid ${isDarkMode ? '#334155' : '#e2e8f0'}`,
+          border: `2px solid ${isDarkMode ? colours.dark.border : 'rgba(244, 244, 246, 0.7)'}`,
           borderTopColor: colours.highlight,
           borderRadius: '50%',
           animation: 'spin 0.7s linear infinite'
@@ -67,14 +67,9 @@ const LoadingState: React.FC<LoadingStateProps> = ({
       flexDirection: 'column',
       padding: padding,
       gap: 16,
-      background: isDarkMode ? '#1e293b' : '#ffffff',
-      border: isDarkMode ? '1px solid #334155' : '1px solid #e2e8f0',
-      borderRadius: '8px',
-      boxShadow: isDarkMode 
-        ? '0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.2)'
-        : '0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03)',
-      color: isDarkMode ? '#cbd5e1' : '#475569',
-      textAlign: 'center',
+      background: 'transparent',
+      color: isDarkMode ? '#d1d5db' : colours.greyText,
+      textAlign: 'center' as const,
       minWidth: size === 'sm' ? '120px' : size === 'md' ? '160px' : '200px'
     }}>
       {icon && (
@@ -84,9 +79,9 @@ const LoadingState: React.FC<LoadingStateProps> = ({
           justifyContent: 'center',
           width: size === 'sm' ? 40 : size === 'md' ? 48 : 56,
           height: size === 'sm' ? 40 : size === 'md' ? 48 : 56,
-          borderRadius: '8px',
-          background: isDarkMode ? '#334155' : '#f1f5f9',
-          color: colours.highlight,
+          borderRadius: 0,
+          background: isDarkMode ? colours.dark.sectionBackground : 'rgba(244, 244, 246, 0.8)',
+          color: isDarkMode ? colours.accent : colours.highlight,
           marginBottom: 8
         }}>
           {icon}
@@ -96,7 +91,7 @@ const LoadingState: React.FC<LoadingStateProps> = ({
       <div style={{
         width: spinner,
         height: spinner,
-        border: `2px solid ${isDarkMode ? '#334155' : '#e2e8f0'}`,
+        border: `2px solid ${isDarkMode ? colours.dark.border : 'rgba(160, 160, 160, 0.18)'}`,
         borderTopColor: colours.highlight,
         borderRadius: '50%',
         animation: 'spin 0.7s linear infinite',
@@ -118,7 +113,7 @@ const LoadingState: React.FC<LoadingStateProps> = ({
           <div style={{
             fontSize: fontSize - 1,
             fontFamily: "'Raleway', -apple-system, BlinkMacSystemFont, sans-serif",
-            color: isDarkMode ? '#94a3b8' : '#64748b',
+            color: isDarkMode ? colours.subtleGrey : colours.greyText,
             fontWeight: '500'
           }}>
             {subMessage}

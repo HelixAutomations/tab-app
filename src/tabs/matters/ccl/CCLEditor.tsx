@@ -17,12 +17,24 @@ import {
   type DisbursementsChoice,
 } from '../../../shared/ccl';
 import { CCL_SECTIONS, autoFillFromMatter, DEMO_FIELDS, type EditorStepType } from './cclSections';
-import { fetchAiFill, type AiFillResponse, type AiDebugTrace } from './cclAiService';
+import { fetchAiFillStream, type AiFillResponse, type AiDebugTrace } from './cclAiService';
 import QuestionnaireStep from './QuestionnaireStep';
 import EditorStep from './EditorStep';
 import PreviewStep from './PreviewStep';
 
 export type AiStatus = 'idle' | 'loading' | 'complete' | 'partial' | 'fallback' | 'error';
+
+export interface CclLoadInfo {
+  source: 'db' | 'file-cache' | 'json-file' | 'none' | string;
+  hasStoredDraft: boolean;
+  hasStoredVersion: boolean;
+  version: number | null;
+  contentId: number | null;
+  status: string | null;
+  createdAt: string | null;
+  finalizedAt: string | null;
+  historyCount: number;
+}
 
 interface CCLEditorProps {
   matter: NormalizedMatter;
@@ -52,14 +64,21 @@ const CCLEditor: React.FC<CCLEditorProps> = ({ matter, teamData, demoModeEnabled
   const [aiSystemPrompt, setAiSystemPrompt] = useState<string>('');
   const [aiFallbackReason, setAiFallbackReason] = useState<string>('');
   const [aiDebugTrace, setAiDebugTrace] = useState<AiDebugTrace | undefined>(undefined);
+  const [aiGeneratedKeys, setAiGeneratedKeys] = useState<Set<string>>(new Set());
   const aiFiredRef = useRef(false);
+  // Keys currently being streamed by the AI (for per-field loading indicators)
+  const [aiLoadingKeys, setAiLoadingKeys] = useState<Set<string>>(new Set());
 
   // Track which fields the user has manually edited (for provenance colouring)
   const [userEditedKeys, setUserEditedKeys] = useState<Set<string>>(new Set());
 
+  const buildInitialFields = useCallback(() => (
+    isDemoMatter ? { ...DEMO_FIELDS } : autoFillFromMatter(matter, teamData)
+  ), [isDemoMatter, matter, teamData]);
+
   // Field values — real matters always use autoFillFromMatter, demo only for synthetic demo matter
   const [fields, setFields] = useState<Record<string, string>>(() =>
-    isDemoMatter ? { ...DEMO_FIELDS } : autoFillFromMatter(matter, teamData)
+    buildInitialFields()
   );
 
   // Generation options
@@ -71,88 +90,195 @@ const CCLEditor: React.FC<CCLEditorProps> = ({ matter, teamData, demoModeEnabled
   const editorRef = useRef<HTMLDivElement>(null);
   const [editorContent, setEditorContent] = useState('');
   const [draftLoaded, setDraftLoaded] = useState(false);
+  const [loadInfo, setLoadInfo] = useState<CclLoadInfo | null>(null);
 
-  // ─── Load existing draft on mount ───
+  // ─── Reset editor state when the selected matter changes ───
+  useEffect(() => {
+    setCurrentStep('preview');
+    setExpandedSection('client');
+    setCostsChoice(isDemoMatter ? 'risk_costs' : null);
+    setChargesChoice('hourly_rate');
+    setDisbursementsChoice(isDemoMatter ? 'estimate' : null);
+    setEditorContent('');
+    setFields(buildInitialFields());
+    setUserEditedKeys(new Set());
+    setAiStatus('idle');
+    setAiSource('');
+    setAiDurationMs(0);
+    setAiDataSources([]);
+    setAiContextSummary('');
+    setAiUserPrompt('');
+    setAiSystemPrompt('');
+    setAiFallbackReason('');
+    setAiDebugTrace(undefined);
+    setAiGeneratedKeys(new Set());
+    setAiLoadingKeys(new Set());
+    setLoadInfo(null);
+    setDraftLoaded(isDemoMatter);
+    aiFiredRef.current = false;
+  }, [buildInitialFields, isDemoMatter, matter.displayNumber, matter.matterId]);
+
+  // ─── Load existing draft for the selected matter ───
   useEffect(() => {
     if (isDemoMatter) return;
     const matterId = matter.matterId || matter.displayNumber;
     if (!matterId) return;
+    let cancelled = false;
     (async () => {
       try {
         const res = await fetch(`/api/ccl/${encodeURIComponent(matterId)}`);
         if (!res.ok) return;
         const data = await res.json();
-        if (data.ok && data.draft) {
-          setFields((prev) => ({ ...prev, ...data.draft }));
+        if (!cancelled) {
+          setLoadInfo(data.loadInfo || null);
+        }
+        // Server GET returns merged fields as `json` (CclDrafts / file cache)
+        const draft = data.draft || data.json;
+        if (data.ok && draft) {
+          // Only merge non-empty draft values so auto-fill defaults aren't wiped
+          const nonEmpty: Record<string, string> = {};
+          for (const [k, v] of Object.entries(draft)) {
+            if (typeof v === 'string' && v.trim()) nonEmpty[k] = v;
+          }
+          // Re-resolve supervising partner name — old drafts may have first-name-only
+          if (nonEmpty.name && !nonEmpty.name.includes(' ') && teamData) {
+            const supMatch = teamData.find(t => {
+              const first = (t.First || (t['Full Name'] || '').split(/\s+/)[0] || '').trim();
+              return first.toLowerCase() === nonEmpty.name.toLowerCase();
+            });
+            if (supMatch) nonEmpty.name = supMatch['Full Name'] || `${supMatch.First || ''} ${supMatch.Last || ''}`.trim() || nonEmpty.name;
+          }
+          if (!cancelled) {
+            setFields((prev) => ({ ...prev, ...nonEmpty }));
+          }
         }
       } catch {
         // No draft saved yet — use auto-filled defaults
       } finally {
-        setDraftLoaded(true);
+        if (!cancelled) {
+          setDraftLoaded(true);
+        }
       }
     })();
-  }, [matter.matterId, matter.displayNumber, isDemoMatter]);
+    return () => { cancelled = true; };
+  }, [matter.matterId, matter.displayNumber, isDemoMatter, teamData]);
 
-  // ─── AI fill (explicitly triggered by user — no auto-fire) ───
+  // ─── AI fill (explicitly triggered by user — streams fields one-by-one) ───
   const triggerAiFill = useCallback(async () => {
     if (aiFiredRef.current) return;
     const matterId = matter.matterId || matter.displayNumber;
     if (!matterId) return;
     aiFiredRef.current = true;
     setAiStatus('loading');
+    setAiGeneratedKeys(new Set());
+    // Mark ALL prompt-able keys as loading (they clear as fields arrive)
+    setAiLoadingKeys(new Set(
+      Object.keys(fields).filter(k => {
+        const isAutoFilled = [
+          'insert_clients_name', 'name_of_person_handling_matter', 'name_of_handler',
+          'handler', 'email', 'fee_earner_email', 'fee_earner_phone',
+          'fee_earner_postal_address', 'name', 'status', 'handler_hourly_rate',
+          'contact_details_for_marketing_opt_out', 'matter', 'matter_number',
+        ].includes(k);
+        return !isAutoFilled;
+      })
+    ));
+
+    const AUTO_FILL_KEYS = new Set([
+      'insert_clients_name', 'name_of_person_handling_matter', 'name_of_handler',
+      'handler', 'email', 'fee_earner_email', 'fee_earner_phone',
+      'fee_earner_postal_address', 'name', 'status', 'handler_hourly_rate',
+      'contact_details_for_marketing_opt_out', 'matter', 'matter_number',
+    ]);
 
     try {
-      const result: AiFillResponse = await fetchAiFill({
-        matterId,
-        instructionRef: matter.instructionRef || '',
-        practiceArea: matter.practiceArea || '',
-        description: matter.description || '',
-        clientName: matter.clientName || '',
-        opponent: (matter as any).opponent || '',
-        handlerName: matter.responsibleSolicitor || '',
-        handlerRole: fields.status || '',
-        handlerRate: fields.handler_hourly_rate || '',
-        initials: userInitials || '',
-      });
-
-      if (result.ok && result.fields) {
-        setFields((prev) => {
-          const merged = { ...prev };
-          for (const [key, value] of Object.entries(result.fields)) {
-            const isAutoFilled = [
-              'insert_clients_name', 'name_of_person_handling_matter', 'name_of_handler',
-              'handler', 'email', 'fee_earner_email', 'fee_earner_phone',
-              'fee_earner_postal_address', 'name', 'status', 'handler_hourly_rate',
-              'contact_details_for_marketing_opt_out', 'matter', 'matter_number',
-            ].includes(key);
-            if (isAutoFilled && prev[key]?.trim()) continue;
-            if (!prev[key]?.trim() || prev[key].trim().length < 5) {
-              merged[key] = value;
+      await fetchAiFillStream(
+        {
+          matterId,
+          instructionRef: matter.instructionRef || '',
+          practiceArea: matter.practiceArea || '',
+          description: matter.description || '',
+          clientName: matter.clientName || '',
+          opponent: (matter as any).opponent || '',
+          handlerName: matter.responsibleSolicitor || '',
+          handlerRole: fields.status || '',
+          handlerRate: fields.handler_hourly_rate || '',
+          initials: userInitials || '',
+        },
+        {
+          onPhase: (_phase, _message, dataSources) => {
+            if (dataSources) setAiDataSources(dataSources);
+          },
+          onField: (key, value) => {
+            if (!AUTO_FILL_KEYS.has(key)) {
+              setAiGeneratedKeys(prev => {
+                const next = new Set(prev);
+                next.add(key);
+                return next;
+              });
             }
-          }
-          return merged;
-        });
-
-        setAiSource(result.source);
-        setAiDurationMs(result.durationMs);
-        setAiDataSources(result.dataSources || []);
-        setAiContextSummary(result.contextSummary || '');
-        setAiUserPrompt(result.userPrompt || '');
-        setAiSystemPrompt(result.systemPrompt || '');
-        setAiFallbackReason(result.fallbackReason || '');
-        setAiDebugTrace(result.debug);
-        setAiStatus(
-          result.confidence === 'full' ? 'complete' :
-          result.confidence === 'partial' ? 'partial' : 'fallback'
-        );
-      } else {
-        setAiStatus('error');
-      }
+            // Skip auto-filled keys that already have values
+            if (AUTO_FILL_KEYS.has(key)) {
+              setFields(prev => {
+                if (prev[key]?.trim()) return prev;
+                return { ...prev, [key]: value };
+              });
+            } else {
+              setFields(prev => {
+                if (prev[key]?.trim() && prev[key].trim().length >= 5) return prev;
+                return { ...prev, [key]: value };
+              });
+            }
+            // Remove this key from loading set
+            setAiLoadingKeys(prev => {
+              const next = new Set(prev);
+              next.delete(key);
+              return next;
+            });
+          },
+          onComplete: (result) => {
+            setAiLoadingKeys(new Set());
+            setAiSource(result.source);
+            setAiDurationMs(result.durationMs);
+            setAiDataSources(result.dataSources || []);
+            setAiContextSummary(result.contextSummary || '');
+            setAiUserPrompt(result.userPrompt || '');
+            setAiSystemPrompt(result.systemPrompt || '');
+            setAiFallbackReason(result.fallbackReason || '');
+            setAiDebugTrace(result.debug);
+            setAiStatus(
+              result.confidence === 'full' ? 'complete' :
+              result.confidence === 'partial' ? 'partial' : 'fallback'
+            );
+            aiFiredRef.current = false;
+          },
+          onError: (message, fallbackFields) => {
+            console.warn('[CCL] AI stream error:', message);
+            setAiLoadingKeys(new Set());
+            if (fallbackFields) {
+              setFields(prev => {
+                const merged = { ...prev };
+                for (const [key, value] of Object.entries(fallbackFields)) {
+                  if (AUTO_FILL_KEYS.has(key) && prev[key]?.trim()) continue;
+                  if (!prev[key]?.trim() || prev[key].trim().length < 5) {
+                    merged[key] = value;
+                  }
+                }
+                return merged;
+              });
+            }
+            setAiStatus('error');
+            aiFiredRef.current = false;
+          },
+        }
+      );
     } catch (err) {
       console.warn('[CCL] AI fill failed:', err);
+      setAiLoadingKeys(new Set());
       setAiStatus('error');
+      aiFiredRef.current = false;
     }
-  }, [matter, fields.status, fields.handler_hourly_rate, userInitials]);
+  }, [matter, fields, userInitials]);
 
   // ─── Auto-save draft (debounced 2s) ───
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -211,13 +337,6 @@ const CCLEditor: React.FC<CCLEditorProps> = ({ matter, teamData, demoModeEnabled
     return result;
   }, [fields]);
 
-  const overallCompletion = useMemo(() => {
-    const totals = Object.values(completionBySection);
-    const filled = totals.reduce((s, v) => s + v.filled, 0);
-    const total = totals.reduce((s, v) => s + v.total, 0);
-    return total === 0 ? 100 : Math.round((filled / total) * 100);
-  }, [completionBySection]);
-
   const updateField = useCallback((key: string, value: string) => {
     setFields((prev) => {
       const next = { ...prev, [key]: value };
@@ -242,72 +361,21 @@ const CCLEditor: React.FC<CCLEditorProps> = ({ matter, teamData, demoModeEnabled
   }, []);
 
   // ───── Colours ─────
-  const text = isDarkMode ? '#f1f5f9' : '#1e293b';
   const textMuted = isDarkMode ? '#94a3b8' : '#64748b';
   const cardBorder = isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(148, 163, 184, 0.15)';
-  const accentBlue = colours.highlight;
 
   return (
     <div style={{
       display: 'flex', flexDirection: 'column', gap: 0,
       minHeight: 0, flex: 1,
     }}>
-      {/* ─── Minimal header — document-first: no step indicators ─── */}
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 12,
-        padding: '10px 0',
-        borderBottom: `1px solid ${cardBorder}`,
-        marginBottom: 0,
-      }}>
-        <button
-          type="button"
-          onClick={onClose}
-          style={{
-            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-            width: 28, height: 28, borderRadius: 2,
-            background: 'transparent',
-            border: `1px solid ${cardBorder}`,
-            cursor: 'pointer', color: textMuted,
-            transition: 'all 0.12s ease',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = isDarkMode ? 'rgba(54,144,206,0.12)' : 'rgba(54,144,206,0.08)';
-            e.currentTarget.style.color = accentBlue;
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = 'transparent';
-            e.currentTarget.style.color = textMuted;
-          }}
-          aria-label="Close CCL"
-        >
-          <Icon iconName="ChromeBack" styles={{ root: { fontSize: 12 } }} />
-        </button>
-
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{
-            fontSize: 14, fontWeight: 700, color: text,
-            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-          }}>
-            Client Care Letter
-          </div>
-          <div style={{ fontSize: 11, color: textMuted, marginTop: 1 }}>
-            {matter.displayNumber} &middot; {matter.clientName}
-          </div>
-        </div>
-
-        {/* Completion badge — subtle */}
-        {overallCompletion === 100 && (
-          <div style={{
-            padding: '3px 8px', borderRadius: 2, fontSize: 10, fontWeight: 700,
-            background: isDarkMode ? 'rgba(54,144,206,0.18)' : 'rgba(54,144,206,0.1)',
-            color: accentBlue,
-          }}>
-            Ready
-          </div>
-        )}
-
-        {/* Advanced mode toggle — gear icon for power users */}
-        {currentStep !== 'preview' && (
+      {/* Advanced mode banner — only when not on preview step */}
+      {currentStep !== 'preview' && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          padding: '6px 0',
+          borderBottom: `1px solid ${cardBorder}`,
+        }}>
           <button
             type="button"
             onClick={() => setCurrentStep('preview')}
@@ -322,8 +390,8 @@ const CCLEditor: React.FC<CCLEditorProps> = ({ matter, teamData, demoModeEnabled
             <Icon iconName="ChromeBack" styles={{ root: { fontSize: 9 } }} />
             Back to document
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* ─── Content ─── */}
       {currentStep === 'questionnaire' && (
@@ -364,6 +432,7 @@ const CCLEditor: React.FC<CCLEditorProps> = ({ matter, teamData, demoModeEnabled
           userEditedKeys={userEditedKeys}
           userInitials={userInitials}
           aiStatus={aiStatus}
+          aiLoadingKeys={aiLoadingKeys}
           aiSource={aiSource}
           aiDurationMs={aiDurationMs}
           aiDataSources={aiDataSources}
@@ -372,6 +441,9 @@ const CCLEditor: React.FC<CCLEditorProps> = ({ matter, teamData, demoModeEnabled
           aiSystemPrompt={aiSystemPrompt}
           aiFallbackReason={aiFallbackReason}
           aiDebugTrace={aiDebugTrace}
+          aiGeneratedKeys={aiGeneratedKeys}
+          draftLoaded={draftLoaded}
+          loadInfo={loadInfo}
           isDarkMode={isDarkMode}
           onBack={() => setCurrentStep('editor')}
           onClose={onClose}

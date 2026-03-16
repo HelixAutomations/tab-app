@@ -175,6 +175,7 @@ interface EnquiryLineItemProps {
    */
   documentCount?: number;
   workbenchHandlers?: {
+    onOpenEnquiryRating?: (enquiryId: string) => void;
     onDocumentPreview?: (doc: any) => void;
     onOpenRiskAssessment?: (instruction: any) => void;
     onOpenMatter?: (instruction: any) => void;
@@ -1212,6 +1213,7 @@ const EnquiryLineItem: React.FC<EnquiryLineItemProps> = ({
                 onOpenIdReview={workbenchHandlers?.onOpenIdReview}
                 onOpenMatter={workbenchHandlers?.onOpenMatter}
                 onOpenRiskAssessment={workbenchHandlers?.onOpenRiskAssessment}
+                onOpenEnquiryRating={(enquiryId) => onRate(String(enquiryId))}
                 onRefreshData={workbenchHandlers?.onRefreshData ? () => workbenchHandlers.onRefreshData!(inlineWorkbenchItem?.instruction?.InstructionRef || inlineWorkbenchItem?.instruction?.instructionRef) : undefined}
                 onRiskAssessmentSave={workbenchHandlers?.onRiskAssessmentSave ? (risk) => workbenchHandlers.onRiskAssessmentSave!(inlineWorkbenchItem?.instruction?.InstructionRef || inlineWorkbenchItem?.instruction?.instructionRef, risk) : undefined}
                 onClose={() => setNotesExpanded(false)}

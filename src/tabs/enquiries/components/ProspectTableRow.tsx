@@ -24,8 +24,8 @@ import type { Enquiry } from '../../../app/functionality/types';
 import type { ProspectTableRowProps } from './rowTypes';
 
 /** Grid template used by every row — must match ProspectTableHeader */
-const TABLE_GRID_TEMPLATE_COLUMNS = '32px 90px 56px 90px 1.4fr 2.5fr 152px';
-const ACTIONS_COLUMN_WIDTH_PX = 152;
+const TABLE_GRID_TEMPLATE_COLUMNS = '32px 90px 56px 90px 1.4fr 2.5fr 196px';
+const ACTIONS_COLUMN_WIDTH_PX = 196;
 
 const ProspectTableRow: React.FC<ProspectTableRowProps> = ({
   item,
@@ -57,13 +57,33 @@ const ProspectTableRow: React.FC<ProspectTableRowProps> = ({
   } = displayState;
 
   const { setHoveredRowKey, setHoveredDayKey, toggleDayCollapse } = hoverHandlers;
-  const { handleSelectEnquiryToPitch, handleCopyName, setExpandedNotesInTable: setExpandedNotes } = actionHandlers;
+  const { handleSelectEnquiry, handleCopyName, setExpandedNotesInTable: setExpandedNotes } = actionHandlers;
   const { enrichmentMap, getEnquiryWorkbenchItem, isUnclaimedPoc, getRatingChipMeta, combineDateAndTime, claimerMap } = dataDeps;
 
   // ─── Derived row data ───────────────────────────────────────
   const pocLower = (item.Point_of_Contact || '').toLowerCase();
   const isUnclaimed = pocLower === 'team@helix-law.com';
-  const contactName = `${item.First_Name || ''} ${item.Last_Name || ''}`.trim() || 'Unknown';
+  // Fetch workbench item early so we can enrich name + ID
+  const inlineWorkbenchItem = getEnquiryWorkbenchItem(item);
+  const hasInlineWorkbench = Boolean(inlineWorkbenchItem);
+  // Detect converted / matter-opened enquiries — these no longer belong in prospects
+  const isConverted = Boolean(
+    inlineWorkbenchItem?.instruction?.MatterId ||
+    (inlineWorkbenchItem?.matters && inlineWorkbenchItem.matters.length > 0)
+  );
+
+  // Enrich contact name from instruction data when enquiry surname is missing
+  const contactName = (() => {
+    const rawFirst = (item.First_Name || '').trim();
+    const rawLast = (item.Last_Name || '').trim();
+    if (!rawLast && inlineWorkbenchItem) {
+      const instFirst = (inlineWorkbenchItem?.instruction?.FirstName || '').trim();
+      const instLast = (inlineWorkbenchItem?.instruction?.LastName || '').trim();
+      if (instFirst && instLast) return `${instFirst} ${instLast}`;
+    }
+    return `${rawFirst} ${rawLast}`.trim() || 'Unknown';
+  })();
+
   const areaOfWork = item.Area_of_Work || 'Unspecified';
   const dateReceived = item.Touchpoint_Date || item.Date_Created || '';
   const rawValue: any = (item as any).Value ?? (item as any).value ?? '';
@@ -74,8 +94,6 @@ const ProspectTableRow: React.FC<ProspectTableRowProps> = ({
   const isNotesExpanded = expandedNotesInTable.has(noteKey);
   const nameCopyKey = `name-${noteKey}`;
   const isNameCopied = copiedNameKey === nameCopyKey;
-  const inlineWorkbenchItem = getEnquiryWorkbenchItem(item);
-  const hasInlineWorkbench = Boolean(inlineWorkbenchItem);
   const enrichmentDataKey = item.ID ?? (item as any).id ?? '';
   const enrichmentData = enrichmentDataKey ? enrichmentMap.get(String(enrichmentDataKey)) : undefined;
   const mainPocValue = (item.Point_of_Contact || (item as any).poc || '').toLowerCase();
@@ -124,7 +142,7 @@ const ProspectTableRow: React.FC<ProspectTableRowProps> = ({
           onMouseEnter={() => setHoveredDayKey(singleDayKey)}
           onMouseLeave={() => setHoveredDayKey((prev) => (prev === singleDayKey ? null : prev))}
           className="prospect-day-sep"
-          style={{ gridTemplateColumns: `32px 1fr ${ACTIONS_COLUMN_WIDTH_PX}px` }}
+          style={{ gridTemplateColumns: `32px 1fr ${ACTIONS_COLUMN_WIDTH_PX}px`, '--row-index': Math.min(idx, 15) } as React.CSSProperties}
         >
           <div className="prospect-day-sep__timeline">
             <div className="prospect-day-sep__line" />
@@ -171,11 +189,12 @@ const ProspectTableRow: React.FC<ProspectTableRowProps> = ({
           style={{
             gridTemplateColumns: TABLE_GRID_TEMPLATE_COLUMNS,
             borderBottom: isLastInDay
-              ? `1px solid ${isDarkMode ? 'rgba(55, 65, 81, 0.28)' : 'rgba(0, 0, 0, 0.06)'}`
+              ? `0.5px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.18)' : 'rgba(160, 160, 160, 0.14)'}`
               : 'none',
             opacity: 1,
-          }}
-          className={`prospect-row enquiry-row${(hoveredRowKey === rowHoverKey || hoveredDayKey === singleDayKey) ? ' pipeline-row-hover' : ''}${(hoveredRowKeyReady === rowHoverKey || hoveredDayKeyReady === singleDayKey) ? ' pipeline-row-hover-ready' : ''}`}
+            '--row-index': Math.min(idx, 15),
+          } as React.CSSProperties}
+          className={`prospect-row enquiry-row${isConverted ? ' prospect-row--converted' : ''}${(hoveredRowKey === rowHoverKey || hoveredDayKey === singleDayKey) ? ' pipeline-row-hover' : ''}${(hoveredRowKeyReady === rowHoverKey || hoveredDayKeyReady === singleDayKey) ? ' pipeline-row-hover-ready' : ''}`}
           onMouseEnter={(e) => {
             const tooltip = e.currentTarget.querySelector('.timeline-date-tooltip') as HTMLElement;
             if (tooltip) tooltip.style.opacity = '1';
@@ -186,7 +205,7 @@ const ProspectTableRow: React.FC<ProspectTableRowProps> = ({
             if (tooltip) tooltip.style.opacity = '0';
             setHoveredRowKey((prev) => (prev === rowHoverKey ? null : prev));
           }}
-          onClick={() => !isUnclaimed && handleSelectEnquiryToPitch(item)}
+          onClick={() => !isUnclaimed && handleSelectEnquiry(item)}
         >
           {/* Timeline cell */}
           <div className="prospect-timeline-cell">
@@ -243,7 +262,7 @@ const ProspectTableRow: React.FC<ProspectTableRowProps> = ({
               transform: showRowDetails ? 'translateY(-4px)' : 'translateY(0)',
               transition: 'transform 160ms ease',
             }}>
-              {item.ID}
+              {(item as any).acid || item.ID}
             </div>
             {(() => {
               const numValue = typeof value === 'string' ? parseFloat(value.replace(/[^0-9.]/g, '')) : (typeof value === 'number' ? value : 0);
@@ -315,10 +334,13 @@ const ProspectTableRow: React.FC<ProspectTableRowProps> = ({
               <span style={{
                 fontSize: '13px',
                 fontWeight: 500,
-                color: isDarkMode ? colours.dark.text : colours.light.text,
+                color: isConverted ? colours.green : (isDarkMode ? colours.dark.text : colours.light.text),
               }}>
                 {contactName}
               </span>
+              {isConverted && (
+                <Icon iconName="CompletedSolid" styles={{ root: { fontSize: 9, color: colours.green, opacity: 0.7 } }} />
+              )}
               <button
                 type="button"
                 onClick={(e) => {
@@ -442,6 +464,7 @@ const ProspectTableRow: React.FC<ProspectTableRowProps> = ({
             handleRate={actionHandlers.handleRate}
             isHovered={showRowDetails}
             handleDeleteEnquiry={actionHandlers.handleDeleteEnquiry}
+            handleShareEnquiry={actionHandlers.handleShareEnquiry}
             setEditingEnquiry={actionHandlers.setEditingEnquiry}
             setShowEditModal={actionHandlers.setShowEditModal}
             setExpandedNotesInTable={setExpandedNotes}

@@ -789,6 +789,75 @@ async function getAssessmentAccuracySummary({ practiceArea } = {}) {
 }
 
 /**
+ * Transition CclContent status for a matter (latest version).
+ * Supports: draft → approved, approved → uploaded.
+ * Returns the updated row or null on failure.
+ */
+async function updateCclStatus(matterId, newStatus, { actor, clioDocId, ndDocId } = {}) {
+    const connStr = await getConnStr();
+    if (!connStr) return null;
+
+    const pool = await getPool(connStr);
+    if (!(await tableExists(pool, 'CclContent'))) return null;
+
+    // Fetch latest version
+    const latest = await pool.request()
+        .input('MatterId', sql.NVarChar(50), matterId)
+        .query(`SELECT TOP 1 CclContentId, Status, Version
+                FROM CclContent
+                WHERE MatterId = @MatterId
+                ORDER BY Version DESC`);
+
+    const row = latest.recordset[0];
+    if (!row) return null;
+
+    const validTransitions = {
+        draft: ['approved'],
+        approved: ['uploaded'],
+        uploaded: [], // terminal
+    };
+    const allowed = validTransitions[row.Status] || [];
+    if (!allowed.includes(newStatus)) {
+        console.warn(`[ccl-persist] Invalid status transition: ${row.Status} → ${newStatus} for matter ${matterId}`);
+        return null;
+    }
+
+    const updates = [`Status = @NewStatus`];
+    const req = pool.request()
+        .input('Id', sql.Int, row.CclContentId)
+        .input('NewStatus', sql.NVarChar(20), newStatus);
+
+    if (newStatus === 'approved') {
+        updates.push(`FinalizedBy = @Actor`, `FinalizedAt = SYSDATETIME()`);
+        req.input('Actor', sql.NVarChar(50), actor || null);
+    }
+    if (newStatus === 'uploaded') {
+        updates.push(`UploadedToClio = 1`);
+        if (clioDocId) {
+            updates.push(`ClioDocId = @ClioDocId`);
+            req.input('ClioDocId', sql.NVarChar(100), clioDocId);
+        }
+        if (ndDocId) {
+            updates.push(`NdDocId = @NdDocId`);
+            req.input('NdDocId', sql.NVarChar(100), ndDocId);
+        }
+    }
+
+    await req.query(`UPDATE CclContent SET ${updates.join(', ')} WHERE CclContentId = @Id`);
+
+    trackEvent('CCL.Status.Updated', {
+        matterId, cclContentId: String(row.CclContentId),
+        from: row.Status, to: newStatus, actor: actor || '',
+    });
+
+    // Return updated record
+    const updated = await pool.request()
+        .input('Id', sql.Int, row.CclContentId)
+        .query(`SELECT * FROM CclContent WHERE CclContentId = @Id`);
+    return updated.recordset[0] || null;
+}
+
+/**
  * Mark an assessment's suggestion as applied to a prompt.
  */
 async function markAssessmentApplied(assessmentId, appliedBy) {
@@ -830,4 +899,5 @@ module.exports = {
     getAssessmentCorpus,
     getAssessmentAccuracySummary,
     markAssessmentApplied,
+    updateCclStatus,
 };

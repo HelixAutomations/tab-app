@@ -2,11 +2,13 @@ import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { Icon, Spinner, SpinnerSize } from '@fluentui/react';
 import { colours } from '../../../app/styles/colours';
 import type { NormalizedMatter } from '../../../app/functionality/types';
-import type { AiStatus } from './CCLEditor';
-import { submitAiFeedback, submitCclSupportTicket, checkCclIntegrations, uploadToClio, uploadToNetDocuments, type AiDebugTrace, type CclSupportTicket, type CclIntegrations } from './cclAiService';
+import type { AiStatus, CclLoadInfo } from './CCLEditor';
+import { submitAiFeedback, submitCclSupportTicket, checkCclIntegrations, uploadToClio, uploadToNetDocuments, fetchPressureTest, type AiDebugTrace, type CclSupportTicket, type CclIntegrations, type PressureTestResponse, type PressureTestFieldScore } from './cclAiService';
 import { CCL_SECTIONS } from './cclSections';
+import { FIELD_PROMPTS, FIELD_PROMPT_MAP } from './cclFieldPrompts';
 import CclOpsPanel from './CclOpsPanel';
 import { ADMIN_USERS } from '../../../app/admin';
+import { checkIsLocalDev } from '../../../utils/useIsLocalDev';
 
 interface PreviewSection {
   id: string;
@@ -14,6 +16,11 @@ interface PreviewSection {
   title: string;
   isSubsection: boolean;
   elements: React.ReactNode[];
+}
+
+interface GenerateDocxResult {
+  url: string | null;
+  unresolvedPlaceholders: string[];
 }
 
 // ─── AI Feedback Widget ─────────────────────────────────────────────────────
@@ -215,6 +222,8 @@ export interface PreviewStepProps {
   /** Current user's initials — used for per-user Clio auth on uploads (audit trail) */
   userInitials?: string;
   aiStatus?: AiStatus;
+  /** Field keys currently being streamed by the AI — show per-field loading indicators */
+  aiLoadingKeys?: Set<string>;
   aiSource?: string;
   aiDurationMs?: number;
   aiDataSources?: string[];
@@ -223,6 +232,9 @@ export interface PreviewStepProps {
   aiSystemPrompt?: string;
   aiFallbackReason?: string;
   aiDebugTrace?: AiDebugTrace;
+  aiGeneratedKeys?: Set<string>;
+  draftLoaded?: boolean;
+  loadInfo?: CclLoadInfo | null;
   isDarkMode: boolean;
   onBack: () => void;
   onClose?: () => void;
@@ -272,8 +284,8 @@ Section 6 — Payment on account:
 → Number only, no £ sign, e.g. "2,500". Usually 50-100% of the low end of the estimate range.
 
 Section 7 — Costs updates:
-"We have agreed to provide you with an update on the amount of costs when appropriate as the matter progresses{{and_or_intervals_eg_every_three_months}}."
-→ Starts with a space or ", " then the interval. Usually " monthly" or " every three months".
+"We have agreed to provide you with an update on the amount of costs as the matter progresses{{and_or_intervals_eg_every_three_months}}."
+→ Starts with ", " then the qualifier. Usually ", when appropriate" or ", monthly" or ", every three months".
 
 Section 13 — Duties to court:
 "Your matter {{may_will}} involve court proceedings."
@@ -293,7 +305,7 @@ Section 18 — Action points:
 "{{describe_third_document_or_information_you_need_from_your_client}}"
 → Each is a bullet point. Be specific to this matter type — name the actual documents needed.
 
-NOT IN TEMPLATE (metadata fields):
+NOT SHOWN DIRECTLY AS STANDALONE SENTENCES IN THE LETTER:
 - "next_stage": Brief label for the next milestone (used for internal tracking, not shown to client)
 - "figure_or_range": Cost estimate range, e.g. "2,500 - 5,000" (used in sidebar display)
 - "estimate": Full estimate string, e.g. "£2,500 to £5,000 plus VAT"
@@ -301,16 +313,17 @@ NOT IN TEMPLATE (metadata fields):
 - "give_examples_of_what_your_estimate_includes_eg_accountants_report_and_court_fees": Brief list of what the estimate covers
 - "we_cannot_give_an_estimate_of_our_overall_charges_in_this_matter_because_reason_why_estimate_is_not_possible": If estimate IS possible, set to "". Only fill if genuinely impossible.
 - "simple_disbursements_estimate": Estimated disbursements (number only, e.g. "500")
+- "identify_the_other_party_eg_your_opponents": Supporting matter data inserted only inside the second 4.3 costs-risk alternative
 
 COST ACCURACY RULES:
-1. If a Deal Amount is provided, the costs estimate MUST be consistent with it. The payment on account (figure) should be 50-100% of the deal amount.
+1. If a Deal Amount is provided, the costs estimate MUST be consistent with it. The payment on account (figure) should match the agreed amount unless a fee earner has explicitly said otherwise.
 2. If a Pitch Email is provided, match its quoted figures exactly — the client has already seen these numbers.
 3. If neither is available, use practice area norms for a UK specialist litigation firm.
 4. Never invent costs figures that are wildly different from the deal/pitch context.
 
 Respond with ONLY a JSON object containing these fields. No markdown, no explanation, just the JSON object.`;
 
-const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, matter, fields, updateField, userEditedKeys, userInitials, aiStatus, aiSource, aiDurationMs, aiDataSources, aiContextSummary, aiUserPrompt, aiSystemPrompt: aiSystemPromptRaw, aiFallbackReason, aiDebugTrace, isDarkMode, onBack: _onBack, onClose, onAdvancedMode, onTriggerAiFill }) => {
+const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, matter, fields, updateField, userEditedKeys, userInitials, aiStatus, aiLoadingKeys, aiSource, aiDurationMs, aiDataSources, aiContextSummary, aiUserPrompt, aiSystemPrompt: aiSystemPromptRaw, aiFallbackReason, aiDebugTrace, aiGeneratedKeys, draftLoaded = true, loadInfo = null, isDarkMode, onBack: _onBack, onClose, onAdvancedMode, onTriggerAiFill }) => {
   // Use server-returned system prompt if available, otherwise canonical fallback
   const aiSystemPrompt = aiSystemPromptRaw || CANONICAL_SYSTEM_PROMPT;
   const text = isDarkMode ? '#f1f5f9' : '#1e293b';
@@ -323,7 +336,7 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
   const fieldKeys = new Set(Object.keys(fields));
   const remainingPlaceholders = allPlaceholders.filter(p => {
     const key = p.slice(2, -2);
-    return fieldKeys.has(key) && !(fields[key] || '').trim();
+    return fieldKeys.has(key) && !String(fields[key] || '').trim();
   }).length;
 
   const [generating, setGenerating] = useState(false);
@@ -334,8 +347,8 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
     if (!userInitials) return false;
     return (ADMIN_USERS as readonly string[]).includes(userInitials.toUpperCase());
   }, [userInitials]);
-  const [documentMode, setDocumentMode] = useState<'preview' | 'edit'>('preview');
-  // showAiTrace removed — replaced by showAiDetails dropdown
+  const [documentMode, setDocumentMode] = useState<'preview' | 'edit'>('edit');
+  // showAiTrace removed — AI details dropdown stripped for simplicity
 
   // Boilerplate sections collapse by default — user-relevant sections stay expanded
   const BOILERPLATE = useMemo(() => new Set(['5', '7', '8', '9', '10', '11', '12', '13', '14', '15', '16', '17']), []);
@@ -346,17 +359,21 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
   const expandAll = useCallback(() => setCollapsedSections(new Set()), []);
   const collapseBoilerplate = useCallback(() => setCollapsedSections(new Set(['5', '7', '8', '9', '10', '11', '12', '13', '14', '15', '16', '17'])), []);
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const introRef = useRef<HTMLDivElement | null>(null);
+  const letterheadRef = useRef<HTMLDivElement | null>(null);
+  const recipientRef = useRef<HTMLDivElement | null>(null);
+  const [measuredSectionHeights, setMeasuredSectionHeights] = useState<Record<string, number>>({});
   const scrollToSection = useCallback((id: string) => {
     const el = sectionRefs.current[id];
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     setCollapsedSections(prev => { const n = new Set(prev); n.delete(id); return n; }); // expand if collapsed
   }, []);
 
-  const generateDocx = useCallback(async (): Promise<string | null> => {
+  const generateDocx = useCallback(async (): Promise<GenerateDocxResult> => {
     const matterId = matter.matterId || matter.displayNumber;
     if (!matterId) {
       setStatus({ type: 'error', message: 'No matter ID available' });
-      return null;
+      return { url: null, unresolvedPlaceholders: [] };
     }
     const resp = await fetch('/api/ccl', {
       method: 'POST',
@@ -368,14 +385,17 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
       throw new Error(err.error || 'Failed to generate');
     }
     const data = await resp.json();
-    return data.url || null;
+    return {
+      url: data.url || null,
+      unresolvedPlaceholders: Array.isArray(data.unresolvedPlaceholders) ? data.unresolvedPlaceholders : [],
+    };
   }, [matter, fields, userInitials]);
 
   const handleDownload = useCallback(async () => {
     setGenerating(true);
     setStatus(null);
     try {
-      const url = await generateDocx();
+      const { url, unresolvedPlaceholders } = await generateDocx();
       if (url) {
         const a = document.createElement('a');
         a.href = url;
@@ -383,7 +403,16 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-        setStatus({ type: 'success', message: 'Document downloaded' });
+        if (unresolvedPlaceholders.length > 0) {
+          setStatus({
+            type: 'error',
+            message: `Draft downloaded, but ${unresolvedPlaceholders.length} field${unresolvedPlaceholders.length === 1 ? '' : 's'} still need completion before send/upload: ${unresolvedPlaceholders.slice(0, 5).join(', ')}${unresolvedPlaceholders.length > 5 ? '…' : ''}`,
+          });
+          setDocumentMode('edit');
+          setSidebarOpen(true);
+        } else {
+          setStatus({ type: 'success', message: 'Document downloaded' });
+        }
       }
     } catch (err: any) {
       setStatus({ type: 'error', message: err.message || 'Download failed' });
@@ -393,10 +422,22 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
   }, [generateDocx, matter.displayNumber]);
 
   const handleSend = useCallback(async () => {
+    if (!checkIsLocalDev()) {
+      return;
+    }
     setSending(true);
     setStatus(null);
     try {
-      const url = await generateDocx();
+      const { url, unresolvedPlaceholders } = await generateDocx();
+      if (unresolvedPlaceholders.length > 0) {
+        setStatus({
+          type: 'error',
+          message: `Complete required fields before sending: ${unresolvedPlaceholders.slice(0, 5).join(', ')}${unresolvedPlaceholders.length > 5 ? '…' : ''}`,
+        });
+        setDocumentMode('edit');
+        setSidebarOpen(true);
+        return;
+      }
       if (url) {
         // Stamp CCL date on the matter via /api/ccl-date
         const matterId = matter.matterId || matter.displayNumber;
@@ -436,15 +477,58 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
     : '#f4f7fb';
   const paperOutline = isDarkMode ? 'rgba(54,144,206,0.35)' : 'rgba(13,47,96,0.22)';
 
+  // ─── Prompts tab visibility: local dev (localhost + not viewAsProd) ───
+  const promptsVisible = useMemo(() => checkIsLocalDev(), []);
+  const isDevMode = promptsVisible;
+  const loadBannerTone = isDarkMode ? 'rgba(135,243,243,0.1)' : 'rgba(54,144,206,0.08)';
+  const loadBannerBorder = isDarkMode ? 'rgba(135,243,243,0.28)' : 'rgba(54,144,206,0.2)';
+  const loadBannerText = isDarkMode ? colours.accent : colours.helixBlue;
+  const hasStoredLoad = Boolean(loadInfo?.hasStoredDraft || loadInfo?.hasStoredVersion);
+  const loadSourceLabel = loadInfo?.source === 'db'
+    ? 'database'
+    : loadInfo?.source === 'file-cache'
+      ? 'saved cache'
+      : loadInfo?.source === 'json-file'
+        ? 'saved file'
+        : 'stored draft';
+  const storedVersionLabel = loadInfo?.version ? `Version ${loadInfo.version}` : 'Stored draft';
+  const storedTimestamp = loadInfo?.finalizedAt || loadInfo?.createdAt || null;
+  const storedTimestampLabel = storedTimestamp
+    ? new Date(storedTimestamp).toLocaleString('en-GB', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : null;
+  const loadBannerMessage = draftLoaded && hasStoredLoad
+    ? `${storedVersionLabel} restored${storedTimestampLabel ? ` · saved ${storedTimestampLabel}` : ''}.`
+    : null;
+  const [loadNoticeMode, setLoadNoticeMode] = useState<'hidden' | 'restored'>('hidden');
+  const [loadNoticeVisible, setLoadNoticeVisible] = useState(false);
+  const [loadNoticeClosing, setLoadNoticeClosing] = useState(false);
+  const loadNoticeTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const SIDEBAR_COLLAPSE_BREAKPOINT = 1680;
+
   // ─── Sidebar/editing state (hoisted so parsedSections can reference them) ───
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [sidebarTab, setSidebarTab] = useState<'sections' | 'fields' | 'presets'>('fields');
-  const [showAiDetails, setShowAiDetails] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [viewportWidth, setViewportWidth] = useState<number>(() => (typeof window !== 'undefined' ? window.innerWidth : SIDEBAR_COLLAPSE_BREAKPOINT));
+  const [sidebarAutoCollapsed, setSidebarAutoCollapsed] = useState(false);
+  const [promptLayout, setPromptLayout] = useState<'inline' | 'stacked'>('inline');
+  const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
   const [editingField, setEditingField] = useState<string | null>(null);
   const [highlightedField, setHighlightedField] = useState<string | null>(null);
+  const [hoveredField, setHoveredField] = useState<string | null>(null);
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [showTraceModal, setShowTraceModal] = useState(false);
-  const [traceTab, setTraceTab] = useState<'overview' | 'data' | 'system' | 'prompt' | 'output'>('overview');
+  const paperScrollRef = useRef<HTMLDivElement | null>(null);
+  const sidebarContentRef = useRef<HTMLDivElement | null>(null);
+  const [fieldPositions, setFieldPositions] = useState<Record<string, number>>({});
+  const [promptCardHeights, setPromptCardHeights] = useState<Record<string, number>>({});
+  const scrollSyncLock = useRef(false);
+  const [showUserPrompt, setShowUserPrompt] = useState(false);
+  const [showOtherDocumentFields, setShowOtherDocumentFields] = useState(false);
+  const previousAutoCollapseRef = useRef<boolean | null>(null);
 
   // ─── Support Report & Integration state ───
   const [showSupportModal, setShowSupportModal] = useState(false);
@@ -456,13 +540,11 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
   const [showUploadMenu, setShowUploadMenu] = useState(false);
   const uploadMenuRef = useRef<HTMLDivElement | null>(null);
   const [showClioConfirm, setShowClioConfirm] = useState(false);
+  const shouldAutoCollapseSidebar = viewportWidth < SIDEBAR_COLLAPSE_BREAKPOINT;
+  const sidebarToggleLabel = sidebarOpen ? 'Hide review panel' : 'Show review panel';
+  const sidebarStatusLabel = sidebarOpen ? 'Review panel open' : shouldAutoCollapseSidebar ? 'Review panel auto-collapsed for space' : 'Review panel hidden';
 
-  useEffect(() => {
-    if (documentMode === 'preview') {
-      setEditingField(null);
-      setSidebarOpen(false);
-    }
-  }, [documentMode]);
+  // documentMode is always 'edit' — preview/edit toggle removed
 
   // ─── Handlers: support report, integration check, uploads ───
   const matterId = matter.matterId || matter.displayNumber || '';
@@ -509,6 +591,66 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
     return () => document.removeEventListener('mousedown', handler);
   }, [showUploadMenu]);
 
+  const clearLoadNoticeTimers = useCallback(() => {
+    loadNoticeTimersRef.current.forEach(timer => clearTimeout(timer));
+    loadNoticeTimersRef.current = [];
+  }, []);
+
+  useEffect(() => {
+    clearLoadNoticeTimers();
+    setLoadNoticeClosing(false);
+
+    if (hasStoredLoad && loadBannerMessage) {
+      setLoadNoticeMode('restored');
+      setLoadNoticeVisible(true);
+      loadNoticeTimersRef.current.push(setTimeout(() => setLoadNoticeClosing(true), 3200));
+      loadNoticeTimersRef.current.push(setTimeout(() => {
+        setLoadNoticeVisible(false);
+        setLoadNoticeClosing(false);
+        setLoadNoticeMode('hidden');
+      }, 3600));
+      return;
+    }
+
+    setLoadNoticeVisible(false);
+    setLoadNoticeMode('hidden');
+  }, [draftLoaded, hasStoredLoad, loadBannerMessage, clearLoadNoticeTimers, matter.displayNumber, matter.matterId]);
+
+  useEffect(() => () => clearLoadNoticeTimers(), [clearLoadNoticeTimers]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleResize = () => setViewportWidth(window.innerWidth);
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  useEffect(() => {
+    const previous = previousAutoCollapseRef.current;
+
+    if (previous === null) {
+      if (shouldAutoCollapseSidebar) {
+        setSidebarOpen(false);
+        setSidebarAutoCollapsed(true);
+      }
+      previousAutoCollapseRef.current = shouldAutoCollapseSidebar;
+      return;
+    }
+
+    if (!previous && shouldAutoCollapseSidebar) {
+      setSidebarOpen(false);
+      setSidebarAutoCollapsed(true);
+    }
+
+    if (previous && !shouldAutoCollapseSidebar && sidebarAutoCollapsed) {
+      setSidebarOpen(true);
+      setSidebarAutoCollapsed(false);
+    }
+
+    previousAutoCollapseRef.current = shouldAutoCollapseSidebar;
+  }, [shouldAutoCollapseSidebar, sidebarAutoCollapsed]);
+
   const handleSubmitSupportTicket = useCallback(async (ticket: CclSupportTicket) => {
     setSupportSubmitting(true);
     try {
@@ -549,6 +691,16 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
         initials: userInitials,
         fields,
       });
+      if (!result.ok && result.unresolvedPlaceholders && result.unresolvedPlaceholders.length > 0) {
+        setStatus({
+          type: 'error',
+          message: `Upload blocked until fields are completed: ${result.unresolvedPlaceholders.slice(0, 5).join(', ')}${result.unresolvedPlaceholders.length > 5 ? '…' : ''}`,
+        });
+        setDocumentMode('edit');
+        setSidebarOpen(true);
+        return;
+      }
+
       setStatus(result.ok
         ? { type: 'success', message: isDemoMatter ? 'Uploaded to Clio (HELIX01-01)' : 'Uploaded to Clio matter' }
         : { type: 'error', message: result.error || 'Clio upload failed' });
@@ -578,32 +730,186 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
     'insert_clients_name', 'name_of_person_handling_matter', 'name_of_handler',
     'handler', 'email', 'fee_earner_email', 'fee_earner_phone',
     'fee_earner_postal_address', 'name', 'status', 'handler_hourly_rate',
+    'figure', 'state_amount',
     'contact_details_for_marketing_opt_out', 'matter', 'matter_number',
     'insert_heading_eg_matter_description', 'costs_other_party_paragraph',
     'identify_the_other_party_eg_your_opponents',
     'names_and_contact_details_of_other_members_of_staff_who_can_help_with_queries',
+    'and_or_intervals_eg_every_three_months',
+    'explain_the_nature_of_your_arrangement_with_any_introducer_for_link_to_sample_wording_see_drafting_note_referral_and_fee_sharing_arrangement',
+    'instructions_link',
   ]), []);
 
+  const hasTemplateMarkers = useCallback((value: string) => /\{\{[^}]+\}\}|\[[^\]]+\]/.test(value), []);
+
   const fieldProvenance = useMemo(() => {
-    const result: Record<string, 'ai' | 'auto-fill' | 'user' | 'default' | 'empty'> = {};
+    const result: Record<string, 'ai' | 'auto-fill' | 'user' | 'default' | 'scaffold' | 'empty'> = {};
     for (const key of Object.keys(fields)) {
-      const val = (fields[key] || '').trim();
+      const val = String(fields[key] || '').trim();
       if (!val) { result[key] = 'empty'; continue; }
       if (userEditedKeys?.has(key)) { result[key] = 'user'; continue; }
-      if (aiStatus === 'complete' && !AUTO_FILL_KEYS.has(key)) { result[key] = 'ai'; continue; }
+      if (aiGeneratedKeys?.has(key)) { result[key] = 'ai'; continue; }
       if (AUTO_FILL_KEYS.has(key)) { result[key] = 'auto-fill'; continue; }
+      if (hasTemplateMarkers(val)) { result[key] = 'scaffold'; continue; }
       result[key] = 'default';
     }
     return result;
-  }, [fields, aiStatus, AUTO_FILL_KEYS, userEditedKeys]);
+  }, [fields, AUTO_FILL_KEYS, userEditedKeys, aiGeneratedKeys, hasTemplateMarkers]);
 
   const provColours = useMemo(() => ({
-    ai: { border: accentBlue, bg: isDarkMode ? 'rgba(54,144,206,0.06)' : 'rgba(54,144,206,0.04)', bgHover: isDarkMode ? 'rgba(54,144,206,0.12)' : 'rgba(54,144,206,0.08)' },
-    'auto-fill': { border: accentBlue, bg: isDarkMode ? 'rgba(54,144,206,0.06)' : 'rgba(54,144,206,0.04)', bgHover: isDarkMode ? 'rgba(54,144,206,0.12)' : 'rgba(54,144,206,0.08)' },
-    empty: { border: isDarkMode ? 'rgba(234,179,8,0.5)' : 'rgba(234,179,8,0.6)', bg: isDarkMode ? 'rgba(234,179,8,0.04)' : 'rgba(234,179,8,0.03)', bgHover: isDarkMode ? 'rgba(234,179,8,0.1)' : 'rgba(234,179,8,0.08)' },
-    default: { border: isDarkMode ? 'rgba(148,163,184,0.3)' : 'rgba(148,163,184,0.25)', bg: 'transparent', bgHover: isDarkMode ? 'rgba(148,163,184,0.08)' : 'rgba(148,163,184,0.05)' },
+    ai: { border: accentBlue, bg: isDarkMode ? 'rgba(54,144,206,0.10)' : 'rgba(54,144,206,0.08)', bgHover: isDarkMode ? 'rgba(54,144,206,0.18)' : 'rgba(54,144,206,0.12)' },
+    'auto-fill': { border: colours.green, bg: isDarkMode ? 'rgba(32,178,108,0.08)' : 'rgba(32,178,108,0.05)', bgHover: isDarkMode ? 'rgba(32,178,108,0.14)' : 'rgba(32,178,108,0.09)' },
+    empty: { border: isDarkMode ? 'rgba(214,85,65,0.6)' : 'rgba(214,85,65,0.7)', bg: isDarkMode ? 'rgba(214,85,65,0.05)' : 'rgba(214,85,65,0.03)', bgHover: isDarkMode ? 'rgba(214,85,65,0.1)' : 'rgba(214,85,65,0.08)' },
+    default: { border: isDarkMode ? 'rgba(148,163,184,0.45)' : 'rgba(100,116,139,0.35)', bg: isDarkMode ? 'rgba(148,163,184,0.05)' : 'rgba(148,163,184,0.04)', bgHover: isDarkMode ? 'rgba(148,163,184,0.10)' : 'rgba(148,163,184,0.08)' },
+    scaffold: { border: isDarkMode ? 'rgba(250,204,21,0.65)' : 'rgba(202,138,4,0.7)', bg: isDarkMode ? 'rgba(250,204,21,0.06)' : 'rgba(250,204,21,0.08)', bgHover: isDarkMode ? 'rgba(250,204,21,0.11)' : 'rgba(250,204,21,0.12)' },
     user: { border: isDarkMode ? colours.blue : colours.missedBlue, bg: isDarkMode ? 'rgba(54,144,206,0.06)' : 'rgba(13,47,96,0.04)', bgHover: isDarkMode ? 'rgba(54,144,206,0.12)' : 'rgba(13,47,96,0.08)' },
   }), [isDarkMode, accentBlue]);
+
+  // ─── Pressure Test state ───
+  const [ptResult, setPtResult] = useState<PressureTestResponse | null>(null);
+  const [ptRunning, setPtRunning] = useState(false);
+  const [ptError, setPtError] = useState<string | null>(null);
+  const [ptSteps, setPtSteps] = useState<{ label: string; status: 'pending' | 'active' | 'done' | 'error'; startMs?: number; durationMs?: number }[]>([]);
+  const [ptElapsed, setPtElapsed] = useState(0);
+  const ptTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [workflowModalStage, setWorkflowModalStage] = useState<'hidden' | 'generating' | 'safety-net' | 'review-ready'>('hidden');
+  const [workflowModalClosing, setWorkflowModalClosing] = useState(false);
+  const workflowTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const prevPtResultRef = useRef<PressureTestResponse | null>(null);
+  const [reviewCascadeKey, setReviewCascadeKey] = useState(0);
+
+  const clearWorkflowTimers = useCallback(() => {
+    workflowTimersRef.current.forEach(timer => clearTimeout(timer));
+    workflowTimersRef.current = [];
+  }, []);
+
+  const runPressureTest = useCallback(async () => {
+    if (ptRunning) return;
+    const matterId = matter.matterId || matter.displayNumber;
+    if (!matterId || Object.keys(fields).length === 0) return;
+
+    setPtRunning(true);
+    setPtError(null);
+    setPtResult(null);
+    const startMs = Date.now();
+    setPtElapsed(0);
+
+    // Define processing steps
+    const steps = [
+      { label: 'Starting Safety Net review', status: 'active' as const },
+      { label: 'Gathering evidence (emails, calls, documents)', status: 'pending' as const },
+      { label: 'AI scoring fields against evidence', status: 'pending' as const },
+      { label: 'Compiling results', status: 'pending' as const },
+    ];
+    setPtSteps([...steps]);
+
+    // Start elapsed timer
+    if (ptTimerRef.current) clearInterval(ptTimerRef.current);
+    ptTimerRef.current = setInterval(() => setPtElapsed(Date.now() - startMs), 200);
+
+    // Simulate phase transitions (the server does all phases in one call,
+    // so we advance the visual steps on timers to show progress)
+    const phaseTimers = [
+      setTimeout(() => setPtSteps(prev => prev.map((s, i) =>
+        i === 0 ? { ...s, status: 'done', durationMs: Date.now() - startMs } :
+        i === 1 ? { ...s, status: 'active', startMs: Date.now() } : s
+      )), 800),
+      setTimeout(() => setPtSteps(prev => prev.map((s, i) =>
+        i === 1 ? { ...s, status: 'done', durationMs: Date.now() - startMs } :
+        i === 2 ? { ...s, status: 'active', startMs: Date.now() } : s
+      )), 4000),
+    ];
+
+    try {
+      const result = await fetchPressureTest({
+        matterId,
+        instructionRef: matter.instructionRef || '',
+        generatedFields: fields,
+        practiceArea: matter.practiceArea || '',
+        clientName: matter.clientName || '',
+      });
+      phaseTimers.forEach(clearTimeout);
+      const totalMs = Date.now() - startMs;
+      setPtSteps(prev => prev.map(s => ({ ...s, status: 'done' as const, durationMs: totalMs })));
+      setPtResult(result);
+    } catch (err: any) {
+      phaseTimers.forEach(clearTimeout);
+      console.error('[CCL] Pressure test failed:', err);
+      setPtError(err?.message || 'Safety Net Pressure Test failed — check server logs');
+      setPtSteps(prev => prev.map(s =>
+        s.status === 'active' ? { ...s, status: 'error' as const } :
+        s.status === 'pending' ? { ...s, status: 'error' as const } : s
+      ));
+    } finally {
+      if (ptTimerRef.current) { clearInterval(ptTimerRef.current); ptTimerRef.current = null; }
+      setPtRunning(false);
+    }
+  }, [ptRunning, matter, fields]);
+
+  // Auto-run pressure test when AI fill completes
+  const prevAiStatus = useRef(aiStatus);
+  useEffect(() => {
+    if (prevAiStatus.current !== 'complete' && aiStatus === 'complete' && !ptRunning && !ptResult) {
+      runPressureTest();
+    }
+    prevAiStatus.current = aiStatus;
+  }, [aiStatus, ptRunning, ptResult, runPressureTest]);
+
+  useEffect(() => {
+    if (aiStatus === 'loading') {
+      clearWorkflowTimers();
+      setWorkflowModalClosing(false);
+      setWorkflowModalStage('generating');
+      return;
+    }
+
+    if (ptRunning) {
+      clearWorkflowTimers();
+      setWorkflowModalClosing(false);
+      setWorkflowModalStage('safety-net');
+      return;
+    }
+
+    if (workflowModalStage !== 'review-ready') {
+      setWorkflowModalStage('hidden');
+      setWorkflowModalClosing(false);
+    }
+  }, [aiStatus, ptRunning, workflowModalStage, clearWorkflowTimers]);
+
+  useEffect(() => {
+    const previousResult = prevPtResultRef.current;
+
+    if (ptResult && ptResult !== previousResult) {
+      clearWorkflowTimers();
+      setWorkflowModalClosing(false);
+      setWorkflowModalStage('review-ready');
+      setSidebarOpen(true);
+      setSidebarAutoCollapsed(false);
+      setReviewCascadeKey(prev => prev + 1);
+      workflowTimersRef.current.push(setTimeout(() => setWorkflowModalClosing(true), 1100));
+      workflowTimersRef.current.push(setTimeout(() => {
+        setWorkflowModalStage('hidden');
+        setWorkflowModalClosing(false);
+      }, 1500));
+    }
+
+    prevPtResultRef.current = ptResult;
+  }, [ptResult, clearWorkflowTimers]);
+
+  useEffect(() => () => clearWorkflowTimers(), [clearWorkflowTimers]);
+
+  const ptSummary = useMemo(() => {
+    if (!ptResult) return null;
+    const scores = Object.values(ptResult.fieldScores);
+    const avg = scores.length > 0 ? scores.reduce((sum, s) => sum + s.score, 0) / scores.length : 0;
+    return {
+      average: Math.round(avg * 10) / 10,
+      flaggedCount: ptResult.flaggedCount,
+      reviewedFields: scores.length,
+    };
+  }, [ptResult]);
+
+  const workflowModalActive = workflowModalStage !== 'hidden';
 
   // Use template with placeholders for the A4 surface (inline-editable fields).
   // Fall back to fully-substituted content if templateContent not provided.
@@ -618,19 +924,69 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
     return map;
   }, []);
 
+  const fieldPromptByKey = FIELD_PROMPT_MAP;
+
+  const getEmptyFieldLabel = useCallback((fieldKey: string) => {
+    const documentRequestKeys = [
+      'describe_first_document_or_information_you_need_from_your_client',
+      'describe_second_document_or_information_you_need_from_your_client',
+      'describe_third_document_or_information_you_need_from_your_client',
+    ];
+    if (fieldKey === documentRequestKeys[0]) {
+      return 'Documents / information needed from client (up to 3 items)';
+    }
+    if (documentRequestKeys.includes(fieldKey)) {
+      return '';
+    }
+    if (fieldPromptByKey[fieldKey]?.label) return fieldPromptByKey[fieldKey].label;
+    if (fieldLabelMap[fieldKey]) return fieldLabelMap[fieldKey];
+    return fieldKey
+      .replace(/^insert_/, '')
+      .replace(/^describe_/, '')
+      .replace(/^state_/, '')
+      .replace(/_eg_.+$/, '')
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, c => c.toUpperCase());
+  }, [fieldPromptByKey, fieldLabelMap]);
+
+  /** Convert plain-text URLs, emails, and phone numbers into clickable <a> elements */
+  const linkifyText = useCallback((segment: string, keyBase: string): React.ReactNode => {
+    const linkRe = /(https?:\/\/[^\s,)]+)|(\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b)|(\b0\d{4}\s?\d{3}\s?\d{3}\b)/g;
+    if (!linkRe.test(segment)) return segment;
+    linkRe.lastIndex = 0;
+    const nodes: React.ReactNode[] = [];
+    let last = 0;
+    let m: RegExpExecArray | null;
+    let idx = 0;
+    while ((m = linkRe.exec(segment)) !== null) {
+      if (m.index > last) nodes.push(segment.slice(last, m.index));
+      const matched = m[0];
+      const href = m[1] ? matched : m[2] ? `mailto:${matched}` : `tel:${matched.replace(/\s/g, '')}`;
+      nodes.push(
+        <a key={`${keyBase}-link-${idx}`} href={href} target="_blank" rel="noopener noreferrer" style={{ color: colours.highlight, textDecoration: 'underline' }}>
+          {matched}
+        </a>
+      );
+      last = m.index + matched.length;
+      idx++;
+    }
+    if (last < segment.length) nodes.push(segment.slice(last));
+    return nodes.length === 1 ? nodes[0] : <>{nodes}</>;
+  }, []);
+
   /** Turn a text fragment that may contain {{field_key}} placeholders into React nodes
    *  with inline-editable, provenance-coloured spans */
-  const renderWithFields = useCallback((text: string, keyPrefix: string): React.ReactNode => {
+  const renderWithFields = useCallback((rawText: string, keyPrefix: string): React.ReactNode => {
     const placeholderRe = /\{\{([^}]+)\}\}/g;
-    if (!placeholderRe.test(text)) return text;
+    if (!placeholderRe.test(rawText)) return linkifyText(rawText, keyPrefix);
     placeholderRe.lastIndex = 0;
     const parts: React.ReactNode[] = [];
     let lastIndex = 0;
     let match: RegExpExecArray | null;
     let partIdx = 0;
-    while ((match = placeholderRe.exec(text)) !== null) {
+    while ((match = placeholderRe.exec(rawText)) !== null) {
       if (match.index > lastIndex) {
-        parts.push(text.slice(lastIndex, match.index));
+        parts.push(linkifyText(rawText.slice(lastIndex, match.index), `${keyPrefix}-txt-${partIdx}`));
       }
       const fk = match[1];
       const val = fields[fk] || '';
@@ -638,6 +994,7 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
       const pc = provColours[prov] || provColours.default;
       const canEdit = documentMode === 'edit' && typeof updateField === 'function';
       const isEditing = canEdit && editingField === fk;
+      const isLinkedHighlight = highlightedField === fk || hoveredField === fk;
 
       if (isEditing) {
         // Inline textarea on the document surface — wraps naturally like a real document
@@ -671,30 +1028,69 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
           />
         );
       } else {
-        // Final-document preview: render clean text without provenance chrome.
-        // Click still enters edit mode for the field.
+        // Final-document preview — subtle provenance indicators so users can
+        // see which fields were AI-generated vs user-edited vs empty.
+        const showProv = prov !== 'empty';
+        const isAiField = prov === 'ai';
+        const isScaffoldField = prov === 'scaffold';
+        const isEmptyField = prov === 'empty';
+        const emptyLabel = getEmptyFieldLabel(fk);
+        const shouldRenderEmptyPrompt = isEmptyField && !!emptyLabel;
         parts.push(
           <span
             key={`${keyPrefix}-${fk}-${partIdx}`}
             data-ccl-field={fk}
+            data-prov={prov}
             onClick={canEdit ? () => setEditingField(fk) : undefined}
-            title={canEdit ? 'Click to edit' : undefined}
+            onMouseEnter={() => setHoveredField(fk)}
+            onMouseLeave={() => setHoveredField(prev => (prev === fk ? null : prev))}
+            title={canEdit ? `Click to edit (${prov === 'ai' ? 'AI-generated' : prov === 'auto-fill' ? 'Mail-merge field' : prov === 'scaffold' ? 'Template scaffold' : prov === 'user' ? 'User-edited' : prov === 'default' ? 'Default copy' : prov})` : prov !== 'empty' ? prov : undefined}
             style={{
               cursor: canEdit ? 'text' : 'inherit',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+              overflowWrap: 'anywhere',
+              maxWidth: '100%',
+              boxShadow: isLinkedHighlight
+                ? `0 0 0 2px ${isDarkMode ? 'rgba(135,243,243,0.22)' : 'rgba(54,144,206,0.18)'}`
+                : undefined,
+              ...(shouldRenderEmptyPrompt ? {
+                display: 'inline-block',
+                padding: '1px 4px',
+                borderRadius: 2,
+                borderBottom: `1px dashed ${isDarkMode ? 'rgba(214,85,65,0.6)' : 'rgba(214,85,65,0.45)'}`,
+                background: isDarkMode ? 'rgba(214,85,65,0.08)' : 'rgba(214,85,65,0.05)',
+                color: isDarkMode ? '#f0a090' : colours.cta,
+                fontSize: '0.92em',
+                fontStyle: 'italic',
+              } : {}),
+              ...(showProv ? {
+                borderBottom: `1.5px solid ${pc.border}`,
+                background: isAiField ? (isDarkMode ? 'rgba(54,144,206,0.10)' : 'rgba(54,144,206,0.07)') : pc.bg,
+                borderRadius: 2,
+                paddingBottom: 1,
+                ...(isAiField ? {
+                  padding: '1px 3px',
+                  borderLeft: `2px solid ${isDarkMode ? colours.accent : colours.highlight}`,
+                } : isScaffoldField ? {
+                  padding: '1px 3px',
+                  borderLeft: `2px dashed ${pc.border}`,
+                } : {}),
+              } : {}),
             }}
           >
-            {val}
+            {val || (shouldRenderEmptyPrompt ? `[${emptyLabel}]` : '')}
           </span>
         );
       }
       lastIndex = match.index + match[0].length;
       partIdx++;
     }
-    if (lastIndex < text.length) {
-      parts.push(text.slice(lastIndex));
+    if (lastIndex < rawText.length) {
+      parts.push(linkifyText(rawText.slice(lastIndex), `${keyPrefix}-tail`));
     }
     return <>{parts}</>;
-  }, [fields, fieldProvenance, provColours, editingField, updateField, documentMode]);
+  }, [fields, fieldProvenance, provColours, editingField, updateField, documentMode, linkifyText, getEmptyFieldLabel, isDarkMode, highlightedField, hoveredField]);
 
   /** Parse template text into grouped sections for collapsible rendering */
   const parsedSections = useMemo((): PreviewSection[] => {
@@ -706,7 +1102,7 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
 
     // Patterns
     const sectionRe = /^(\d+(?:\.\d+)?)\s+(.+)$/;
-    const bulletRe = /^[—–-]\s*(.+)$/;
+    const bulletRe = /^[—–\-•*]\s*(.+)$/;
     const checkboxRe = /^☐\s*(.+)$/;
     const tableRowRe = /^.+\|.+$/;
 
@@ -965,6 +1361,73 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
         i++;
       }
       if (paraLines.length > 0) {
+        // Check if any resolved paragraph lines start with bullet markers (•, *, -)
+        // This catches AI-filled fields like {{describe_first_document...}} → "• A copy of..."
+        const resolvedBullets: { lineIdx: number; text: string; key: string }[] = [];
+        const plainParas: { lineIdx: number; text: string }[] = [];
+        const bulletValueRe = /^[•*—–\-]\s+/;
+        for (let li = 0; li < paraLines.length; li++) {
+          const pl = paraLines[li];
+          const phMatch = pl.match(/^\{\{([^}]+)\}\}$/);
+          const resolvedVal = phMatch ? (fields[phMatch[1]] || '').toString().trim() : '';
+          if (phMatch && resolvedVal && bulletValueRe.test(resolvedVal)) {
+            resolvedBullets.push({ lineIdx: li, text: pl, key: phMatch[1] });
+          } else {
+            plainParas.push({ lineIdx: li, text: pl });
+          }
+        }
+
+        if (resolvedBullets.length > 0) {
+          // Render non-bullet lines before the first bullet as a paragraph
+          const firstBulletIdx = resolvedBullets[0].lineIdx;
+          const prefixLines = paraLines.slice(0, firstBulletIdx);
+          if (prefixLines.length > 0) {
+            current.elements.push(
+              <p key={key++} style={{ margin: '0 0 10px 0', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
+                {renderWithFields(prefixLines.join('\n'), `p-${key}`)}
+              </p>
+            );
+          }
+          // Render bullet items as a styled <ul> — same accent-dot style as template bullets
+          current.elements.push(
+            <ul key={key++} style={{
+              margin: '6px 0 10px 8px',
+              paddingLeft: 20,
+              listStyleType: 'none',
+            }}>
+              {resolvedBullets.map((rb, bi) => {
+                // Strip the leading bullet marker from the field value for display
+                const rawVal = (fields[rb.key] || '').toString();
+                const strippedVal = rawVal.replace(/^[•*—–\-]\s+/, '');
+                return (
+                  <li key={bi} style={{
+                    position: 'relative',
+                    paddingLeft: 16,
+                    marginBottom: 5,
+                    lineHeight: 1.7,
+                  }}>
+                    <span style={{
+                      position: 'absolute', left: 0, top: '0.55em',
+                      width: 5, height: 5, borderRadius: '50%',
+                      background: accentBlue, display: 'inline-block',
+                    }} />
+                    {renderWithFields(strippedVal, `bullet-val-${bi}`)}
+                  </li>
+                );
+              })}
+            </ul>
+          );
+          // Render any trailing non-bullet lines as a paragraph
+          const lastBulletIdx = resolvedBullets[resolvedBullets.length - 1].lineIdx;
+          const suffixLines = paraLines.slice(lastBulletIdx + 1);
+          if (suffixLines.length > 0) {
+            current.elements.push(
+              <p key={key++} style={{ margin: '0 0 10px 0', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
+                {renderWithFields(suffixLines.join('\n'), `p-${key}`)}
+              </p>
+            );
+          }
+        } else {
         const paraText = paraLines.join('\n');
         // Check if it's the "Dear..." greeting
         const isGreeting = paraText.startsWith('Dear ');
@@ -981,12 +1444,102 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
             {renderWithFields(paraText, `p-${key}`)}
           </p>
         );
+        }
       }
     }
     // Finalise last section
     if (current.elements.length > 0) sections.push(current);
     return sections;
   }, [documentSource, isDarkMode, headingColor, tableBorder, textMuted, accentBlue, text, renderWithFields, fields]);
+
+  // ─── A4 page break system ─────────────────────────────────────────────────
+  // Each page is rendered as its own 794×1123 card with consistent margins.
+  // Page 1 has letterhead + recipient + headed-paper footer reservation.
+  // Continuation pages have a subtle header. Sections are never split across pages.
+  const A4_WIDTH = 794;
+  const A4_HEIGHT = 1123;
+  const PAGE_MARGIN = 64;          // left + right page margin
+  const PAGE_TOP = 56;             // top padding inside page
+  const PAGE_BOTTOM = 56;          // bottom padding inside page
+  const HEADED_FOOTER_H = 100;     // reserved for headed paper footer on page 1
+  const CONTINUATION_HEADER_H = 32; // "continued" header on pages 2+
+
+  useEffect(() => {
+    // Small delay so DOM has settled after content changes
+    const timer = setTimeout(() => {
+      const heights: Record<string, number> = {};
+      for (const [num, el] of Object.entries(sectionRefs.current)) {
+        if (el) heights[num] = el.offsetHeight;
+      }
+      if (introRef.current) heights['__intro'] = introRef.current.offsetHeight;
+      if (letterheadRef.current) heights['__letterhead'] = letterheadRef.current.offsetHeight;
+      if (recipientRef.current) heights['__recipient'] = recipientRef.current.offsetHeight;
+      setMeasuredSectionHeights(heights);
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [parsedSections, fields]);
+
+  /** Page layout: group sections into pages with measured heights */
+  const pageBreaks = useMemo(() => {
+    const headerH = measuredSectionHeights['__letterhead'] || 160;
+    const recipientH = measuredSectionHeights['__recipient'] || 80;
+    const introH = measuredSectionHeights['__intro'] || 40;
+    const firstPageContent = A4_HEIGHT - PAGE_TOP - PAGE_BOTTOM - headerH - recipientH - introH - HEADED_FOOTER_H;
+    const nextPageContent = A4_HEIGHT - PAGE_TOP - PAGE_BOTTOM - CONTINUATION_HEADER_H;
+
+    const breaks: { beforeSectionNumber: string; pageNumber: number; showHeadedFooter: boolean }[] = [];
+    let cumHeight = 0;
+    let pageNum = 1;
+    let pageMax = firstPageContent;
+    const displaySections = parsedSections.filter(s => s.id !== 'intro');
+
+    for (const section of displaySections) {
+      const h = measuredSectionHeights[section.number] || 80;
+      if (cumHeight + h > pageMax && cumHeight > 0) {
+        breaks.push({
+          beforeSectionNumber: section.number,
+          pageNumber: pageNum + 1,
+          showHeadedFooter: pageNum === 1,
+        });
+        pageNum++;
+        pageMax = nextPageContent;
+        cumHeight = 0;
+      }
+      cumHeight += h;
+    }
+    return breaks;
+  }, [parsedSections, measuredSectionHeights]);
+
+  const pageBreakLookup = useMemo(() => {
+    const map = new Map<string, { pageNumber: number; showHeadedFooter: boolean }>();
+    for (const pb of pageBreaks) map.set(pb.beforeSectionNumber, pb);
+    return map;
+  }, [pageBreaks]);
+
+  const totalPages = pageBreaks.length > 0 ? pageBreaks[pageBreaks.length - 1].pageNumber : 1;
+
+  /** Group sections into per-page arrays for rendering as separate A4 cards */
+  const sectionPages = useMemo(() => {
+    const displaySections = parsedSections.filter(s => s.id !== 'intro');
+    const pages: { pageNumber: number; sections: PreviewSection[] }[] = [];
+    let currentPage: PreviewSection[] = [];
+    let pageNum = 1;
+
+    for (const section of displaySections) {
+      if (pageBreakLookup.has(section.number)) {
+        if (currentPage.length > 0) {
+          pages.push({ pageNumber: pageNum, sections: currentPage });
+        }
+        pageNum = pageBreakLookup.get(section.number)!.pageNumber;
+        currentPage = [];
+      }
+      currentPage.push(section);
+    }
+    if (currentPage.length > 0) {
+      pages.push({ pageNumber: pageNum, sections: currentPage });
+    }
+    return pages;
+  }, [parsedSections, pageBreakLookup]);
 
   const handlePrintPdf = useCallback(() => {
     const printWindow = window.open('', '_blank', 'width=800,height=1000');
@@ -1000,7 +1553,7 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
     let htmlBody = '';
     let idx = 0;
     const sectionRe = /^(\d+(?:\.\d+)?)\s+(.+)$/;
-    const bulletRe = /^[—–-]\s*(.+)$/;
+    const bulletRe = /^[—–\-•*]\s*(.+)$/;
     const checkboxRe = /^☐\s*(.+)$/;
     const tableRowRe = /^.+\|.+$/;
     const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -1187,7 +1740,6 @@ ${htmlBody}
   const openFieldEditor = useCallback((fieldKey: string) => {
     setDocumentMode('edit');
     setSidebarOpen(true);
-    setSidebarTab('fields');
     // Highlight animation
     if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
     setHighlightedField(fieldKey);
@@ -1216,6 +1768,167 @@ ${htmlBody}
     actions: ['18'],
   }), []);
 
+  const PROMPT_GROUPS = useMemo(() => ([
+    {
+      leadKey: 'next_steps',
+      label: 'Next Steps & Timescale',
+      memberKeys: ['next_steps', 'realistic_timescale'],
+      typeText: 'Grouped Prompt',
+    },
+    {
+      leadKey: 'handler_hourly_rate',
+      label: 'Charges & Hourly Rate',
+      memberKeys: ['handler_hourly_rate', 'charges_estimate_paragraph'],
+      typeText: 'Grouped Prompt',
+    },
+    {
+      leadKey: 'costs_other_party_paragraph',
+      label: 'Other Party Costs Risk',
+      memberKeys: ['costs_other_party_paragraph', 'identify_the_other_party_eg_your_opponents'],
+      typeText: 'Grouped Prompt',
+    },
+    {
+      leadKey: 'insert_next_step_you_would_like_client_to_take',
+      label: 'Action Points',
+      memberKeys: [
+        'insert_next_step_you_would_like_client_to_take',
+        'state_why_this_step_is_important',
+        'state_amount',
+        'insert_consequence',
+        'describe_first_document_or_information_you_need_from_your_client',
+        'describe_second_document_or_information_you_need_from_your_client',
+        'describe_third_document_or_information_you_need_from_your_client',
+      ],
+      typeText: 'Grouped Prompt',
+    },
+  ]), []);
+
+  const promptGroupByKey = useMemo(() => {
+    const map: Record<string, { leadKey: string; label: string; memberKeys: string[]; typeText: string }> = {};
+    PROMPT_GROUPS.forEach(group => {
+      group.memberKeys.forEach(key => {
+        map[key] = group;
+      });
+    });
+    return map;
+  }, [PROMPT_GROUPS]);
+
+  const promptReviewCardCount = useMemo(() => {
+    const cardKeys = new Set(FIELD_PROMPTS.map(fp => promptGroupByKey[fp.key]?.leadKey || fp.key));
+    return cardKeys.size;
+  }, [promptGroupByKey]);
+
+  const otherDocumentFields = useMemo(() => (
+    CCL_SECTIONS
+      .flatMap(section => section.fields)
+      .filter(field => !FIELD_PROMPT_MAP[field.key])
+      .map(field => field.label)
+  ), []);
+
+  const GROUPED_INLINE_SECTIONS = useMemo(() => new Set(['18']), []);
+
+  const groupedInlineSectionAnchors = useMemo(() => {
+    const anchors: Record<string, number> = {};
+    FIELD_PROMPTS.forEach(fp => {
+      if (!GROUPED_INLINE_SECTIONS.has(fp.section)) return;
+      const y = fieldPositions[fp.key];
+      if (y == null) return;
+      anchors[fp.section] = anchors[fp.section] == null ? y : Math.min(anchors[fp.section], y);
+    });
+    return anchors;
+  }, [fieldPositions, GROUPED_INLINE_SECTIONS]);
+
+  // ─── Measure field positions in the A4 paper for prompt card alignment ───
+  const measureFieldPositions = useCallback(() => {
+    const paperEl = paperScrollRef.current;
+    if (!paperEl) return;
+    const positions: Record<string, number> = {};
+    // Measure each data-ccl-field span position relative to the paper scroll container
+    const fieldEls = paperEl.querySelectorAll('[data-ccl-field]');
+    fieldEls.forEach(el => {
+      const key = el.getAttribute('data-ccl-field');
+      if (key && !positions[key]) {
+        const rect = (el as HTMLElement).getBoundingClientRect();
+        const containerRect = paperEl.getBoundingClientRect();
+        positions[key] = rect.top - containerRect.top + paperEl.scrollTop;
+      }
+    });
+    // Also measure section headings for fields that don't have a direct placeholder
+    const sectionEls = paperEl.querySelectorAll('[data-section-number]');
+    sectionEls.forEach(el => {
+      const sectionNum = el.getAttribute('data-section-number');
+      if (!sectionNum) return;
+      const rect = (el as HTMLElement).getBoundingClientRect();
+      const containerRect = paperEl.getBoundingClientRect();
+      const yPos = rect.top - containerRect.top + paperEl.scrollTop;
+      // Map section numbers to field keys that belong to that section
+      FIELD_PROMPTS.forEach(fp => {
+        if (fp.section === sectionNum && !positions[fp.key]) {
+          positions[fp.key] = yPos;
+        }
+      });
+    });
+    setFieldPositions(positions);
+  }, []);
+
+  // Re-measure positions after render and when fields change
+  useEffect(() => {
+    const timer = setTimeout(measureFieldPositions, 300);
+    return () => clearTimeout(timer);
+  }, [measureFieldPositions, fields, sidebarOpen, promptLayout]);
+
+  useEffect(() => {
+    if (!sidebarOpen) return;
+    const timer = setTimeout(() => {
+      const container = sidebarContentRef.current;
+      if (!container) return;
+      const measured: Record<string, number> = {};
+      container.querySelectorAll('[data-ccl-prompt]').forEach((el) => {
+        const key = (el as HTMLElement).getAttribute('data-ccl-prompt');
+        if (!key) return;
+        measured[key] = Math.ceil((el as HTMLElement).getBoundingClientRect().height);
+      });
+      setPromptCardHeights(prev => {
+        const prevKeys = Object.keys(prev);
+        const nextKeys = Object.keys(measured);
+        if (prevKeys.length === nextKeys.length && nextKeys.every(k => prev[k] === measured[k])) {
+          return prev;
+        }
+        return measured;
+      });
+    }, 40);
+    return () => clearTimeout(timer);
+  }, [sidebarOpen, promptLayout, fieldPositions, expandedCards, fields, aiStatus, aiLoadingKeys]);
+
+  // ─── Scroll sync: paper ↔ sidebar (prompts tab only) ───
+  useEffect(() => {
+    const paperEl = paperScrollRef.current;
+    const sidebarEl = sidebarContentRef.current;
+    if (!paperEl || !sidebarEl || !sidebarOpen) return;
+
+    const syncPaperToSidebar = () => {
+      if (scrollSyncLock.current) return;
+      scrollSyncLock.current = true;
+      const ratio = paperEl.scrollTop / (paperEl.scrollHeight - paperEl.clientHeight || 1);
+      sidebarEl.scrollTop = ratio * (sidebarEl.scrollHeight - sidebarEl.clientHeight);
+      requestAnimationFrame(() => { scrollSyncLock.current = false; });
+    };
+    const syncSidebarToPaper = () => {
+      if (scrollSyncLock.current) return;
+      scrollSyncLock.current = true;
+      const ratio = sidebarEl.scrollTop / (sidebarEl.scrollHeight - sidebarEl.clientHeight || 1);
+      paperEl.scrollTop = ratio * (paperEl.scrollHeight - paperEl.clientHeight);
+      requestAnimationFrame(() => { scrollSyncLock.current = false; });
+    };
+
+    paperEl.addEventListener('scroll', syncPaperToSidebar, { passive: true });
+    sidebarEl.addEventListener('scroll', syncSidebarToPaper, { passive: true });
+    return () => {
+      paperEl.removeEventListener('scroll', syncPaperToSidebar);
+      sidebarEl.removeEventListener('scroll', syncSidebarToPaper);
+    };
+  }, [sidebarOpen]);
+
   // Sync: when editing a field on the A4 surface AND sidebar is open, highlight in sidebar
   useEffect(() => {
     if (editingField && sidebarOpen) {
@@ -1223,8 +1936,12 @@ ${htmlBody}
       setHighlightedField(editingField);
       highlightTimerRef.current = setTimeout(() => setHighlightedField(null), 1500);
       setTimeout(() => {
-        const el = document.querySelector(`[data-ccl-qf="${editingField}"]`) as HTMLElement | null;
-        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // Scroll in Quick Edit tab
+        const qfEl = document.querySelector(`[data-ccl-qf="${editingField}"]`) as HTMLElement | null;
+        if (qfEl) qfEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // Scroll in Prompts tab
+        const promptEl = document.querySelector(`[data-ccl-prompt="${editingField}"]`) as HTMLElement | null;
+        if (promptEl) promptEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }, 50);
     }
   }, [editingField, sidebarOpen]);
@@ -1364,88 +2081,10 @@ ${htmlBody}
     { key: 'insert_current_position_and_scope_of_retainer', label: 'Scope of Work', type: 'textarea' },
     { key: 'next_steps', label: 'Next Steps', type: 'textarea' },
     { key: 'realistic_timescale', label: 'Timescale', type: 'text' },
-    { key: 'identify_the_other_party_eg_your_opponents', label: 'Opposing Party', type: 'text' },
+    { key: 'identify_the_other_party_eg_your_opponents', label: 'Other Party Name', type: 'text' },
     { key: 'disbursements_paragraph', label: 'Disbursements', type: 'textarea' },
     { key: 'costs_other_party_paragraph', label: 'Costs (Other Party)', type: 'textarea' },
   ], []);
-
-  // Clause presets — pre-written clause variants users can swap in
-  const CLAUSE_PRESETS = useMemo(() => [
-    {
-      id: 'costs_no_estimate',
-      section: '4',
-      label: 'No overall estimate possible',
-      description: 'Use when matter scope is too uncertain to estimate total costs.',
-      fieldKey: 'we_cannot_give_an_estimate_of_our_overall_charges_in_this_matter_because_reason_why_estimate_is_not_possible',
-      value: 'the matter is at an early stage, and the scope of work depends on factors outside our control, including the conduct of the other party.',
-    },
-    {
-      id: 'costs_no_opponent_costs',
-      section: '4',
-      label: 'No opponent cost risk',
-      description: 'Non-contentious matter — no risk of paying other side\'s costs.',
-      fieldKey: 'costs_other_party_paragraph',
-      value: 'We do not expect that you will have to pay another party\'s costs. This only tends to arise in litigation and is therefore not relevant to your matter.',
-    },
-    {
-      id: 'costs_opponent_risk',
-      section: '4',
-      label: 'Opponent cost risk warning',
-      description: 'Litigation — client may have to pay other party\'s costs.',
-      fieldKey: 'costs_other_party_paragraph',
-      value: 'There is a risk that you may be ordered to pay {opponent}\'s legal costs if you are unsuccessful. We will advise you on costs risks throughout your matter.',
-    },
-    {
-      id: 'billing_monthly',
-      section: '4',
-      label: 'Monthly billing',
-      description: 'Bill monthly instead of the default interval.',
-      fieldKey: 'and_or_intervals_eg_every_three_months',
-      value: 'every month',
-    },
-    {
-      id: 'billing_quarterly',
-      section: '4',
-      label: 'Quarterly billing',
-      description: 'Bill every three months.',
-      fieldKey: 'and_or_intervals_eg_every_three_months',
-      value: 'every three months',
-    },
-    {
-      id: 'billing_stages',
-      section: '4',
-      label: 'Billing at stages',
-      description: 'Bill at completion of each stage of work.',
-      fieldKey: 'and_or_intervals_eg_every_three_months',
-      value: 'at the completion of each stage of your matter',
-    },
-    {
-      id: 'timescale_complex',
-      section: '3',
-      label: 'Complex matter timescale',
-      description: 'Use for matters expected to take 6+ months.',
-      fieldKey: 'realistic_timescale',
-      value: '6-12 months, depending on the complexity and the other party\'s engagement',
-    },
-    {
-      id: 'timescale_quick',
-      section: '3',
-      label: 'Quick turnaround',
-      description: 'Straightforward matter — 2-4 weeks.',
-      fieldKey: 'realistic_timescale',
-      value: '2-4 weeks',
-    },
-  ], []);
-
-  const applyPreset = useCallback((fieldKey: string, value: string) => {
-    if (updateField) {
-      let finalValue = value;
-      if (finalValue.includes('{opponent}')) {
-        finalValue = finalValue.replace('{opponent}', fields.identify_the_other_party_eg_your_opponents || 'the other party');
-      }
-      updateField(fieldKey, finalValue);
-    }
-  }, [updateField, fields]);
 
   // Sidebar section styling helper
   const sidebarSectionStyle = {
@@ -1459,391 +2098,306 @@ ${htmlBody}
   };
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 0, overflow: 'hidden', position: 'relative', fontFamily: "'Raleway', Arial, Helvetica, sans-serif" }}>
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 0, minHeight: 0, overflow: 'hidden', position: 'relative', fontFamily: "'Raleway', Arial, Helvetica, sans-serif" }}>
       {/* Spin animation for AI loading indicator + Raleway import */}
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Raleway:wght@300;400;500;600;700&display=swap');
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 @keyframes cclFadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes cclPulseHighlight { 0% { box-shadow: 0 0 0 0 rgba(54,144,206,0.4); } 50% { box-shadow: 0 0 0 4px rgba(54,144,206,0.15); } 100% { box-shadow: 0 0 0 0 rgba(54,144,206,0); } }`}</style>
+@keyframes cclPulseHighlight { 0% { box-shadow: 0 0 0 0 rgba(54,144,206,0.4); } 50% { box-shadow: 0 0 0 4px rgba(54,144,206,0.15); } 100% { box-shadow: 0 0 0 0 rgba(54,144,206,0); } }
+@keyframes cclShimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+@keyframes cclPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+@keyframes cclNoticeIn { from { opacity: 0; transform: translate(-50%, -12px) scale(0.98); } to { opacity: 1; transform: translate(-50%, 0) scale(1); } }
+@keyframes cclNoticeOut { from { opacity: 1; transform: translate(-50%, 0) scale(1); } to { opacity: 0; transform: translate(-50%, -8px) scale(0.98); } }
+@keyframes cclNoticeProgress { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+@keyframes cclCascadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }`}</style>
 
-      {/* ═══ AI Loading Banner (top of page, not overlay) ═══ */}
-      {aiStatus === 'loading' && (
+      {workflowModalActive && (
         <div style={{
-          display: 'flex', alignItems: 'center', gap: 14,
-          padding: '14px 20px',
-          background: isDarkMode ? 'rgba(54,144,206,0.08)' : 'rgba(54,144,206,0.04)',
-          borderBottom: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.2)' : 'rgba(54,144,206,0.12)'}`,
-          animation: 'cclFadeIn 0.2s ease',
+          position: 'fixed',
+          inset: 0,
+          zIndex: 1250,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: 24,
+          background: isDarkMode ? 'rgba(0, 3, 25, 0.58)' : 'rgba(6, 23, 51, 0.22)',
+          backdropFilter: 'blur(10px)',
+          WebkitBackdropFilter: 'blur(10px)',
         }}>
           <div style={{
-            width: 24, height: 24, borderRadius: '50%', flexShrink: 0,
-            border: `2.5px solid ${isDarkMode ? 'rgba(54,144,206,0.2)' : 'rgba(54,144,206,0.15)'}`,
-            borderTopColor: accentBlue,
-            animation: 'spin 1s linear infinite',
-          }} />
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 700, color: text }}>Generating your Client Care Letter</div>
-            <div style={{ fontSize: 10, color: textMuted, lineHeight: 1.4, marginTop: 2 }}>
-              Analysing matter context, pitch emails, call notes and deal data to create a tailored letter...
+            width: 'min(620px, calc(100vw - 32px))',
+            borderRadius: 4,
+            overflow: 'hidden',
+            border: `1px solid ${workflowModalStage === 'review-ready' ? loadBannerBorder : cardBorder}`,
+            background: isDarkMode ? 'rgba(8, 28, 48, 0.98)' : 'rgba(255, 255, 255, 0.98)',
+            boxShadow: isDarkMode ? '0 24px 64px rgba(0,0,0,0.5)' : '0 24px 64px rgba(6,23,51,0.2)',
+            animation: `${workflowModalClosing ? 'cclNoticeOut' : 'cclNoticeIn'} ${workflowModalClosing ? '0.3s' : '0.24s'} ease forwards`,
+          }}>
+            <div style={{ padding: '18px 20px 16px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+                <div style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 999,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                  background: workflowModalStage === 'review-ready'
+                    ? loadBannerTone
+                    : (isDarkMode ? 'rgba(54,144,206,0.12)' : 'rgba(54,144,206,0.08)'),
+                }}>
+                  {workflowModalStage === 'review-ready'
+                    ? <Icon iconName="SkypeCircleCheck" styles={{ root: { fontSize: 16, color: colours.green } }} />
+                    : <Spinner size={SpinnerSize.small} />}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: '0.05em',
+                    textTransform: 'uppercase',
+                    color: workflowModalStage === 'review-ready' ? loadBannerText : accentBlue,
+                    marginBottom: 4,
+                  }}>
+                    {workflowModalStage === 'generating'
+                      ? 'Generating CCL Draft'
+                      : workflowModalStage === 'safety-net'
+                        ? 'Safety Net Pressure Test'
+                        : 'Review Ready'}
+                  </div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: text, lineHeight: 1.3 }}>
+                    {workflowModalStage === 'generating'
+                      ? 'Building the first draft from matter context and linked evidence.'
+                      : workflowModalStage === 'safety-net'
+                        ? 'Cross-checking the generated draft before review opens.'
+                        : 'Opening the review panel with scored fields and flagged cues.'}
+                  </div>
+                  <div style={{ marginTop: 6, fontSize: 12, lineHeight: 1.5, color: textMuted }}>
+                    {workflowModalStage === 'generating'
+                      ? 'We are gathering matter detail, pitch emails, call notes and deal context into a single working draft.'
+                      : workflowModalStage === 'safety-net'
+                        ? 'Your colleague\'s Safety Net Pressure Test is checking outputs against source evidence so review starts with stronger cues.'
+                        : ptSummary
+                          ? `${ptSummary.reviewedFields} AI fields reviewed · Safety Net ${ptSummary.average}/10${ptSummary.flaggedCount > 0 ? ` · ${ptSummary.flaggedCount} flagged for review` : ' · no flagged issues'}.`
+                          : 'The review queue is ready.'}
+                  </div>
+                </div>
+              </div>
+
+              {workflowModalStage === 'generating' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {[
+                    'Collecting matter context and linked evidence',
+                    'Reviewing pitch emails, call notes and deal data',
+                    `Generating field values${aiLoadingKeys?.size ? ` (${aiLoadingKeys.size} remaining)` : ''}`,
+                  ].map((label, index) => (
+                    <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span style={{ width: 16, textAlign: 'center', flexShrink: 0 }}>
+                        {index === 0 || index === 2 || (index === 1 && ((aiDataSources?.length || 0) > 0 || !!aiContextSummary))
+                          ? <Spinner size={SpinnerSize.xSmall} />
+                          : <span style={{ color: textMuted }}>·</span>}
+                      </span>
+                      <span style={{ fontSize: 11, color: text, lineHeight: 1.45 }}>{label}</span>
+                    </div>
+                  ))}
+                  {aiDataSources && aiDataSources.length > 0 && (
+                    <div style={{ fontSize: 10, color: textMuted, lineHeight: 1.45, paddingLeft: 26 }}>
+                      Sources in play: {aiDataSources.join(', ')}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {workflowModalStage === 'safety-net' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: textMuted, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                      Safety Net Pressure Test
+                    </span>
+                    <span style={{ fontSize: 10, fontWeight: 600, color: textMuted, fontVariantNumeric: 'tabular-nums' }}>
+                      {(ptElapsed / 1000).toFixed(1)}s
+                    </span>
+                  </div>
+                  {ptSteps.map(step => (
+                    <div key={step.label} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span style={{ width: 16, textAlign: 'center', flexShrink: 0 }}>
+                        {step.status === 'done' ? <span style={{ color: colours.green }}>✓</span>
+                          : step.status === 'active' ? <Spinner size={SpinnerSize.xSmall} />
+                          : step.status === 'error' ? <span style={{ color: colours.cta }}>✗</span>
+                          : <span style={{ color: textMuted }}>·</span>}
+                      </span>
+                      <span style={{
+                        fontSize: 11,
+                        lineHeight: 1.45,
+                        color: step.status === 'active' ? text : step.status === 'done' ? colours.green : step.status === 'error' ? colours.cta : textMuted,
+                        fontWeight: step.status === 'active' ? 700 : 500,
+                      }}>
+                        {step.label}
+                      </span>
+                    </div>
+                  ))}
+                  {ptError && (
+                    <div style={{
+                      marginTop: 2, padding: '6px 10px', borderRadius: 2,
+                      background: isDarkMode ? 'rgba(214,85,65,0.1)' : 'rgba(214,85,65,0.06)',
+                      border: `1px solid ${isDarkMode ? 'rgba(214,85,65,0.25)' : 'rgba(214,85,65,0.15)'}`,
+                      fontSize: 10.5, color: colours.cta, lineHeight: 1.4,
+                    }}>
+                      Safety Net Pressure Test failed: {ptError}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {workflowModalStage === 'review-ready' && ptSummary && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  <div style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                    padding: '6px 10px', borderRadius: 999,
+                    border: `1px solid ${ptSummary.average >= 8 ? colours.green : ptSummary.average >= 5 ? colours.orange : colours.cta}`,
+                    color: ptSummary.average >= 8 ? colours.green : ptSummary.average >= 5 ? colours.orange : colours.cta,
+                    fontSize: 10.5, fontWeight: 700,
+                  }}>
+                    Safety Net {ptSummary.average}/10
+                  </div>
+                  <div style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                    padding: '6px 10px', borderRadius: 999,
+                    border: `1px solid ${cardBorder}`,
+                    color: textMuted,
+                    fontSize: 10.5, fontWeight: 600,
+                  }}>
+                    {promptReviewCardCount} review cards opening
+                  </div>
+                  <div style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                    padding: '6px 10px', borderRadius: 999,
+                    border: `1px solid ${cardBorder}`,
+                    color: textMuted,
+                    fontSize: 10.5, fontWeight: 600,
+                  }}>
+                    {ptSummary.flaggedCount > 0 ? `${ptSummary.flaggedCount} flagged cues` : 'No flagged cues'}
+                  </div>
+                </div>
+              )}
             </div>
+
+            {(workflowModalStage === 'generating' || workflowModalStage === 'safety-net') && (
+              <div style={{ height: 2, background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(6,23,51,0.06)' }}>
+                <div style={{
+                  height: '100%',
+                  width: workflowModalStage === 'generating' ? '48%' : '82%',
+                  background: `linear-gradient(90deg, ${accentBlue}, ${isDarkMode ? colours.accent : colours.highlight})`,
+                  transition: 'width 0.35s ease',
+                }} />
+              </div>
+            )}
           </div>
         </div>
       )}
 
-      {/* ═══ Toolbar ═══ */}
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 6,
-        padding: '6px 16px',
-        borderBottom: `1px solid ${cardBorder}`,
-        background: isDarkMode ? '#061733' : '#e8eff7',
-        minHeight: 36,
-      }}>
-        {/* Generate AI Draft button — shown when AI hasn't been triggered yet */}
-        {(!aiStatus || aiStatus === 'idle') && onTriggerAiFill && (
-          <button type="button" onClick={onTriggerAiFill} style={{
-            display: 'inline-flex', alignItems: 'center', gap: 6,
-            padding: '4px 14px', borderRadius: 3, height: 26,
-            background: isDarkMode ? 'rgba(54,144,206,0.18)' : 'rgba(54,144,206,0.1)',
-            border: `1px solid ${accentBlue}`,
-            color: accentBlue, fontSize: 10, fontWeight: 700,
-            cursor: 'pointer', transition: 'all 0.15s ease',
-          }}>
-            <Icon iconName="LightningBolt" styles={{ root: { fontSize: 11 } }} />
-            Generate AI Draft
-          </button>
-        )}
-
-        {/* AI status chip */}
-        {aiStatus && aiStatus !== 'idle' && aiStatus !== 'loading' && (
-          <div
-            onClick={() => setShowAiDetails(!showAiDetails)}
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 5,
-              padding: '3px 10px', borderRadius: 12,
-              fontSize: 10, fontWeight: 600, cursor: 'pointer',
-              transition: 'all 0.12s ease',
-              background: aiStatus === 'complete'
-                ? (isDarkMode ? 'rgba(54,144,206,0.16)' : 'rgba(54,144,206,0.1)')
-                : aiStatus === 'partial'
-                  ? (isDarkMode ? 'rgba(234,179,8,0.12)' : 'rgba(234,179,8,0.08)')
-                  : (isDarkMode ? 'rgba(148,163,184,0.12)' : 'rgba(148,163,184,0.08)'),
-              color: aiStatus === 'complete'
-                ? accentBlue
-                : aiStatus === 'partial'
-                  ? (isDarkMode ? '#facc15' : '#ca8a04')
-                  : textMuted,
-              border: `1px solid ${
-                aiStatus === 'complete'
-                  ? (isDarkMode ? 'rgba(54,144,206,0.32)' : 'rgba(54,144,206,0.2)')
-                  : aiStatus === 'partial'
-                    ? (isDarkMode ? 'rgba(234,179,8,0.25)' : 'rgba(234,179,8,0.15)')
-                    : cardBorder
-              }`,
-            }}
-          >
-            <Icon iconName={aiStatus === 'complete' ? 'SkypeCircleCheck' : aiStatus === 'partial' ? 'Warning' : 'Info'} styles={{ root: { fontSize: 10 } }} />
-            {aiStatus === 'complete' ? 'AI generated' : aiStatus === 'partial' ? 'AI + defaults' : 'Defaults'}
-            {(aiDataSources || []).length > 0 && (
-              <span style={{ opacity: 0.7 }}>&middot; {(aiDataSources || []).length} sources</span>
-            )}
-            <Icon iconName={showAiDetails ? 'ChevronUp' : 'ChevronDown'} styles={{ root: { fontSize: 8, marginLeft: 2 } }} />
-          </div>
-        )}
-
-        <div style={{ flex: 1 }} />
-
-        {/* Preview / Edit mode */}
+      {loadNoticeVisible && loadNoticeMode !== 'hidden' && !workflowModalActive && (
         <div style={{
-          display: 'inline-flex', alignItems: 'center', height: 26,
-          border: `1px solid ${cardBorder}`, borderRadius: 3, overflow: 'hidden',
-          marginRight: 4,
+          position: 'fixed',
+          top: 18,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 1200,
+          width: 'min(560px, calc(100vw - 32px))',
+          pointerEvents: 'none',
         }}>
-          <button
-            type="button"
-            onClick={() => setDocumentMode('preview')}
-            style={{
-              border: 'none', padding: '0 10px', height: '100%',
-              background: documentMode === 'preview'
-                ? (isDarkMode ? 'rgba(54,144,206,0.15)' : 'rgba(54,144,206,0.1)')
-                : 'transparent',
-              color: documentMode === 'preview' ? accentBlue : text,
-              fontSize: 10, fontWeight: 700, cursor: 'pointer',
-            }}
-          >
-            Preview
-          </button>
-          <div style={{ width: 1, height: '100%', background: cardBorder }} />
-          <button
-            type="button"
-            onClick={() => {
-              setDocumentMode('edit');
-              setSidebarOpen(true);
-            }}
-            style={{
-              border: 'none', padding: '0 10px', height: '100%',
-              background: documentMode === 'edit'
-                ? (isDarkMode ? 'rgba(54,144,206,0.15)' : 'rgba(54,144,206,0.1)')
-                : 'transparent',
-              color: documentMode === 'edit' ? accentBlue : text,
-              fontSize: 10, fontWeight: 700, cursor: 'pointer',
-            }}
-          >
-            Edit
-          </button>
-        </div>
-
-        {/* Ops panel toggle (admin only) */}
-        {isOpsAdmin && (
-          <button type="button" onClick={() => setShowOpsPanel(!showOpsPanel)} title="CCL Operations Panel" style={{
-            display: 'inline-flex', alignItems: 'center', gap: 5,
-            padding: '4px 10px', borderRadius: 3, height: 26,
-            background: showOpsPanel ? (isDarkMode ? 'rgba(54,144,206,0.15)' : 'rgba(54,144,206,0.1)') : 'transparent',
-            border: `1px solid ${showOpsPanel ? colours.blue : cardBorder}`,
-            color: showOpsPanel ? colours.blue : text, fontSize: 10, fontWeight: 600,
-            cursor: 'pointer', transition: 'all 0.12s ease',
+          <div style={{
+            pointerEvents: 'auto',
+            overflow: 'hidden',
+            borderRadius: 4,
+            border: `1px solid ${loadBannerBorder}`,
+            background: isDarkMode ? 'rgba(8,28,48,0.97)' : 'rgba(255,255,255,0.98)',
+            color: text,
+            boxShadow: isDarkMode ? '0 16px 40px rgba(0,0,0,0.42)' : '0 16px 40px rgba(6,23,51,0.18)',
+            backdropFilter: 'blur(14px)',
+            WebkitBackdropFilter: 'blur(14px)',
+            animation: `${loadNoticeClosing ? 'cclNoticeOut' : 'cclNoticeIn'} ${loadNoticeClosing ? '0.45s' : '0.26s'} ease forwards`,
           }}>
-            <Icon iconName="Shield" styles={{ root: { fontSize: 10 } }} />
-            Ops
-          </button>
-        )}
-
-        <div style={{ width: 1, height: 16, background: cardBorder, margin: '0 2px' }} />
-
-        {/* Export group — consistent height */}
-        <button type="button" onClick={handlePrintPdf} title="Print as PDF" style={{
-          display: 'inline-flex', alignItems: 'center', gap: 4,
-          padding: '4px 10px', borderRadius: 3, height: 26,
-          background: 'transparent', border: `1px solid ${cardBorder}`,
-          color: text, fontSize: 10, fontWeight: 600,
-          cursor: 'pointer', transition: 'all 0.12s ease',
-        }}>
-          <Icon iconName="PDF" styles={{ root: { fontSize: 10 } }} />
-          PDF
-        </button>
-        <button type="button" onClick={handleDownload} disabled={generating} title="Download .docx" style={{
-          display: 'inline-flex', alignItems: 'center', gap: 4,
-          padding: '4px 10px', borderRadius: 3, height: 26,
-          background: 'transparent', border: `1px solid ${cardBorder}`,
-          color: text, fontSize: 10, fontWeight: 600,
-          cursor: generating ? 'wait' : 'pointer',
-          opacity: generating ? 0.6 : 1, transition: 'all 0.12s ease',
-        }}>
-          <Icon iconName={generating ? 'ProgressRingDots' : 'Download'} styles={{ root: { fontSize: 10 } }} />
-          .docx
-        </button>
-        <button type="button" onClick={handleSend} disabled={sending || remainingPlaceholders > 0}
-          title={remainingPlaceholders > 0 ? `Complete ${remainingPlaceholders} field${remainingPlaceholders > 1 ? 's' : ''} before sending` : 'Generate and email'}
-          style={{
-            display: 'inline-flex', alignItems: 'center', gap: 4,
-            padding: '4px 14px', borderRadius: 3, height: 26,
-            background: remainingPlaceholders > 0 ? (isDarkMode ? 'rgba(148,163,184,0.15)' : '#e2e8f0') : accentBlue,
-            color: remainingPlaceholders > 0 ? textMuted : '#fff',
-            border: 'none', fontSize: 10, fontWeight: 700,
-            textTransform: 'uppercase' as const, letterSpacing: '0.04em',
-            cursor: sending || remainingPlaceholders > 0 ? 'not-allowed' : 'pointer',
-            opacity: sending ? 0.6 : 1, transition: 'all 0.12s ease',
-          }}
-        >
-          <Icon iconName={sending ? 'ProgressRingDots' : 'Send'} styles={{ root: { fontSize: 10 } }} />
-          Send
-        </button>
-
-        <div style={{ width: 1, height: 16, background: cardBorder, margin: '0 2px' }} />
-
-        {/* Upload dropdown — always visible, shows Clio/ND availability */}
-        <div ref={uploadMenuRef} style={{ position: 'relative' }}>
-          <button type="button"
-            onClick={() => setShowUploadMenu(!showUploadMenu)}
-            title="Upload to Clio or NetDocuments"
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 4,
-              padding: '4px 10px', borderRadius: 3, height: 26,
-              background: showUploadMenu ? (isDarkMode ? 'rgba(54,144,206,0.15)' : 'rgba(54,144,206,0.1)') : 'transparent',
-              border: `1px solid ${showUploadMenu ? accentBlue : cardBorder}`,
-              color: showUploadMenu ? accentBlue : text, fontSize: 10, fontWeight: 600,
-              cursor: 'pointer', transition: 'all 0.12s ease',
-            }}
-          >
-            <Icon iconName="CloudUpload" styles={{ root: { fontSize: 10 } }} />
-            Upload
-            <Icon iconName={showUploadMenu ? 'ChevronUp' : 'ChevronDown'} styles={{ root: { fontSize: 8 } }} />
-          </button>
-
-          {showUploadMenu && (
             <div style={{
-              position: 'absolute', top: '100%', right: 0, marginTop: 4,
-              width: 260,
-              background: isDarkMode ? '#0f172a' : '#ffffff',
-              border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.25)' : 'rgba(148,163,184,0.2)'}`,
-              borderRadius: 4,
-              boxShadow: isDarkMode ? '0 8px 32px rgba(0,0,0,0.5)' : '0 8px 32px rgba(0,0,0,0.12)',
-              zIndex: 100, overflow: 'hidden',
-              animation: 'cclFadeIn 0.1s ease',
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: 12,
+              padding: '14px 16px 12px',
             }}>
-              <div style={{ padding: '8px 12px', borderBottom: `1px solid ${cardBorder}` }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: textMuted, textTransform: 'uppercase' as const, letterSpacing: '0.04em' }}>
-                  Upload document to
-                </div>
-              </div>
-
-              {/* Clio row */}
-              <button type="button"
-                onClick={() => { setShowUploadMenu(false); setShowClioConfirm(true); }}
-                disabled={!(integrations?.clio?.available || isDemoMatter) || uploadingClio}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 10, width: '100%',
-                  padding: '10px 12px', border: 'none', cursor: (integrations?.clio?.available || isDemoMatter) ? 'pointer' : 'default',
-                  background: 'transparent', textAlign: 'left' as const,
-                  opacity: (integrations?.clio?.available || isDemoMatter) ? 1 : 0.5,
-                  transition: 'background 0.1s ease',
-                }}
-                onMouseEnter={(e) => { if (integrations?.clio?.available || isDemoMatter) e.currentTarget.style.background = isDarkMode ? 'rgba(54,144,206,0.08)' : 'rgba(54,144,206,0.04)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-              >
-                <div style={{
-                  width: 28, height: 28, borderRadius: 4, flexShrink: 0,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  background: isDarkMode ? 'rgba(96,165,250,0.1)' : 'rgba(37,99,235,0.06)',
-                  border: `1px solid ${isDarkMode ? 'rgba(96,165,250,0.2)' : 'rgba(37,99,235,0.12)'}`,
-                }}>
-                  <Icon iconName="CloudUpload" styles={{ root: { fontSize: 12, color: isDarkMode ? '#60a5fa' : '#2563eb' } }} />
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: text }}>Clio</div>
-                  <div style={{ fontSize: 9, color: textMuted, whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {integrationsLoading ? 'Checking...'
-                      : (integrations?.clio?.available || isDemoMatter) ? `Matter: ${integrations?.clio?.description || 'Admin (demo)'}`
-                      : integrations ? 'No matching matter found' : 'Checking availability...'}
-                  </div>
-                </div>
-                {(integrations?.clio?.available || isDemoMatter) && (
-                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: accentBlue, flexShrink: 0 }} />
-                )}
-              </button>
-
-              {/* ND row */}
-              <button type="button"
-                onClick={() => { setShowUploadMenu(false); handleUploadNd(); }}
-                disabled={!integrations?.nd?.available || uploadingNd}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 10, width: '100%',
-                  padding: '10px 12px', border: 'none', cursor: integrations?.nd?.available ? 'pointer' : 'default',
-                  background: 'transparent', textAlign: 'left' as const,
-                  opacity: integrations?.nd?.available ? 1 : 0.5,
-                  transition: 'background 0.1s ease',
-                  borderTop: `1px solid ${cardBorder}`,
-                }}
-                onMouseEnter={(e) => { if (integrations?.nd?.available) e.currentTarget.style.background = isDarkMode ? 'rgba(54,144,206,0.08)' : 'rgba(54,144,206,0.04)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-              >
-                <div style={{
-                  width: 28, height: 28, borderRadius: 4, flexShrink: 0,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  background: isDarkMode ? 'rgba(96,165,250,0.1)' : 'rgba(37,99,235,0.06)',
-                  border: `1px solid ${isDarkMode ? 'rgba(96,165,250,0.2)' : 'rgba(37,99,235,0.12)'}`,
-                }}>
-                  <Icon iconName="CloudUpload" styles={{ root: { fontSize: 12, color: isDarkMode ? '#60a5fa' : '#2563eb' } }} />
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: text }}>NetDocuments</div>
-                  <div style={{ fontSize: 9, color: textMuted, whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {integrationsLoading ? 'Checking...'
-                      : integrations?.nd?.available ? `Workspace: ${integrations.nd.workspaceName || matterId}`
-                      : integrations ? 'No matching workspace found' : 'Checking availability...'}
-                  </div>
-                </div>
-                {integrations?.nd?.available && (
-                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: colours.highlight, flexShrink: 0 }} />
-                )}
-              </button>
-
-              {/* Footer note */}
               <div style={{
-                padding: '6px 12px', borderTop: `1px solid ${cardBorder}`,
-                fontSize: 9, color: textMuted, lineHeight: 1.4,
-                background: isDarkMode ? 'rgba(15,23,42,0.5)' : 'rgba(248,250,252,0.8)',
+                width: 30,
+                height: 30,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+                borderRadius: 999,
+                background: loadBannerTone,
+                color: loadBannerText,
               }}>
-                Upload requires a generated .docx. Clio upload is live; NetDocuments coming soon.
+                <Icon iconName="Database" styles={{ root: { fontSize: 13, color: loadBannerText } }} />
               </div>
-            </div>
-          )}
-        </div>
 
-        {/* Utility icons — consistent 26×26, muted */}
-        <div style={{ width: 1, height: 16, background: cardBorder, margin: '0 2px' }} />
-        <button type="button" onClick={() => setShowTraceModal(true)} title="AI processing trace"
-          style={{
-            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-            width: 26, height: 26, borderRadius: 3,
-            background: 'transparent', border: 'none',
-            color: textMuted, cursor: 'pointer', transition: 'color 0.12s ease',
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.color = accentBlue; }}
-          onMouseLeave={(e) => { e.currentTarget.style.color = textMuted; }}
-        >
-          <Icon iconName="TestBeaker" styles={{ root: { fontSize: 12 } }} />
-        </button>
-        <button type="button" onClick={() => setShowSupportModal(true)} title="Report an issue"
-          style={{
-            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-            width: 26, height: 26, borderRadius: 3,
-            background: 'transparent', border: 'none',
-            color: textMuted, cursor: 'pointer', transition: 'color 0.12s ease',
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.color = isDarkMode ? '#f87171' : '#dc2626'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.color = textMuted; }}
-        >
-          <Icon iconName="Feedback" styles={{ root: { fontSize: 12 } }} />
-        </button>
-      </div>
+              <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
+                <div style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  letterSpacing: '0.04em',
+                  textTransform: 'uppercase',
+                  color: loadBannerText,
+                }}>
+                  Saved CCL Restored
+                </div>
+                <div style={{ fontSize: 13, lineHeight: 1.45, color: text }}>
+                  {loadBannerMessage}
+                </div>
+              </div>
 
-      {/* ═══ AI Details Dropdown (below toolbar) ═══ */}
-      {showAiDetails && aiStatus && aiStatus !== 'idle' && aiStatus !== 'loading' && (
-        <div style={{
-          padding: '10px 16px',
-          borderBottom: `1px solid ${cardBorder}`,
-          background: isDarkMode ? 'rgba(15,23,42,0.6)' : 'rgba(248,250,252,0.9)',
-          fontSize: 11, lineHeight: 1.5, color: textMuted,
-          animation: 'cclFadeIn 0.15s ease',
-          display: 'flex', flexWrap: 'wrap' as const, gap: 16, alignItems: 'flex-start',
-        }}>
-          <div style={{ minWidth: 180 }}>
-            <div style={{ fontWeight: 700, color: text, marginBottom: 4 }}>
-              {aiStatus === 'complete' ? 'AI draft complete' : aiStatus === 'partial' ? 'AI draft (partial — merged with defaults)' : 'Practice area defaults applied'}
+              {loadNoticeMode === 'restored' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearLoadNoticeTimers();
+                    setLoadNoticeClosing(true);
+                    setTimeout(() => {
+                      setLoadNoticeVisible(false);
+                      setLoadNoticeClosing(false);
+                      setLoadNoticeMode('hidden');
+                    }, 220);
+                  }}
+                  style={{
+                    border: 'none',
+                    background: 'transparent',
+                    color: textMuted,
+                    cursor: 'pointer',
+                    padding: 0,
+                    width: 18,
+                    height: 18,
+                    flexShrink: 0,
+                  }}
+                  title="Dismiss"
+                >
+                  <Icon iconName="ChromeClose" styles={{ root: { fontSize: 10 } }} />
+                </button>
+              )}
             </div>
-            {aiDurationMs ? <div>Generated in {((aiDurationMs || 0) / 1000).toFixed(1)}s</div> : null}
-            {aiDebugTrace?.deployment && <div>Deployment: {aiDebugTrace.deployment}</div>}
-            {aiDebugTrace?.trackingId && <div>Tracking: {aiDebugTrace.trackingId}</div>}
-            {(aiFallbackReason || aiDebugTrace?.error) && (
-              <div style={{ color: isDarkMode ? '#f0a090' : colours.cta, marginTop: 4 }}>
-                {aiFallbackReason || aiDebugTrace?.error}
+
+            {loadNoticeMode === 'restored' && (
+              <div style={{
+                height: 2,
+                background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(6,23,51,0.06)',
+                overflow: 'hidden',
+              }}>
+                <div style={{
+                  height: '100%',
+                  width: '100%',
+                  background: `linear-gradient(90deg, ${accentBlue}, ${isDarkMode ? colours.accent : colours.highlight})`,
+                  transformOrigin: 'left center',
+                  animation: 'cclNoticeProgress 3.2s linear forwards',
+                }} />
               </div>
             )}
-          </div>
-          {(aiDataSources || []).length > 0 && (
-            <div style={{ minWidth: 160 }}>
-              <div style={{ fontWeight: 700, color: text, marginBottom: 4 }}>Data sources</div>
-              {(aiDataSources || []).map((source, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '1px 0' }}>
-                  <span style={{ width: 4, height: 4, borderRadius: '50%', background: accentBlue, flexShrink: 0 }} />
-                  {source}
-                </div>
-              ))}
-            </div>
-          )}
-          {/* Feedback inline */}
-          <div style={{ minWidth: 120 }}>
-            <AiFeedbackWidget
-              matterId={matter.matterId || matter.displayNumber || ''}
-              aiStatus={aiStatus}
-              dataSources={aiDataSources || []}
-              contextSummary={aiContextSummary || ''}
-              isDarkMode={isDarkMode}
-              text={text}
-              textMuted={textMuted}
-              cardBorder={cardBorder}
-              accentBlue={accentBlue}
-            />
           </div>
         </div>
       )}
@@ -1851,36 +2405,439 @@ ${htmlBody}
       {/* ═══ Main Layout — Document + optional sidebar ═══ */}
       <div style={{ flex: 1, display: 'flex', gap: 0, overflow: 'hidden', minHeight: 0 }}>
 
-        {/* ═══ A4 Paper — full width when sidebar closed ═══ */}
+        {/* ═══ Preview Pane — pinned toolbar + scrolling A4 pages ═══ */}
         <div style={{
-          flex: 1, overflow: 'auto',
+          flex: 1,
+          minHeight: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
           background: paperAreaBg,
-          padding: '24px 20px 24px 24px',
-          display: 'flex', justifyContent: 'center',
-          transition: 'all 0.2s ease',
         }}>
+
+          {/* ═══ Pinned Toolbar — sits above the paper scroll in the flex column ═══ */}
           <div style={{
-            width: 794,
-            minHeight: 1123,
             flexShrink: 0,
+            zIndex: 10,
+            background: isDarkMode ? 'rgba(6,23,51,0.95)' : 'rgba(232,239,247,0.95)',
+            backdropFilter: 'blur(12px)',
+            WebkitBackdropFilter: 'blur(12px)',
+            borderBottom: `1px solid ${cardBorder}`,
+            boxShadow: isDarkMode ? '0 4px 16px rgba(0,0,0,0.24)' : '0 4px 12px rgba(6,23,51,0.06)',
+          }}>
+            {/* Compact tool bar */}
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '6px 16px',
+              minHeight: 36,
+            }}>
+              {/* AI status chip — compact, non-expandable */}
+              {aiStatus && aiStatus !== 'idle' && aiStatus !== 'loading' && (
+                <div
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 5,
+                    padding: '3px 10px', borderRadius: 12,
+                    fontSize: 10, fontWeight: 600,
+                    transition: 'all 0.12s ease',
+                    background: aiStatus === 'complete'
+                      ? (isDarkMode ? 'rgba(54,144,206,0.16)' : 'rgba(54,144,206,0.1)')
+                      : aiStatus === 'partial'
+                        ? (isDarkMode ? 'rgba(234,179,8,0.12)' : 'rgba(234,179,8,0.08)')
+                        : (isDarkMode ? 'rgba(148,163,184,0.12)' : 'rgba(148,163,184,0.08)'),
+                    color: aiStatus === 'complete'
+                      ? accentBlue
+                      : aiStatus === 'partial'
+                        ? (isDarkMode ? '#facc15' : '#ca8a04')
+                        : textMuted,
+                    border: `1px solid ${
+                      aiStatus === 'complete'
+                        ? (isDarkMode ? 'rgba(54,144,206,0.32)' : 'rgba(54,144,206,0.2)')
+                        : aiStatus === 'partial'
+                          ? (isDarkMode ? 'rgba(234,179,8,0.25)' : 'rgba(234,179,8,0.15)')
+                          : cardBorder
+                    }`,
+                  }}
+                >
+                  <Icon iconName={aiStatus === 'complete' ? 'SkypeCircleCheck' : aiStatus === 'partial' ? 'Warning' : 'Info'} styles={{ root: { fontSize: 10 } }} />
+                  {aiStatus === 'complete' ? 'AI draft ✓' : aiStatus === 'partial' ? 'AI + defaults' : 'Defaults'}
+                </div>
+              )}
+
+              {/* PT confidence score — shown inline after safety net completes */}
+              {ptResult && !ptRunning && (() => {
+                const scores = Object.values(ptResult.fieldScores);
+                const avg = scores.length > 0 ? scores.reduce((sum, s) => sum + s.score, 0) / scores.length : 0;
+                const rounded = Math.round(avg * 10) / 10;
+                const scoreColour = rounded >= 8 ? colours.green : rounded >= 5 ? colours.orange : colours.cta;
+                return (
+                  <div
+                    onClick={runPressureTest}
+                    title="Confidence score from Safety Net Pressure Test — click to run again"
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 4,
+                      padding: '3px 10px', borderRadius: 12,
+                      fontSize: 10, fontWeight: 700, cursor: 'pointer',
+                      background: isDarkMode ? `${scoreColour}18` : `${scoreColour}12`,
+                      border: `1px solid ${isDarkMode ? `${scoreColour}40` : `${scoreColour}28`}`,
+                      color: scoreColour,
+                      transition: 'all 0.12s ease',
+                    }}
+                  >
+                    {rounded}/10
+                    {ptResult.flaggedCount > 0 && (
+                      <span style={{ opacity: 0.8, fontWeight: 500 }}>· {ptResult.flaggedCount} flagged</span>
+                    )}
+                  </div>
+                );
+              })()}
+              {ptRunning && !workflowModalActive && (
+                <div style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                  padding: '3px 10px', borderRadius: 12,
+                  fontSize: 10, fontWeight: 600,
+                  background: isDarkMode ? 'rgba(54,144,206,0.12)' : 'rgba(54,144,206,0.06)',
+                  border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.25)' : 'rgba(54,144,206,0.15)'}`,
+                  color: accentBlue,
+                }}>
+                  <Spinner size={SpinnerSize.xSmall} /> Verifying…
+                </div>
+              )}
+
+              {(!aiStatus || aiStatus === 'idle') && onTriggerAiFill && (
+                <button
+                  type="button"
+                  onClick={onTriggerAiFill}
+                  title="Analyse matter data, pitch emails and call notes to populate AI fields"
+                  style={{
+                    display: 'inline-flex', alignItems: 'center',
+                    padding: '4px 12px', borderRadius: 3, height: 28,
+                    background: isDarkMode ? 'rgba(54,144,206,0.12)' : 'rgba(54,144,206,0.08)',
+                    border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.28)' : 'rgba(54,144,206,0.18)'}`,
+                    color: accentBlue, fontSize: 10.5, fontWeight: 700,
+                    cursor: 'pointer', transition: 'all 0.15s ease',
+                    letterSpacing: '0.02em',
+                  }}
+                >
+                  Generate AI
+                </button>
+              )}
+
+              {aiStatus === 'loading' && !workflowModalActive && (
+                <div style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                  padding: '4px 12px', borderRadius: 3, height: 28,
+                  background: isDarkMode ? 'rgba(54,144,206,0.10)' : 'rgba(54,144,206,0.06)',
+                  border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.25)' : 'rgba(54,144,206,0.15)'}`,
+                  color: accentBlue, fontSize: 10, fontWeight: 700,
+                  letterSpacing: '0.02em',
+                }}>
+                  <Spinner size={SpinnerSize.xSmall} />
+                  Generating AI…
+                </div>
+              )}
+
+              <div style={{ flex: 1 }} />
+
+              <button
+                type="button"
+                onClick={() => {
+                  setSidebarOpen(prev => {
+                    const next = !prev;
+                    if (next) setSidebarAutoCollapsed(false);
+                    return next;
+                  });
+                }}
+                title={sidebarToggleLabel}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 5,
+                  padding: '4px 10px', borderRadius: 3, height: 26,
+                  background: sidebarOpen
+                    ? (isDarkMode ? 'rgba(54,144,206,0.15)' : 'rgba(54,144,206,0.08)')
+                    : (shouldAutoCollapseSidebar ? (isDarkMode ? 'rgba(214,85,65,0.12)' : 'rgba(214,85,65,0.08)') : 'transparent'),
+                  border: `1px solid ${sidebarOpen ? accentBlue : shouldAutoCollapseSidebar ? colours.cta : cardBorder}`,
+                  color: sidebarOpen ? accentBlue : shouldAutoCollapseSidebar ? colours.cta : text,
+                  fontSize: 10, fontWeight: 600,
+                  cursor: 'pointer', transition: 'all 0.12s ease',
+                }}
+              >
+                <Icon iconName={sidebarOpen ? 'DoubleChevronRightMed' : 'DoubleChevronLeftMed'} styles={{ root: { fontSize: 10 } }} />
+                {sidebarOpen ? 'Hide Panel' : 'Show Panel'}
+              </button>
+
+              {/* Ops panel toggle (admin only) */}
+              {isOpsAdmin && (
+                <button type="button" onClick={() => setShowOpsPanel(!showOpsPanel)} title="CCL Operations Panel" style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 5,
+                  padding: '4px 10px', borderRadius: 3, height: 26,
+                  background: showOpsPanel ? (isDarkMode ? 'rgba(54,144,206,0.15)' : 'rgba(54,144,206,0.1)') : 'transparent',
+                  border: `1px solid ${showOpsPanel ? colours.blue : cardBorder}`,
+                  color: showOpsPanel ? colours.blue : text, fontSize: 10, fontWeight: 600,
+                  cursor: 'pointer', transition: 'all 0.12s ease',
+                }}>
+                  <Icon iconName="Shield" styles={{ root: { fontSize: 10 } }} />
+                  Ops
+                </button>
+              )}
+
+              <div style={{ width: 1, height: 16, background: cardBorder, margin: '0 2px' }} />
+
+              {/* Export group */}
+              <button type="button" onClick={handlePrintPdf} title="Print as PDF" style={{
+                display: 'inline-flex', alignItems: 'center', gap: 4,
+                padding: '4px 10px', borderRadius: 3, height: 26,
+                background: 'transparent', border: `1px solid ${cardBorder}`,
+                color: text, fontSize: 10, fontWeight: 600,
+                cursor: 'pointer', transition: 'all 0.12s ease',
+              }}>
+                <Icon iconName="PDF" styles={{ root: { fontSize: 10 } }} />
+                PDF
+              </button>
+              <button type="button" onClick={handleDownload} disabled={generating} title="Download .docx" style={{
+                display: 'inline-flex', alignItems: 'center', gap: 4,
+                padding: '4px 10px', borderRadius: 3, height: 26,
+                background: 'transparent', border: `1px solid ${cardBorder}`,
+                color: text, fontSize: 10, fontWeight: 600,
+                cursor: generating ? 'wait' : 'pointer',
+                opacity: generating ? 0.6 : 1, transition: 'all 0.12s ease',
+              }}>
+                <Icon iconName={generating ? 'ProgressRingDots' : 'Download'} styles={{ root: { fontSize: 10 } }} />
+                .docx
+              </button>
+              <button type="button" onClick={handleSend} disabled={!isDevMode || sending || remainingPlaceholders > 0}
+                title={!isDevMode
+                  ? 'Sending is disabled in production'
+                  : remainingPlaceholders > 0
+                    ? `Complete ${remainingPlaceholders} field${remainingPlaceholders > 1 ? 's' : ''} before sending`
+                    : 'Generate and email'}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                  padding: '4px 14px', borderRadius: 3, height: 26,
+                  background: !isDevMode
+                    ? (isDarkMode ? 'rgba(148,163,184,0.12)' : '#e5e7eb')
+                    : remainingPlaceholders > 0
+                      ? (isDarkMode ? 'rgba(148,163,184,0.15)' : '#e2e8f0')
+                      : accentBlue,
+                  color: !isDevMode ? textMuted : remainingPlaceholders > 0 ? textMuted : '#fff',
+                  border: 'none', fontSize: 10, fontWeight: 700,
+                  textTransform: 'uppercase' as const, letterSpacing: '0.04em',
+                  cursor: !isDevMode || sending || remainingPlaceholders > 0 ? 'not-allowed' : 'pointer',
+                  opacity: !isDevMode ? 0.55 : sending ? 0.6 : 1, transition: 'all 0.12s ease',
+                }}
+              >
+                <Icon iconName={sending ? 'ProgressRingDots' : 'Send'} styles={{ root: { fontSize: 10 } }} />
+                Send
+              </button>
+
+              <div style={{ width: 1, height: 16, background: cardBorder, margin: '0 2px' }} />
+
+              {/* Upload dropdown */}
+              <div ref={uploadMenuRef} style={{ position: 'relative' }}>
+                <button type="button"
+                  onClick={() => setShowUploadMenu(!showUploadMenu)}
+                  title="Upload to Clio or NetDocuments"
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 4,
+                    padding: '4px 10px', borderRadius: 3, height: 26,
+                    background: showUploadMenu ? (isDarkMode ? 'rgba(54,144,206,0.15)' : 'rgba(54,144,206,0.1)') : 'transparent',
+                    border: `1px solid ${showUploadMenu ? accentBlue : cardBorder}`,
+                    color: showUploadMenu ? accentBlue : text, fontSize: 10, fontWeight: 600,
+                    cursor: 'pointer', transition: 'all 0.12s ease',
+                  }}
+                >
+                  <Icon iconName="CloudUpload" styles={{ root: { fontSize: 10 } }} />
+                  Upload
+                  <Icon iconName={showUploadMenu ? 'ChevronUp' : 'ChevronDown'} styles={{ root: { fontSize: 8 } }} />
+                </button>
+
+                {showUploadMenu && (
+                  <div style={{
+                    position: 'absolute', top: '100%', right: 0, marginTop: 4,
+                    width: 260,
+                    background: isDarkMode ? '#0f172a' : '#ffffff',
+                    border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.25)' : 'rgba(148,163,184,0.2)'}`,
+                    borderRadius: 4,
+                    boxShadow: isDarkMode ? '0 8px 32px rgba(0,0,0,0.5)' : '0 8px 32px rgba(0,0,0,0.12)',
+                    zIndex: 100, overflow: 'hidden',
+                    animation: 'cclFadeIn 0.1s ease',
+                  }}>
+                    <div style={{ padding: '8px 12px', borderBottom: `1px solid ${cardBorder}` }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: textMuted, textTransform: 'uppercase' as const, letterSpacing: '0.04em' }}>
+                        Upload document to
+                      </div>
+                    </div>
+
+                    {/* Clio row */}
+                    <button type="button"
+                      onClick={() => { setShowUploadMenu(false); setShowClioConfirm(true); }}
+                      disabled={!(integrations?.clio?.available || isDemoMatter) || uploadingClio}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+                        padding: '10px 12px', border: 'none', cursor: (integrations?.clio?.available || isDemoMatter) ? 'pointer' : 'default',
+                        background: 'transparent', textAlign: 'left' as const,
+                        opacity: (integrations?.clio?.available || isDemoMatter) ? 1 : 0.5,
+                        transition: 'background 0.1s ease',
+                      }}
+                      onMouseEnter={(e) => { if (integrations?.clio?.available || isDemoMatter) e.currentTarget.style.background = isDarkMode ? 'rgba(54,144,206,0.08)' : 'rgba(54,144,206,0.04)'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                    >
+                      <div style={{
+                        width: 28, height: 28, borderRadius: 4, flexShrink: 0,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        background: isDarkMode ? 'rgba(96,165,250,0.1)' : 'rgba(37,99,235,0.06)',
+                        border: `1px solid ${isDarkMode ? 'rgba(96,165,250,0.2)' : 'rgba(37,99,235,0.12)'}`,
+                      }}>
+                        <Icon iconName="CloudUpload" styles={{ root: { fontSize: 12, color: isDarkMode ? '#60a5fa' : '#2563eb' } }} />
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: text }}>Clio</div>
+                        <div style={{ fontSize: 9, color: textMuted, whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {integrationsLoading ? 'Checking...'
+                            : (integrations?.clio?.available || isDemoMatter) ? `Matter: ${integrations?.clio?.description || 'Admin (demo)'}`
+                            : integrations ? 'No matching matter found' : 'Checking availability...'}
+                        </div>
+                      </div>
+                      {(integrations?.clio?.available || isDemoMatter) && (
+                        <div style={{ width: 6, height: 6, borderRadius: '50%', background: accentBlue, flexShrink: 0 }} />
+                      )}
+                    </button>
+
+                    {/* ND row */}
+                    <button type="button"
+                      onClick={() => { setShowUploadMenu(false); handleUploadNd(); }}
+                      disabled={!integrations?.nd?.available || uploadingNd}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+                        padding: '10px 12px', border: 'none', cursor: integrations?.nd?.available ? 'pointer' : 'default',
+                        background: 'transparent', textAlign: 'left' as const,
+                        opacity: integrations?.nd?.available ? 1 : 0.5,
+                        transition: 'background 0.1s ease',
+                        borderTop: `1px solid ${cardBorder}`,
+                      }}
+                      onMouseEnter={(e) => { if (integrations?.nd?.available) e.currentTarget.style.background = isDarkMode ? 'rgba(54,144,206,0.08)' : 'rgba(54,144,206,0.04)'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                    >
+                      <div style={{
+                        width: 28, height: 28, borderRadius: 4, flexShrink: 0,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        background: isDarkMode ? 'rgba(96,165,250,0.1)' : 'rgba(37,99,235,0.06)',
+                        border: `1px solid ${isDarkMode ? 'rgba(96,165,250,0.2)' : 'rgba(37,99,235,0.12)'}`,
+                      }}>
+                        <Icon iconName="CloudUpload" styles={{ root: { fontSize: 12, color: isDarkMode ? '#60a5fa' : '#2563eb' } }} />
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: text }}>NetDocuments</div>
+                        <div style={{ fontSize: 9, color: textMuted, whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {integrationsLoading ? 'Checking...'
+                            : integrations?.nd?.available ? `Workspace: ${integrations.nd.workspaceName || matterId}`
+                            : integrations ? 'No matching workspace found' : 'Checking availability...'}
+                        </div>
+                      </div>
+                      {integrations?.nd?.available && (
+                        <div style={{ width: 6, height: 6, borderRadius: '50%', background: colours.highlight, flexShrink: 0 }} />
+                      )}
+                    </button>
+
+                    {/* Footer note */}
+                    {isDevMode && (
+                      <div style={{
+                        padding: '6px 12px', borderTop: `1px solid ${cardBorder}`,
+                        fontSize: 9, color: textMuted, lineHeight: 1.4,
+                        background: isDarkMode ? 'rgba(15,23,42,0.5)' : 'rgba(248,250,252,0.8)',
+                      }}>
+                        Dev note: Clio upload disabled: to be swapped out for ND only.
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Utility icons */}
+              {isDevMode && (
+                <>
+                  <div style={{ width: 1, height: 16, background: cardBorder, margin: '0 2px' }} />
+                  <button type="button" onClick={() => setShowSupportModal(true)} title="Report an issue"
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                      width: 26, height: 26, borderRadius: 3,
+                      background: 'transparent', border: 'none',
+                      color: textMuted, cursor: 'pointer', transition: 'color 0.12s ease',
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.color = isDarkMode ? '#f87171' : '#dc2626'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.color = textMuted; }}
+                  >
+                    <Icon iconName="Feedback" styles={{ root: { fontSize: 12 } }} />
+                  </button>
+                </>
+              )}
+            </div>
+
+            {/* ── Unfilled fields CTA banner ── */}
+            {(() => {
+              const unfilledPrompts = FIELD_PROMPTS.filter(fp => !String(fields[fp.key] || '').trim());
+              if (unfilledPrompts.length === 0) return null;
+              return (
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '5px 16px',
+                  background: isDarkMode ? 'rgba(214,85,65,0.08)' : 'rgba(214,85,65,0.05)',
+                  borderTop: `1px solid ${isDarkMode ? 'rgba(214,85,65,0.2)' : 'rgba(214,85,65,0.12)'}`,
+                }}>
+                  <span style={{ fontSize: 12, color: colours.cta }}>⚑</span>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: colours.cta }}>
+                    {unfilledPrompts.length} field{unfilledPrompts.length !== 1 ? 's' : ''} need{unfilledPrompts.length === 1 ? 's' : ''} review
+                  </span>
+                  <span style={{ fontSize: 9, color: textMuted, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>
+                    {unfilledPrompts.slice(0, 4).map(fp => fp.label).join(' · ')}{unfilledPrompts.length > 4 ? ` · +${unfilledPrompts.length - 4} more` : ''}
+                  </span>
+                  {onTriggerAiFill && (!aiStatus || aiStatus === 'idle') && (
+                    <button type="button" onClick={(e) => { e.stopPropagation(); onTriggerAiFill(); }} style={{
+                      padding: '2px 10px', borderRadius: 2, fontSize: 9, fontWeight: 700,
+                      background: colours.cta, color: '#fff', border: 'none',
+                      cursor: 'pointer', textTransform: 'uppercase' as const, letterSpacing: '0.04em',
+                      flexShrink: 0,
+                    }}>
+                      Generate AI
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
+
+          </div>
+
+          <div ref={paperScrollRef} style={{
+            flex: 1,
+            minHeight: 0,
+            overflow: 'auto',
+            padding: '0 20px 32px',
+          }}>
+
+          {/* ── Page 1 ── */}
+          <div style={{
+            width: A4_WIDTH,
+            minHeight: A4_HEIGHT,
+            flexShrink: 0,
+            margin: '32px auto 0',
             background: paperBg,
             boxShadow: isDarkMode
               ? `0 8px 32px rgba(0,0,0,0.45), 0 0 0 1px ${paperOutline}`
               : `0 3px 18px rgba(0,0,0,0.12), 0 0 0 1px ${paperOutline}`,
-            padding: '56px 64px 48px 64px',
+            padding: `${PAGE_TOP}px ${PAGE_MARGIN}px ${PAGE_BOTTOM}px`,
             fontFamily: "'Raleway', Arial, Helvetica, sans-serif",
             fontSize: 13, lineHeight: 1.7,
             color: isDarkMode ? '#e2e8f0' : '#061733',
+            display: 'flex', flexDirection: 'column' as const,
             position: 'relative' as const,
             animation: aiStatus !== 'loading' ? 'cclFadeIn 0.3s ease' : 'none',
           }}>
             {/* Letterhead */}
-            <div style={{
+            <div ref={letterheadRef} style={{
               display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
               marginBottom: 28, paddingBottom: 16,
               borderBottom: `1.5px solid ${isDarkMode ? 'rgba(54,144,206,0.4)' : '#0D2F60'}`,
             }}>
               <div>
+
                 <img src={HELIX_LOGO} alt="Helix Law" style={{ width: 170, height: 'auto', display: 'block' }} />
                 <div style={{ fontSize: 8.5, color: textMuted, lineHeight: 1.5, marginTop: 8 }}>
                   Second Floor, Britannia House<br />21 Station Street, Brighton, BN1 4DE<br />0345 314 2044 · helix-law.com
@@ -1895,8 +2852,8 @@ ${htmlBody}
               </div>
             </div>
 
-            {/* Recipient block — inline editable */}
-            <div style={{ marginBottom: 24, fontSize: 12.5, lineHeight: 1.6 }}>
+            {/* Recipient block */}
+            <div ref={recipientRef} style={{ marginBottom: 24, fontSize: 12.5, lineHeight: 1.6 }}>
               <div style={{ fontWeight: 600, marginBottom: 2 }}>
                 <InlineField
                   fieldKey="insert_clients_name"
@@ -1915,18 +2872,84 @@ ${htmlBody}
               </div>
             </div>
 
-            {/* Letter body — clean document surface for Preview/Edit modes */}
-            <div>
-              {parsedSections.map(section => {
-                // The intro section contains "Dear {{name}}", "{{heading}}", and "Thank you..."
-                // The recipient block above already renders name + heading with better styling,
-                // so we skip the first 2 elements (greeting + heading) but keep the rest (e.g. "Thank you...")
-                if (section.id === 'intro') {
-                  const remaining = section.elements.slice(2);
-                  return remaining.length > 0 ? <div key="intro">{remaining}</div> : null;
-                }
-                return (
-                  <div key={section.id} ref={el => { sectionRefs.current[section.number] = el; }} style={{ marginBottom: 10 }}>
+            {/* Intro section */}
+            {(() => {
+              const intro = parsedSections.find(s => s.id === 'intro');
+              if (!intro) return null;
+              const remaining = intro.elements.slice(2);
+              return remaining.length > 0 ? <div ref={introRef}>{remaining}</div> : null;
+            })()}
+
+            {/* Page 1 sections */}
+            <div style={{ flex: 1 }}>
+              {(sectionPages[0]?.sections || []).map(section => (
+                <div key={section.id} ref={el => { sectionRefs.current[section.number] = el; }} data-section-number={section.number} style={{ marginBottom: 10 }}>
+                  <div style={{
+                    marginTop: section.isSubsection ? 8 : 16,
+                    marginBottom: 4,
+                    fontSize: section.isSubsection ? 13 : 14,
+                    fontWeight: 700,
+                    color: headingColor,
+                    letterSpacing: '0.01em',
+                  }}>
+                    {section.number}&ensp;{section.title}
+                  </div>
+                  <div style={{ paddingLeft: section.isSubsection ? 28 : 20, marginTop: 2 }}>{section.elements}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Headed paper footer — replaced by firm stationery when printed */}
+            <div style={{
+              marginTop: 'auto',
+              paddingTop: 12,
+              borderTop: `1px dashed ${isDarkMode ? 'rgba(54,144,206,0.25)' : 'rgba(13,47,96,0.12)'}`,
+              textAlign: 'center' as const,
+            }}>
+              <div style={{ fontSize: 7.5, color: textMuted, fontStyle: 'italic', letterSpacing: '0.03em', textTransform: 'uppercase' as const, opacity: 0.7 }}>
+                This area is replaced by headed paper when printed
+              </div>
+              <div style={{ fontSize: 7, color: textMuted, marginTop: 3, opacity: 0.5 }}>
+                Helix Law Ltd · SRA No. 669720 · Registered in England & Wales No. 10346944
+              </div>
+            </div>
+
+            {/* Page number */}
+            <div style={{ textAlign: 'center' as const, marginTop: 10 }}>
+              <span style={{
+                display: 'inline-block', fontSize: 8, color: textMuted,
+                background: isDarkMode ? 'rgba(244,244,246,0.06)' : colours.grey,
+                padding: '3px 12px', borderRadius: 999, letterSpacing: '0.04em',
+              }}>
+                Page 1 of {totalPages}
+              </span>
+            </div>
+          </div>
+
+          {/* ── Continuation pages ── */}
+          {sectionPages.slice(1).map((page) => (
+            <div key={page.pageNumber} style={{
+              width: A4_WIDTH,
+              minHeight: A4_HEIGHT,
+              flexShrink: 0,
+              margin: '32px auto 0',
+              background: paperBg,
+              boxShadow: isDarkMode
+                ? `0 8px 32px rgba(0,0,0,0.45), 0 0 0 1px ${paperOutline}`
+                : `0 3px 18px rgba(0,0,0,0.12), 0 0 0 1px ${paperOutline}`,
+              padding: `${PAGE_TOP}px ${PAGE_MARGIN}px ${PAGE_BOTTOM}px`,
+              fontFamily: "'Raleway', Arial, Helvetica, sans-serif",
+              fontSize: 13, lineHeight: 1.7,
+              color: isDarkMode ? '#e2e8f0' : '#061733',
+              display: 'flex', flexDirection: 'column' as const,
+              position: 'relative' as const,
+            }}>
+
+
+              {/* Page sections */}
+              <div style={{ flex: 1 }}>
+                {page.sections.map(section => (
+                  <div key={section.id} ref={el => { sectionRefs.current[section.number] = el; }} data-section-number={section.number} style={{ marginBottom: 10 }}>
                     <div style={{
                       marginTop: section.isSubsection ? 8 : 16,
                       marginBottom: 4,
@@ -1939,313 +2962,776 @@ ${htmlBody}
                     </div>
                     <div style={{ paddingLeft: section.isSubsection ? 28 : 20, marginTop: 2 }}>{section.elements}</div>
                   </div>
-                );
-              })}
-            </div>
+                ))}
+              </div>
 
-            {/* Footer */}
-            <div style={{
-              marginTop: 28, paddingTop: 14,
-              borderTop: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.15)' : '#e2e8f0'}`,
-              fontSize: 8, color: isDarkMode ? '#475569' : '#94a3b8',
-              textAlign: 'center' as const, lineHeight: 1.5,
-            }}>
-              <div>Helix Law Ltd is authorised and regulated by the Solicitors Regulation Authority (SRA No. 669720)</div>
-              <div>Registered in England & Wales No. 10346944</div>
+              {/* Page number */}
+              <div style={{ textAlign: 'center' as const, marginTop: 'auto', paddingTop: 14 }}>
+                <span style={{
+                  display: 'inline-block', fontSize: 8, color: textMuted,
+                  background: isDarkMode ? 'rgba(244,244,246,0.06)' : colours.grey,
+                  padding: '3px 12px', borderRadius: 999, letterSpacing: '0.04em',
+                }}>
+                  Page {page.pageNumber} of {totalPages}
+                </span>
+              </div>
             </div>
-          </div>{/* end A4 paper */}
-        </div>{/* end paper scroll area */}
+          ))}
+
+          </div>{/* end paper scroll area */}
+        </div>{/* end preview pane */}
 
         {/* ═══ Slide-out Sidebar (hidden by default) ═══ */}
         {sidebarOpen && (
           <div style={{
-            width: 320, flexShrink: 0,
+            width: 400, flexShrink: 0,
             display: 'flex', flexDirection: 'column',
             background: isDarkMode ? '#071a36' : '#f0f4f9',
             borderLeft: `1px solid ${cardBorder}`,
             overflow: 'hidden',
             animation: 'cclFadeIn 0.15s ease',
-          }}>
-            {/* Sidebar tabs */}
+            }}>
+            {/* Sidebar header — progress + layout toggle */}
             <div style={{
-              display: 'flex', gap: 2, padding: '6px 6px 0',
+              padding: '10px 14px 8px',
               borderBottom: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.08)' : '#f1f5f9'}`,
             }}>
-              {([
-                { id: 'fields' as const, icon: 'Edit', label: 'Quick Edit', badge: remainingPlaceholders > 0 ? remainingPlaceholders : null },
-                { id: 'sections' as const, icon: 'BulletedList2', label: 'Sections', badge: null },
-                { id: 'presets' as const, icon: 'Library', label: 'Presets', badge: null },
-              ] as const).map(tab => {
-                const isActive = sidebarTab === tab.id;
+              {/* Progress bar */}
+              {(() => {
+                const totalFields = FIELD_PROMPTS.length;
+                const filledFields = FIELD_PROMPTS.filter(fp => (fields[fp.key] || '').trim()).length;
+                const pct = totalFields > 0 ? Math.round((filledFields / totalFields) * 100) : 0;
                 return (
-                  <button key={tab.id} type="button" onClick={() => setSidebarTab(tab.id)} style={{
-                    flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
-                    padding: '9px 6px 8px', fontSize: 10, fontWeight: 700,
-                    border: 'none',
-                    borderBottom: isActive ? `2px solid ${accentBlue}` : '2px solid transparent',
-                    borderRadius: isActive ? '4px 4px 0 0' : 0,
-                    background: isActive
-                      ? (isDarkMode ? 'rgba(54,144,206,0.08)' : 'rgba(54,144,206,0.04)')
-                      : 'transparent',
-                    color: isActive ? accentBlue : textMuted,
-                    cursor: 'pointer', transition: 'all 0.12s ease',
-                    textTransform: 'uppercase' as const, letterSpacing: '0.05em',
-                    position: 'relative',
-                  }}>
-                    <Icon iconName={tab.icon} styles={{ root: { fontSize: 12 } }} />
-                    {tab.label}
-                    {tab.badge != null && (
-                      <span style={{
-                        fontSize: 8, fontWeight: 800, lineHeight: 1,
-                        padding: '2px 5px', borderRadius: 8, marginLeft: 2,
-                        background: isDarkMode ? 'rgba(234,179,8,0.2)' : 'rgba(234,179,8,0.15)',
-                        color: isDarkMode ? '#facc15' : '#ca8a04',
-                      }}>
-                        {tab.badge}
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                      <span style={{ fontSize: 9, fontWeight: 700, color: textMuted, textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>
+                        Review Queue
                       </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Sidebar content */}
-            <div style={{ flex: 1, overflow: 'auto' }}>
-
-              {/* ── Quick Edit tab (now default) ── */}
-              {sidebarTab === 'fields' && (
-                <div style={{ padding: '6px 0' }}>
-                  <div style={{ padding: '4px 14px 8px', fontSize: 10, color: textMuted, lineHeight: 1.4 }}>
-                    Changes update the letter in real time. Click <Icon iconName="NavigateForward" styles={{ root: { fontSize: 9, verticalAlign: 'middle' } }} /> to jump to the field in the document.
-                  </div>
-                  {CCL_SECTIONS.map(section => {
-                    const sectionFields = QUICK_FIELDS.filter(f =>
-                      section.fields.some(sf => sf.key === f.key)
-                    );
-                    if (sectionFields.length === 0) return null;
-                    const filledCount = sectionFields.filter(f => (fields[f.key] || '').trim()).length;
-                    return (
-                      <div key={section.id} style={{ marginBottom: 4 }}>
-                        {/* Section header */}
-                        <div data-ccl-sidebar-section={section.id} style={{
-                          display: 'flex', alignItems: 'center', gap: 6,
-                          padding: '7px 14px 5px',
-                          background: isDarkMode ? 'rgba(54,144,206,0.04)' : 'rgba(54,144,206,0.02)',
-                          borderTop: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.06)' : 'rgba(0,0,0,0.04)'}`,
-                          borderBottom: `1px solid ${isDarkMode ? 'rgba(148,163,184,0.06)' : 'rgba(0,0,0,0.04)'}`,
+                      <span style={{ fontSize: 9, fontWeight: 700, color: pct === 100 ? colours.green : accentBlue }}>
+                        {filledFields}/{totalFields} ({pct}%)
+                      </span>
+                    </div>
+                    <div style={{
+                      height: 3, borderRadius: 2, width: '100%',
+                      background: isDarkMode ? 'rgba(148,163,184,0.1)' : 'rgba(0,0,0,0.06)',
+                    }}>
+                      <div style={{
+                        height: '100%', borderRadius: 2,
+                        width: `${pct}%`,
+                        background: pct === 100
+                          ? colours.green
+                          : `linear-gradient(90deg, ${accentBlue}, ${isDarkMode ? colours.accent : colours.highlight})`,
+                        transition: 'width 0.4s ease',
+                      }} />
+                    </div>
+                    <div style={{
+                      marginTop: 8,
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      gap: 6,
+                      alignItems: 'center',
+                    }}>
+                      <span style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 4,
+                        padding: '3px 8px', borderRadius: 999,
+                        border: `1px solid ${cardBorder}`,
+                        fontSize: 8.5, fontWeight: 600, color: textMuted,
+                        background: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.7)',
+                      }}>
+                        <Icon iconName="AlignLeft" styles={{ root: { fontSize: 8, color: accentBlue } }} />
+                        {promptReviewCardCount} review cards
+                      </span>
+                      {ptSummary && (
+                        <span style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 4,
+                          padding: '3px 8px', borderRadius: 999,
+                          border: `1px solid ${ptSummary.average >= 8 ? colours.green : ptSummary.average >= 5 ? colours.orange : colours.cta}`,
+                          fontSize: 8.5, fontWeight: 700,
+                          color: ptSummary.average >= 8 ? colours.green : ptSummary.average >= 5 ? colours.orange : colours.cta,
+                          background: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.72)',
                         }}>
-                          <Icon iconName={section.icon} styles={{ root: { fontSize: 11, color: accentBlue } }} />
-                          <span style={{ fontSize: 9, fontWeight: 700, color: headingColor, textTransform: 'uppercase' as const, letterSpacing: '0.05em', flex: 1 }}>
-                            {section.title}
-                          </span>
-                          <span style={{ fontSize: 8, color: filledCount === sectionFields.length ? colours.highlight : textMuted, fontWeight: 600 }}>
-                            {filledCount}/{sectionFields.length}
-                          </span>
-                        </div>
-                        {/* Fields */}
-                        <div style={{ padding: '6px 14px 4px' }}>
-                          {sectionFields.map(f => {
-                            const prov = fieldProvenance[f.key] || 'empty';
-                            const pc = provColours[prov] || provColours.default;
-                            const provColor = pc.border;
-                            const provLabel = prov === 'ai' ? 'AI' : prov === 'auto-fill' ? 'AUTO' : prov === 'user' ? 'EDITED' : prov === 'empty' ? 'EMPTY' : 'DEFAULT';
-                            const isHighlighted = highlightedField === f.key;
-                            return (
-                              <div key={f.key} style={{
-                                marginBottom: 10,
-                                borderRadius: 3,
-                                padding: isHighlighted ? '4px 6px' : 0,
-                                background: isHighlighted ? (isDarkMode ? 'rgba(54,144,206,0.08)' : 'rgba(54,144,206,0.05)') : 'transparent',
-                                animation: isHighlighted ? 'cclPulseHighlight 0.6s ease 2' : 'none',
-                                transition: 'all 0.2s ease',
-                              }}>
-                                <label style={{
-                                  display: 'flex', alignItems: 'center', gap: 6,
-                                  fontSize: 10, fontWeight: 600, color: text,
-                                  marginBottom: 3,
-                                }}>
-                                  <span style={{
-                                    width: 6, height: 6, borderRadius: 2,
-                                    background: provColor, flexShrink: 0,
-                                  }} />
-                                  {f.label}
-                                  <span
-                                    onClick={(e) => { e.preventDefault(); scrollFieldToDocument(f.key); }}
-                                    title="Jump to field in document"
-                                    style={{ cursor: 'pointer', display: 'inline-flex', color: textMuted, opacity: 0.4, transition: 'all 0.12s ease' }}
-                                    onMouseEnter={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.color = accentBlue; }}
-                                    onMouseLeave={e => { e.currentTarget.style.opacity = '0.4'; e.currentTarget.style.color = textMuted; }}
-                                  >
-                                    <Icon iconName="NavigateForward" styles={{ root: { fontSize: 9 } }} />
-                                  </span>
-                                  <span style={{
-                                    fontSize: 7, fontWeight: 700, color: provColor,
-                                    textTransform: 'uppercase' as const, letterSpacing: '0.04em',
-                                    marginLeft: 'auto',
-                                  }}>
-                                    {provLabel}
-                                  </span>
-                                </label>
-                                {f.type === 'textarea' ? (
-                                  <textarea
-                                    data-ccl-qf={f.key}
-                                    value={fields[f.key] || ''}
-                                    onChange={e => {
-                                      updateField?.(f.key, e.target.value);
-                                      e.target.style.height = 'auto';
-                                      e.target.style.height = e.target.scrollHeight + 'px';
-                                    }}
-                                    ref={el => {
-                                      if (el) {
-                                        el.style.height = 'auto';
-                                        el.style.height = el.scrollHeight + 'px';
-                                      }
-                                    }}
-                                    style={{
-                                      width: '100%', resize: 'none', overflow: 'hidden',
-                                      padding: '6px 8px', borderRadius: 3, fontSize: 11, lineHeight: 1.5,
-                                      border: `1px solid ${provColor}`,
-                                      borderLeft: `3px solid ${provColor}`,
-                                      background: isDarkMode ? 'rgba(15,23,42,0.8)' : '#f8fafc',
-                                      color: text, fontFamily: "'Raleway', inherit",
-                                      outline: 'none', transition: 'border-color 0.12s ease, box-shadow 0.12s ease',
-                                      minHeight: 36,
-                                    }}
-                                    onFocus={e => { e.target.style.borderColor = accentBlue; e.target.style.boxShadow = `0 0 0 2px ${isDarkMode ? 'rgba(54,144,206,0.15)' : 'rgba(54,144,206,0.1)'}`; }}
-                                    onBlur={e => { e.target.style.borderColor = isDarkMode ? 'rgba(54,144,206,0.25)' : 'rgba(148,163,184,0.3)'; e.target.style.boxShadow = 'none'; }}
-                                  />
-                                ) : (
-                                  <input
-                                    data-ccl-qf={f.key}
-                                    type="text"
-                                    value={fields[f.key] || ''}
-                                    onChange={e => updateField?.(f.key, e.target.value)}
-                                    style={{
-                                      width: '100%', padding: '5px 8px', borderRadius: 3, fontSize: 11,
-                                      border: `1px solid ${provColor}`,
-                                      borderLeft: `3px solid ${provColor}`,
-                                      background: isDarkMode ? 'rgba(15,23,42,0.8)' : '#f8fafc',
-                                      color: text, fontFamily: "'Raleway', inherit",
-                                      outline: 'none', transition: 'border-color 0.12s ease, box-shadow 0.12s ease',
-                                    }}
-                                    onFocus={e => { e.target.style.borderColor = accentBlue; e.target.style.boxShadow = `0 0 0 2px ${isDarkMode ? 'rgba(54,144,206,0.15)' : 'rgba(54,144,206,0.1)'}`; }}
-                                    onBlur={e => { e.target.style.borderColor = isDarkMode ? 'rgba(54,144,206,0.25)' : 'rgba(148,163,184,0.3)'; e.target.style.boxShadow = 'none'; }}
-                                  />
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* ── Sections tab ── */}
-              {sidebarTab === 'sections' && (
-                <div>
-                  {/* Expand/collapse controls */}
-                  <div style={{ ...sidebarSectionStyle, display: 'flex', gap: 6 }}>
-                    <button type="button" onClick={expandAll} style={{
-                      flex: 1, padding: '4px 0', borderRadius: 2, fontSize: 9, fontWeight: 600,
-                      border: `1px solid ${cardBorder}`, background: 'transparent',
-                      color: textMuted, cursor: 'pointer', textTransform: 'uppercase' as const, letterSpacing: '0.04em',
-                    }}>Expand All</button>
-                    <button type="button" onClick={collapseBoilerplate} style={{
-                      flex: 1, padding: '4px 0', borderRadius: 2, fontSize: 9, fontWeight: 600,
-                      border: `1px solid ${cardBorder}`, background: 'transparent',
-                      color: textMuted, cursor: 'pointer', textTransform: 'uppercase' as const, letterSpacing: '0.04em',
-                    }}>Key Only</button>
-                  </div>
-
-                  {/* Section list */}
-                  <div style={{ ...sidebarSectionStyle, padding: '6px 14px 14px' }}>
-                    <span style={sidebarLabelStyle}>Clauses</span>
-                    {parsedSections.filter(s => s.number && !s.isSubsection).map(s => {
-                      const isCollapsed = collapsedSections.has(s.number);
-                      const isBoilerplate = BOILERPLATE.has(s.number);
-                      return (
-                        <button key={s.id} type="button" onClick={() => scrollToSection(s.number)} style={{
-                          display: 'flex', alignItems: 'center', gap: 8,
-                          width: '100%', textAlign: 'left' as const,
-                          padding: '6px 8px', borderRadius: 2, marginBottom: 2,
-                          border: 'none', cursor: 'pointer', transition: 'all 0.1s ease',
-                          background: !isCollapsed
+                          Safety Net {ptSummary.average}/10
+                          {ptSummary.flaggedCount > 0 ? ` · ${ptSummary.flaggedCount} flagged` : ''}
+                        </span>
+                      )}
+                      {otherDocumentFields.length > 0 && (
+                        <button type="button" onClick={() => setShowOtherDocumentFields(prev => !prev)} style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 4,
+                          padding: '3px 8px', borderRadius: 999, cursor: 'pointer',
+                          border: `1px solid ${cardBorder}`,
+                          background: showOtherDocumentFields
+                            ? (isDarkMode ? 'rgba(148,163,184,0.08)' : 'rgba(148,163,184,0.06)')
+                            : 'transparent',
+                          color: textMuted, fontSize: 8.5, fontWeight: 600,
+                          transition: 'all 0.12s ease',
+                        }}>
+                          <Icon iconName="BulletedList" styles={{ root: { fontSize: 8, color: accentBlue } }} />
+                          Document fields ({otherDocumentFields.length})
+                          <Icon iconName={showOtherDocumentFields ? 'ChevronUp' : 'ChevronDown'} styles={{ root: { fontSize: 7 } }} />
+                        </button>
+                      )}
+                      {aiUserPrompt && (
+                        <button type="button" onClick={() => setShowUserPrompt(!showUserPrompt)} style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 4,
+                          padding: '3px 8px', borderRadius: 999, cursor: 'pointer',
+                          border: `1px solid ${showUserPrompt ? accentBlue : cardBorder}`,
+                          background: showUserPrompt
                             ? (isDarkMode ? 'rgba(54,144,206,0.08)' : 'rgba(54,144,206,0.04)')
                             : 'transparent',
-                          color: text,
+                          color: showUserPrompt ? accentBlue : textMuted,
+                          fontSize: 8.5, fontWeight: 600,
+                          transition: 'all 0.12s ease',
                         }}>
-                          <span style={{
-                            width: 22, height: 22, borderRadius: 2,
-                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                            fontSize: 10, fontWeight: 700, flexShrink: 0,
-                            background: !isCollapsed ? accentBlue : (isDarkMode ? 'rgba(148,163,184,0.1)' : '#f1f5f9'),
-                            color: !isCollapsed ? '#fff' : textMuted,
-                          }}>
-                            {s.number}
-                          </span>
-                          <span style={{
-                            fontSize: 11, fontWeight: 500, flex: 1,
-                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const,
-                            color: isCollapsed ? textMuted : text,
-                            opacity: isBoilerplate && isCollapsed ? 0.6 : 1,
-                          }}>
-                            {s.title}
-                          </span>
-                          <Icon iconName={isCollapsed ? 'ChevronRight' : 'ChevronDown'} styles={{ root: { fontSize: 8, color: textMuted, opacity: 0.5 } }} />
+                          <Icon iconName="Send" styles={{ root: { fontSize: 8 } }} />
+                          Context
+                          <Icon iconName={showUserPrompt ? 'ChevronUp' : 'ChevronDown'} styles={{ root: { fontSize: 7 } }} />
                         </button>
-                      );
-                    })}
+                      )}
+                    </div>
+                    {showOtherDocumentFields && otherDocumentFields.length > 0 && (
+                      <div style={{
+                        marginTop: 6,
+                        padding: '8px 10px',
+                        borderRadius: 2,
+                        background: isDarkMode ? 'rgba(0,0,0,0.2)' : '#f8fafc',
+                        border: `1px solid ${cardBorder}`,
+                        color: textMuted,
+                        fontSize: 9,
+                        lineHeight: 1.55,
+                      }}>
+                        {otherDocumentFields.join(' • ')}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* Layout toggle */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <button type="button" onClick={() => setSidebarOpen(false)} style={{
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  width: 24, height: 24,
+                  borderRadius: 2,
+                  border: `1px solid ${cardBorder}`,
+                  background: 'transparent',
+                  color: textMuted,
+                  cursor: 'pointer',
+                  flexShrink: 0,
+                }} title="Collapse review panel">
+                  <Icon iconName="DoubleChevronRightMed" styles={{ root: { fontSize: 10 } }} />
+                </button>
+                <span style={{ fontSize: 9, fontWeight: 600, color: textMuted }}>Layout:</span>
+                {(['inline', 'stacked'] as const).map(mode => (
+                  <button key={mode} type="button" onClick={() => setPromptLayout(mode)} style={{
+                    padding: '3px 10px', fontSize: 9, fontWeight: 700,
+                    border: `1px solid ${promptLayout === mode ? accentBlue : cardBorder}`,
+                    borderRadius: 2, cursor: 'pointer',
+                    background: promptLayout === mode
+                      ? (isDarkMode ? 'rgba(54,144,206,0.12)' : 'rgba(54,144,206,0.06)')
+                      : 'transparent',
+                    color: promptLayout === mode ? accentBlue : textMuted,
+                    textTransform: 'uppercase' as const, letterSpacing: '0.04em',
+                    transition: 'all 0.12s ease',
+                  }}>
+                    {mode === 'inline' ? 'Aligned' : 'Stacked'}
+                  </button>
+                ))}
+              </div>
+
+              {/* User prompt expander — raw matter context sent to AI */}
+              {aiUserPrompt && showUserPrompt && (
+                <div style={{ marginTop: 8 }}>
+                  <div style={{
+                    marginTop: 4, padding: '8px 10px', borderRadius: 2,
+                    background: isDarkMode ? 'rgba(0,0,0,0.25)' : '#f8fafc',
+                    border: `1px solid ${cardBorder}`,
+                    fontSize: 9, lineHeight: 1.6, fontFamily: 'monospace',
+                    color: textMuted, whiteSpace: 'pre-wrap' as const, wordBreak: 'break-word' as const,
+                    maxHeight: 240, overflow: 'auto',
+                  }}>
+                    {aiUserPrompt}
                   </div>
                 </div>
               )}
+            </div>
 
-              {/* ── Presets tab ── */}
-              {sidebarTab === 'presets' && (
-                <div style={{ padding: '10px 14px' }}>
-                  <span style={sidebarLabelStyle}>Clause Presets</span>
-                  <div style={{ fontSize: 10, color: textMuted, marginBottom: 12, lineHeight: 1.4 }}>
-                    One-click clause variants. Click to apply.
-                  </div>
-                  {(['3', '4'] as const).map(sectionNum => {
-                    const sectionPresets = CLAUSE_PRESETS.filter(p => p.section === sectionNum);
-                    const sectionTitle = parsedSections.find(s => s.number === sectionNum)?.title || `Section ${sectionNum}`;
-                    return (
-                      <div key={sectionNum} style={{ marginBottom: 16 }}>
-                        <div style={{ fontSize: 10, fontWeight: 700, color: headingColor, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{
-                            width: 18, height: 18, borderRadius: 2, fontSize: 9, fontWeight: 700,
-                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                            background: isDarkMode ? 'rgba(148,163,184,0.1)' : '#f1f5f9', color: textMuted,
-                          }}>{sectionNum}</span>
-                          {sectionTitle}
-                        </div>
-                        {sectionPresets.map(preset => {
-                          const isActive = (fields[preset.fieldKey] || '').trim() === preset.value.replace('{opponent}', fields.identify_the_other_party_eg_your_opponents || 'the other party');
-                          return (
-                            <button key={preset.id} type="button" onClick={() => applyPreset(preset.fieldKey, preset.value)} style={{
-                              display: 'block', width: '100%', textAlign: 'left' as const,
-                              padding: '8px 10px', borderRadius: 3, marginBottom: 4,
-                              border: `1px solid ${isActive ? accentBlue : (isDarkMode ? 'rgba(148,163,184,0.1)' : '#f1f5f9')}`,
-                              background: isActive
-                                ? (isDarkMode ? 'rgba(54,144,206,0.1)' : 'rgba(54,144,206,0.05)')
-                                : 'transparent',
-                              cursor: 'pointer', transition: 'all 0.12s ease',
-                            }}>
-                              <div style={{ fontSize: 11, fontWeight: 600, color: isActive ? accentBlue : text, marginBottom: 2, display: 'flex', alignItems: 'center', gap: 6 }}>
-                                {isActive && <Icon iconName="CheckMark" styles={{ root: { fontSize: 10, color: accentBlue } }} />}
-                                {preset.label}
-                              </div>
-                              <div style={{ fontSize: 9.5, color: textMuted, lineHeight: 1.4 }}>{preset.description}</div>
-                            </button>
+            {/* Sidebar content — prompts */}
+            <div ref={sidebarContentRef} style={{ flex: 1, overflow: 'auto' }}>
+              <div style={{
+                position: promptLayout === 'inline' ? 'relative' : 'static',
+                minHeight: promptLayout === 'inline' ? (paperScrollRef.current?.scrollHeight || 1200) : undefined,
+                padding: promptLayout === 'stacked' ? '8px 0' : undefined,
+              }}>
+                {(() => {
+                  const sorted = [...FIELD_PROMPTS].sort((a, b) => {
+                    const yA = (promptLayout === 'inline' && GROUPED_INLINE_SECTIONS.has(a.section))
+                      ? (groupedInlineSectionAnchors[a.section] ?? fieldPositions[a.key] ?? a.order * 80)
+                      : (fieldPositions[a.key] ?? a.order * 80);
+                    const yB = (promptLayout === 'inline' && GROUPED_INLINE_SECTIONS.has(b.section))
+                      ? (groupedInlineSectionAnchors[b.section] ?? fieldPositions[b.key] ?? b.order * 80)
+                      : (fieldPositions[b.key] ?? b.order * 80);
+                    if (yA === yB) return a.order - b.order;
+                    return yA - yB;
+                  });
+
+                  const hasPositions = Object.keys(fieldPositions).length > 0;
+                  let prevBottom = 0;
+
+                  return sorted.map((fp, index) => {
+                    const promptGroup = promptGroupByKey[fp.key];
+                    if (promptGroup && promptGroup.leadKey !== fp.key) return null;
+
+                    const cardPrompts = promptGroup
+                      ? promptGroup.memberKeys.map(key => fieldPromptByKey[key]).filter(Boolean)
+                      : [fp];
+                    const cardKey = promptGroup?.leadKey || fp.key;
+                    const cardLabel = promptGroup?.label || fp.label;
+                    const cardTypeText = promptGroup?.typeText;
+                    const sectionRefPrompt = cardPrompts[0] || fp;
+                    const promptStates = cardPrompts.map(prompt => {
+                      const promptValue = String(fields[prompt.key] || '').trim();
+                      const promptProv = fieldProvenance[prompt.key] || 'empty';
+                      const promptResolved = !!promptValue && promptProv !== 'scaffold';
+                      const promptAutoFill = AUTO_FILL_KEYS.has(prompt.key);
+                      const promptLoading = !!aiLoadingKeys?.has(prompt.key) && !promptResolved;
+                      const promptDataSummary = promptAutoFill
+                        ? (prompt.dataHint || 'Matter data (auto-filled)')
+                        : promptProv === 'ai'
+                          ? ((aiDataSources || []).length > 0 ? (aiDataSources || []).join(', ') : 'AI model context')
+                          : promptProv === 'user' ? 'Manually edited'
+                            : promptProv === 'scaffold' ? 'Original template scaffold awaiting specific values'
+                            : promptProv === 'default' ? 'Default copy currently shown in the letter'
+                            : '';
+                      return {
+                        prompt,
+                        val: promptValue,
+                        prov: promptProv,
+                        isFilled: !!promptValue,
+                        isResolved: promptResolved,
+                        isLoading: promptLoading,
+                        isAutoFillField: promptAutoFill,
+                        dataSummary: promptDataSummary,
+                      };
+                    });
+
+                    const isActionGroup = promptGroup?.leadKey === 'insert_next_step_you_would_like_client_to_take';
+                    const actionDocumentKeys = new Set([
+                      'describe_first_document_or_information_you_need_from_your_client',
+                      'describe_second_document_or_information_you_need_from_your_client',
+                      'describe_third_document_or_information_you_need_from_your_client',
+                    ]);
+                    const documentPromptStates = isActionGroup
+                      ? promptStates.filter(state => actionDocumentKeys.has(state.prompt.key))
+                      : [];
+                    const nonDocumentPromptStates = isActionGroup
+                      ? promptStates.filter(state => !actionDocumentKeys.has(state.prompt.key))
+                      : promptStates;
+                    const combinedDocumentValues = documentPromptStates.map(state => state.val).filter(Boolean);
+
+                    const val = promptStates.map(state => state.val).filter(Boolean).join(' | ');
+                    const prov = promptStates.some(state => state.prov === 'scaffold')
+                      ? 'scaffold'
+                      : promptStates.some(state => state.prov === 'ai')
+                        ? 'ai'
+                        : promptStates.some(state => state.prov === 'auto-fill')
+                          ? 'auto-fill'
+                          : promptStates.some(state => state.prov === 'user')
+                            ? 'user'
+                            : promptStates.every(state => state.prov === 'default')
+                              ? 'default'
+                              : promptStates.every(state => state.prov === 'empty')
+                                ? 'empty'
+                                : 'default';
+                    const isFilled = promptStates.some(state => state.isFilled);
+                    const isResolved = promptStates.every(state => state.isResolved);
+                    const isLoading = promptStates.some(state => state.isLoading) && !isResolved;
+                    const groupedInlineAnchor = promptLayout === 'inline' && GROUPED_INLINE_SECTIONS.has(sectionRefPrompt.section)
+                      ? groupedInlineSectionAnchors[sectionRefPrompt.section]
+                      : undefined;
+                    const measuredY = groupedInlineAnchor
+                      ?? cardPrompts.reduce<number | undefined>((minY, prompt) => {
+                        const y = fieldPositions[prompt.key];
+                        if (y == null) return minY;
+                        return minY == null ? y : Math.min(minY, y);
+                      }, undefined);
+                    const isExpanded = expandedCards.has(cardKey);
+                    const isLinkedHighlight = promptStates.some(state => highlightedField === state.prompt.key || hoveredField === state.prompt.key);
+
+                    const isAutoFillField = !promptGroup && AUTO_FILL_KEYS.has(fp.key);
+                    const dataSummary = promptGroup
+                      ? Array.from(new Set(promptStates.map(state => state.dataSummary || state.prompt.dataHint).filter(Boolean))).join(' | ')
+                      : promptStates[0]?.dataSummary || '';
+
+                    let topPx: number | undefined;
+                    if (promptLayout === 'inline') {
+                      const MIN_GAP = 10;
+                      if (hasPositions && measuredY != null) {
+                        topPx = Math.max(measuredY - 8, prevBottom + MIN_GAP);
+                      } else {
+                        topPx = prevBottom + MIN_GAP;
+                      }
+                      const estimatedHeight = promptCardHeights[cardKey]
+                        || (() => {
+                          if (isResolved && !isExpanded) return 38;
+                          const countWrappedLines = (textValue: string, charsPerLine: number) => (
+                            textValue
+                              .split('\n')
+                              .reduce((sum, segment) => sum + Math.max(1, Math.ceil((segment.length || 1) / charsPerLine)), 0)
                           );
-                        })}
+                          const instrText = promptGroup
+                            ? promptStates.filter(state => !state.isAutoFillField).map(state => `${state.prompt.label}: ${state.prompt.instruction}`).join('\n')
+                            : (fp.instruction || '');
+                          const contextText = promptGroup
+                            ? promptStates.map(state => `${state.prompt.label}: ${state.prompt.templateContext.replace(state.prompt.placeholder, '______')}`).join('\n')
+                            : (fp.templateContext || '');
+                          const instrLines = isAutoFillField ? 0 : countWrappedLines(instrText, 38);
+                          const contextLines = contextText ? countWrappedLines(contextText, 34) : 0;
+                          const valueLines = isFilled ? countWrappedLines(val, prov === 'scaffold' ? 30 : 42) : 1;
+                          const sourceLines = countWrappedLines(dataSummary || (promptGroup ? promptStates.map(state => state.prompt.dataHint).filter(Boolean).join(' | ') : fp.dataHint) || '', 44);
+                          return 64
+                            + (contextLines * 14)
+                            + (isAutoFillField ? 0 : 28 + instrLines * 14)
+                            + (sourceLines * 12)
+                            + (valueLines * 14)
+                            + (prov === 'scaffold' ? 24 : 14);
+                        })();
+                      prevBottom = topPx + estimatedHeight;
+                    }
+
+                    const aiBg = isDarkMode ? 'rgba(54,144,206,0.10)' : 'rgba(54,144,206,0.05)';
+                    const aiBgHover = isDarkMode ? 'rgba(54,144,206,0.16)' : 'rgba(54,144,206,0.09)';
+                    const aiBorder = isDarkMode ? 'rgba(54,144,206,0.32)' : 'rgba(54,144,206,0.24)';
+                    const mergeBg = isDarkMode ? 'rgba(32,178,108,0.08)' : 'rgba(32,178,108,0.04)';
+                    const mergeBgHover = isDarkMode ? 'rgba(32,178,108,0.14)' : 'rgba(32,178,108,0.08)';
+                    const mergeBorder = isDarkMode ? 'rgba(32,178,108,0.28)' : 'rgba(32,178,108,0.18)';
+                    const scaffoldBg = isDarkMode ? 'rgba(250,204,21,0.07)' : 'rgba(250,204,21,0.09)';
+                    const scaffoldBgHover = isDarkMode ? 'rgba(250,204,21,0.12)' : 'rgba(250,204,21,0.13)';
+                    const scaffoldBorder = isDarkMode ? 'rgba(250,204,21,0.32)' : 'rgba(202,138,4,0.28)';
+                    const baseBg = isDarkMode ? 'rgba(148,163,184,0.07)' : 'rgba(148,163,184,0.04)';
+                    const baseBgHover = isDarkMode ? 'rgba(148,163,184,0.12)' : 'rgba(148,163,184,0.08)';
+                    const baseBorder = isDarkMode ? 'rgba(148,163,184,0.22)' : 'rgba(100,116,139,0.14)';
+                    const loadingBg = isDarkMode ? 'rgba(54,144,206,0.08)' : 'rgba(54,144,206,0.04)';
+                    const loadingBorder = isDarkMode ? 'rgba(54,144,206,0.28)' : 'rgba(54,144,206,0.18)';
+
+                    let leftAccent = isDarkMode ? 'rgba(54,144,206,0.5)' : 'rgba(13,47,96,0.35)';
+                    let cardBg = baseBg;
+                    let cardBorderCol = baseBorder;
+                    let cardHoverBg = baseBgHover;
+                    if (isLoading) {
+                      leftAccent = colours.highlight;
+                      cardBg = loadingBg;
+                      cardBorderCol = loadingBorder;
+                      cardHoverBg = loadingBg;
+                    } else if (prov === 'ai') {
+                      leftAccent = colours.highlight;
+                      cardBg = aiBg;
+                      cardBorderCol = aiBorder;
+                      cardHoverBg = aiBgHover;
+                    } else if (prov === 'auto-fill') {
+                      leftAccent = colours.green;
+                      cardBg = mergeBg;
+                      cardBorderCol = mergeBorder;
+                      cardHoverBg = mergeBgHover;
+                    } else if (prov === 'scaffold') {
+                      leftAccent = isDarkMode ? '#facc15' : '#ca8a04';
+                      cardBg = scaffoldBg;
+                      cardBorderCol = scaffoldBorder;
+                      cardHoverBg = scaffoldBgHover;
+                    }
+
+                    // Status badge
+                    const badgeColor = isLoading
+                      ? colours.highlight
+                      : prov === 'ai'
+                        ? colours.highlight
+                        : prov === 'auto-fill'
+                          ? colours.green
+                          : prov === 'scaffold'
+                            ? (isDarkMode ? '#facc15' : '#ca8a04')
+                            : prov === 'user'
+                              ? colours.blue
+                              : isResolved
+                                ? textMuted
+                                : colours.cta;
+                    const badgeBg = isLoading
+                      ? (isDarkMode ? 'rgba(54,144,206,0.12)' : 'rgba(54,144,206,0.06)')
+                      : prov === 'ai'
+                        ? (isDarkMode ? 'rgba(54,144,206,0.12)' : 'rgba(54,144,206,0.06)')
+                        : prov === 'auto-fill'
+                        ? (isDarkMode ? 'rgba(32,178,108,0.12)' : 'rgba(32,178,108,0.06)')
+                        : prov === 'scaffold'
+                          ? (isDarkMode ? 'rgba(250,204,21,0.12)' : 'rgba(250,204,21,0.12)')
+                        : (isDarkMode ? 'rgba(214,85,65,0.12)' : 'rgba(214,85,65,0.06)');
+                    const badgeText = isLoading
+                      ? 'LOADING'
+                      : prov === 'ai'
+                        ? 'AI FILLED'
+                        : prov === 'auto-fill'
+                          ? 'MAIL MERGE'
+                          : prov === 'user'
+                            ? 'EDITED'
+                            : prov === 'scaffold'
+                              ? 'TEMPLATE'
+                              : isResolved
+                                ? 'DEFAULT COPY'
+                                : 'NEEDS REVIEW';
+
+                    // Section heading colour
+                    const sectionBadgeBg = isResolved
+                      ? (isDarkMode ? 'rgba(32,178,108,0.12)' : 'rgba(32,178,108,0.06)')
+                      : (isDarkMode ? 'rgba(54,144,206,0.12)' : 'rgba(13,47,96,0.08)');
+                    const sectionBadgeColor = prov === 'ai'
+                      ? colours.highlight
+                      : prov === 'auto-fill'
+                        ? colours.green
+                        : prov === 'scaffold'
+                          ? (isDarkMode ? '#facc15' : '#ca8a04')
+                          : isResolved ? colours.green : (isDarkMode ? colours.accent : colours.highlight);
+
+                    // Type label (no colour — just text distinction)
+                    const typeText = cardTypeText || (fp.key === 'identify_the_other_party_eg_your_opponents'
+                      ? 'Matter Data'
+                      : prov === 'scaffold'
+                        ? 'Template Scaffold'
+                        : isAutoFillField ? 'Mail Merge' : 'AI Target');
+
+                    // ── Collapsed completed card (click chevron to expand) ──
+                    if (isResolved && !isExpanded) {
+                      const snippet = promptGroup
+                        ? `${promptStates.filter(state => state.isResolved).length}/${promptStates.length} items ready`
+                        : (val.length > 50 ? val.slice(0, 50) + '…' : val);
+                      return (
+                        <div
+                          key={cardKey}
+                          data-ccl-prompt={cardKey}
+                          style={{
+                            ...(promptLayout === 'inline'
+                              ? { position: 'absolute' as const, top: topPx, left: 8, right: 8 }
+                              : { margin: '0 8px 4px' }),
+                            padding: '6px 10px', borderRadius: 3, cursor: 'pointer',
+                            background: cardBg,
+                            border: `1px solid ${cardBorderCol}`,
+                            borderLeft: `3px solid ${leftAccent}`,
+                            boxShadow: isLinkedHighlight
+                              ? `0 0 0 2px ${isDarkMode ? 'rgba(135,243,243,0.18)' : 'rgba(54,144,206,0.14)'}`
+                              : undefined,
+                            transition: 'top 0.3s ease, background 0.12s ease',
+                            animation: reviewCascadeKey > 0 ? `cclCascadeIn 0.28s ${Math.min(index * 36, 360)}ms ease both` : undefined,
+                          }}
+                          onMouseEnter={e => { e.currentTarget.style.background = cardHoverBg; setHoveredField(fp.key); }}
+                          onMouseLeave={e => { e.currentTarget.style.background = cardBg; setHoveredField(prev => (prev === fp.key ? null : prev)); }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span
+                              onClick={(e) => { e.stopPropagation(); setExpandedCards(prev => { const n = new Set(prev); n.add(cardKey); return n; }); }}
+                              style={{
+                                width: 16, height: 16, borderRadius: 2, fontSize: 8, flexShrink: 0,
+                                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                color: textMuted, cursor: 'pointer',
+                              }}
+                              title="Expand card"
+                            >
+                              <Icon iconName="ChevronRight" styles={{ root: { fontSize: 8 } }} />
+                            </span>
+                            <span style={{
+                              width: 16, height: 16, borderRadius: 2, fontSize: 7, fontWeight: 700, flexShrink: 0,
+                              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                              background: sectionBadgeBg, color: sectionBadgeColor,
+                            }}>{/^\d/.test(fp.section) ? fp.section : '✦'}</span>
+                            <span
+                              onClick={() => scrollFieldToDocument(cardKey)}
+                              style={{ fontSize: 10, fontWeight: 700, color: text, whiteSpace: 'nowrap' as const, flexShrink: 0 }}
+                            >{cardLabel}</span>
+                            <span style={{
+                              fontSize: 9, color: textMuted, flex: 1,
+                              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const,
+                            }}>{snippet}</span>
+                            <span style={{
+                              fontSize: 7, fontWeight: 700, textTransform: 'uppercase' as const,
+                              padding: '1px 5px', borderRadius: 2, letterSpacing: '0.04em',
+                              color: badgeColor, background: badgeBg, border: `1px solid ${badgeColor}`,
+                              flexShrink: 0,
+                            }}>{badgeText}</span>
+                            {ptResult?.fieldScores?.[cardKey] && (() => {
+                              const pts = ptResult.fieldScores[cardKey];
+                              const ptColor = pts.score >= 8 ? colours.green : pts.score >= 7 ? colours.yellow : '#fca5a5';
+                              const ptBg = pts.score >= 8 ? 'rgba(32,178,108,0.12)' : pts.score >= 7 ? 'rgba(255,213,79,0.12)' : 'rgba(214,85,65,0.12)';
+                              return (
+                                <span title={pts.reason || ''} style={{
+                                  fontSize: 7, fontWeight: 700, padding: '1px 5px', borderRadius: 2,
+                                  color: ptColor, background: ptBg, flexShrink: 0,
+                                }}>{pts.score}/10{pts.flag ? ' ⚠' : ''}</span>
+                              );
+                            })()}
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    // ── Expanded card (for incomplete OR expanded-complete cards) ──
+                    const showAsComplete = isResolved && isExpanded;
+                    return (
+                      <div
+                        key={cardKey}
+                        data-ccl-prompt={cardKey}
+                        style={{
+                          ...(promptLayout === 'inline'
+                            ? { position: 'absolute' as const, top: topPx, left: 8, right: 8 }
+                            : { margin: '0 8px 6px' }),
+                          padding: 0, borderRadius: 3, cursor: 'default',
+                          background: cardBg,
+                          border: `1px solid ${cardBorderCol}`,
+                          borderLeft: `3px solid ${leftAccent}`,
+                          boxShadow: isLinkedHighlight
+                            ? `0 0 0 2px ${isDarkMode ? 'rgba(135,243,243,0.18)' : 'rgba(54,144,206,0.14)'}`
+                            : undefined,
+                          transition: 'top 0.3s ease, background 0.12s ease, border 0.2s ease',
+                          overflow: 'hidden' as const,
+                          animation: reviewCascadeKey > 0 ? `cclCascadeIn 0.28s ${Math.min(index * 36, 360)}ms ease both` : undefined,
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.background = cardHoverBg; setHoveredField(fp.key); }}
+                        onMouseLeave={e => { e.currentTarget.style.background = cardBg; setHoveredField(prev => (prev === fp.key ? null : prev)); }}
+                      >
+                        {/* ── Header row ── */}
+                        <div
+                          onClick={() => scrollFieldToDocument(cardKey)}
+                          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px', cursor: 'pointer' }}
+                        >
+                          {showAsComplete && (
+                            <span
+                              onClick={(e) => { e.stopPropagation(); setExpandedCards(prev => { const n = new Set(prev); n.delete(cardKey); return n; }); }}
+                              style={{
+                                width: 16, height: 16, borderRadius: 2, fontSize: 8, flexShrink: 0,
+                                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                color: textMuted, cursor: 'pointer',
+                              }}
+                              title="Collapse card"
+                            >
+                              <Icon iconName="ChevronDown" styles={{ root: { fontSize: 8 } }} />
+                            </span>
+                          )}
+                          <span style={{
+                            width: 18, height: 18, borderRadius: 2, fontSize: 8, fontWeight: 700, flexShrink: 0,
+                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                            background: sectionBadgeBg, color: sectionBadgeColor,
+                          }}>{/^\d/.test(sectionRefPrompt.section) ? sectionRefPrompt.section : '✦'}</span>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: text, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{cardLabel}</span>
+                          <span style={{
+                            fontSize: 7, fontWeight: 600, color: textMuted,
+                            padding: '1px 4px', letterSpacing: '0.03em', flexShrink: 0,
+                          }}>{typeText}</span>
+                          <span style={{
+                            fontSize: 7, fontWeight: 700, textTransform: 'uppercase' as const,
+                            padding: '1px 5px', borderRadius: 2, letterSpacing: '0.04em',
+                            color: badgeColor, background: badgeBg, border: `1px solid ${badgeColor}`,
+                            flexShrink: 0,
+                            animation: isLoading ? 'cclPulse 1.5s ease-in-out infinite' : undefined,
+                          }}>
+                            {badgeText}
+                          </span>
+                          {ptResult?.fieldScores?.[cardKey] && (() => {
+                            const pts = ptResult.fieldScores[cardKey];
+                            const ptColor = pts.score >= 8 ? colours.green : pts.score >= 7 ? colours.yellow : '#fca5a5';
+                            const ptBg = pts.score >= 8 ? 'rgba(32,178,108,0.12)' : pts.score >= 7 ? 'rgba(255,213,79,0.12)' : 'rgba(214,85,65,0.12)';
+                            return (
+                              <span title={pts.reason || ''} style={{
+                                fontSize: 7, fontWeight: 700, padding: '1px 5px', borderRadius: 2,
+                                color: ptColor, background: ptBg, flexShrink: 0,
+                              }}>{pts.score}/10{pts.flag ? ' ⚠' : ''}</span>
+                            );
+                          })()}
+                        </div>
+
+                        {/* ── Body sections ── */}
+                        <div style={{ padding: '0 10px 10px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+
+                          {/* ── IN: Template context — where this field sits in the letter ── */}
+                          {(promptGroup ? promptStates.some(state => !!state.prompt.templateContext) : !!fp.templateContext) && (
+                            <div>
+                              <div style={{
+                                fontSize: 8, fontWeight: 700, textTransform: 'uppercase' as const,
+                                letterSpacing: '0.06em', color: textMuted, marginBottom: 4,
+                              }}>In the letter</div>
+                              <div style={{
+                                fontSize: 10, lineHeight: 1.5,
+                                color: isDarkMode ? '#d1d5db' : '#374151',
+                                padding: '6px 8px', borderRadius: 2,
+                                background: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+                                border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`,
+                                fontStyle: 'italic',
+                              }}>
+                                {promptGroup ? (
+                                  isActionGroup ? (
+                                    <>
+                                      <div style={{ marginBottom: 4 }}>
+                                        <strong style={{ fontStyle: 'normal' }}>Client action:</strong>{' '}
+                                        ☐ ______ | ______
+                                      </div>
+                                      <div style={{ marginBottom: 4 }}>
+                                        <strong style={{ fontStyle: 'normal' }}>Payment row:</strong>{' '}
+                                        ☐ Provide a payment on account of £______ | If we do not receive… ______
+                                      </div>
+                                      <div>
+                                        <strong style={{ fontStyle: 'normal' }}>Documents / information needed:</strong>{' '}
+                                        ☐ ______ (up to 3 items)
+                                      </div>
+                                    </>
+                                  ) : promptStates.map(state => (
+                                    <div key={state.prompt.key} style={{ marginBottom: 4 }}>
+                                      <strong style={{ fontStyle: 'normal' }}>{state.prompt.label}:</strong>{' '}
+                                      {state.prompt.templateContext.replace(state.prompt.placeholder, '______')}
+                                    </div>
+                                  ))
+                                ) : fp.templateContext.trim() === fp.placeholder.trim() ? (
+                                  <span style={{ fontStyle: 'normal' }}>
+                                    This field supplies the full {fp.sectionTitle.toLowerCase()} section body at this point in the letter. Review the scaffold below for the actual default wording and structure.
+                                  </span>
+                                ) : fp.templateContext.replace(fp.placeholder, '______')}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* ── PROMPT: What the AI was asked (AI fields only) ── */}
+                          {(promptGroup ? promptStates.some(state => !state.isAutoFillField) : !isAutoFillField) && (
+                            <div>
+                              <div style={{
+                                fontSize: 8, fontWeight: 700, textTransform: 'uppercase' as const,
+                                letterSpacing: '0.06em', color: isDarkMode ? 'rgba(147,197,253,0.7)' : 'rgba(13,47,96,0.5)', marginBottom: 4,
+                              }}>Prompt</div>
+                              <div style={{
+                                fontSize: 10.5, lineHeight: 1.55,
+                                color: isDarkMode ? '#93c5fd' : colours.helixBlue,
+                              }}>
+                                {promptGroup ? (
+                                  isActionGroup ? (
+                                    <>
+                                      <div style={{ marginBottom: 4 }}>
+                                        <strong>Client action:</strong> Tell the client what they must do next, then explain briefly why that step matters.
+                                      </div>
+                                      <div style={{ marginBottom: 4 }}>
+                                        <strong>Payment row:</strong> Mirror the payment on account amount from section 6 and explain what happens if the payment is not received.
+                                      </div>
+                                      <div>
+                                        <strong>Documents / information needed:</strong> Name up to 3 specific documents or information items required from the client, shown as one combined request block rather than separate repeated prompts.
+                                      </div>
+                                    </>
+                                  ) : nonDocumentPromptStates.filter(state => !state.isAutoFillField).map(state => (
+                                    <div key={state.prompt.key} style={{ marginBottom: 4 }}>
+                                      <strong>{state.prompt.label}:</strong> {state.prompt.instruction}
+                                    </div>
+                                  ))
+                                ) : fp.instruction}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* ── SOURCE: Where the data came from ── */}
+                          <div style={{
+                            display: 'flex', alignItems: 'center', gap: 5,
+                            fontSize: 9, color: textMuted,
+                          }}>
+                            <span style={{
+                              width: 4, height: 4, borderRadius: '50%', flexShrink: 0,
+                              background: isDarkMode ? colours.accent : colours.highlight,
+                            }} />
+                            <span style={{ fontWeight: 600 }}>{isAutoFillField ? 'Source:' : 'Data:'}</span>
+                            {isLoading ? 'Gathering context…' : dataSummary || (promptGroup ? promptStates.map(state => state.prompt.dataHint).filter(Boolean).join(' | ') : fp.dataHint) || '—'}
+                          </div>
+
+                          {/* ── OUTPUT: The generated value / review prompt ── */}
+                          <div>
+                            <div style={{
+                              fontSize: 8, fontWeight: 700, textTransform: 'uppercase' as const,
+                              letterSpacing: '0.06em', color: isResolved ? colours.green : textMuted, marginBottom: 4,
+                            }}>{isResolved ? 'Output' : (prov === 'scaffold' ? 'Template Scaffold' : (isAutoFillField ? 'Value' : 'Output'))}</div>
+                            {isLoading ? (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                <div style={{
+                                  height: 8, borderRadius: 2, width: '85%',
+                                  background: `linear-gradient(90deg, ${isDarkMode ? 'rgba(54,144,206,0.08)' : 'rgba(54,144,206,0.06)'} 25%, ${isDarkMode ? 'rgba(54,144,206,0.18)' : 'rgba(54,144,206,0.12)'} 50%, ${isDarkMode ? 'rgba(54,144,206,0.08)' : 'rgba(54,144,206,0.06)'} 75%)`,
+                                  backgroundSize: '200% 100%',
+                                  animation: 'cclShimmer 1.5s ease-in-out infinite',
+                                }} />
+                                <div style={{
+                                  height: 8, borderRadius: 2, width: '60%',
+                                  background: `linear-gradient(90deg, ${isDarkMode ? 'rgba(54,144,206,0.08)' : 'rgba(54,144,206,0.06)'} 25%, ${isDarkMode ? 'rgba(54,144,206,0.18)' : 'rgba(54,144,206,0.12)'} 50%, ${isDarkMode ? 'rgba(54,144,206,0.08)' : 'rgba(54,144,206,0.06)'} 75%)`,
+                                  backgroundSize: '200% 100%',
+                                  animation: 'cclShimmer 1.5s ease-in-out infinite 0.2s',
+                                }} />
+                              </div>
+                            ) : isFilled ? (
+                              <div style={{
+                                fontSize: 10.5, lineHeight: 1.55,
+                                color: isDarkMode ? '#d1d5db' : '#374151',
+                                padding: '6px 8px', borderRadius: 2,
+                                background: isDarkMode ? 'rgba(32,178,108,0.04)' : 'rgba(32,178,108,0.02)',
+                                border: `1px solid ${isDarkMode ? 'rgba(32,178,108,0.10)' : 'rgba(32,178,108,0.06)'}`,
+                                whiteSpace: 'pre-wrap' as const,
+                                wordBreak: 'break-word' as const,
+                              }}>
+                                {promptGroup ? (
+                                  isActionGroup ? (
+                                    <>
+                                      <div style={{ marginBottom: 6 }}>
+                                        <strong>Client action:</strong>{' '}
+                                        {promptStates.find(state => state.prompt.key === 'insert_next_step_you_would_like_client_to_take')?.val || <span style={{ color: colours.cta }}>Requires review</span>}
+                                      </div>
+                                      <div style={{ marginBottom: 6 }}>
+                                        <strong>Why it matters:</strong>{' '}
+                                        {promptStates.find(state => state.prompt.key === 'state_why_this_step_is_important')?.val || <span style={{ color: colours.cta }}>Requires review</span>}
+                                      </div>
+                                      <div style={{ marginBottom: 6 }}>
+                                        <strong>Payment on account:</strong>{' '}
+                                        {promptStates.find(state => state.prompt.key === 'state_amount')?.val || <span style={{ color: colours.cta }}>Requires review</span>}
+                                        {' '}|{' '}
+                                        {promptStates.find(state => state.prompt.key === 'insert_consequence')?.val || <span style={{ color: colours.cta }}>Requires review</span>}
+                                      </div>
+                                      <div>
+                                        <strong>Documents / information needed:</strong>{' '}
+                                        {combinedDocumentValues.length > 0 ? (
+                                          <span>{combinedDocumentValues.join(' | ')}</span>
+                                        ) : (
+                                          <span style={{ color: colours.cta }}>Requires review</span>
+                                        )}
+                                      </div>
+                                    </>
+                                  ) : promptStates.map(state => (
+                                    <div key={state.prompt.key} style={{ marginBottom: 6 }}>
+                                      <strong>{state.prompt.label}:</strong>{' '}
+                                      {state.val || <span style={{ color: colours.cta }}>Requires review</span>}
+                                    </div>
+                                  ))
+                                ) : val}
+                              </div>
+                            ) : (
+                              <div style={{
+                                fontSize: 10, color: colours.cta,
+                                fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5,
+                              }}>
+                                <span style={{ fontSize: 12 }}>⚑</span> Requires review
+                              </div>
+                            )}
+                          </div>
+
+                          {/* ── PT flag reason (if pressure test flagged this field) ── */}
+                          {ptResult?.fieldScores?.[fp.key]?.flag && (
+                            <div style={{
+                              fontSize: 9.5, lineHeight: 1.5,
+                              color: isDarkMode ? '#fca5a5' : colours.cta,
+                              padding: '4px 8px', borderRadius: 2,
+                              background: isDarkMode ? 'rgba(214,85,65,0.06)' : 'rgba(214,85,65,0.04)',
+                              border: `1px solid ${isDarkMode ? 'rgba(214,85,65,0.15)' : 'rgba(214,85,65,0.10)'}`,
+                            }}>
+                              <span style={{ fontWeight: 700, fontSize: 8, textTransform: 'uppercase' as const, letterSpacing: '0.04em' }}>⚠ Flagged: </span>
+                              {ptResult.fieldScores[fp.key].reason}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     );
-                  })}
-                </div>
-              )}
+                  });
+                })()}
+              </div>
             </div>{/* end sidebar content scroll */}
           </div>
         )}{/* end sidebar */}
@@ -2382,501 +3868,13 @@ ${htmlBody}
               </button>
             </div>
           </div>
+
         </div>
       )}
 
-      {/* ═══ AI Trace Modal ═══ */}
-      {showTraceModal && (
-        <div style={{
-          position: 'fixed', inset: 0, zIndex: 1000,
-          display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
-          paddingTop: 40,
-          background: isDarkMode ? 'rgba(0,0,0,0.7)' : 'rgba(0,0,0,0.45)',
-          backdropFilter: 'blur(3px)',
-          animation: 'cclFadeIn 0.15s ease',
-          overflowY: 'auto',
-        }} onClick={() => setShowTraceModal(false)}>
-          <div onClick={e => e.stopPropagation()} style={{
-            width: '92%', maxWidth: 900, maxHeight: '90vh',
-            background: isDarkMode ? '#0f172a' : '#ffffff',
-            border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.3)' : 'rgba(148,163,184,0.2)'}`,
-            borderRadius: 6,
-            boxShadow: isDarkMode ? '0 16px 64px rgba(0,0,0,0.6)' : '0 16px 64px rgba(0,0,0,0.2)',
-            display: 'flex', flexDirection: 'column',
-            overflow: 'hidden',
-          }}>
-            {/* Modal header */}
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 10,
-              padding: '14px 20px',
-              borderBottom: `1px solid ${cardBorder}`,
-              flexShrink: 0,
-            }}>
-              <Icon iconName="TestBeaker" styles={{ root: { fontSize: 14, color: accentBlue } }} />
-              <span style={{ fontSize: 13, fontWeight: 700, color: text, flex: 1 }}>AI Processing Trace</span>
-              <span style={{
-                fontSize: 9, fontWeight: 600, padding: '2px 8px', borderRadius: 10,
-                background: aiStatus === 'complete'
-                  ? (isDarkMode ? 'rgba(34,197,94,0.12)' : 'rgba(34,197,94,0.08)')
-                  : aiStatus === 'partial'
-                    ? (isDarkMode ? 'rgba(234,179,8,0.12)' : 'rgba(234,179,8,0.08)')
-                    : aiStatus === 'error'
-                      ? (isDarkMode ? 'rgba(214,85,65,0.12)' : 'rgba(214,85,65,0.08)')
-                      : (isDarkMode ? 'rgba(148,163,184,0.12)' : 'rgba(148,163,184,0.08)'),
-                color: aiStatus === 'complete'
-                  ? colours.highlight
-                  : aiStatus === 'partial'
-                    ? (isDarkMode ? '#facc15' : '#ca8a04')
-                    : aiStatus === 'error'
-                      ? (isDarkMode ? '#f0a090' : colours.cta)
-                      : textMuted,
-              }}>
-                {aiStatus === 'complete' ? 'AI Complete' : aiStatus === 'partial' ? 'Partial' : aiStatus === 'error' ? 'Error' : aiStatus === 'loading' ? 'Loading...' : 'Defaults'}
-              </span>
-              <button type="button" onClick={() => setShowTraceModal(false)} style={{
-                background: 'transparent', border: 'none', cursor: 'pointer', color: textMuted,
-                padding: 4, display: 'inline-flex',
-              }}>
-                <Icon iconName="Cancel" styles={{ root: { fontSize: 12 } }} />
-              </button>
-            </div>
-
-            {/* ── Tab bar ── */}
-            <div style={{
-              display: 'flex', borderBottom: `1px solid ${cardBorder}`, flexShrink: 0,
-              background: isDarkMode ? 'rgba(0,0,0,0.15)' : 'rgba(248,250,252,0.8)',
-            }}>
-              {([
-                { id: 'overview' as const, icon: 'Flow', label: 'Pipeline' },
-                { id: 'data' as const, icon: 'Database', label: 'Data In' },
-                { id: 'system' as const, icon: 'Settings', label: 'System Prompt' },
-                { id: 'prompt' as const, icon: 'Send', label: 'User Prompt' },
-                { id: 'output' as const, icon: 'LightningBolt', label: 'AI Output' },
-              ]).map(tab => (
-                <button key={tab.id} type="button" onClick={() => setTraceTab(tab.id)} style={{
-                  flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
-                  padding: '8px 4px', fontSize: 9, fontWeight: 700,
-                  border: 'none', borderBottom: traceTab === tab.id ? `2px solid ${accentBlue}` : '2px solid transparent',
-                  background: 'transparent',
-                  color: traceTab === tab.id ? accentBlue : textMuted,
-                  cursor: 'pointer', transition: 'all 0.12s ease',
-                  textTransform: 'uppercase' as const, letterSpacing: '0.05em',
-                }}>
-                  <Icon iconName={tab.icon} styles={{ root: { fontSize: 10 } }} />
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-
-            {/* Modal body — scrollable */}
-            <div style={{ flex: 1, overflow: 'auto', padding: '16px 20px', fontSize: 11, lineHeight: 1.6, color: text }}>
-
-              {/* ═══ PIPELINE TAB ═══ */}
-              {traceTab === 'overview' && (<>
-                {/* Processing Chain */}
-                <div style={{ marginBottom: 20 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: headingColor, marginBottom: 10, textTransform: 'uppercase' as const, letterSpacing: '0.04em' }}>
-                    <Icon iconName="ProcessingRun" styles={{ root: { fontSize: 11, marginRight: 6, color: accentBlue } }} />
-                    Processing Chain
-                  </div>
-                  <div style={{
-                    display: 'flex', alignItems: 'center', gap: 0,
-                    padding: '12px 14px', borderRadius: 4,
-                    background: isDarkMode ? 'rgba(54,144,206,0.05)' : 'rgba(248,250,252,0.8)',
-                    border: `1px solid ${cardBorder}`,
-                    overflowX: 'auto',
-                  }}>
-                    {[
-                      { label: 'Matter Data', icon: 'Contact', status: matter?.displayNumber ? 'done' : 'empty', detail: matter?.displayNumber || 'none', tab: 'overview' as const },
-                      { label: 'Auto-fill', icon: 'AutoFillTemplate', status: Object.values(fieldProvenance).filter(p => p === 'auto-fill').length > 0 ? 'done' : 'empty', detail: `${Object.values(fieldProvenance).filter(p => p === 'auto-fill').length} fields`, tab: 'output' as const },
-                      { label: 'DB Context', icon: 'Database', status: (aiDataSources || []).length > 0 ? 'done' : aiStatus === 'loading' ? 'loading' : 'empty', detail: `${(aiDataSources || []).length} sources`, tab: 'data' as const },
-                      { label: 'System Prompt', icon: 'Settings', status: aiSystemPrompt ? 'done' : 'empty', detail: aiSystemPrompt ? `${aiSystemPrompt.length.toLocaleString()} chars` : 'none', tab: 'system' as const },
-                      { label: 'User Prompt', icon: 'Send', status: aiUserPrompt ? 'done' : aiStatus === 'loading' ? 'loading' : 'empty', detail: aiUserPrompt ? `${aiUserPrompt.length.toLocaleString()} chars` : 'none', tab: 'prompt' as const },
-                      { label: 'AI Output', icon: 'LightningBolt', status: aiStatus === 'complete' ? 'done' : aiStatus === 'partial' ? 'partial' : aiStatus === 'loading' ? 'loading' : aiStatus === 'error' ? 'error' : 'empty', detail: aiDebugTrace?.generatedFieldCount ? `${aiDebugTrace.generatedFieldCount} fields` : aiStatus === 'error' ? 'failed' : 'none', tab: 'output' as const },
-                      { label: 'Letter', icon: 'PageEdit', status: 'done', detail: `${Object.values(fields).filter(v => v?.trim()).length} / ${Object.keys(fields).length}`, tab: 'output' as const },
-                    ].map((step, i, arr) => (
-                      <React.Fragment key={step.label}>
-                        <div
-                          onClick={() => setTraceTab(step.tab)}
-                          style={{
-                            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
-                            minWidth: 72, cursor: 'pointer',
-                          }}
-                          title={`View ${step.label} details`}
-                        >
-                          <div style={{
-                            width: 30, height: 30, borderRadius: '50%',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            background: step.status === 'done' ? (isDarkMode ? 'rgba(34,197,94,0.15)' : 'rgba(34,197,94,0.1)')
-                              : step.status === 'partial' ? (isDarkMode ? 'rgba(234,179,8,0.15)' : 'rgba(234,179,8,0.1)')
-                              : step.status === 'error' ? (isDarkMode ? 'rgba(214,85,65,0.15)' : 'rgba(214,85,65,0.1)')
-                              : step.status === 'loading' ? (isDarkMode ? 'rgba(54,144,206,0.15)' : 'rgba(54,144,206,0.1)')
-                              : (isDarkMode ? 'rgba(148,163,184,0.08)' : 'rgba(148,163,184,0.05)'),
-                            border: `1.5px solid ${
-                              step.status === 'done' ? colours.highlight
-                              : step.status === 'partial' ? (isDarkMode ? '#facc15' : '#ca8a04')
-                              : step.status === 'error' ? (isDarkMode ? '#f0a090' : colours.cta)
-                              : step.status === 'loading' ? accentBlue
-                              : (isDarkMode ? '#334155' : '#e2e8f0')
-                            }`,
-                            transition: 'transform 0.1s ease',
-                          }}>
-                            <Icon iconName={step.icon} styles={{ root: {
-                              fontSize: 12,
-                              color: step.status === 'done' ? colours.highlight
-                                : step.status === 'partial' ? (isDarkMode ? '#facc15' : '#ca8a04')
-                                : step.status === 'error' ? (isDarkMode ? '#f0a090' : colours.cta)
-                                : step.status === 'loading' ? accentBlue
-                                : textMuted,
-                            } }} />
-                          </div>
-                          <span style={{ fontSize: 8, fontWeight: 700, color: textMuted, textAlign: 'center', lineHeight: 1.2 }}>{step.label}</span>
-                          <span style={{ fontSize: 7.5, color: isDarkMode ? '#475569' : '#94a3b8', textAlign: 'center' }}>{step.detail}</span>
-                        </div>
-                        {i < arr.length - 1 && (
-                          <div style={{
-                            flex: '0 0 16px', height: 1, margin: '0 2px',
-                            marginBottom: 20,
-                            background: step.status === 'done' ? (isDarkMode ? 'rgba(34,197,94,0.3)' : 'rgba(34,197,94,0.2)')
-                              : (isDarkMode ? 'rgba(148,163,184,0.15)' : 'rgba(148,163,184,0.1)'),
-                          }} />
-                        )}
-                      </React.Fragment>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Pipeline Summary grid */}
-                <div style={{ marginBottom: 20 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: headingColor, marginBottom: 8, textTransform: 'uppercase' as const, letterSpacing: '0.04em' }}>
-                    <Icon iconName="Info" styles={{ root: { fontSize: 11, marginRight: 6, color: accentBlue } }} />
-                    Run Details
-                  </div>
-                  <div style={{
-                    display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '4px 16px',
-                    padding: '10px 14px', borderRadius: 4,
-                    background: isDarkMode ? 'rgba(54,144,206,0.05)' : 'rgba(248,250,252,0.8)',
-                    border: `1px solid ${cardBorder}`,
-                  }}>
-                    <span style={{ color: textMuted, fontWeight: 600 }}>Tracking ID</span>
-                    <span style={{ fontFamily: 'monospace', fontSize: 10 }}>{aiDebugTrace?.trackingId || '—'}</span>
-                    <span style={{ color: textMuted, fontWeight: 600 }}>Deployment</span>
-                    <span>{aiDebugTrace?.deployment || '—'}</span>
-                    <span style={{ color: textMuted, fontWeight: 600 }}>Source</span>
-                    <span>{aiSource || '—'}</span>
-                    <span style={{ color: textMuted, fontWeight: 600 }}>Duration</span>
-                    <span>{aiDurationMs ? `${(aiDurationMs / 1000).toFixed(1)}s` : '—'}</span>
-                    <span style={{ color: textMuted, fontWeight: 600 }}>Temperature</span>
-                    <span>{aiDebugTrace?.options?.temperature ?? '—'}</span>
-                    <span style={{ color: textMuted, fontWeight: 600 }}>Data Sources</span>
-                    <span>{(aiDataSources || []).length > 0 ? (aiDataSources || []).join(', ') : '—'}</span>
-                    <span style={{ color: textMuted, fontWeight: 600 }}>Auto-filled</span>
-                    <span>{Object.values(fieldProvenance).filter(p => p === 'auto-fill').length} fields</span>
-                    <span style={{ color: textMuted, fontWeight: 600 }}>AI-generated</span>
-                    <span>{Object.values(fieldProvenance).filter(p => p === 'ai').length} fields</span>
-                    <span style={{ color: textMuted, fontWeight: 600 }}>Total Filled</span>
-                    <span>{Object.values(fields).filter(v => v?.trim()).length} / {Object.keys(fields).length}</span>
-                    {(aiFallbackReason || aiDebugTrace?.error) && (<>
-                      <span style={{ color: isDarkMode ? '#f0a090' : colours.cta, fontWeight: 600 }}>Error / Fallback</span>
-                      <span style={{ color: isDarkMode ? '#f0a090' : colours.cta }}>{aiFallbackReason || aiDebugTrace?.error}</span>
-                    </>)}
-                  </div>
-                </div>
-              </>)}
-
-              {/* ═══ DATA IN TAB ═══ */}
-              {traceTab === 'data' && (<>
-                {/* Data source pills */}
-                <div style={{ marginBottom: 16 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: headingColor, marginBottom: 8, textTransform: 'uppercase' as const, letterSpacing: '0.04em' }}>
-                    <Icon iconName="Database" styles={{ root: { fontSize: 11, marginRight: 6, color: accentBlue } }} />
-                    Data Sources ({(aiDataSources || []).length})
-                  </div>
-                  {(aiDataSources || []).length > 0 ? (
-                    <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 6 }}>
-                      {(aiDataSources || []).map((source, i) => (
-                        <span key={i} style={{
-                          display: 'inline-flex', alignItems: 'center', gap: 5,
-                          padding: '4px 10px', borderRadius: 12,
-                          background: isDarkMode ? 'rgba(54,144,206,0.08)' : 'rgba(54,144,206,0.05)',
-                          border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.2)' : 'rgba(54,144,206,0.1)'}`,
-                          fontSize: 10, fontWeight: 600,
-                        }}>
-                          <span style={{ width: 5, height: 5, borderRadius: '50%', background: accentBlue }} />
-                          {source}
-                        </span>
-                      ))}
-                    </div>
-                  ) : (
-                    <div style={{ color: textMuted, fontStyle: 'italic' }}>No data sources gathered</div>
-                  )}
-                </div>
-
-                {/* Resolved context fields */}
-                {aiDebugTrace?.context?.contextFields && Object.keys(aiDebugTrace.context.contextFields).length > 0 && (
-                  <div style={{ marginBottom: 16 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: headingColor, marginBottom: 8, textTransform: 'uppercase' as const, letterSpacing: '0.04em' }}>
-                      <Icon iconName="TableComputed" styles={{ root: { fontSize: 11, marginRight: 6, color: accentBlue } }} />
-                      Resolved Fields (structured data fed to prompt)
-                    </div>
-                    <div style={{
-                      display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '3px 14px',
-                      padding: '10px 14px', borderRadius: 4,
-                      background: isDarkMode ? 'rgba(0,0,0,0.15)' : 'rgba(248,250,252,0.8)',
-                      border: `1px solid ${cardBorder}`, fontSize: 10,
-                    }}>
-                      {Object.entries(aiDebugTrace.context.contextFields)
-                        .filter(([, v]) => String(v || '').trim())
-                        .map(([key, value]) => (
-                          <React.Fragment key={key}>
-                            <span style={{ color: textMuted, fontWeight: 600 }}>{key}</span>
-                            <span>{String(value)}</span>
-                          </React.Fragment>
-                        ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Raw context snippets — the actual text sent in the user prompt */}
-                {aiDebugTrace?.context?.snippets && Object.entries(aiDebugTrace.context.snippets).filter(([, v]) => String(v || '').trim()).length > 0 && (
-                  <div style={{ marginBottom: 16 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: headingColor, marginBottom: 8, textTransform: 'uppercase' as const, letterSpacing: '0.04em' }}>
-                      <Icon iconName="TextDocument" styles={{ root: { fontSize: 11, marginRight: 6, color: accentBlue } }} />
-                      Raw Context Snippets (text chunks injected into user prompt)
-                    </div>
-                    {Object.entries(aiDebugTrace.context.snippets)
-                      .filter(([, v]) => String(v || '').trim())
-                      .map(([key, value]) => (
-                        <div key={key} style={{ marginBottom: 10 }}>
-                          <div style={{
-                            fontSize: 9, fontWeight: 700, color: accentBlue, marginBottom: 3,
-                            textTransform: 'uppercase' as const, letterSpacing: '0.03em',
-                            display: 'flex', alignItems: 'center', gap: 6,
-                          }}>
-                            <span style={{ width: 5, height: 5, borderRadius: '50%', background: accentBlue }} />
-                            {key.replace(/([A-Z])/g, ' $1').trim()}
-                          </div>
-                          <div style={{
-                            padding: '8px 10px', borderRadius: 3,
-                            background: isDarkMode ? 'rgba(0,0,0,0.2)' : '#f8fafc',
-                            border: `1px solid ${cardBorder}`,
-                            fontSize: 10, lineHeight: 1.5, color: textMuted,
-                            whiteSpace: 'pre-wrap' as const, wordBreak: 'break-word' as const,
-                            maxHeight: 150, overflow: 'auto',
-                          }}>
-                            {String(value)}
-                          </div>
-                        </div>
-                      ))}
-                  </div>
-                )}
-
-                {/* Flow explanation */}
-                <div style={{
-                  padding: '10px 14px', borderRadius: 4,
-                  background: isDarkMode ? 'rgba(54,144,206,0.05)' : 'rgba(248,250,252,0.5)',
-                  border: `1px solid ${cardBorder}`, fontSize: 10, color: textMuted, lineHeight: 1.6,
-                }}>
-                  <strong style={{ color: text }}>How data flows:</strong> The backend queries Instructions DB (deals, pitch emails, pitch notes), Core Data DB (enquiry records), and CallRail (call transcripts). Each source that returns data is listed above. The structured fields become the <strong>MATTER CONTEXT</strong> section of the user prompt, while raw text (emails, transcripts, notes) are injected as separate sections.
-                </div>
-              </>)}
-
-              {/* ═══ SYSTEM PROMPT TAB ═══ */}
-              {traceTab === 'system' && (<>
-                <div style={{ marginBottom: 12 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: headingColor, marginBottom: 4, textTransform: 'uppercase' as const, letterSpacing: '0.04em' }}>
-                    <Icon iconName="Settings" styles={{ root: { fontSize: 11, marginRight: 6, color: accentBlue } }} />
-                    System Prompt ({aiSystemPrompt ? aiSystemPrompt.length.toLocaleString() : 0} chars)
-                  </div>
-                  <div style={{ fontSize: 9.5, color: textMuted, marginBottom: 10, lineHeight: 1.5 }}>
-                    This prompt tells the AI <strong style={{ color: text }}>what to do</strong> — which fields to generate, where each field appears in the CCL template, and the rules for cost accuracy. It is the same for every matter. The user prompt (next tab) provides the matter-specific data.
-                  </div>
-                </div>
-                {aiSystemPrompt ? (
-                  <div style={{
-                    padding: '12px 14px', borderRadius: 4,
-                    background: isDarkMode ? 'rgba(0,0,0,0.25)' : '#f8fafc',
-                    border: `1px solid ${cardBorder}`,
-                    fontSize: 9.5, lineHeight: 1.6, fontFamily: 'monospace',
-                    color: textMuted, whiteSpace: 'pre-wrap' as const, wordBreak: 'break-word' as const,
-                    maxHeight: 'calc(90vh - 220px)', overflow: 'auto',
-                  }}>
-                    {aiSystemPrompt}
-                  </div>
-                ) : (
-                  <div style={{ color: textMuted, fontStyle: 'italic', padding: '20px 0', textAlign: 'center' }}>
-                    System prompt not available — the server may not have returned it for this run.
-                  </div>
-                )}
-              </>)}
-
-              {/* ═══ USER PROMPT TAB ═══ */}
-              {traceTab === 'prompt' && (<>
-                <div style={{ marginBottom: 12 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: headingColor, marginBottom: 4, textTransform: 'uppercase' as const, letterSpacing: '0.04em' }}>
-                    <Icon iconName="Send" styles={{ root: { fontSize: 11, marginRight: 6, color: accentBlue } }} />
-                    User Prompt ({aiUserPrompt ? aiUserPrompt.length.toLocaleString() : 0} chars)
-                  </div>
-                  <div style={{ fontSize: 9.5, color: textMuted, marginBottom: 10, lineHeight: 1.5 }}>
-                    This is the <strong style={{ color: text }}>matter-specific data</strong> sent alongside the system prompt. It contains the practice area, client details, deal amounts, pitch emails, call transcripts — everything the AI uses to generate tailored fields. Each section below corresponds to a data source.
-                  </div>
-                </div>
-                {aiUserPrompt ? (
-                  <div style={{
-                    padding: '12px 14px', borderRadius: 4,
-                    background: isDarkMode ? 'rgba(0,0,0,0.25)' : '#f8fafc',
-                    border: `1px solid ${cardBorder}`,
-                    fontSize: 9.5, lineHeight: 1.6, fontFamily: 'monospace',
-                    color: textMuted, whiteSpace: 'pre-wrap' as const, wordBreak: 'break-word' as const,
-                    maxHeight: 'calc(90vh - 220px)', overflow: 'auto',
-                  }}>
-                    {aiUserPrompt}
-                  </div>
-                ) : (
-                  <div style={{ color: textMuted, fontStyle: 'italic', padding: '20px 0', textAlign: 'center' }}>
-                    No user prompt — AI was not called (using defaults only).
-                  </div>
-                )}
-              </>)}
-
-              {/* ═══ AI OUTPUT TAB ═══ */}
-              {traceTab === 'output' && (<>
-                <div style={{ marginBottom: 12 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: headingColor, marginBottom: 4, textTransform: 'uppercase' as const, letterSpacing: '0.04em' }}>
-                    <Icon iconName="LightningBolt" styles={{ root: { fontSize: 11, marginRight: 6, color: accentBlue } }} />
-                    Generated Fields ({Object.values(fieldProvenance).filter(p => p === 'ai').length} AI + {Object.values(fieldProvenance).filter(p => p === 'auto-fill').length} auto-fill)
-                  </div>
-                  <div style={{ fontSize: 9.5, color: textMuted, marginBottom: 10, lineHeight: 1.5 }}>
-                    Each field below shows its <strong style={{ color: text }}>source</strong> (AI-generated or auto-filled from matter data) and its <strong style={{ color: text }}>current value</strong>. Fields are grouped by their position in the CCL template.
-                  </div>
-                </div>
-                {/* Legend */}
-                <div style={{ fontSize: 9, color: textMuted, marginBottom: 10, display: 'flex', gap: 14, flexWrap: 'wrap' as const }}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                    <span style={{ width: 8, height: 8, borderRadius: 2, background: colours.highlight }} /> AI-generated
-                  </span>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                    <span style={{ width: 8, height: 8, borderRadius: 2, background: accentBlue }} /> Auto-filled
-                  </span>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                    <span style={{ width: 8, height: 8, borderRadius: 2, background: isDarkMode ? '#94a3b8' : '#cbd5e1' }} /> Default / Empty
-                  </span>
-                </div>
-                {CCL_SECTIONS.map((section) => {
-                  const sectionFields = section.fields.map(f => f.key).filter(k => k in fields);
-                  if (sectionFields.length === 0) return null;
-                  const filledCount = sectionFields.filter(k => (fields[k] || '').trim()).length;
-                  const aiCount = sectionFields.filter(k => fieldProvenance[k] === 'ai').length;
-                  const autoCount = sectionFields.filter(k => fieldProvenance[k] === 'auto-fill').length;
-                  return (
-                    <div key={section.id} style={{ marginBottom: 10 }}>
-                      <div style={{
-                        display: 'flex', alignItems: 'center', gap: 8,
-                        padding: '6px 12px', borderRadius: '4px 4px 0 0',
-                        background: isDarkMode ? 'rgba(54,144,206,0.08)' : 'rgba(54,144,206,0.04)',
-                        border: `1px solid ${cardBorder}`, borderBottom: 'none',
-                      }}>
-                        <Icon iconName={section.icon} styles={{ root: { fontSize: 11, color: accentBlue } }} />
-                        <span style={{ fontSize: 10, fontWeight: 700, color: text, flex: 1 }}>{section.title}</span>
-                        <span style={{ fontSize: 8, color: textMuted }}>
-                          {filledCount}/{sectionFields.length} filled
-                          {aiCount > 0 && <span style={{ color: colours.highlight, marginLeft: 6 }}>{aiCount} AI</span>}
-                          {autoCount > 0 && <span style={{ color: accentBlue, marginLeft: 6 }}>{autoCount} auto</span>}
-                        </span>
-                      </div>
-                      <div style={{ borderRadius: '0 0 4px 4px', overflow: 'hidden', border: `1px solid ${cardBorder}` }}>
-                        {sectionFields.map((key, i) => {
-                          const prov = fieldProvenance[key] || 'empty';
-                          const provColor = prov === 'ai' ? colours.highlight
-                            : prov === 'auto-fill' ? accentBlue
-                            : (isDarkMode ? '#475569' : '#cbd5e1');
-                          const valStr = (fields[key] || '').trim();
-                          const fieldDef = section.fields.find(f => f.key === key);
-                          return (
-                            <div key={key} style={{
-                              display: 'flex', alignItems: 'flex-start', gap: 8,
-                              padding: '5px 12px',
-                              borderBottom: i < sectionFields.length - 1 ? `1px solid ${isDarkMode ? 'rgba(148,163,184,0.06)' : 'rgba(0,0,0,0.04)'}` : 'none',
-                              background: i % 2 === 0 ? 'transparent' : (isDarkMode ? 'rgba(0,0,0,0.08)' : 'rgba(0,0,0,0.015)'),
-                              fontSize: 10,
-                            }}>
-                              <span style={{ width: 5, height: 5, borderRadius: 2, background: provColor, flexShrink: 0, marginTop: 5 }} />
-                              <span style={{
-                                width: 160, flexShrink: 0, fontWeight: 600, color: textMuted,
-                                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const, fontSize: 9,
-                              }} title={key}>
-                                {fieldDef?.label || key}
-                              </span>
-                              <span style={{
-                                flex: 1, color: valStr ? text : (isDarkMode ? '#475569' : '#cbd5e1'),
-                                fontStyle: valStr ? 'normal' : 'italic',
-                                overflow: 'hidden', textOverflow: 'ellipsis',
-                                display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' as const,
-                                fontSize: 9.5,
-                              }}>
-                                {valStr || '(empty)'}
-                              </span>
-                              <span style={{
-                                fontSize: 7.5, fontWeight: 700, color: provColor,
-                                textTransform: 'uppercase' as const, letterSpacing: '0.04em',
-                                flexShrink: 0, minWidth: 48, textAlign: 'right' as const,
-                              }}>
-                                {prov}
-                              </span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })}
-                {/* Unmapped fields */}
-                {(() => {
-                  const mappedKeys = new Set(CCL_SECTIONS.flatMap(s => s.fields.map(f => f.key)));
-                  const unmapped = Object.keys(fields).filter(k => !mappedKeys.has(k) && (fields[k] || '').trim());
-                  if (unmapped.length === 0) return null;
-                  return (
-                    <div style={{ marginBottom: 10 }}>
-                      <div style={{
-                        display: 'flex', alignItems: 'center', gap: 8,
-                        padding: '6px 12px', borderRadius: '4px 4px 0 0',
-                        background: isDarkMode ? 'rgba(148,163,184,0.05)' : 'rgba(148,163,184,0.03)',
-                        border: `1px solid ${cardBorder}`, borderBottom: 'none',
-                      }}>
-                        <Icon iconName="Unknown" styles={{ root: { fontSize: 11, color: textMuted } }} />
-                        <span style={{ fontSize: 10, fontWeight: 700, color: textMuted, flex: 1 }}>Other Fields</span>
-                        <span style={{ fontSize: 8, color: textMuted }}>{unmapped.length} fields</span>
-                      </div>
-                      <div style={{ borderRadius: '0 0 4px 4px', overflow: 'hidden', border: `1px solid ${cardBorder}` }}>
-                        {unmapped.map((key, i) => {
-                          const prov = fieldProvenance[key] || 'empty';
-                          const provColor = prov === 'ai' ? colours.highlight : prov === 'auto-fill' ? accentBlue : (isDarkMode ? '#475569' : '#cbd5e1');
-                          return (
-                            <div key={key} style={{
-                              display: 'flex', alignItems: 'flex-start', gap: 8, padding: '5px 12px',
-                              borderBottom: i < unmapped.length - 1 ? `1px solid ${isDarkMode ? 'rgba(148,163,184,0.06)' : 'rgba(0,0,0,0.04)'}` : 'none',
-                              background: i % 2 === 0 ? 'transparent' : (isDarkMode ? 'rgba(0,0,0,0.08)' : 'rgba(0,0,0,0.015)'), fontSize: 10,
-                            }}>
-                              <span style={{ width: 5, height: 5, borderRadius: 2, background: provColor, flexShrink: 0, marginTop: 5 }} />
-                              <span style={{ width: 160, flexShrink: 0, fontWeight: 600, color: textMuted, fontFamily: 'monospace', fontSize: 8 }} title={key}>{key}</span>
-                              <span style={{ flex: 1, color: text, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' as const, fontSize: 9.5 }}>{fields[key]}</span>
-                              <span style={{ fontSize: 7.5, fontWeight: 700, color: provColor, textTransform: 'uppercase' as const, flexShrink: 0, minWidth: 48, textAlign: 'right' as const }}>{prov}</span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })()}
-              </>)}
-
-            </div>{/* end modal body */}
-          </div>{/* end modal panel */}
-        </div>
-      )}{/* end trace modal */}
 
       {/* ═══ Support Report Modal ═══ */}
-      {showSupportModal && (() => {
+      {isDevMode && showSupportModal && (() => {
         const categories: { value: CclSupportTicket['category']; label: string; icon: string }[] = [
           { value: 'field_wrong', label: 'Field value wrong', icon: 'FieldChanged' },
           { value: 'ai_quality', label: 'AI quality issue', icon: 'Robot' },

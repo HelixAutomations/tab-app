@@ -31,7 +31,7 @@ export function generateTemplateContent(
     content = content.replace(/\{\{costs_section_choice\}\}/g, costsText);
 
     const chargesText = chargesChoice === 'hourly_rate'
-        ? `Our fees are calculated on the basis of an hourly rate. My rate is £{{handler_hourly_rate}} per hour. Other Partners/senior solicitors are charged at £395, Associate solicitors at £325, Solicitors at £285 and trainees and paralegals are charged at £195. All hourly rates will be subject to the addition of VAT.
+        ? `Our fees are calculated on the basis of an hourly rate. My rate is £{{handler_hourly_rate}} per hour. Directors are charged at £475, partners and senior solicitors at £425, associate solicitors at £350, solicitors at £310 and trainees and paralegals are charged at £210. All hourly rates are excluding VAT, and this will be added at the prevailing rate.
 
 Short incoming and outgoing letters, messages, emails and routine phone calls are charged at 1/10 of an hour. All other work is timed in six minute units and charged at the relevant hourly rate. Please note that lots of small emails or telephone calls may unnecessarily increase the costs to you.
 
@@ -74,8 +74,9 @@ Disbursement | Amount | VAT chargeable
 
     if (!keepPlaceholders) {
         Object.keys(templateFields).forEach(key => {
-            const value = templateFields[key];
-            if (value && value.trim()) {
+            const rawValue = templateFields[key];
+            const value = rawValue == null ? '' : String(rawValue);
+            if (value.trim()) {
                 const placeholder = `{{${key}}}`;
                 content = content.replace(new RegExp(placeholder, 'g'), value);
             }

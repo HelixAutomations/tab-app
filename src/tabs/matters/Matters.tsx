@@ -60,13 +60,14 @@ interface MattersProps {
   enquiries?: Enquiry[] | null;
   workbenchByInstructionRef?: Map<string, any> | null;
   pendingMatterId?: string | null;
+  pendingShowCcl?: boolean;
   onPendingMatterHandled?: () => void;
   demoModeEnabled?: boolean;
 }
 
 type MatterDetailTabKey = 'overview' | 'activities' | 'documents' | 'communications' | 'billing';
 
-const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, teamData, enquiries, workbenchByInstructionRef, pendingMatterId, onPendingMatterHandled, demoModeEnabled = false }) => {
+const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, teamData, enquiries, workbenchByInstructionRef, pendingMatterId, pendingShowCcl = false, onPendingMatterHandled, demoModeEnabled = false }) => {
   const { isDarkMode } = useTheme();
   const { setContent } = useNavigatorActions();
   const { showToast, updateToast, hideToast } = useToast();
@@ -82,6 +83,9 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
     return [DEMO_MATTER, ...matters];
   }, [matters, demoModeEnabled]);
 
+  // Auto-open CCL when arriving from matter opening with showCcl flag
+  const [autoOpenCcl, setAutoOpenCcl] = useState(false);
+
   // Auto-select a matter when navigated to from matter opening
   useEffect(() => {
     if (!pendingMatterId) return;
@@ -89,9 +93,10 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
     if (match) {
       setSelected(match);
       setActiveDetailTab('overview');
+      setAutoOpenCcl(pendingShowCcl);
       onPendingMatterHandled?.();
     }
-  }, [pendingMatterId, effectiveMatters, onPendingMatterHandled]);
+  }, [pendingMatterId, pendingShowCcl, effectiveMatters, onPendingMatterHandled]);
   const detailEnterTimerRef = useRef<number | null>(null);
   const [overviewData, setOverviewData] = useState<any | null>(null);
   const [outstandingData, setOutstandingData] = useState<any | null>(null);
@@ -109,6 +114,7 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [activeFilter, setActiveFilter] = useState<string>('Active');
   const [activeAreaFilter, setActiveAreaFilter] = useState<string>('All');
+  const [areaExpanded, setAreaExpanded] = useState(false);
   const [activeRoleFilter, setActiveRoleFilter] = useState<string>('Responsible');
   // Debug inspector removed with MatterApiDebugger
   // Scope & dataset selection
@@ -453,14 +459,10 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: 0,
-              background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-              borderRadius: height / 2,
-              padding: 4,
-              height,
+              gap: 4,
+              padding: 0,
               fontFamily: 'Raleway, sans-serif',
               userSelect: 'none',
-              overflow: 'hidden',
             }}
           >
             <button
@@ -472,19 +474,18 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: 5,
-                background: isOpen ? (isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.9)') : 'transparent',
-                border: 'none',
+                background: isOpen ? (isDarkMode ? colours.dark.cardHover : colours.light.cardBackground) : 'transparent',
+                border: `1px solid ${isOpen ? (isDarkMode ? colours.accent : colours.highlight) : (isDarkMode ? 'rgba(55,65,81,0.4)' : 'rgba(0,0,0,0.10)')}`,
                 cursor: 'pointer',
                 padding: '0 12px',
                 height: height - 8,
                 fontSize: 12,
                 fontWeight: 500,
-                color: isOpen ? (isDarkMode ? 'rgba(255,255,255,0.95)' : '#1f2937') : (isDarkMode ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.55)'),
-                transition: 'color 200ms ease',
+                color: isOpen ? (isDarkMode ? colours.dark.text : colours.darkBlue) : (isDarkMode ? 'rgba(160,160,160,0.8)' : colours.greyText),
+                transition: 'all 200ms ease',
                 whiteSpace: 'nowrap',
                 outline: 'none',
-                borderRadius: (height - 8) / 2,
-                boxShadow: isOpen ? (isDarkMode ? '0 1px 2px rgba(0,0,0,0.2)' : '0 1px 2px rgba(0,0,0,0.06)') : 'none',
+                borderRadius: 0,
               }}
             >
               <span style={{ display: 'flex', alignItems: 'center', color: 'inherit' }}>{iconOpen}</span>
@@ -499,19 +500,18 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: 5,
-                background: isArchived ? (isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.9)') : 'transparent',
-                border: 'none',
+                background: isArchived ? (isDarkMode ? colours.dark.cardHover : colours.light.cardBackground) : 'transparent',
+                border: `1px solid ${isArchived ? (isDarkMode ? colours.accent : colours.highlight) : (isDarkMode ? 'rgba(55,65,81,0.4)' : 'rgba(0,0,0,0.10)')}`,
                 cursor: 'pointer',
                 padding: '0 12px',
                 height: height - 8,
                 fontSize: 12,
                 fontWeight: 500,
-                color: isArchived ? (isDarkMode ? 'rgba(255,255,255,0.95)' : '#1f2937') : (isDarkMode ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.55)'),
-                transition: 'color 200ms ease',
+                color: isArchived ? (isDarkMode ? colours.dark.text : colours.darkBlue) : (isDarkMode ? 'rgba(160,160,160,0.8)' : colours.greyText),
+                transition: 'all 200ms ease',
                 whiteSpace: 'nowrap',
                 outline: 'none',
-                borderRadius: (height - 8) / 2,
-                boxShadow: isArchived ? (isDarkMode ? '0 1px 2px rgba(0,0,0,0.2)' : '0 1px 2px rgba(0,0,0,0.06)') : 'none',
+                borderRadius: 0,
               }}
             >
               <span style={{ display: 'flex', alignItems: 'center', color: 'inherit' }}>{iconArchived}</span>
@@ -546,14 +546,10 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: 0,
-              background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-              borderRadius: height / 2,
-              padding: 4,
-              height,
+              gap: 4,
+              padding: 0,
               fontFamily: 'Raleway, sans-serif',
               userSelect: 'none',
-              overflow: 'hidden',
             }}
           >
             <button
@@ -565,19 +561,18 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: 5,
-                background: isResponsible ? (isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.9)') : 'transparent',
-                border: 'none',
+                background: isResponsible ? (isDarkMode ? colours.dark.cardHover : colours.light.cardBackground) : 'transparent',
+                border: `1px solid ${isResponsible ? (isDarkMode ? colours.accent : colours.highlight) : (isDarkMode ? 'rgba(55,65,81,0.4)' : 'rgba(0,0,0,0.10)')}`,
                 cursor: 'pointer',
                 padding: '0 12px',
                 height: height - 8,
                 fontSize: 12,
                 fontWeight: 500,
-                color: isResponsible ? (isDarkMode ? 'rgba(255,255,255,0.95)' : '#1f2937') : (isDarkMode ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.55)'),
-                transition: 'color 200ms ease',
+                color: isResponsible ? (isDarkMode ? colours.dark.text : colours.darkBlue) : (isDarkMode ? 'rgba(160,160,160,0.8)' : colours.greyText),
+                transition: 'all 200ms ease',
                 whiteSpace: 'nowrap',
                 outline: 'none',
-                borderRadius: (height - 8) / 2,
-                boxShadow: isResponsible ? (isDarkMode ? '0 1px 2px rgba(0,0,0,0.2)' : '0 1px 2px rgba(0,0,0,0.06)') : 'none',
+                borderRadius: 0,
               }}
             >
               <span style={{ display: 'flex', alignItems: 'center', color: 'inherit' }}>{iconResponsible}</span>
@@ -592,19 +587,18 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: 5,
-                background: isOriginating ? (isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.9)') : 'transparent',
-                border: 'none',
+                background: isOriginating ? (isDarkMode ? colours.dark.cardHover : colours.light.cardBackground) : 'transparent',
+                border: `1px solid ${isOriginating ? (isDarkMode ? colours.accent : colours.highlight) : (isDarkMode ? 'rgba(55,65,81,0.4)' : 'rgba(0,0,0,0.10)')}`,
                 cursor: 'pointer',
                 padding: '0 12px',
                 height: height - 8,
                 fontSize: 12,
                 fontWeight: 500,
-                color: isOriginating ? (isDarkMode ? 'rgba(255,255,255,0.95)' : '#1f2937') : (isDarkMode ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.55)'),
-                transition: 'color 200ms ease',
+                color: isOriginating ? (isDarkMode ? colours.dark.text : colours.darkBlue) : (isDarkMode ? 'rgba(160,160,160,0.8)' : colours.greyText),
+                transition: 'all 200ms ease',
                 whiteSpace: 'nowrap',
                 outline: 'none',
-                borderRadius: (height - 8) / 2,
-                boxShadow: isOriginating ? (isDarkMode ? '0 1px 2px rgba(0,0,0,0.2)' : '0 1px 2px rgba(0,0,0,0.06)') : 'none',
+                borderRadius: 0,
               }}
             >
               <span style={{ display: 'flex', alignItems: 'center', color: 'inherit' }}>{iconOriginating}</span>
@@ -630,41 +624,74 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
                       { key: 'all', label: 'All', badge: scopeCounts.all }
                 ]}
               />
-              <StatusFilter />
             </div>
           )}
           secondaryFilter={(
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <RoleFilter />
+              <StatusFilter />
               {availableAreas.length > 1 && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span style={{ fontSize: 11, fontWeight: 500, color: isDarkMode ? colours.dark.text : colours.light.text }}>Area:</span>
-                  <select
-                    value={activeAreaFilter}
-                    onChange={(e) => setActiveAreaFilter(e.target.value)}
+                areaExpanded || activeAreaFilter !== 'All' ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontSize: 11, fontWeight: 500, color: isDarkMode ? colours.dark.text : colours.light.text }}>Area:</span>
+                    <select
+                      value={activeAreaFilter}
+                      onChange={(e) => {
+                        setActiveAreaFilter(e.target.value);
+                        if (e.target.value === 'All') setAreaExpanded(false);
+                      }}
+                      onBlur={() => { if (activeAreaFilter === 'All') setAreaExpanded(false); }}
+                      autoFocus={areaExpanded && activeAreaFilter === 'All'}
+                      style={{
+                        height: 24,
+                        padding: '0 28px 0 10px',
+                        appearance: 'none',
+                        backgroundColor: isDarkMode ? colours.darkBlue : colours.light.cardBackground,
+                        backgroundImage: `url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='${isDarkMode ? '%23f3f4f6' : '%23061733'}' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
+                        backgroundRepeat: 'no-repeat',
+                        backgroundPosition: 'right 8px center',
+                        borderRadius: 0,
+                        border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : colours.light.border}`,
+                        color: isDarkMode ? colours.dark.text : colours.light.text,
+                        fontSize: 11,
+                        fontFamily: 'Raleway, sans-serif',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <option value="All">All Areas</option>
+                      {availableAreas.map((area) => (
+                        <option key={area} value={area}>{area}</option>
+                      ))}
+                    </select>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    aria-label="Filter by area"
+                    title="Filter by area of work"
+                    onClick={() => setAreaExpanded(true)}
                     style={{
-                      height: 32,
-                      padding: '0 32px 0 12px',
-                      appearance: 'none',
-                      backgroundImage: `url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='${isDarkMode ? '%23f3f4f6' : '%23061733'}' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
-                      backgroundRepeat: 'no-repeat',
-                      backgroundPosition: 'right 10px center',
-                      borderRadius: 16,
-                      border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-                      background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
-                      color: isDarkMode ? colours.dark.text : colours.light.text,
-                      fontSize: 12,
-                      fontFamily: 'Raleway, sans-serif',
-                      minWidth: activeAreaFilter === 'All' ? '100px' : '130px', // slightly wider for padding
-                      cursor: 'pointer'
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: 24,
+                      height: 24,
+                      borderRadius: 0,
+                      border: `1px solid ${isDarkMode ? 'rgba(55,65,81,0.4)' : 'rgba(0,0,0,0.10)'}`,
+                      background: 'transparent',
+                      cursor: 'pointer',
+                      color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                      padding: 0,
+                      transition: 'all 150ms ease',
                     }}
                   >
-                    <option value="All">All Areas</option>
-                    {availableAreas.map((area) => (
-                      <option key={area} value={area}>{area}</option>
-                    ))}
-                  </select>
-                </div>
+                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                      <rect x="2" y="3" width="12" height="2" rx="0" fill="currentColor" />
+                      <rect x="4" y="7" width="8" height="2" rx="0" fill="currentColor" />
+                      <rect x="6" y="11" width="4" height="2" rx="0" fill="currentColor" />
+                    </svg>
+                  </button>
+                )
               )}
             </div>
           )}
@@ -684,24 +711,24 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
                   gap: 8,
                   padding: '4px 10px',
                   height: 28,
-                  borderRadius: 14,
+                  borderRadius: 0,
                   background: dataSourceFilter === 'all'
                     ? (isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)')
                     : dataSourceFilter === 'new'
-                      ? (isDarkMode ? 'rgba(76, 175, 80, 0.2)' : 'rgba(76, 175, 80, 0.15)')
+                      ? (isDarkMode ? 'rgba(32, 178, 108, 0.2)' : 'rgba(32, 178, 108, 0.15)')
                       : 'transparent',
                   border: `1px solid ${dataSourceFilter === 'all'
                     ? (isDarkMode ? 'rgba(54, 144, 206, 0.5)' : 'rgba(54, 144, 206, 0.4)')
                     : dataSourceFilter === 'new'
-                      ? (isDarkMode ? 'rgba(76, 175, 80, 0.5)' : 'rgba(76, 175, 80, 0.4)')
-                      : (isDarkMode ? 'rgba(255,183,77,0.35)' : 'rgba(255,152,0,0.3)')}`,
+                      ? (isDarkMode ? 'rgba(32, 178, 108, 0.5)' : 'rgba(32, 178, 108, 0.4)')
+                      : (isDarkMode ? 'rgba(255,140,0,0.35)' : 'rgba(255,140,0,0.3)')}`,
                   fontSize: 10,
                   fontWeight: 600,
                   color: dataSourceFilter === 'all'
-                    ? (isDarkMode ? colours.highlight : colours.highlight)
+                    ? colours.highlight
                     : dataSourceFilter === 'new'
-                      ? (isDarkMode ? 'rgb(134, 239, 172)' : '#2e7d32')
-                      : (isDarkMode ? '#FFB74D' : '#E65100'),
+                      ? colours.green
+                      : colours.orange,
                   cursor: 'pointer',
                   transition: 'all 0.15s ease',
                 }}
@@ -721,7 +748,7 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
                 }
               >
                 <Icon
-                  iconName={dataSourceFilter === 'all' ? 'Database' : dataSourceFilter === 'new' ? 'Sparkle' : 'Shield'}
+                  iconName={dataSourceFilter === 'all' ? 'Database' : dataSourceFilter === 'new' ? 'Favorites' : 'Shield'}
                   style={{ fontSize: 10, opacity: 0.7 }}
                 />
                 <span style={{ fontSize: 10, whiteSpace: 'nowrap' }}>
@@ -768,6 +795,7 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
     isDarkMode,
     activeFilter,
     activeAreaFilter,
+    areaExpanded,
     availableAreas,
     searchTerm,
     scope,
@@ -879,7 +907,7 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
                   className="skeleton-cascade"
                   style={{
                     ...casc(110 + i * 40),
-                    backgroundColor: isDarkMode ? colours.darkBlue : '#ffffff',
+                    backgroundColor: isDarkMode ? colours.darkBlue : colours.light.cardBackground,
                     border: `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}66` : 'rgba(6, 23, 51, 0.06)'}`,
                     borderRadius: 0,
                     padding: 16,
@@ -899,7 +927,7 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
               className="skeleton-cascade"
               style={{
                 ...casc(300),
-                backgroundColor: isDarkMode ? colours.darkBlue : '#ffffff',
+                backgroundColor: isDarkMode ? colours.darkBlue : colours.light.cardBackground,
                 border: `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}66` : 'rgba(6, 23, 51, 0.06)'}`,
                 borderRadius: 0,
                 padding: 20,
@@ -920,7 +948,7 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
             style={{
               padding: 24,
               borderLeft: `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}66` : 'rgba(6, 23, 51, 0.06)'}`,
-              backgroundColor: isDarkMode ? colours.darkBlue : '#ffffff',
+              backgroundColor: isDarkMode ? colours.darkBlue : colours.light.cardBackground,
               display: 'flex',
               flexDirection: 'column',
               gap: 20,
@@ -930,7 +958,7 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
               className="skeleton-cascade"
               style={{
                 ...casc(160),
-                backgroundColor: isDarkMode ? colours.darkBlue : '#ffffff',
+                backgroundColor: isDarkMode ? colours.darkBlue : colours.light.cardBackground,
                 border: `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}66` : 'rgba(6, 23, 51, 0.06)'}`,
                 borderRadius: 0,
                 padding: 20,
@@ -1252,6 +1280,8 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
           teamData={teamData}
           enquiries={enquiries}
           demoModeEnabled={demoModeEnabled}
+          autoOpenCcl={autoOpenCcl}
+          onCclOpened={() => setAutoOpenCcl(false)}
         />
       </div>
     );

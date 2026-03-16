@@ -38,6 +38,7 @@ import { MdOutlineArticle, MdArticle, MdOutlineWarning, MdWarning, MdAssessment,
 import { FaShieldAlt, FaIdCard, FaCreditCard, FaCog, FaEllipsisH } from 'react-icons/fa';
 import QuickActionsCard from "../home/QuickActionsCard"; // legacy, to be removed after full migration
 import { useTheme } from "../../app/functionality/ThemeContext";
+import { appendDefaultEnquiryProcessingParams } from "../../app/functionality/enquiryProcessingModel";
 import { useNavigatorActions } from "../../app/functionality/NavigatorContext";
 import { colours } from "../../app/styles/colours";
 import { dashboardTokens } from "./componentTokens";
@@ -622,7 +623,8 @@ const Instructions: React.FC<InstructionsProps> = ({
       
       // Try the server route directly
       try {
-        const response = await fetch('/api/enquiries-unified');
+        const params = appendDefaultEnquiryProcessingParams(new URLSearchParams());
+        const response = await fetch(`/api/enquiries-unified?${params.toString()}`);
         if (response.ok) {
           const data = await response.json();
           debugLog(`✅ Fetched ${data.count} unified enquiries from both databases`);

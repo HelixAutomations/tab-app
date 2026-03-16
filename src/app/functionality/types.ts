@@ -76,6 +76,11 @@ export interface Enquiry {
    * for migrated/paired enquiries.
    */
   pitchEnquiryId?: number | string;
+  processingEnquiryId?: number | string;
+  processingSource?: 'legacy' | 'new';
+  legacyEnquiryId?: number | string;
+  sourceBias?: string;
+  processingApproach?: string;
   Date_Created: string;
   Touchpoint_Date: string;
   Email: string;
@@ -121,6 +126,8 @@ export interface Enquiry {
   TDN?: string;
   pocname?: string;
   Rating?: 'Good' | 'Neutral' | 'Poor';
+  shared_with?: string;
+  Shared_With?: string;
   Employment?: string;
   Divorce_Consultation?: string;
   Web_Form?: string; // Added Web_Form
@@ -153,6 +160,7 @@ export interface EnquiryDb {
   contact_referrer?: string | null;
   company_referrer?: string | null;
   gclid?: string | null;
+  shared_with?: string | null;
 }
 
 // Define the structure for Matter

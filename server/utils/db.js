@@ -72,8 +72,12 @@ let totalRequests = 0;
 let totalErrors = 0;
 let totalQueueTimeouts = 0;
 let lastMetricsLog = Date.now();
+const shouldLogSqlMetrics = String(process.env.SQL_LOG_METRICS || '').toLowerCase() === 'true';
 
 const logMetrics = () => {
+  if (!shouldLogSqlMetrics) {
+    return;
+  }
   const now = Date.now();
   if (now - lastMetricsLog > 60000) { // Log every minute
     console.log("SQL Connection Metrics:", {

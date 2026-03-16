@@ -3,6 +3,14 @@ import { UserData } from './functionality/types';
 // Centralized list of admin users by initials
 export const ADMIN_USERS = ['LZ', 'AC', 'CB', 'KW', 'JW', 'LA', 'FA'] as const;
 
+// Users who can see CCL features (early access while feature is in beta)
+export const CCL_USERS = ['LZ', 'AC'] as const;
+
+export function isCclUser(initials?: string): boolean {
+    if (!initials) return false;
+    return CCL_USERS.includes(initials.toUpperCase().trim() as any);
+}
+
 
 // Helper to determine if a user has admin privileges
 export function isAdminUser(user?: UserData | null): boolean {

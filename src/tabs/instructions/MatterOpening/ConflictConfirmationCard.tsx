@@ -4,7 +4,7 @@
  * Enhanced conflict confirmation card for Matter Opening flow.
  * Adopts InlineWorkbench patterns: status banners, confirmation modals, clear visual states.
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useTheme } from '../../../app/functionality/ThemeContext';
 import { colours } from '../../../app/styles/colours';
 import { Icon } from '@fluentui/react/lib/Icon';
@@ -28,6 +28,10 @@ interface ConflictConfirmationCardProps {
   onFocusOpponentName?: () => void;
   /** Demo mode — auto-confirm conflict check */
   demoModeEnabled?: boolean;
+  /** Show the context tiles section */
+  showSearchNamesSection?: boolean;
+  /** Optional audit callback for explicit conflict actions */
+  onAuditClick?: (action: 'confirm' | 'reset') => void;
 }
 
 const ConflictConfirmationCard: React.FC<ConflictConfirmationCardProps> = ({
@@ -40,16 +44,21 @@ const ConflictConfirmationCard: React.FC<ConflictConfirmationCardProps> = ({
   showOpponentSection = true,
   onFocusOpponentName,
   demoModeEnabled = false,
+  showSearchNamesSection = true,
+  onAuditClick,
 }) => {
   const { isDarkMode } = useTheme();
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [showResetModal, setShowResetModal] = useState(false);
   const [clientSearched, setClientSearched] = useState(false);
   const [opponentSearched, setOpponentSearched] = useState(false);
   const [resultsReviewed, setResultsReviewed] = useState(false);
+  const hasAutoConfirmedRef = useRef(false);
 
   // Auto-confirm conflict in demo mode
   useEffect(() => {
-    if (demoModeEnabled && !noConflict) {
+    if (demoModeEnabled && !noConflict && !hasAutoConfirmedRef.current) {
+      hasAutoConfirmedRef.current = true;
       onConflictStatusChange(true);
     }
   }, [demoModeEnabled, noConflict, onConflictStatusChange]);
@@ -57,14 +66,14 @@ const ConflictConfirmationCard: React.FC<ConflictConfirmationCardProps> = ({
   // Status colors
   const statusColors = {
     unconfirmed: {
-      bg: isDarkMode ? 'rgba(239, 68, 68, 0.08)' : 'rgba(239, 68, 68, 0.06)',
-      border: isDarkMode ? 'rgba(239, 68, 68, 0.25)' : 'rgba(239, 68, 68, 0.2)',
-      text: '#ef4444',
+      bg: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.06)',
+      border: isDarkMode ? 'rgba(148, 163, 184, 0.22)' : 'rgba(148, 163, 184, 0.18)',
+      text: isDarkMode ? colours.subtleGrey : colours.greyText,
     },
     confirmed: {
-      bg: isDarkMode ? 'rgba(34, 197, 94, 0.08)' : 'rgba(34, 197, 94, 0.06)',
-      border: isDarkMode ? 'rgba(34, 197, 94, 0.25)' : 'rgba(34, 197, 94, 0.2)',
-      text: '#22c55e',
+      bg: isDarkMode ? 'rgba(32, 178, 108, 0.08)' : 'rgba(32, 178, 108, 0.06)',
+      border: isDarkMode ? 'rgba(32, 178, 108, 0.25)' : 'rgba(32, 178, 108, 0.2)',
+      text: colours.green,
     },
   };
 
@@ -73,21 +82,22 @@ const ConflictConfirmationCard: React.FC<ConflictConfirmationCardProps> = ({
 
   // Render status banner (InlineWorkbench pattern)
   const renderStatusBanner = () => {
+    const hasTrailingContent = showSearchNamesSection || noConflict;
     return (
       <div style={{
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        padding: '12px 16px',
+        padding: '8px 12px',
         background: colors.bg,
         border: `1px solid ${colors.border}`,
         borderRadius: 0,
-        marginBottom: 16,
+        marginBottom: hasTrailingContent ? 10 : 0,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <div style={{
-            width: 32,
-            height: 32,
+            width: 22,
+            height: 22,
             borderRadius: 0,
             background: colors.bg,
             border: `1px solid ${colors.border}`,
@@ -96,11 +106,11 @@ const ConflictConfirmationCard: React.FC<ConflictConfirmationCardProps> = ({
             justifyContent: 'center',
             color: colors.text,
           }}>
-            <Icon iconName={noConflict ? 'SkypeCheck' : 'Warning'} style={{ fontSize: 16 }} />
+            <Icon iconName={noConflict ? 'SkypeCheck' : 'Warning'} style={{ fontSize: 11 }} />
           </div>
           <div>
             <div style={{
-              fontSize: 13,
+              fontSize: 11,
               fontWeight: 700,
               color: colors.text,
               marginBottom: 2,
@@ -108,8 +118,8 @@ const ConflictConfirmationCard: React.FC<ConflictConfirmationCardProps> = ({
               {noConflict ? 'No Conflict Confirmed' : 'Conflict Check Required'}
             </div>
             <div style={{
-              fontSize: 10,
-              color: isDarkMode ? 'rgba(226, 232, 240, 0.7)' : 'rgba(15, 23, 42, 0.6)',
+              fontSize: 9,
+              color: isDarkMode ? 'rgba(209, 213, 219, 0.75)' : 'rgba(55, 65, 81, 0.75)',
             }}>
               {noConflict 
                 ? 'Conflict search completed. No conflicts identified.'
@@ -122,7 +132,7 @@ const ConflictConfirmationCard: React.FC<ConflictConfirmationCardProps> = ({
             type="button"
             onClick={() => setShowConfirmModal(true)}
             style={{
-              padding: '8px 14px',
+              padding: '6px 12px',
               background: isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)',
               color: colours.highlight,
               border: `1px solid ${colours.highlight}`,
@@ -209,22 +219,22 @@ const ConflictConfirmationCard: React.FC<ConflictConfirmationCardProps> = ({
 
   return (
     <div style={{
-      background: isDarkMode ? '#0F172A' : '#FFFFFF',
-      border: `1px solid ${isDarkMode ? '#374151' : '#CBD5E1'}`,
-      borderRadius: 2,
-      padding: 20,
-      boxShadow: isDarkMode ? 'none' : '0 1px 3px rgba(0,0,0,0.04)',
+      background: 'transparent',
+      border: 'none',
+      borderRadius: 0,
+      padding: 0,
+      boxShadow: 'none',
     }}>
       {/* Section Header */}
       <div style={{
         display: 'flex',
         alignItems: 'center',
         gap: 10,
-        marginBottom: 16,
+        marginBottom: 10,
       }}>
         <div style={{
-          width: 32,
-          height: 32,
+          width: 28,
+          height: 28,
           borderRadius: 0,
           background: isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.08)',
           border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)'}`,
@@ -232,19 +242,19 @@ const ConflictConfirmationCard: React.FC<ConflictConfirmationCardProps> = ({
           alignItems: 'center',
           justifyContent: 'center',
         }}>
-          <Icon iconName="Shield" style={{ fontSize: 14, color: colours.highlight }} />
+          <Icon iconName="Shield" style={{ fontSize: 13, color: colours.highlight }} />
         </div>
         <div>
           <div style={{
-            fontSize: 14,
+            fontSize: 12,
             fontWeight: 700,
             color: isDarkMode ? '#E5E7EB' : '#0F172A',
           }}>
             Conflict Check
           </div>
           <div style={{
-            fontSize: 10,
-            color: isDarkMode ? '#9CA3AF' : '#475569',
+            fontSize: 9,
+            color: isDarkMode ? colours.subtleGrey : colours.greyText,
           }}>
             Confirm no conflicts exist before opening this matter
           </div>
@@ -254,34 +264,40 @@ const ConflictConfirmationCard: React.FC<ConflictConfirmationCardProps> = ({
       {/* Status Banner */}
       {renderStatusBanner()}
 
-      {/* Context Tiles — Search these names in Clio */}
-      <div style={{
-        fontSize: 9,
-        fontWeight: 700,
-        color: isDarkMode ? '#9CA3AF' : '#475569',
-        textTransform: 'uppercase' as const,
-        letterSpacing: '0.8px',
-        marginBottom: 8,
-      }}>
-        Search these names in Clio
-      </div>
-      <div style={{
-        display: 'flex',
-        gap: 12,
-        flexWrap: 'wrap',
-        marginBottom: noConflict ? 16 : 0,
-      }}>
-        {renderContextTile('Client Name', clientName, <Icon iconName="Contact" style={{ fontSize: 12 }} />, 'No client selected')}
-        {renderContextTile('Matter Description', matterDescription, <Icon iconName="Suitcase" style={{ fontSize: 12 }} />, 'No description')}
-        {showOpponentSection && renderContextTile('Opponent Name', opponentName, <Icon iconName="People" style={{ fontSize: 12 }} />, 'Not entered yet')}
-        {showOpponentSection && renderContextTile('Opponent Solicitor', opponentSolicitor, <Icon iconName="ContactInfo" style={{ fontSize: 12 }} />, 'Not entered yet')}
-      </div>
+      {showSearchNamesSection && (
+        <>
+          {/* Context Tiles — Search these names in Clio */}
+          <div style={{
+            fontSize: 9,
+            fontWeight: 700,
+            color: isDarkMode ? '#9CA3AF' : '#475569',
+            textTransform: 'uppercase' as const,
+            letterSpacing: '0.8px',
+            marginBottom: 8,
+          }}>
+            Search these names in Clio
+          </div>
+          <div style={{
+            display: 'flex',
+            gap: 12,
+            flexWrap: 'wrap',
+            marginBottom: noConflict ? 16 : 0,
+          }}>
+            {renderContextTile('Client Name', clientName, <Icon iconName="Contact" style={{ fontSize: 12 }} />, 'No client selected')}
+            {renderContextTile('Matter Description', matterDescription, <Icon iconName="Suitcase" style={{ fontSize: 12 }} />, 'No description')}
+            {showOpponentSection && renderContextTile('Opponent Name', opponentName, <Icon iconName="People" style={{ fontSize: 12 }} />, 'Not entered yet')}
+            {showOpponentSection && renderContextTile('Opponent Solicitor', opponentSolicitor, <Icon iconName="ContactInfo" style={{ fontSize: 12 }} />, 'Not entered yet')}
+          </div>
+        </>
+      )}
 
       {/* Reset/Modify Option when confirmed */}
       {noConflict && (
-        <div
-          onClick={() => onConflictStatusChange(false)}
+        <button
+          type="button"
+          onClick={() => setShowResetModal(true)}
           style={{
+            width: '100%',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
@@ -292,6 +308,8 @@ const ConflictConfirmationCard: React.FC<ConflictConfirmationCardProps> = ({
             borderRadius: 0,
             cursor: 'pointer',
             transition: 'all 0.15s ease',
+            fontFamily: 'inherit',
+            textAlign: 'left',
           }}
         >
           <div style={{
@@ -309,9 +327,9 @@ const ConflictConfirmationCard: React.FC<ConflictConfirmationCardProps> = ({
             gap: 5,
           }}>
             <Icon iconName="Cancel" style={{ fontSize: 10 }} />
-            Reset
+            Reset conflict check
           </div>
-        </div>
+        </button>
       )}
 
       {/* Confirmation Modal */}
@@ -502,6 +520,7 @@ const ConflictConfirmationCard: React.FC<ConflictConfirmationCardProps> = ({
                 type="button"
                 disabled={!clientSearched || !opponentSearched || !resultsReviewed}
                 onClick={() => {
+                  onAuditClick?.('confirm');
                   onConflictStatusChange(true);
                   setShowConfirmModal(false);
                 }}
@@ -523,6 +542,86 @@ const ConflictConfirmationCard: React.FC<ConflictConfirmationCardProps> = ({
               >
                 <Icon iconName="SkypeCheck" style={{ fontSize: 10 }} />
                 Confirm No Conflict
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reset confirmation modal */}
+      {showResetModal && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.6)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+          }}
+          onClick={() => setShowResetModal(false)}
+        >
+          <div
+            style={{
+              background: isDarkMode ? '#1e293b' : '#ffffff',
+              borderRadius: 2,
+              padding: 20,
+              maxWidth: 420,
+              width: '90%',
+              boxShadow: '0 4px 20px rgba(0, 0, 0, 0.3)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ fontSize: 14, fontWeight: 700, color: isDarkMode ? '#e2e8f0' : '#0f172a', marginBottom: 8 }}>
+              Reset conflict confirmation?
+            </div>
+            <div style={{ fontSize: 11, color: isDarkMode ? 'rgba(148, 163, 184, 0.78)' : 'rgba(100, 116, 139, 0.78)', marginBottom: 16, lineHeight: 1.5 }}>
+              This marks conflict check as not confirmed and requires a fresh confirm action before opening the matter.
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => setShowResetModal(false)}
+                style={{
+                  padding: '8px 12px',
+                  borderRadius: 0,
+                  border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.25)'}`,
+                  background: 'transparent',
+                  color: isDarkMode ? 'rgba(148, 163, 184, 0.9)' : 'rgba(71, 85, 105, 0.9)',
+                  fontSize: 10,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onAuditClick?.('reset');
+                  setClientSearched(false);
+                  setOpponentSearched(false);
+                  setResultsReviewed(false);
+                  setShowConfirmModal(false);
+                  onConflictStatusChange(false);
+                  setShowResetModal(false);
+                }}
+                style={{
+                  padding: '8px 12px',
+                  borderRadius: 0,
+                  border: 'none',
+                  background: colours.highlight,
+                  color: '#ffffff',
+                  fontSize: 10,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                Confirm reset
               </button>
             </div>
           </div>

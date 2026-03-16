@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';
 
@@ -25,11 +25,29 @@ const areaConfig: Record<string, AreaOption> = {
   'Other/Unsure': { key: 'Other/Unsure', label: 'Other', emoji: 'ℹ️', color: colours.greyText },
 };
 
+// Inject CSS once for area filter hover/active (avoids per-render JS handlers)
+if (typeof document !== 'undefined' && !document.head.querySelector('style[data-area-filter-css]')) {
+  const s = document.createElement('style');
+  s.setAttribute('data-area-filter-css', 'true');
+  s.textContent = `
+    .area-btn {
+      display: flex; align-items: center; justify-content: center;
+      width: 26px; height: 26px; border-radius: 0; cursor: pointer;
+      pointer-events: auto;
+      transition: background 120ms ease, border-color 120ms ease,
+                  box-shadow 120ms ease, opacity 120ms ease, transform 100ms ease;
+    }
+    .area-btn:hover { transform: scale(1.08); opacity: 1 !important; }
+    .area-btn:active { transform: scale(0.95); }
+  `;
+  document.head.appendChild(s);
+}
+
 /**
- * Compact emoji-based area of work filter with toggle functionality
- * Uses emoji icons matching table display for visual consistency
+ * Compact emoji-based area of work filter with toggle functionality.
+ * React.memo prevents re-renders when parent's unrelated props change.
  */
-const IconAreaFilter: React.FC<IconAreaFilterProps> = ({
+const IconAreaFilter: React.FC<IconAreaFilterProps> = React.memo(({
   selectedAreas,
   availableAreas,
   onAreaChange,
@@ -40,16 +58,14 @@ const IconAreaFilter: React.FC<IconAreaFilterProps> = ({
   // Filter available areas to only show ones that exist in our configuration
   const displayAreas = availableAreas.filter(area => areaConfig[area]);
 
-  // Handle individual area toggle
-  const toggleArea = (areaKey: string) => {
-    if (selectedAreas.includes(areaKey)) {
-      // Remove from selection
-      onAreaChange(selectedAreas.filter(a => a !== areaKey));
-    } else {
-      // Add to selection
-      onAreaChange([...selectedAreas, areaKey]);
-    }
-  };
+  // Stable toggle handler
+  const toggleArea = useCallback((areaKey: string) => {
+    onAreaChange(
+      selectedAreas.includes(areaKey)
+        ? selectedAreas.filter(a => a !== areaKey)
+        : [...selectedAreas, areaKey]
+    );
+  }, [selectedAreas, onAreaChange]);
 
   const noneSelected = selectedAreas.length === 0;
 
@@ -62,14 +78,13 @@ const IconAreaFilter: React.FC<IconAreaFilterProps> = ({
         alignItems: 'center',
         gap: 2,
         height: 30,
-        padding: 2,
-        background: isDarkMode ? colours.dark.sectionBackground : 'rgba(0,0,0,0.03)',
+        padding: 0,
+        background: 'transparent',
         borderRadius: 0,
         fontFamily: 'Raleway, sans-serif',
         pointerEvents: 'auto',
       }}
     >
-      {/* Individual area buttons */}
       {displayAreas.map(areaKey => {
         const area = areaConfig[areaKey];
         const isSelected = selectedAreas.includes(areaKey);
@@ -78,6 +93,7 @@ const IconAreaFilter: React.FC<IconAreaFilterProps> = ({
           <button
             key={areaKey}
             type="button"
+            className="area-btn"
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
@@ -87,33 +103,14 @@ const IconAreaFilter: React.FC<IconAreaFilterProps> = ({
             aria-label={`${isSelected ? 'Hide' : 'Show'} ${area.label}`}
             aria-pressed={isSelected}
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              width: 26,
-              height: 26,
               background: isSelected
-                ? (isDarkMode ? colours.dark.cardBackground : '#fff')
-                : (isDarkMode ? 'rgba(6,23,51,0.5)' : 'rgba(13,47,96,0.03)'),
-              border: isSelected ? `1px solid ${area.color}` : `1px solid ${isDarkMode ? 'rgba(55,65,81,0.3)' : 'rgba(13,47,96,0.08)'}`,
-              borderRadius: 0,
-              cursor: 'pointer',
-              transition: 'all 180ms ease',
+                ? (isDarkMode ? colours.dark.cardHover : colours.light.cardBackground)
+                : 'transparent',
+              border: isSelected ? `1px solid ${area.color}` : `1px solid ${isDarkMode ? 'rgba(55,65,81,0.4)' : 'rgba(13,47,96,0.10)'}`,
               opacity: noneSelected || isSelected ? 1 : 0.45,
               boxShadow: isSelected 
-                ? (isDarkMode
-                    ? '0 1px 3px rgba(0,0,0,0.25)'
-                    : '0 1px 2px rgba(0,0,0,0.06)')
+                ? (isDarkMode ? '0 1px 3px rgba(0,0,0,0.25)' : '0 1px 2px rgba(0,0,0,0.06)')
                 : 'none',
-              pointerEvents: 'auto',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.transform = 'scale(1.08)';
-              e.currentTarget.style.opacity = '1';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = 'scale(1)';
-              e.currentTarget.style.opacity = noneSelected || isSelected ? '1' : '0.45';
             }}
           >
             <span
@@ -121,6 +118,7 @@ const IconAreaFilter: React.FC<IconAreaFilterProps> = ({
                 fontSize: 14,
                 lineHeight: 1,
                 filter: isSelected ? 'none' : 'grayscale(0.5)',
+                transition: 'filter 120ms ease',
               }}
             >
               {area.emoji}
@@ -130,6 +128,6 @@ const IconAreaFilter: React.FC<IconAreaFilterProps> = ({
       })}
     </div>
   );
-};
+});
 
 export default IconAreaFilter;

@@ -82,7 +82,7 @@ const paymentStyle = mergeStyles({
 
 const OutstandingBalancesList: React.FC<OutstandingBalancesListProps> = ({ balances, matters }) => {
   // Only include clients with a non-zero outstanding balance.
-  const filtered = balances.filter(item => item.total_outstanding_balance > 0);
+  const filtered = (balances ?? []).filter(item => item.total_outstanding_balance > 0);
   if (filtered.length === 0) {
     return <Text>No outstanding balances found.</Text>;
   }
@@ -104,8 +104,8 @@ const OutstandingBalancesList: React.FC<OutstandingBalancesListProps> = ({ balan
 
   // Return the matters for a client by matching associated matter IDs.
   const getClientMatters = (balance: OutstandingClientBalance): Matter[] => {
-    return matters.filter(matter =>
-      balance.associated_matter_ids.includes(Number(matter.UniqueID))
+    return (matters ?? []).filter(matter =>
+      (balance.associated_matter_ids ?? []).includes(Number(matter.UniqueID))
     );
   };
 
@@ -146,7 +146,7 @@ const OutstandingBalancesList: React.FC<OutstandingBalancesListProps> = ({ balan
             <Separator styles={{ root: { margin: '8px 0' } }} />
 
             {/* Bills Section */}
-            {balance.outstanding_bills.map((bill: any, index: number) => {
+            {(balance.outstanding_bills ?? []).map((bill: any, index: number) => {
               const total = bill.total;
               const paid = bill.paid;
               const balanceAmount = bill.due;

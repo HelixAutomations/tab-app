@@ -93,7 +93,6 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
   onNoAmountModeChange,
 }) => {
   const { isDarkMode } = useTheme();
-  const [showPrefill, setShowPrefill] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [showPasscodeConfirm, setShowPasscodeConfirm] = useState(false);
   const [passcodeConfirmed, setPasscodeConfirmed] = useState(false);
@@ -176,6 +175,18 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
     return formatPounds(num);
   })();
 
+  // Area of Work colour (canonical mapping)
+  const getAreaColor = (area: string): string => {
+    switch (area?.toLowerCase()) {
+      case 'commercial': return colours.blue;
+      case 'construction': return colours.orange;
+      case 'property': return colours.green;
+      case 'employment': return colours.yellow;
+      default: return colours.greyText;
+    }
+  };
+  const areaColor = getAreaColor(areaOfWork);
+
   // Fee earner data
   const u = userData?.[0];
   const fullName = u?.FullName || `${u?.First ?? ''} ${u?.Last ?? ''}`.trim() || '—';
@@ -200,32 +211,37 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
     }
   };
 
-  // Section wrapper
+  // Section wrapper — Helix depth-ladder panel with accent left edge
   const Section: React.FC<{
     title: React.ReactNode;
     children: React.ReactNode;
     animationDelay?: number;
     headerRight?: React.ReactNode;
+    accentColor?: string;
   }> = ({
     title,
     children,
     animationDelay = 0,
     headerRight,
+    accentColor,
   }) => (
     <div style={{
       background: surfaceBg,
-      border: `1px solid ${innerBorder}`,
-      borderRadius: 2,
-      padding: '12px 14px',
+      borderLeft: `3px solid ${accentColor || accent}`,
+      borderTop: `1px solid ${innerBorder}`,
+      borderRight: `1px solid ${innerBorder}`,
+      borderBottom: `1px solid ${innerBorder}`,
+      borderRadius: 0,
+      padding: '10px 14px',
       animation: hasAnimated ? 'none' : `contentReveal 240ms ease-out ${animationDelay}ms both`,
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: '10px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: '8px' }}>
         <div style={{
           fontSize: 10,
-          fontWeight: 600,
+          fontWeight: 700,
           textTransform: 'uppercase',
-          letterSpacing: '0.5px',
-          color: textMuted,
+          letterSpacing: '0.6px',
+          color: accentColor || accent,
         }}>
           {title}
         </div>
@@ -429,14 +445,10 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
     const labelText = isDarkMode ? colours.dark.text : colours.light.text; // bright headings
 
     return (
-      <div style={{ padding: '6px 0', borderBottom: `1px solid ${innerBorder}` }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: 11, fontWeight: 600, color: textMuted, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-            Passcode link
-          </span>
+      <div style={{ padding: '2px 0' }}>
 
           {isDealLinkReady && passcodeLinkHref ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, paddingBottom: 6 }}>
               <a
                 href={passcodeLinkHref}
                 target="_blank"
@@ -482,52 +494,13 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
                 />
               </button>
             </div>
-          ) : (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span
-                style={{
-                  fontSize: 12,
-                  fontWeight: 700,
-                  color: helpText,
-                  opacity: 0.55,
-                  userSelect: 'none',
-                  letterSpacing: '-0.2px',
-                }}
-                title="This link is disabled until a Deal is captured"
-              >
-                {maskText}
-              </span>
+          ) : null}
 
-              <button
-                type="button"
-                onClick={() => setShowPasscodeConfirm((v) => !v)}
-                style={{
-                  fontSize: 10,
-                  fontWeight: 700,
-                  padding: '5px 12px',
-                  borderRadius: 2,
-                  border: `1px solid ${showPasscodeConfirm ? (isDarkMode ? 'rgba(54, 144, 206, 0.28)' : colours.highlightNeutral) : (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : colours.highlightNeutral)}`,
-                  background: showPasscodeConfirm ? rowBg : 'transparent',
-                  color: showPasscodeConfirm ? accent : helpText,
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.5px',
-                  transition: 'all 0.15s ease',
-                }}
-                title="Enable a working link (captures Deal)"
-              >
-                {showPasscodeConfirm ? 'Hide' : 'Generate'}
-              </button>
-            </div>
-          )}
-        </div>
-
-        {!isDealLinkReady && showPasscodeConfirm && (
+        {!isDealLinkReady && (
           <div
             style={{
-              marginTop: 10,
-              padding: '16px 18px',
+              marginTop: 4,
+              padding: '14px 16px',
               border: `1px solid ${panelBorder}`,
               background: panelBg,
               borderRadius: 2,
@@ -547,28 +520,8 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
               borderRadius: '2px 2px 0 0',
             }} />
 
-            {/* Title — sectionTitle style (textMuted, 10px, uppercase) per UserBubble */}
-            <div style={{
-              fontSize: 10,
-              fontWeight: 600,
-              color: textMuted,
-              textTransform: 'uppercase',
-              letterSpacing: '0.5px',
-              marginBottom: 8,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 7,
-            }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={textMuted} strokeWidth="2">
-                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
-                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
-              </svg>
-              Activate passcode link
-            </div>
-
-            <div style={{ fontSize: 13, color: textSecondary, lineHeight: 1.55, marginBottom: 16 }}>
-              The link becomes available after a pitch is sent.
-              You can also manually activate it now for use outside the pitch flow.
+            <div style={{ fontSize: 12, color: textSecondary, lineHeight: 1.5, marginBottom: 14 }}>
+              Choose how to activate the client instruction link.
             </div>
 
             {/* Mode selection — custom radio rows with icons */}
@@ -1013,161 +966,109 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
     );
   }
 
-  const ContactInline: React.FC = () => {
-    if (!clientEmail && !clientPhone) return null;
-
-    const buttonBase: React.CSSProperties = {
-      width: 18,
-      height: 18,
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      borderRadius: 2,
-      background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)',
-      border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.14)'}`,
-      cursor: 'pointer',
-      flex: '0 0 auto',
-      transition: 'transform 160ms ease, box-shadow 160ms ease, background 160ms ease, border-color 160ms ease',
-    };
-
-    const copiedStyle: React.CSSProperties = {
-      background: isDarkMode ? 'rgba(32, 178, 108, 0.16)' : 'rgba(32, 178, 108, 0.12)',
-      border: `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.5)' : 'rgba(32, 178, 108, 0.38)'}`,
-      boxShadow: isDarkMode
-        ? '0 0 0 1px rgba(32, 178, 108, 0.15)'
-        : '0 0 0 1px rgba(32, 178, 108, 0.12)',
-      transform: 'scale(1.06)',
-    };
-
-    const itemText: React.CSSProperties = {
-      display: 'flex',
-      alignItems: 'center',
-      gap: 6,
-      cursor: 'pointer',
-      color: textPrimary,
-      fontSize: 12,
-      fontWeight: 500,
-      maxWidth: 300,
-      overflow: 'hidden',
-      textOverflow: 'ellipsis',
-      whiteSpace: 'nowrap',
-    };
-
-    const isEmailCopied = copiedField === 'email';
-    const isPhoneCopied = copiedField === 'phone';
-    const getButtonStyle = (isCopied: boolean): React.CSSProperties =>
-      (isCopied ? { ...buttonBase, ...copiedStyle } : buttonBase);
+  // Contact chip — standardised row: icon + text + copy button
+  const ContactChip: React.FC<{
+    icon: string;
+    value: string;
+    fieldKey: string;
+    href: string;
+    label: string;
+  }> = ({ icon, value, fieldKey, href, label }) => {
+    const isCopied = copiedField === fieldKey;
+    const chipBg = isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.04)';
+    const chipBorder = isDarkMode ? 'rgba(54, 144, 206, 0.14)' : 'rgba(54, 144, 206, 0.10)';
+    const copiedBg = isDarkMode ? 'rgba(32, 178, 108, 0.10)' : 'rgba(32, 178, 108, 0.06)';
+    const copiedBorder = isDarkMode ? 'rgba(32, 178, 108, 0.35)' : 'rgba(32, 178, 108, 0.25)';
 
     return (
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          padding: '5px 8px',
+          background: isCopied ? copiedBg : chipBg,
+          border: `1px solid ${isCopied ? copiedBorder : chipBorder}`,
+          borderRadius: 0,
+          transition: 'background 160ms ease, border-color 160ms ease',
+        }}
+      >
+        <Icon iconName={icon} styles={{ root: { fontSize: 11, color: textSecondary, flexShrink: 0 } }} />
+        <span
+          onClick={(e) => { e.stopPropagation(); tryOpenHref(href); }}
+          style={{
+            fontSize: 12,
+            fontWeight: 500,
+            color: textPrimary,
+            cursor: 'pointer',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            maxWidth: 220,
+            flex: 1,
+          }}
+          title={label}
+        >
+          {value}
+        </span>
+        <div
+          onClick={(e) => { e.stopPropagation(); void handleCopy(value, fieldKey); }}
+          style={{
+            width: 18,
+            height: 18,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderRadius: 0,
+            cursor: 'pointer',
+            flexShrink: 0,
+            transition: 'transform 160ms ease',
+          }}
+          title={isCopied ? 'Copied' : `Copy ${label.toLowerCase()}`}
+        >
+          <Icon
+            iconName={isCopied ? 'CompletedSolid' : 'Copy'}
+            styles={{
+              root: {
+                fontSize: 10,
+                color: isCopied ? colours.green : textSecondary,
+                transform: isCopied ? 'scale(1.1)' : 'scale(1)',
+                transition: 'transform 160ms ease, color 160ms ease',
+              },
+            }}
+          />
+        </div>
+      </div>
+    );
+  };
+
+  const ContactInline: React.FC = () => {
+    if (!clientEmail && !clientPhone) return null;
+    return (
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 6 }}>
         {clientEmail && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <div
-              style={itemText}
-              onClick={(e) => {
-                e.stopPropagation();
-                tryOpenHref(`mailto:${encodeURIComponent(clientEmail)}`);
-              }}
-              title="Email"
-            >
-              <Icon iconName="Mail" styles={{ root: { fontSize: 12, color: textSecondary } }} />
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{clientEmail}</span>
-            </div>
-            <div
-              style={getButtonStyle(isEmailCopied)}
-              onClick={(e) => {
-                e.stopPropagation();
-                void handleCopy(clientEmail, 'email');
-              }}
-              title={isEmailCopied ? 'Copied' : 'Copy email'}
-            >
-              <Icon
-                iconName={isEmailCopied ? 'CompletedSolid' : 'Copy'}
-                styles={{
-                  root: {
-                    fontSize: 11,
-                    color: isEmailCopied ? colours.green : textSecondary,
-                    transform: isEmailCopied ? 'scale(1.05)' : 'scale(1)',
-                    transition: 'transform 160ms ease, color 160ms ease',
-                  },
-                }}
-              />
-            </div>
-          </div>
+          <ContactChip
+            icon="Mail"
+            value={clientEmail}
+            fieldKey="email"
+            href={`mailto:${encodeURIComponent(clientEmail)}`}
+            label="Email"
+          />
         )}
-
-        {clientEmail && clientPhone && (
-          <span style={{ fontSize: 12, color: textSecondary, opacity: 0.6 }}>·</span>
-        )}
-
         {clientPhone && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <div
-              style={itemText}
-              onClick={(e) => {
-                e.stopPropagation();
-                const tel = clientPhone.replace(/\s+/g, '');
-                tryOpenHref(`tel:${tel}`);
-              }}
-              title="Call"
-            >
-              <Icon iconName="Phone" styles={{ root: { fontSize: 12, color: textSecondary } }} />
-              <span>{clientPhone}</span>
-            </div>
-            <div
-              style={getButtonStyle(isPhoneCopied)}
-              onClick={(e) => {
-                e.stopPropagation();
-                void handleCopy(clientPhone, 'phone');
-              }}
-              title={isPhoneCopied ? 'Copied' : 'Copy phone'}
-            >
-              <Icon
-                iconName={isPhoneCopied ? 'CompletedSolid' : 'Copy'}
-                styles={{
-                  root: {
-                    fontSize: 11,
-                    color: isPhoneCopied ? colours.green : textSecondary,
-                    transform: isPhoneCopied ? 'scale(1.05)' : 'scale(1)',
-                    transition: 'transform 160ms ease, color 160ms ease',
-                  },
-                }}
-              />
-            </div>
-          </div>
+          <ContactChip
+            icon="Phone"
+            value={clientPhone}
+            fieldKey="phone"
+            href={`tel:${clientPhone.replace(/\s+/g, '')}`}
+            label="Phone"
+          />
         )}
       </div>
     );
   };
 
-  // Tag chip
-  const Tag: React.FC<{ children: React.ReactNode; copyable?: boolean; fieldKey?: string }> = ({ 
-    children, copyable, fieldKey 
-  }) => {
-    const isCopied = fieldKey && copiedField === fieldKey;
-    const value = String(children);
-    
-    return (
-      <span
-        onClick={copyable && fieldKey ? () => handleCopy(value, fieldKey) : undefined}
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          padding: '4px 10px',
-          background: isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(54, 144, 206, 0.08)',
-          border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.20)' : 'rgba(54, 144, 206, 0.15)'}`,
-          borderRadius: 2,
-          fontSize: '12px',
-          fontWeight: 500,
-          color: isCopied ? colours.green : textPrimary,
-          cursor: copyable ? 'pointer' : 'default',
-          transition: 'color 0.15s',
-        }}
-      >
-        {isCopied ? '✓ Copied' : children}
-      </span>
-    );
-  };
+
 
   return (
     <div
@@ -1190,17 +1091,13 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
             <div style={{
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'space-between',
-              marginBottom: '16px',
+              marginBottom: '14px',
               animation: hasAnimated ? 'none' : 'contentReveal 220ms ease-out 40ms both',
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <SkeletonBlock width={3} height={16} radius={2} delay={20} />
+              <SkeletonBlock width={3} height={16} radius={0} delay={20} />
+              <div style={{ marginLeft: 8 }}>
                 <SkeletonBlock width={140} height={12} radius={3} delay={60} />
               </div>
-              {showFeeEarnerToggle && (
-                <SkeletonBlock width={120} height={26} radius={3} delay={120} />
-              )}
             </div>
 
             <div style={{
@@ -1209,12 +1106,11 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
               gap: '14px',
               animation: hasAnimated ? 'none' : 'contentReveal 220ms ease-out 90ms both',
             }}>
-              <SkeletonSection delayBase={80} />
-              <SkeletonSection delayBase={160} showTags showContact />
-            </div>
-
-            <div style={{ marginTop: 14 }}>
-              <SkeletonSection delayBase={220} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <SkeletonSection delayBase={80} showTags showContact />
+                <SkeletonSection delayBase={200} />
+              </div>
+              <SkeletonSection delayBase={160} />
             </div>
           </>
         ) : (
@@ -1223,46 +1119,24 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
             <div style={{
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'space-between',
-              marginBottom: '16px',
+              marginBottom: '14px',
               animation: hasAnimated ? 'none' : 'contentReveal 220ms ease-out 40ms both',
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <div style={{
-                  width: '3px',
-                  height: '16px',
-                  background: accent,
-                  borderRadius: '2px',
-                }} />
-                <span style={{
-                  fontSize: '13px',
-                  fontWeight: 700,
-                  color: textPrimary,
-                  letterSpacing: '0.3px',
-                }}>
-                  Prospect & Enquiry
-                </span>
-              </div>
-              {showFeeEarnerToggle && (
-                <button
-                  onClick={() => setShowPrefill(v => !v)}
-                  style={{
-                    fontSize: '11px',
-                    fontWeight: 600,
-                    padding: '5px 12px',
-                    borderRadius: 2,
-                    border: `1px solid ${borderColor}`,
-                    background: showPrefill 
-                      ? (isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(54, 144, 206, 0.08)')
-                      : 'transparent',
-                    color: showPrefill ? accent : textSecondary,
-                    cursor: 'pointer',
-                    transition: 'all 0.15s',
-                  }}
-                >
-                  {showPrefill ? '← Back to Details' : 'View Prefill Data'}
-                </button>
-              )}
+              <div style={{
+                width: '3px',
+                height: '16px',
+                background: accent,
+                borderRadius: 0,
+              }} />
+              <span style={{
+                fontSize: '13px',
+                fontWeight: 700,
+                color: textPrimary,
+                letterSpacing: '0.3px',
+                marginLeft: '8px',
+              }}>
+                Prospect & Enquiry
+              </span>
             </div>
 
             {/* Content */}
@@ -1272,39 +1146,52 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
               gap: '14px',
               animation: hasAnimated ? 'none' : 'contentReveal 220ms ease-out 90ms both',
             }}>
-              {/* Left - Prospect */}
-              <Section title="Prospect" animationDelay={120}>
-                <DataRow label="Name" value={clientName} copyable fieldKey="name" />
-                <DataRow label="ID" value={enquiryId} copyable fieldKey="id" />
-                {PasscodeLinkRow()}
-                <div style={{ borderBottom: 'none', paddingBottom: 0 }} />
-              </Section>
-
-              {/* Right - Enquiry or Fee Earner */}
-              {showPrefill && showFeeEarnerToggle ? (
-                <Section title="Fee Earner (Prefill)" animationDelay={160}>
-                  <DataRow label="Name" value={fullName} fieldKey="fe-name" />
-                  <DataRow label="Initials" value={initials} fieldKey="fe-initials" />
-                  <DataRow label="Role" value={role} fieldKey="fe-role" />
-                  <DataRow label="Rate" value={rate} fieldKey="fe-rate" />
-                  <div style={{ borderBottom: 'none', paddingBottom: 0 }} />
-                </Section>
-              ) : (
-                <Section title="Enquiry Details" animationDelay={160}>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
-                    <Tag>{areaOfWork}</Tag>
-                    <Tag>{valueDisplay}</Tag>
+              {/* Left - Prospect + Contact + Fee Earner */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <Section title="Prospect" animationDelay={120}>
+                  <DataRow label="Name" value={clientName} copyable fieldKey="name" />
+                  <DataRow label="ID" value={enquiryId} copyable fieldKey="id" />
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+                    gap: 0,
+                  }}>
+                    {/* Area */}
+                    <div style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      padding: '6px 0',
+                      borderBottom: `1px solid ${innerBorder}`,
+                    }}>
+                      <span style={{ fontSize: 12, color: textSecondary, fontWeight: 500 }}>Area</span>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 13, fontWeight: 600, color: textPrimary }}>
+                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: areaColor, flexShrink: 0 }} />
+                        {areaOfWork}
+                      </span>
+                    </div>
+                    {/* Value */}
+                    <div style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      padding: '6px 0',
+                      borderBottom: `1px solid ${innerBorder}`,
+                    }}>
+                      <span style={{ fontSize: 12, color: textSecondary, fontWeight: 500 }}>Value</span>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: textPrimary }}>{valueDisplay}</span>
+                    </div>
                   </div>
                   {(clientEmail || clientPhone) && (
                     <>
                       <div style={{
                         fontSize: 10,
-                        fontWeight: 600,
+                        fontWeight: 700,
                         textTransform: 'uppercase',
-                        letterSpacing: '0.5px',
-                        color: textMuted,
-                        marginBottom: '8px',
-                        marginTop: '4px',
+                        letterSpacing: '0.6px',
+                        color: accent,
+                        marginBottom: '6px',
+                        marginTop: '2px',
                       }}>
                         Contact
                       </div>
@@ -1312,7 +1199,20 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
                     </>
                   )}
                 </Section>
-              )}
+                {showFeeEarnerToggle && (fullName !== '—' || initials !== '—') && (
+                  <Section title="Fee Earner" animationDelay={180} accentColor={isDarkMode ? colours.subtleGrey : colours.greyText}>
+                    <DataRow label="Name" value={fullName} fieldKey="fe-name" />
+                    <DataRow label="Initials" value={initials} fieldKey="fe-initials" />
+                    <DataRow label="Role" value={role} fieldKey="fe-role" />
+                    <DataRow label="Rate" value={rate} fieldKey="fe-rate" />
+                  </Section>
+                )}
+              </div>
+
+              {/* Right - Passcode Link */}
+              <Section title="Passcode Link" animationDelay={160} accentColor={isDealLinkReady ? colours.green : accent}>
+                {PasscodeLinkRow()}
+              </Section>
             </div>
 
             {notesDisplay && (
@@ -1323,6 +1223,7 @@ export const ProspectHeader: React.FC<ProspectHeaderProps> = ({
                 <Section
                   title="Notes"
                   animationDelay={200}
+                  accentColor={isDarkMode ? colours.subtleGrey : colours.greyText}
                   headerRight={
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <button

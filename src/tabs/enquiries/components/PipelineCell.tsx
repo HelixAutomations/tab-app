@@ -5,7 +5,7 @@
  * Handles POC/claim, pitch, instruction, EID, payment, risk, matter chips.
  */
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Icon } from '@fluentui/react';
 import { format } from 'date-fns';
 import { colours } from '../../../app/styles/colours';
@@ -117,6 +117,17 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
   const enrichmentWasProcessed = enrichmentData && enrichmentData.enquiryId;
   const showLoadingState = isV2Enquiry && !enrichmentWasProcessed && !isDefinitelyLegacy && !teamsTime;
 
+  // Timeout: after 15s of loading, show muted dashes instead of infinite skeleton
+  const [loadingTimedOut, setLoadingTimedOut] = useState(false);
+  useEffect(() => {
+    if (!showLoadingState) {
+      setLoadingTimedOut(false);
+      return;
+    }
+    const timer = setTimeout(() => setLoadingTimedOut(true), 15000);
+    return () => clearTimeout(timer);
+  }, [showLoadingState]);
+
   // POC/claim state
   const isTeamInboxPoc = isUnclaimedPoc(pocLower);
   const showClaimer = hasClaimerStage && activeState !== 'Triaged' && !isTeamInboxPoc;
@@ -153,7 +164,10 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
   // ─── Loading state ──────────────────────────────────────────
   if (showLoadingState) {
     return (
-      <div style={{ position: 'relative', height: '100%', width: '100%', minWidth: 0, overflow: 'hidden' }}>
+      <div
+        style={{ position: 'relative', height: '100%', width: '100%', minWidth: 0, overflow: 'hidden' }}
+        title={loadingTimedOut ? 'Enrichment data unavailable — click to retry' : 'Loading pipeline data…'}
+      >
         <div
           style={{
             display: 'grid',
@@ -189,13 +203,18 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
                   justifyContent: 'center',
                   width: '100%',
                   height: 22,
-                  animation: `pipeline-pulse 1.5s ease-in-out infinite ${i * 0.1}s`,
+                  animation: loadingTimedOut ? 'none' : `pipeline-pulse 1.5s ease-in-out infinite ${i * 0.1}s`,
+                  opacity: loadingTimedOut ? 0.25 : undefined,
                 }}
               >
-                {renderPipelineIcon(
-                  stage.icon,
-                  inactivePipelineColor,
-                  14,
+                {loadingTimedOut ? (
+                  <span style={{ fontSize: 11, color: inactivePipelineColor, fontWeight: 500 }}>–</span>
+                ) : (
+                  renderPipelineIcon(
+                    stage.icon,
+                    inactivePipelineColor,
+                    14,
+                  )
                 )}
               </div>
             );
@@ -505,10 +524,10 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
                   openEnquiryWorkbench(item, 'Pitch');
                 }}
                 onMouseEnter={(e) => showPipelineHover(e, {
-                  title: 'Pitch',
-                  status: 'Ready to pitch',
+                  title: 'Send Pitch',
+                  status: 'Claimed — ready to pitch',
                   subtitle: contactName,
-                  color: mutedTextColor,
+                  color: isDarkMode ? colours.accent : colours.highlight,
                   iconName: 'Send',
                 })}
                 onMouseMove={movePipelineHover}
@@ -527,7 +546,7 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
                   fontFamily: 'inherit',
                 }}
               >
-                <Icon iconName="Send" styles={{ root: { fontSize: 14, color: inactivePipelineColor } }} />
+                <Icon iconName="Send" styles={{ root: { fontSize: 14, color: isDarkMode ? colours.accent : colours.highlight } }} />
               </button>
             ) : (
               <div

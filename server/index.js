@@ -136,6 +136,7 @@ const verifyIdRouter = require('./routes/verify-id');
 const testDbRouter = require('./routes/test-db');
 const teamLookupRouter = require('./routes/team-lookup');
 const teamDataRouter = require('./routes/teamData');
+const userDataRouter = require('./routes/userData');
 const pitchTeamRouter = require('./routes/pitchTeam');
 const proxyToAzureFunctionsRouter = require('./routes/proxyToAzureFunctions');
 const fileMapRouter = require('./routes/fileMap');
@@ -172,6 +173,7 @@ const cclDateRouter = require('./routes/ccl-date');
 const cclOpsRouter = require('./routes/ccl-ops');
 const expertsRouter = require('./routes/experts');
 const counselRouter = require('./routes/counsel');
+const syncInstructionClientRouter = require('./routes/sync-instruction-client');
 const techTicketsRouter = require('./routes/techTickets');
 const logsStreamRouter = require('./routes/logs-stream');
 const telemetryRouter = require('./routes/telemetry');
@@ -179,6 +181,7 @@ const bookSpaceRouter = require('./routes/bookSpace');
 const financialTaskRouter = require('./routes/financialTask');
 const releaseNotesRouter = require('./routes/release-notes');
 const { router: dataOperationsRouter } = require('./routes/dataOperations');
+const yoyComparisonRouter = require('./routes/yoy-comparison');
 const formHealthCheckRouter = require('./routes/formHealthCheck');
 const { userContextMiddleware } = require('./middleware/userContext');
 
@@ -262,6 +265,7 @@ app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 app.use(userContextMiddleware);
 
 app.use('/api/keys', keysRouter);
+app.use('/api/refresh', refreshRouter);
 app.use('/api/matter-requests', matterRequestsRouter);
 app.use('/api/matter-audit', matterAuditRouter);
 app.use('/api/opponents', opponentsRouter);
@@ -269,6 +273,7 @@ app.use('/api/risk-assessments', riskAssessmentsRouter);
 app.use('/api/bundle', bundleRouter);
 app.use('/api/clio-contacts', clioContactsRouter);
 app.use('/api/clio-matters', clioMattersRouter);
+app.use('/api/sync-instruction-client', syncInstructionClientRouter);
 app.use('/api/search-clio-contacts', searchClioContactsRouter);
 app.use('/api/clio-client-query', clioClientQueryRouter);
 app.use('/api/clio-client-lookup', clioClientLookupRouter);
@@ -322,6 +327,7 @@ app.use('/api/verify-id', verifyIdRouter);
 app.use('/api/test-db', testDbRouter);
 app.use('/api/team-lookup', teamLookupRouter);
 app.use('/api/team-data', teamDataRouter);
+app.use('/api/user-data', userDataRouter);
 app.use('/api/pitch-team', pitchTeamRouter);
 app.use('/api/file-map', fileMapRouter);
 app.use('/api/payment-link', paymentLinkRouter);
@@ -356,6 +362,9 @@ app.use('/api/telemetry', telemetryRouter);
 
 // Data operations (collected time, WIP sync) - manual triggers for Data Centre
 app.use('/api/data-operations', dataOperationsRouter);
+
+// Year-over-Year comparison (WIP, Collected, Matters) — Management Dashboard
+app.use('/api/yoy-comparison', yoyComparisonRouter);
 
 // IMPORTANT: Attendance routes must come BEFORE proxy routes to avoid conflicts
 app.use('/api/attendance', attendanceRouter);

@@ -6,12 +6,17 @@ const { cacheClioContacts, generateCacheKey, CACHE_CONFIG } = require('../utils/
 
 const router = express.Router();
 
+const maskEmailForLogs = (email) => {
+  if (!email || typeof email !== 'string') return '[unknown-email]';
+  const [localPart = '', domainPart = ''] = email.split('@');
+  if (!domainPart) return `${localPart.slice(0, 2)}***`;
+  return `${localPart.slice(0, 2)}***@${domainPart}`;
+};
+
 /**
  * Search Clio for contacts by email addresses
  */
 router.post('/', async (req, res) => {
-  console.log('Clio contact search started');
-  
   try {
     const { emails } = req.body;
 
@@ -77,11 +82,8 @@ async function performClioContactSearch(emails) {
   const clientId = clientIdSecret.value;
 
   if (!refreshToken || !clientSecretValue || !clientId) {
-    console.error('One or more Clio OAuth credentials are missing.');
     throw new Error('One or more Clio OAuth credentials are missing.');
   }
-
-  console.log('Retrieved Clio OAuth credentials from Key Vault.');
 
   // Step 1: Get a fresh access token using the refresh token
   const params = new URLSearchParams({
@@ -107,41 +109,32 @@ async function performClioContactSearch(emails) {
   const accessToken = tokenData.access_token;
 
   if (!accessToken) {
-    console.error('No access token received from Clio OAuth refresh.');
     throw new Error('No access token received from Clio OAuth refresh.');
   }
 
-  console.log('Successfully refreshed Clio access token.');
-
-  // Step 2: Search for contacts by each email
+  // Step 2: Search for contacts by each email using Clio's query parameter
   const results = {};
-  // Remove 'matters' from the contactFields as it's not a valid field for the contacts endpoint
   const contactFields = "id,name,primary_email_address,type";
   
   for (const email of emails) {
     try {
-      console.log(`Searching for contact with email: ${email}`);
+      const maskedEmail = maskEmailForLogs(email);
       
-      // Try different Clio API approaches for email search
-      // Approach 1: Use the /contacts endpoint and filter by email in results
-      const searchUrl = `${clioApiBaseUrl}/contacts.json?fields=${encodeURIComponent(contactFields)}&limit=100`;
+      // Use Clio's query parameter for server-side email filtering
+      // This searches across contact fields including email, much more efficient
+      // than fetching all contacts and filtering locally
+      const queryUrl = `${clioApiBaseUrl}/contacts.json?fields=${encodeURIComponent(contactFields)}&query=${encodeURIComponent(email)}&limit=10`;
       
-      console.log(`Clio API URL: ${searchUrl}`);
-      
-      const contactResponse = await fetch(searchUrl, {
+      const contactResponse = await fetch(queryUrl, {
         method: "GET",
         headers: {
           "Authorization": `Bearer ${accessToken}`,
           "Content-Type": "application/json"
         },
-        timeout: 15000 // 15 second timeout for contact search
+        timeout: 10000
       });
 
       if (!contactResponse.ok) {
-        const errorText = await contactResponse.text();
-        console.warn(`Failed to search contacts for ${email}: ${contactResponse.status} ${contactResponse.statusText}`);
-        console.warn(`Clio API Error Response: ${errorText}`);
-        console.warn(`Clio API URL that failed: ${searchUrl}`);
         results[email] = null;
         continue;
       }
@@ -149,32 +142,29 @@ async function performClioContactSearch(emails) {
       const contactData = await contactResponse.json();
       const contacts = contactData.data || [];
       
-      console.log(`Retrieved ${contacts.length} contacts from Clio for email search: ${email}`);
-      
-      // Find exact email match from all contacts
+      // Find exact email match from filtered results
       const matchingContact = contacts.find(contact => 
         contact.primary_email_address?.toLowerCase() === email.toLowerCase()
       );
 
       if (matchingContact) {
-        console.log(`Found matching contact for ${email}: ${matchingContact.name} (ID: ${matchingContact.id})`);
         results[email] = {
           id: matchingContact.id,
           name: matchingContact.name,
           primary_email_address: matchingContact.primary_email_address,
           type: matchingContact.type,
-          matters: [] // We'll fetch matters separately if needed
+          matters: []
         };
       } else {
-        console.log(`No matching contact found for ${email}`);
         results[email] = null;
       }
 
-      // Rate limiting delay
-      await new Promise(resolve => setTimeout(resolve, 100));
+      // Rate limiting delay between Clio API calls
+      if (emails.indexOf(email) < emails.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 150));
+      }
       
     } catch (error) {
-      console.error(`Error searching for contact ${email}:`, error);
       results[email] = null;
     }
   }

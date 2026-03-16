@@ -5,9 +5,9 @@
  * Uses `enquiry-sub-tab` CSS class for tab underlines, ensuring they
  * sit flush at the bottom edge of the 48px bar everywhere.
  *
- * Scroll-linked collapse: the bar smoothly collapses (1:1 with scroll)
+ * Scroll-linked collapse: the bar eases upward with transform/opacity
  * as the user scrolls `.app-scroll-region` down. Fully hidden after 48px
- * of scroll. Re-appears smoothly when scrolling back to the top.
+ * of scroll. The slot height is reclaimed progressively so no ghost bar remains.
  *
  * Usage:
  *   <NavigatorDetailBar
@@ -37,6 +37,8 @@ export interface NavigatorTab {
   label: string;
   disabled?: boolean;
   disabledMessage?: string;
+  /** Visually muted "draft" state — clickable but de-emphasised */
+  draft?: boolean;
 }
 
 export interface NavigatorDetailBarProps {
@@ -94,22 +96,26 @@ const NavigatorDetailBar: React.FC<NavigatorDetailBarProps> = ({
   rightContent,
 }) => {
   const { isDarkMode } = useTheme();
+  const slotRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const rafRef = useRef<number>(0);
 
   /**
    * Scroll-linked collapse — directly mutates DOM for 60fps.
    * Maps scrollTop [0 → COLLAPSE_DISTANCE] to progress [0 → 1].
-   * At progress 1 the bar has 0 height, 0 opacity, and is non-interactive.
+   * The slot height is reclaimed progressively while the inner bar translates
+   * upward and fades out, avoiding both jumpy reflow and a leftover blank strip.
    */
   const applyScrollProgress = useCallback((scrollTop: number) => {
+    const slot = slotRef.current;
     const wrapper = wrapperRef.current;
-    if (!wrapper) return;
+    if (!slot || !wrapper) return;
     const progress = Math.min(Math.max(scrollTop / COLLAPSE_DISTANCE, 0), 1);
-    const visibleHeight = BAR_HEIGHT * (1 - progress);
-    wrapper.style.height = `${visibleHeight}px`;
+    slot.style.height = `${BAR_HEIGHT * (1 - progress)}px`;
+    wrapper.style.transform = `translateY(${-progress * BAR_HEIGHT}px)`;
     wrapper.style.opacity = `${1 - progress}`;
     wrapper.style.pointerEvents = progress >= 1 ? 'none' : '';
+    wrapper.style.filter = `blur(${progress * 0.4}px)`;
   }, []);
 
   useEffect(() => {
@@ -136,14 +142,16 @@ const NavigatorDetailBar: React.FC<NavigatorDetailBarProps> = ({
 
   return (
     <div
-      ref={wrapperRef}
+      ref={slotRef}
       style={{
         height: BAR_HEIGHT,
         overflow: 'hidden',
-        willChange: 'height, opacity',
+        position: 'relative',
+        willChange: 'height',
       }}
     >
       <div
+        ref={wrapperRef}
         style={{
           backgroundColor: isDarkMode ? colours.darkBlue : colours.grey,
           borderBottom: isDarkMode
@@ -156,6 +164,10 @@ const NavigatorDetailBar: React.FC<NavigatorDetailBarProps> = ({
           gap: 0,
           alignItems: 'stretch',
           height: BAR_HEIGHT,
+          willChange: 'transform, opacity, filter',
+          transform: 'translateY(0px)',
+          transformOrigin: 'top center',
+          transition: 'box-shadow 140ms ease',
         }}
       >
       {/* Back button — vertically centred */}
@@ -196,21 +208,44 @@ const NavigatorDetailBar: React.FC<NavigatorDetailBarProps> = ({
             minWidth: 0,
           }}
         >
-          {tabs.map((tab) => (
-            <button
-              key={tab.key}
-              type="button"
-              onClick={() => !tab.disabled && onTabChange?.(tab.key)}
-              title={tab.disabled ? tab.disabledMessage : tab.label}
-              aria-label={tab.label}
-              aria-disabled={tab.disabled}
-              className="enquiry-sub-tab"
-              data-active={activeTab === tab.key}
-              style={tab.disabled ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
-            >
-              {tab.label}
-            </button>
-          ))}
+          {tabs.map((tab, idx) => {
+            // Insert a thin separator before the first draft tab
+            const prevTab = idx > 0 ? tabs[idx - 1] : null;
+            const showDraftSep = tab.draft && (!prevTab || !prevTab.draft);
+            return (
+              <React.Fragment key={tab.key}>
+                {showDraftSep && (
+                  <div style={{
+                    width: 1,
+                    alignSelf: 'center',
+                    height: 18,
+                    backgroundColor: isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.08)',
+                    flexShrink: 0,
+                    margin: '0 6px',
+                  }} />
+                )}
+                <button
+                  type="button"
+                  onClick={() => !tab.disabled && onTabChange?.(tab.key)}
+                  title={tab.disabled ? tab.disabledMessage : tab.draft ? `${tab.label} (draft)` : tab.label}
+                  aria-label={tab.label}
+                  aria-disabled={tab.disabled}
+                  className="enquiry-sub-tab"
+                  data-active={activeTab === tab.key}
+                  data-draft={tab.draft || undefined}
+                  style={
+                    tab.disabled
+                      ? { opacity: 0.4, cursor: 'not-allowed' }
+                      : tab.draft
+                        ? { opacity: 0.45, fontStyle: 'italic' }
+                        : undefined
+                  }
+                >
+                  {tab.label}
+                </button>
+              </React.Fragment>
+            );
+          })}
         </div>
       ) : staticLabel ? (
         <div style={{ display: 'flex', alignItems: 'center', flex: 1 }}>

@@ -449,7 +449,41 @@ These are documented so agents prioritise fixing them when touching these files:
 | `#0078d4` (Fluent blue) | MattersReport.tsx, colours.ts deprecated tokens | Use `colours.blue` |
 | 15x `getAreaColor` with inconsistent fallbacks | See §10 | Canonical fallback = `colours.greyText` |
 
-## 14. When Building New Components
+## 14. NavigatorDetailBar — Tab States
+
+`NavigatorDetailBar` (`src/components/NavigatorDetailBar.tsx`) renders sub-view tabs in the 48px top bar. CSS in `CustomTabs.css` (`.enquiry-sub-tab`).
+
+### Standard tab
+Full opacity, solid 2px underline on active (`#3690CE` light / `#f3f4f6` dark). Use for production-ready views.
+
+### Draft tab (`draft: true`)
+Visually muted to signal work-in-progress: 45% opacity, italic text, dashed underline (via `data-draft` attribute), `#A0A0A0` active colour. Still clickable — not disabled. A thin 1px vertical separator renders automatically before the first draft tab in the list.
+
+To add a new report tab, add to `REPORT_NAV_TABS` in `ReportingHome.tsx`:
+```ts
+{ key: 'myReport' as const, label: 'My Report', draft: true },
+```
+
+---
+
+## 15. TeamInsight Panel Spacing Baseline
+
+TeamInsight (attendance + leave) sits adjacent to TimeMetricsV2 on the Home surface. Spacing was intentionally increased to match TimeMetricsV2's breathing room. Maintain parity when tweaking either.
+
+| Element | Value |
+|---------|-------|
+| Section padding | `14px 16px` |
+| Internal gap (header → content) | `12px` |
+| Bucket group gap (attendance) | `16px` |
+| Avatar gap (within bucket) | `5px` |
+| Leave tile gap (within bucket) | `10px` |
+| Leave bucket gap | `16px` |
+| Bucket label → tiles gap | `6px` |
+| Divider margin | `4px 16px` |
+
+> These values are inline styles in `TeamInsight.tsx`. The responsive breakpoints at `640px` and `420px` tighten padding/gaps for mobile.
+
+## 16. When Building New Components
 
 1. **Start from the surface ladder** — pick the right depth level for your context.
 2. **Use `rowBaseBackground` gradient** for every clickable surface in dark mode.

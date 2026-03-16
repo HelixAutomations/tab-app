@@ -561,7 +561,6 @@
   border-bottom: 1px solid var(--wb-tab-border);
   gap: 0;
   overflow-x: auto;
-  scrollbar-width: none;
 }
 .wb-tab-bar::-webkit-scrollbar { display: none; }
 .wb-tab {

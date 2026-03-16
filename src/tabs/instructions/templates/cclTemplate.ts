@@ -48,7 +48,7 @@ There are three main elements to the legal costs of any matter:
 
 4.1 Our charges
 
-Our fees are calculated on the basis of an hourly rate. My rate is £{{handler_hourly_rate}} per hour. Other Partners/senior solicitors are charged at £395, Associate solicitors at £325, Solicitors at £285 and trainees and paralegals are charged at £195. All hourly rates will be subject to the addition of VAT.
+Our fees are calculated on the basis of an hourly rate. My rate is £{{handler_hourly_rate}} per hour. Directors are charged at £475, partners and senior solicitors at £425, associate solicitors at £350, solicitors at £310 and trainees and paralegals are charged at £210. All hourly rates are excluding VAT, and this will be added at the prevailing rate.
 
 Short incoming and outgoing letters, messages, emails and routine phone calls are charged at 1/10 of an hour. All other work is timed in six minute units and charged at the relevant hourly rate. Please note that lots of small emails or telephone calls may unnecessarily increase the costs to you.
 
@@ -80,9 +80,12 @@ Invoices are due forthwith with interest payable from 14 days after the date of 
 
 Please provide us with £{{figure}} on account of costs. Our account is:
 
-Helix Law General Client Account, Barclays Bank, Eastbourne, 20-27-91 93472434
+    Helix Law General Client Account
+    Barclays Bank, Eastbourne
+    Sort code: 20-27-91
+    Account number: 93472434
 
-Please use the reference << Matter.Number >>
+Please use the reference {{matter_number}}
 
 We work with money on account at all times, unless otherwise agreed in writing. This means that you should pay any invoice in full immediately, even if we hold money on account. If you fail pay an invoice when due, fail to maintain a reasonable sum on account of costs and/or disbursements we may, at our discretion, suspend work. We may terminate the retainer if the invoice is more than 14 days overdue. We may also terminate the retainer if you refuse, neglect or are unable to pay a reasonable sum on account of costs and/or disbursements within a reasonable time of it being requested. For urgent matters or necessary steps that require immediate action that reasonable time may be measured in hours.
 
@@ -114,7 +117,7 @@ We may use your personal data to send you updates (by email, text, telephone or 
 
 —using the 'unsubscribe' link in emails or 'STOP' number in texts;
 
-—updating your marketing preferences by emailing datacomplaints@helix-law.com.
+—updating your marketing preferences by emailing team@helix-law.com.
 
 12 Prevention of money laundering, terrorist financing and proliferation financing
 

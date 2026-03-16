@@ -27,7 +27,6 @@ export const stepTitles: { [key in StepKey]: string } = {
 
 export const practiceAreasByArea: { [key: string]: string[] } = {
     Commercial: [
-        'Commercial',
         'Director Rights & Dispute Advice',
         'Shareholder Rights & Dispute Advice',
         'Civil/Commercial Fraud Advice',
@@ -87,6 +86,24 @@ export const practiceAreasByArea: { [key: string]: string[] } = {
         'Employment Tribunal Claim - Advising',
         'Miscellaneous',
     ],
+};
+
+export const getPracticeAreaOptions = (areaOfWork: string): string[] => {
+    const options = practiceAreasByArea[areaOfWork] || [];
+    return options.filter((practiceArea) => practiceArea !== areaOfWork && practiceArea !== 'Commercial');
+};
+
+export const normalisePracticeArea = (areaOfWork: string, practiceArea: string | null | undefined): string => {
+    const candidate = String(practiceArea || '').trim();
+    if (!candidate) return '';
+    return getPracticeAreaOptions(areaOfWork).includes(candidate) ? candidate : '';
+};
+
+export const resolveMatterPracticeArea = (
+    areaOfWork: string | null | undefined,
+    practiceArea: string | null | undefined,
+): string => {
+    return normalisePracticeArea(String(areaOfWork || '').trim(), practiceArea);
 };
 
 export const partnerOptions = ['Alex', 'Jonathan', 'Luke', 'Kanchel'];

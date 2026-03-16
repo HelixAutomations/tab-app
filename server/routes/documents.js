@@ -118,7 +118,51 @@ async function generateBlobSasUrl(containerName, blobName, filename, minutes = 1
 }
 
 /**
+ * List blobs in the instruction-files container for a given instruction ref prefix.
+ * Returns blob-only records (not in DB) that the user should still see.
+ */
+async function listBlobsForInstruction(instructionRef) {
+    try {
+        const svc = getBlobServiceClient();
+        const containerClient = svc.getContainerClient(CONTAINER_NAME);
+        const prefix = `${instructionRef}/`;
+        const blobs = [];
+
+        for await (const blob of containerClient.listBlobsFlat({ prefix })) {
+            const blobName = blob.name;
+            // Skip folder markers
+            if (blobName.endsWith('/.keep') || blobName.endsWith('/Instructions.txt')) continue;
+
+            const filename = blobName.split('/').pop() || blobName;
+            // Strip the leading timestamp-dash that Hub uploads add (e.g. "1709654321000-filename.pdf")
+            const cleanFilename = filename.replace(/^\d{10,15}-/, '');
+
+            const lastModified = blob.properties?.lastModified || null;
+            const contentType = blob.properties?.contentType || null;
+            const size = typeof blob.properties?.contentLength === 'number' ? blob.properties.contentLength : null;
+
+            blobs.push({
+                blobName,
+                blobUrl: `https://${storageAccountName}.blob.core.windows.net/${CONTAINER_NAME}/${encodeURIComponent(blobName).replace(/%2F/g, '/')}`,
+                fileName: cleanFilename || filename,
+                rawFileName: filename,
+                fileSizeBytes: size,
+                contentType,
+                lastModified: lastModified ? lastModified.toISOString() : null,
+            });
+        }
+
+        return blobs;
+    } catch (err) {
+        console.warn(`[Documents] Blob listing failed for ${instructionRef}:`, err.message);
+        trackException(err, { operation: 'Documents.BlobList', instructionRef, phase: 'listBlobsFlat' });
+        return [];
+    }
+}
+
+/**
  * Get documents for a specific instruction
+ * Merges SQL Documents table records with blob storage scan to show all files.
  */
 router.get('/:instructionRef', async (req, res) => {
     try {
@@ -128,30 +172,50 @@ router.get('/:instructionRef', async (req, res) => {
             return res.status(400).json({ error: 'Invalid instruction reference' });
         }
 
+        // Run DB query and blob scan in parallel
+        let dbDocuments = [];
+        let blobFiles = [];
+
         const connectionString = getInstructionsConnectionString();
 
-        const documents = await withRequest(connectionString, async (request) => {
-            const { recordset } = await request
-                .input('instructionRef', sql.NVarChar, instructionRef)
-                .query(`
-                    SELECT DocumentId, InstructionRef, FileName, BlobUrl, FileSizeBytes,
-                           UploadedBy, UploadedAt
-                    FROM Documents
-                    WHERE InstructionRef = @instructionRef
-                    ORDER BY UploadedAt DESC
-                `);
-            return Array.isArray(recordset) ? recordset : [];
-        });
+        const [dbResult, blobResult] = await Promise.allSettled([
+            withRequest(connectionString, async (request) => {
+                const { recordset } = await request
+                    .input('instructionRef', sql.NVarChar, instructionRef)
+                    .query(`
+                        SELECT DocumentId, InstructionRef, FileName, BlobUrl, FileSizeBytes,
+                               UploadedBy, UploadedAt
+                        FROM Documents
+                        WHERE InstructionRef = @instructionRef
+                        ORDER BY UploadedAt DESC
+                    `);
+                return Array.isArray(recordset) ? recordset : [];
+            }),
+            listBlobsForInstruction(instructionRef),
+        ]);
 
-        // If no documents found, return empty array with 200 status instead of error
-        if (!documents || documents.length === 0) {
-            return res.json([]);
+        if (dbResult.status === 'fulfilled') dbDocuments = dbResult.value;
+        if (blobResult.status === 'fulfilled') blobFiles = blobResult.value;
+
+        // Build a set of blob URLs already tracked in DB (normalised) to avoid duplicates
+        const dbBlobUrls = new Set();
+        const dbFileNameSet = new Set();
+        for (const doc of dbDocuments) {
+            if (doc.BlobUrl) {
+                try {
+                    const u = new URL(doc.BlobUrl);
+                    dbBlobUrls.add(decodeURIComponent(u.pathname).toLowerCase());
+                } catch { /* skip malformed URLs */ }
+            }
+            if (doc.FileName) {
+                dbFileNameSet.add(doc.FileName.toLowerCase().trim());
+            }
         }
 
-        // Precompute preview URLs; for Office docs we prefer a short-lived SAS URL so Office Online can fetch it
+        // Precompute preview URLs for DB docs
         const officeExts = new Set(['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx']);
         const docsOut = [];
-        for (const doc of documents) {
+        for (const doc of dbDocuments) {
             const fileName = doc.FileName || '';
             const ext = (fileName.split('.').pop() || '').toLowerCase();
 
@@ -165,7 +229,6 @@ router.get('/:instructionRef', async (req, res) => {
                     const blob = decodeURIComponent(parts.slice(2).join('/'));
                     const sasUrl = await generateBlobSasUrl(container, blob, fileName, 15);
                     if (sasUrl) {
-                        // Use SAS URL as the preview base; client will wrap with Office viewer
                         previewUrl = sasUrl;
                     }
                 } catch { /* fallback to proxy */ }
@@ -173,13 +236,60 @@ router.get('/:instructionRef', async (req, res) => {
 
             docsOut.push({
                 ...doc,
-                previewUrl, // used by client for iframe or Office viewer src
+                source: 'db',
+                previewUrl,
                 directUrl: doc.BlobUrl,
                 authWarning: 'Preview uses short-lived access; link expires soon.'
             });
         }
 
-        res.json(docsOut);
+        // Add blob-only files (not already in DB)
+        for (const blob of blobFiles) {
+            const blobPathNorm = `/${CONTAINER_NAME}/${blob.blobName}`.toLowerCase();
+            // Check against both full path and normalised URL path
+            if (dbBlobUrls.has(blobPathNorm)) continue;
+
+            // Also match by raw filename (the timestamp-prefixed version the DB might store)
+            if (dbFileNameSet.has(blob.rawFileName.toLowerCase().trim())) continue;
+            if (dbFileNameSet.has(blob.fileName.toLowerCase().trim())) continue;
+
+            // Generate SAS URL for preview
+            let previewUrl = null;
+            try {
+                const sasUrl = await generateBlobSasUrl(CONTAINER_NAME, blob.blobName, blob.fileName, 15);
+                previewUrl = sasUrl;
+            } catch { /* no preview */ }
+
+            docsOut.push({
+                DocumentId: `blob-${Buffer.from(blob.blobName).toString('base64url')}`,
+                InstructionRef: instructionRef,
+                FileName: blob.fileName,
+                BlobUrl: blob.blobUrl,
+                FileSizeBytes: blob.fileSizeBytes,
+                UploadedBy: null,
+                UploadedAt: blob.lastModified,
+                source: 'storage',
+                previewUrl: previewUrl || blob.blobUrl,
+                directUrl: blob.blobUrl,
+                contentType: blob.contentType,
+                authWarning: 'Preview uses short-lived access; link expires soon.'
+            });
+        }
+
+        // Sort: newest first
+        docsOut.sort((a, b) => {
+            const aTime = a.UploadedAt ? new Date(a.UploadedAt).getTime() : 0;
+            const bTime = b.UploadedAt ? new Date(b.UploadedAt).getTime() : 0;
+            return bTime - aTime;
+        });
+
+        const dbCount = dbDocuments.length;
+        const blobOnlyCount = docsOut.filter(d => d.source === 'storage').length;
+        if (blobOnlyCount > 0) {
+            trackEvent('Documents.List.BlobMerge', { instructionRef, dbCount: String(dbCount), blobOnlyCount: String(blobOnlyCount), totalCount: String(docsOut.length) });
+        }
+
+        res.json({ documents: docsOut });
         
     } catch (error) {
         console.error(`[Documents] Error fetching documents for ${req.params.instructionRef}:`, error);
@@ -304,6 +414,18 @@ router.post('/:instructionRef', upload.single('file'), async (req, res) => {
         }
         if (!req.file) {
             return res.status(400).json({ error: 'No file provided' });
+        }
+
+        // Validate InstructionRef exists before upload (prevents FK constraint violation)
+        const connectionStringCheck = getInstructionsConnectionString();
+        const refExists = await withRequest(connectionStringCheck, async (request) => {
+            const { recordset } = await request
+                .input('ref', sql.NVarChar, instructionRef)
+                .query('SELECT TOP 1 1 AS found FROM Instructions WHERE InstructionRef = @ref');
+            return recordset.length > 0;
+        });
+        if (!refExists) {
+            return res.status(404).json({ error: `Instruction ${instructionRef} not found — cannot attach documents` });
         }
 
         trackEvent('Documents.Upload.Started', { instructionRef, fileName: req.file.originalname, uploadedBy, sizeBytes: String(req.file.size) });

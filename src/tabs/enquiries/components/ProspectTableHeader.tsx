@@ -260,10 +260,10 @@ const ProspectTableHeader: React.FC<ProspectTableHeaderProps> = ({
 
   const hasAnyFilter = enquiryPipelineFilters.size > 0 || !!selectedPocFilter;
   const activeColor = isDarkMode ? colours.accent : colours.highlight;
-  const neutralBorder = isDarkMode ? 'rgba(75, 85, 99, 0.42)' : 'rgba(160, 160, 160, 0.3)';
+  const neutralBorder = isDarkMode ? 'rgba(75, 85, 99, 0.32)' : 'rgba(160, 160, 160, 0.22)';
   const softSurface = isDarkMode ? 'rgba(8, 28, 48, 0.95)' : 'rgba(244, 244, 246, 0.98)';
   const elevatedSurface = isDarkMode ? 'rgba(12, 36, 62, 0.98)' : 'rgba(255, 255, 255, 0.98)';
-  const headerNavBorder = isDarkMode ? 'rgba(75, 85, 99, 0.55)' : 'rgba(160, 160, 160, 0.28)';
+  const headerNavBorder = isDarkMode ? 'rgba(75, 85, 99, 0.32)' : 'rgba(160, 160, 160, 0.22)';
   const headerNavIdleBg = isDarkMode ? 'rgba(8, 28, 48, 0.72)' : 'rgba(244, 244, 246, 0.9)';
   const headerNavActiveBg = isDarkMode ? 'rgba(135, 243, 243, 0.14)' : 'rgba(54, 144, 206, 0.1)';
   const headerMutedText = isDarkMode ? `${colours.subtleGrey}b3` : `${colours.greyText}99`;
@@ -310,8 +310,8 @@ const ProspectTableHeader: React.FC<ProspectTableHeaderProps> = ({
         flexShrink: 0,
         background: softSurface,
         backdropFilter: 'blur(12px)',
-        borderTop: `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.5)' : 'rgba(160, 160, 160, 0.2)'}`,
-        borderBottom: `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.7)' : 'rgba(160, 160, 160, 0.35)'}`,
+        borderTop: 'none',
+        borderBottom: `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.38)' : 'rgba(160, 160, 160, 0.22)'}`,
         fontFamily: 'Raleway, "Segoe UI", sans-serif',
         fontSize: '11px',
         fontWeight: 600,
