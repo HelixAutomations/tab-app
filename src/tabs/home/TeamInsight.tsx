@@ -65,6 +65,15 @@ export interface TeamInsightProps {
   onShowToast?: (message: string, type: 'success' | 'error' | 'info' | 'warning', details?: string) => void;
 }
 
+interface TeamSkeletonSectionProps {
+  labelWidth: number;
+  toggleWidth: number;
+  groupLabelWidth: number[];
+  tileCounts: number[];
+  tileSize: { width: number; height: number };
+  groupedRows?: boolean;
+}
+
 /* ─── constants ────────────────────────────────────────── */
 
 type DayStatus = 'office' | 'wfh' | 'away' | 'off-sick' | 'out-of-office' | 'unknown';
@@ -318,6 +327,76 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
   const textMuted    = isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'var(--text-muted)';
   const accentColor  = 'var(--text-accent)';
   const sectionDivider = isDarkMode ? 'rgba(75, 85, 99, 0.25)' : 'rgba(0, 0, 0, 0.06)';
+  const skeletonStrong = isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(13, 47, 96, 0.07)';
+  const skeletonSoft = isDarkMode ? 'rgba(255, 255, 255, 0.04)' : 'rgba(13, 47, 96, 0.05)';
+  const skeletonTileBg = isDarkMode ? 'rgba(6, 23, 51, 0.7)' : 'rgba(13, 47, 96, 0.05)';
+  const skeletonTileBorder = isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.10)';
+
+  const renderSkeletonLine = (width: number | string, height: number, delay = 0) => (
+    <div
+      style={{
+        width,
+        height,
+        borderRadius: 2,
+        background: height >= 11 ? skeletonStrong : skeletonSoft,
+        animation: `teamPulse 1.4s ease-in-out infinite ${delay}s`,
+      }}
+    />
+  );
+
+  const renderSectionSkeleton = ({
+    labelWidth,
+    toggleWidth,
+    groupLabelWidth,
+    tileCounts,
+    tileSize,
+    groupedRows = false,
+  }: TeamSkeletonSectionProps) => (
+    <div style={{ display: 'grid', gap: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', minHeight: 18 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ width: 11, height: 11, borderRadius: 2, background: isDarkMode ? 'rgba(135,243,243,0.18)' : 'rgba(54,144,206,0.16)' }} />
+          {renderSkeletonLine(labelWidth, 11)}
+        </div>
+        {renderSkeletonLine(toggleWidth, 10, 0.08)}
+      </div>
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+        {tileCounts.map((count, groupIndex) => (
+          <React.Fragment key={`${labelWidth}-${groupIndex}`}>
+            {groupIndex > 0 ? <div style={{ width: 1, alignSelf: 'stretch', background: sectionDivider, flexShrink: 0 }} /> : null}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: groupedRows ? 120 : undefined }}>
+              {renderSkeletonLine(groupLabelWidth[groupIndex] || groupLabelWidth[groupLabelWidth.length - 1] || 52, 9, groupIndex * 0.05)}
+              {groupedRows ? (
+                <div style={{ display: 'grid', gap: 6, minWidth: 120 }}>
+                  {Array.from({ length: count }).map((_, rowIndex) => (
+                    <div key={rowIndex} style={{ display: 'grid', gridTemplateColumns: `${tileSize.width}px 1fr`, gap: 8, alignItems: 'center' }}>
+                      <div style={{ width: tileSize.width, height: tileSize.height, background: skeletonTileBg, border: `1px solid ${skeletonTileBorder}`, animation: `teamPulse 1.4s ease-in-out infinite ${groupIndex * 0.05 + rowIndex * 0.03}s` }} />
+                      {renderSkeletonLine(rowIndex === 0 ? '78%' : '62%', 10, 0.04 + groupIndex * 0.05 + rowIndex * 0.03)}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', maxWidth: 160 }}>
+                  {Array.from({ length: count }).map((_, tileIndex) => (
+                    <div
+                      key={tileIndex}
+                      style={{
+                        width: tileSize.width,
+                        height: tileSize.height,
+                        background: skeletonTileBg,
+                        border: `1px solid ${skeletonTileBorder}`,
+                        animation: `teamPulse 1.4s ease-in-out infinite ${groupIndex * 0.05 + tileIndex * 0.03}s`,
+                      }}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          </React.Fragment>
+        ))}
+      </div>
+    </div>
+  );
   // Section hover — brand navy lift, not teal wash
   const sectionHoverBg = isDarkMode ? 'rgba(13, 47, 96, 0.28)' : 'rgba(54, 144, 206, 0.06)';
   const sectionHoverRing = isDarkMode ? 'rgba(54, 144, 206, 0.5)' : 'rgba(54, 144, 206, 0.35)';
@@ -700,17 +779,13 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
 
         {/* Loading skeleton */}
         {isLoadingAttendance && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {[100, 130, 90].map((w, i) => (
-              <div key={i} style={{
-                width: w,
-                height: 28,
-                background: panelBorder,
-                animation: 'teamPulse 1.4s ease-in-out infinite',
-                animationDelay: `${i * 0.15}s`,
-              }} />
-            ))}
-          </div>
+          renderSectionSkeleton({
+            labelWidth: 108,
+            toggleWidth: 56,
+            groupLabelWidth: [52, 46, 58],
+            tileCounts: [4, 4, 3],
+            tileSize: { width: 34, height: 34 },
+          })
         )}
 
         {/* Compact avatar tiles — grouped by status, click to filter */}
@@ -1044,17 +1119,14 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
 
         {/* Loading skeleton */}
         {isLoadingLeave && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {[100, 130, 90].map((w, i) => (
-              <div key={i} style={{
-                width: w,
-                height: 28,
-                background: panelBorder,
-                animation: 'teamPulse 1.4s ease-in-out infinite',
-                animationDelay: `${i * 0.15}s`,
-              }} />
-            ))}
-          </div>
+          renderSectionSkeleton({
+            labelWidth: 82,
+            toggleWidth: 86,
+            groupLabelWidth: [64, 56, 68],
+            tileCounts: [2, 2, 2],
+            tileSize: { width: 18, height: 18 },
+            groupedRows: true,
+          })
         )}
 
         {/* Leave tiles by time bucket */}

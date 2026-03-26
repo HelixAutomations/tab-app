@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { Icon } from '@fluentui/react';
+import { Icon } from '@fluentui/react/lib/Icon';
 import { Enquiry, UserData } from '../../../app/functionality/types';
 import { useTheme } from '../../../app/functionality/ThemeContext';
 import { colours } from '../../../app/styles/colours';

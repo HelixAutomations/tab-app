@@ -1,5 +1,5 @@
 import React from 'react';
-import { Icon } from '@fluentui/react';
+import { Icon } from '@fluentui/react/lib/Icon';
 import { colours } from '../../../app/styles/colours';
 import type { CostsChoice, ChargesChoice, DisbursementsChoice } from '../../../shared/ccl';
 import FieldInput from './FieldInput';

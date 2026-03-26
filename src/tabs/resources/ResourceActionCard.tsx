@@ -2,14 +2,11 @@
 // invisible change
 
 import React from 'react';
-import {
-  Stack,
-  Text,
-  Icon,
-  IStackStyles,
-  IStackTokens,
-  mergeStyles,
-} from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import type { IStackStyles, IStackTokens } from '@fluentui/react/lib/Stack';
+import { Text } from '@fluentui/react/lib/Text';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { ResourceAction } from '../../app/customisation/ResourceActions';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';

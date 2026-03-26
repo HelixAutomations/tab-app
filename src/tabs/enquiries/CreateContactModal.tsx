@@ -1,16 +1,11 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
-import {
-  Modal,
-  IconButton,
-  Text,
-  TextField,
-  PrimaryButton,
-  DefaultButton,
-  MessageBar,
-  MessageBarType,
-  Dropdown,
-  IDropdownOption,
-} from '@fluentui/react';
+import { Modal } from '@fluentui/react/lib/Modal';
+import { IconButton, PrimaryButton, DefaultButton } from '@fluentui/react/lib/Button';
+import { Text } from '@fluentui/react/lib/Text';
+import { TextField } from '@fluentui/react/lib/TextField';
+import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
+import { Dropdown } from '@fluentui/react/lib/Dropdown';
+import type { IDropdownOption } from '@fluentui/react/lib/Dropdown';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';
 import { TeamData } from '../../app/functionality/types';

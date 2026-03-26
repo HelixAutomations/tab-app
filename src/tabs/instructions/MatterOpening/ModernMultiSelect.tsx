@@ -1,7 +1,7 @@
 //
 import React from 'react'; // invisible change // invisible change
 // invisible change 2.2
-import { Stack } from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
 import { colours } from '../../../app/styles/colours';
 import { useTheme } from '../../../app/functionality/ThemeContext';
 

@@ -1,7 +1,18 @@
 // src/CustomForms/AnnualLeaveForm.tsx
 // invisible change
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Stack, Text, DefaultButton, TextField, Icon, TooltipHost, ChoiceGroup, DetailsList, IColumn, SelectionMode, DetailsListLayoutMode, Dialog, DialogType, DialogFooter, PrimaryButton, Checkbox, Spinner, SpinnerSize, IconButton } from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Text } from '@fluentui/react/lib/Text';
+import { DefaultButton, PrimaryButton, IconButton } from '@fluentui/react/lib/Button';
+import { TextField } from '@fluentui/react/lib/TextField';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { TooltipHost } from '@fluentui/react/lib/Tooltip';
+import { ChoiceGroup } from '@fluentui/react/lib/ChoiceGroup';
+import { DetailsList, SelectionMode, DetailsListLayoutMode } from '@fluentui/react/lib/DetailsList';
+import type { IColumn } from '@fluentui/react/lib/DetailsList';
+import { Dialog, DialogType, DialogFooter } from '@fluentui/react/lib/Dialog';
+import { Checkbox } from '@fluentui/react/lib/Checkbox';
+import { Spinner, SpinnerSize } from '@fluentui/react/lib/Spinner';
 import { useTheme } from '../app/functionality/ThemeContext';
 import { colours } from '../app/styles/colours';
 import BespokeForm, { FormField } from './BespokeForms';

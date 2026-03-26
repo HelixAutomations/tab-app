@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Icon, MessageBar, MessageBarType } from '@fluentui/react';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
 import { Enquiry } from '../../app/functionality/types';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';

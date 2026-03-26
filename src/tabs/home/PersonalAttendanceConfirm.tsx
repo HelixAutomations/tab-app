@@ -1,6 +1,8 @@
 import React, { useState, useMemo, useCallback, forwardRef, useImperativeHandle, useEffect } from 'react';
 import type { CSSProperties } from 'react';
-import { Icon, DefaultButton, Spinner, SpinnerSize } from '@fluentui/react';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { DefaultButton } from '@fluentui/react/lib/Button';
+import { Spinner, SpinnerSize } from '@fluentui/react/lib/Spinner';
 import { colours } from '../../app/styles/colours';
 import { addDays, format, startOfWeek, isSameDay } from 'date-fns';
 

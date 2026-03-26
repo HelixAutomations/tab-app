@@ -1,7 +1,8 @@
 //
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react'; // invisible change
 // invisible change 2.2
-import { PrimaryButton, Dialog, DialogType, DialogFooter, DefaultButton, IconButton } from '@fluentui/react';
+import { PrimaryButton, DefaultButton, IconButton } from '@fluentui/react/lib/Button';
+import { Dialog, DialogType, DialogFooter } from '@fluentui/react/lib/Dialog';
 import MinimalSearchBox from './MinimalSearchBox';
 import { POID, TeamData, UserData, InstructionData } from '../../../app/functionality/types';
 import ClientDetails from '../ClientDetails';
@@ -1939,7 +1940,7 @@ const handleClearAll = () => {
                     const genData = await genResp.json();
                     if (genData.url) {
                         setGeneratedCclUrl(genData.url);
-                        setProcessingLogs(prev => [...prev, `[ok] Draft CCL Generated: ${genData.url} · ${(genData.preview?.dataSources || []).length} sources (real)`]);
+                        setProcessingLogs(prev => [...prev, `[ok] CCL Service Generated: ${genData.url} · ${(genData.preview?.dataSources || []).length} sources (real)`]);
                     }
                 }
             } catch (cclErr) {

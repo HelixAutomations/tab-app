@@ -1,6 +1,10 @@
 import React from "react";
 // invisible change 2
-import { IconButton, Text, mergeStyles, Stack, SearchBox } from "@fluentui/react";
+import { IconButton } from '@fluentui/react/lib/Button';
+import { Text } from '@fluentui/react/lib/Text';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { SearchBox } from '@fluentui/react/lib/SearchBox';
 import { useTheme } from "../app/functionality/ThemeContext";
 import { colours } from "../app/styles/colours";
 import { formSections } from "../tabs/forms/formsData";

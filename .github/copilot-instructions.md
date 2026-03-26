@@ -54,6 +54,29 @@ If rules conflict, apply in this order:
 4) Request Filter
 5) Style/verbosity preferences
 
+## User Tiers: Admin vs Dev Owner (CRITICAL — never conflate)
+
+Two distinct access concepts exist in the codebase. They serve **different purposes** and must never be conflated:
+
+| Concept | Function | Who | Purpose |
+|---------|----------|-----|---------|
+| **Dev Preview** | `isLzOrAc` (inline check) | LZ, AC | Rollout lock — features in active development visible only to devs. Ship to prod but invisible to everyone else. Remove the lock when the feature is ready for wider use. |
+| **Admin** | `isAdminUser()` | LZ, AC, KW, JW, LA | Feature-access tier — unlocks UI features (instructions tab, power-user controls, user switching, hub controls). Does **not** change what data is loaded. |
+| **Dev Owner** | `isDevOwner()` | LZ only | Data-scope override — sees all team data by default (all enquiries, all matters, team-aggregated time). This is "god mode". |
+
+**Rules:**
+- When gating a **feature** (show/hide UI, enable a button), use `isAdminUser()`.
+- When deciding **what data to load** (fetch all vs fetch mine), use `isDevOwner()`.
+- When a feature is **not ready for wider rollout** but should be in prod for dev testing, gate it behind `isLzOrAc` (inline `['LZ', 'AC'].includes(initials)` check). This is a temporary lock — remove it and promote to `isAdminUser()` or wider when the feature is ready.
+- Never use `isAdminUser()` for data-scope decisions — other admins should not wait for team-wide queries or see everyone's data by default.
+- Both `isAdminUser()` and `isDevOwner()` live in `src/app/admin.ts`. Dev preview checks are inline at the call site.
+- This distinction should compound: as new data-scope or god-mode features are added, always reach for `isDevOwner()`. As new feature gates are added, use `isAdminUser()`. As features are being developed, use dev preview until ready.
+
+**Rollout ladder** (features should progress through these tiers):
+1. **Dev Preview** (LZ + AC only) → build and test in prod without impacting other users
+2. **Admin** (all admins) → trusted internal users validate
+3. **All Users** → remove gate entirely
+
 ## Database Access (CRITICAL)
 
 When user says "check X database" or "look up in Y table":
@@ -161,6 +184,7 @@ Use `node -e` only for trivial one-liners. For anything with SQL, Key Vault, or 
 - Keep scope tight: do only what was asked.
 - Be proactive: remove redundant/dead code while in the area (only if safe and in-scope).
 - **Relentless UX bar**. Every interaction the team has with this app should feel snappy, intentional, and premium — not like generic SaaS. Transitions must be smooth. Data must arrive before the user notices it loading. Stale counts, layout jank, and flickering states are bugs, not cosmetic issues. If you touch a component and spot sluggish UX adjacent to it, note it or fix it.
+- **Structural loading by default**. Treat loading geometry as part of the component contract: reserve the final footprint early, keep outer shells mounted, and let skeletons/loaders mirror the settled layout so panels do not pop in late or shove nearby content around.
 - **Flag user-facing delays and uncertainty**. Use loading states, confirmation prompts, brief status logs. Transparency > silence. Proactive, not reactive.
 - Never push to Git or deploy unless explicitly asked.
 - **Always log to `logs/changelog.md`** after completing work. See Logging section. This powers the release notes — no entry = invisible work.

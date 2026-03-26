@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Spinner, SpinnerSize, Icon } from '@fluentui/react';
+import { Spinner, SpinnerSize } from '@fluentui/react/lib/Spinner';
+import { Icon } from '@fluentui/react/lib/Icon';
 import OperationStatusToast from '../enquiries/pitch-builder/OperationStatusToast';
 import RiskAssessment, { RiskCore } from '../../components/RiskAssessment';
 import { useTheme } from '../../app/functionality/ThemeContext';

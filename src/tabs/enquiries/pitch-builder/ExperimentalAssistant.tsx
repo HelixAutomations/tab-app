@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
-import { Panel, PanelType, TextField, PrimaryButton, Stack, DefaultButton } from '@fluentui/react';
-
+import { Panel, PanelType } from '@fluentui/react/lib/Panel';
+import { TextField } from '@fluentui/react/lib/TextField';
+import { PrimaryButton, DefaultButton } from '@fluentui/react/lib/Button';
+import { Stack } from '@fluentui/react/lib/Stack';
 interface ExperimentalAssistantProps {
   isOpen: boolean;
   onDismiss: () => void;

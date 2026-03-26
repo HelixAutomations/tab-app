@@ -38,9 +38,8 @@ const spinKeyframes = `
     100% { background-position: 200% 0; }
   }
   @keyframes dataLanded {
-    0% { opacity: 0; transform: scale(0.95); }
-    50% { opacity: 1; transform: scale(1.02); }
-    100% { opacity: 1; transform: scale(1); }
+    0% { opacity: 0.4; }
+    100% { opacity: 1; }
   }
   @keyframes progressFill {
     0% { width: 0%; }
@@ -474,8 +473,6 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
     color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'var(--text-muted)',
   }), [isDarkMode]);
   
-  // Track data landing state for smooth transitions
-  const [dataLanded, setDataLanded] = React.useState(false);
   const prevLoadingRef = React.useRef(isLoading);
   
   // Auto-refresh countdown state
@@ -515,13 +512,9 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
   // Detect data landing (loading → not loading transition)
   React.useEffect(() => {
     if (prevLoadingRef.current && !isLoading) {
-      setDataLanded(true);
       setShowHeaderUpdatedBadge(true);
       if (headerUpdatedTimerRef.current) window.clearTimeout(headerUpdatedTimerRef.current);
       headerUpdatedTimerRef.current = window.setTimeout(() => setShowHeaderUpdatedBadge(false), 1800);
-      // Reset after animation completes
-      const timer = setTimeout(() => setDataLanded(false), 600);
-      return () => clearTimeout(timer);
     }
     prevLoadingRef.current = isLoading;
   }, [isLoading, showToast]);
@@ -1332,11 +1325,12 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
                 {[0,1,2].map(i => (
                   <div key={i} style={{
                     padding: '12px 12px',
+                    minHeight: '92px',
                     borderRight: i < 2 ? `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'transparent'}` : 'none',
                   }}>
                     <SkeletonBox width="70px" height="9px" isDarkMode={isDarkMode} animate={false} />
-                    <div style={{ marginTop: '6px' }}>
-                      <SkeletonBox width="55px" height="18px" isDarkMode={isDarkMode} />
+                    <div style={{ marginTop: '6px', minHeight: '28px', display: 'flex', alignItems: 'flex-end' }}>
+                      <SkeletonBox width="72px" height="22px" isDarkMode={isDarkMode} />
                     </div>
                     <div style={{ marginTop: '8px' }}>
                       <SkeletonBox width="100%" height="3px" isDarkMode={isDarkMode} animate={false} />
@@ -1350,11 +1344,12 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
                 {[0,1].map(i => (
                   <div key={i} style={{
                     padding: '12px 12px',
+                    minHeight: '92px',
                     borderRight: i < 1 ? `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'transparent'}` : 'none',
                   }}>
                     <SkeletonBox width="90px" height="9px" isDarkMode={isDarkMode} animate={false} />
-                    <div style={{ marginTop: '6px' }}>
-                      <SkeletonBox width="65px" height="18px" isDarkMode={isDarkMode} />
+                    <div style={{ marginTop: '6px', minHeight: '28px', display: 'flex', alignItems: 'flex-end' }}>
+                      <SkeletonBox width="78px" height="22px" isDarkMode={isDarkMode} />
                     </div>
                   </div>
                 ))}
@@ -1388,6 +1383,7 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
                       style={{
                         minWidth: 0,
                         padding: '12px 12px',
+                        minHeight: isOutstandingCard ? '108px' : hasProgress ? '92px' : '88px',
                         background: isDarkMode
                           ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.08) 0%, rgba(54, 144, 206, 0.00) 60%), rgba(6, 23, 51, 0.45)'
                           : colours.grey,
@@ -1401,9 +1397,7 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
                         transition: 'background 180ms ease, border-color 180ms ease',
                         borderRadius: '0',
                         ...staggerStyle(index),
-                        animation: dataLanded 
-                          ? `dataLanded 0.5s ease ${index * 0.06}s both`
-                          : refreshAnimationKey > 0 
+                        animation: refreshAnimationKey > 0 
                             ? `metricRefresh 0.4s ease ${index * 0.05}s both` 
                             : undefined,
                       }}
@@ -1453,7 +1447,7 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
                       </div>
 
                       {/* Value row */}
-                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px', flexWrap: 'wrap' }}>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px', flexWrap: 'nowrap', minHeight: '28px' }}>
                         {showOutstandingLoadingCue ? (
                           <>
                             <SkeletonBox width="86px" height="18px" isDarkMode={isDarkMode} />
@@ -1579,6 +1573,7 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
                       style={{
                         minWidth: 0,
                         padding: '12px 12px',
+                        minHeight: isOutstandingCard ? '108px' : '88px',
                         background: isDarkMode
                           ? 'linear-gradient(135deg, rgba(54, 144, 206, 0.08) 0%, rgba(54, 144, 206, 0.00) 60%), rgba(6, 23, 51, 0.45)'
                           : colours.grey,
@@ -1592,9 +1587,7 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
                         transition: 'background 180ms ease, border-color 180ms ease',
                         borderRadius: '0',
                         ...staggerStyle(index + 3),
-                        animation: dataLanded 
-                          ? `dataLanded 0.5s ease ${(index + 3) * 0.06}s both`
-                          : refreshAnimationKey > 0 
+                        animation: refreshAnimationKey > 0 
                             ? `metricRefresh 0.4s ease ${(index + 3) * 0.05}s both` 
                             : undefined,
                       }}
@@ -1656,7 +1649,7 @@ const TimeMetricsV2: React.FC<TimeMetricsV2Props> = ({ metrics, enquiryMetrics, 
                       </div>
 
                       {/* Value row */}
-                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px', flexWrap: 'wrap' }}>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px', flexWrap: 'nowrap', minHeight: '28px' }}>
                         {showOutstandingLoadingCue ? (
                           <>
                             <SkeletonBox width="86px" height="18px" isDarkMode={isDarkMode} />

@@ -8,24 +8,17 @@
  */
 
 import { format } from 'date-fns';
+import type React from 'react';
 import { colours } from '../../../app/styles/colours';
 import type { Enquiry } from '../../../app/functionality/types';
+import { renderAreaOfWorkGlyph, getAreaGlyphMeta } from '../../../components/filter/areaGlyphs';
 
 // ─── Area of Work ───────────────────────────────────────────────
 
-/** Area string → emoji icon */
-export const getAreaOfWorkIcon = (areaOfWork: string): string => {
-  const area = (areaOfWork || '').toLowerCase().trim();
-
-  if (area.includes('triage')) return '🩺';
-  if (area.includes('construction') || area.includes('building')) return '🏗️';
-  if (area.includes('property') || area.includes('real estate') || area.includes('conveyancing')) return '🏠';
-  if (area.includes('commercial') || area.includes('business')) return '🏢';
-  if (area.includes('employment') || area.includes('hr') || area.includes('workplace')) return '👩🏻‍💼';
-  if (area.includes('allocation')) return '📂';
-  if (area.includes('general') || area.includes('misc') || area.includes('other')) return 'ℹ️';
-
-  return 'ℹ️';
+/** Area string → glyph in its actual AoW colour (dimmed; lights up on row hover via CSS) */
+export const getAreaOfWorkIcon = (areaOfWork: string): React.ReactElement => {
+  const meta = getAreaGlyphMeta(areaOfWork);
+  return renderAreaOfWorkGlyph(areaOfWork, meta.color, 'glyph', 17);
 };
 
 // ─── Colour Utilities ───────────────────────────────────────────
@@ -214,15 +207,46 @@ export const getCompactTimeDisplay = (dateStr: string | null): string => {
   return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 };
 
-/** Date → stacked three-part display for compact date cells */
+/** Date → quiet single-line ledger display for compact date cells */
 export const getStackedDateDisplay = (dateStr: string | null): { top: string; middle: string; bottom: string } => {
   if (!dateStr) return { top: '-', middle: '', bottom: '' };
   const d = new Date(dateStr);
   if (isNaN(d.getTime())) return { top: '-', middle: '', bottom: '' };
 
-  const datePart = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'Europe/London' });
-  const timePart = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Europe/London' });
+  const now = new Date();
+  const londonDate = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/London',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const todayKey = londonDate.format(now);
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const dateKey = londonDate.format(d);
+  const yesterdayKey = londonDate.format(yesterday);
+
+  const timePart = d.toLocaleTimeString('en-GB', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone: 'Europe/London',
+  });
   const hasTime = timePart !== '00:00';
+
+  if (dateKey === todayKey) {
+    return { top: hasTime ? `Today ${timePart}` : 'Today', middle: '', bottom: '' };
+  }
+
+  if (dateKey === yesterdayKey) {
+    return { top: hasTime ? `Yest ${timePart}` : 'Yesterday', middle: '', bottom: '' };
+  }
+
+  const datePart = d.toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    timeZone: 'Europe/London',
+  });
 
   return { top: datePart, middle: '', bottom: hasTime ? timePart : '' };
 };
@@ -234,12 +258,23 @@ export const formatDaySeparatorLabel = (dayKey: string, isHovered: boolean): str
   if (isNaN(d.getTime())) return dayKey;
 
   const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const dayOnly = new Date(d.getFullYear(), d.getMonth(), d.getDate());
   const isSameYear = d.getFullYear() === now.getFullYear();
+  const isToday = dayOnly.getTime() === today.getTime();
+  const isYesterday = dayOnly.getTime() === yesterday.getTime();
 
   if (isHovered) {
+    if (isToday) return 'Today';
+    if (isYesterday) return 'Yesterday';
     return isSameYear ? format(d, 'EEEE d MMMM') : format(d, 'EEEE d MMMM yyyy');
   }
-  return isSameYear ? format(d, 'dd.MM') : format(d, 'dd.MM.yyyy');
+
+  if (isToday) return 'Today';
+  if (isYesterday) return 'Yesterday';
+  return isSameYear ? format(d, 'd MMM') : format(d, 'd MMM yyyy');
 };
 
 /** Legacy compat — redirect to compact */

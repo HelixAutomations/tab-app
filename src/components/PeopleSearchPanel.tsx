@@ -5,7 +5,11 @@
  * Uses FluentUI Modal to match existing app modals (e.g. CreateContactModal).
  */
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { Modal, IconButton, Icon, Spinner, SpinnerSize, Text } from '@fluentui/react';
+import { Modal } from '@fluentui/react/lib/Modal';
+import { IconButton } from '@fluentui/react/lib/Button';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { Spinner, SpinnerSize } from '@fluentui/react/lib/Spinner';
+import { Text } from '@fluentui/react/lib/Text';
 import { useTheme } from '../app/functionality/ThemeContext';
 import { colours } from '../app/styles/colours';
 

@@ -1,16 +1,12 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
-import {
-  Stack,
-  DefaultButton,
-  IconButton,
-  Callout,
-  Text,
-  Separator,
-  Spinner,
-  MessageBar,
-  MessageBarType,
-  IButtonStyles,
-} from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { DefaultButton, IconButton } from '@fluentui/react/lib/Button';
+import { Callout } from '@fluentui/react/lib/Callout';
+import { Text } from '@fluentui/react/lib/Text';
+import { Separator } from '@fluentui/react/lib/Separator';
+import type { IButtonStyles } from '@fluentui/react/lib/Button';
+import { Spinner } from '@fluentui/react/lib/Spinner';
+import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
 import { colours } from '../../../app/styles/colours';
 import { TemplateBlock } from '../../../app/customisation/ProductionTemplateBlocks';
 

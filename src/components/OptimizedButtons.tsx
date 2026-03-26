@@ -4,14 +4,9 @@
  */
 
 import React, { useCallback, useState } from 'react';
-import { 
-  PrimaryButton, 
-  DefaultButton, 
-  IButtonProps, 
-  IButtonStyles, 
-  Spinner, 
-  SpinnerSize 
-} from '@fluentui/react';
+import { PrimaryButton, DefaultButton } from '@fluentui/react/lib/Button';
+import type { IButtonProps, IButtonStyles } from '@fluentui/react/lib/Button';
+import { Spinner, SpinnerSize } from '@fluentui/react/lib/Spinner';
 import { useOptimisticAction, getEnvironmentConfig } from '../utils/performanceOptimization';
 
 interface OptimizedButtonProps extends Omit<IButtonProps, 'onClick' | 'onError'> {

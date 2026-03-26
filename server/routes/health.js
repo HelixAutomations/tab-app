@@ -1,5 +1,7 @@
 const express = require('express');
 const { getCircuitBreakerHealth, resetAllCircuitBreakers } = require('../utils/circuitBreaker');
+const { getStatus } = require('../utils/serverStatus');
+const { getSseClientCount } = require('../utils/enquiries-stream');
 const router = express.Router();
 
 /**
@@ -50,35 +52,43 @@ router.post('/circuit-breakers/reset', (req, res) => {
 
 /**
  * GET /api/health/system
- * General system health check
+ * General system health check with component status
  */
 router.get('/system', async (req, res) => {
   try {
-    const health = {
-      timestamp: new Date().toISOString(),
-      uptime: process.uptime(),
-      memory: process.memoryUsage(),
-      node_version: process.version,
-      environment: process.env.NODE_ENV || 'development'
-    };
-    
-    // Add circuit breaker status
+    const status = getStatus();
     const circuitBreakers = getCircuitBreakerHealth();
-    health.circuitBreakers = {
-      overall: Object.values(circuitBreakers).every(b => b.isHealthy) ? 'healthy' : 'degraded',
-      details: circuitBreakers
+    const cbHealthy = Object.values(circuitBreakers).every(b => b.isHealthy);
+
+    const components = {
+      redis: { status: status.redis === true ? 'connected' : status.redis === false ? 'disconnected' : 'unknown' },
+      sql: { status: status.sql === true ? 'connected' : status.sql === false ? 'disconnected' : 'unknown' },
+      instructionsSql: { status: status.instructionsSql === true ? 'connected' : status.instructionsSql === false ? 'disconnected' : 'unknown' },
+      clio: { status: status.clio === true ? 'ready' : status.clio === false ? 'cold' : 'unknown' },
+      scheduler: { status: status.scheduler ? 'running' : 'stopped' },
     };
-    
+
+    const allConnected = Object.values(components).every(c => c.status === 'connected' || c.status === 'ready' || c.status === 'running');
+
     res.json({
       success: true,
-      health
+      overall: allConnected && cbHealthy ? 'healthy' : 'degraded',
+      timestamp: new Date().toISOString(),
+      uptimeSeconds: status.uptimeSeconds,
+      memory: {
+        rss: Math.round(process.memoryUsage().rss / 1048576),
+        heapUsed: Math.round(process.memoryUsage().heapUsed / 1048576),
+      },
+      components,
+      sse: { clients: getSseClientCount() },
+      circuitBreakers: {
+        overall: cbHealthy ? 'healthy' : 'degraded',
+        details: circuitBreakers,
+      },
     });
   } catch (error) {
     console.error('Error getting system health:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to get system health'
-    });
+    res.status(500).json({ success: false, error: 'Failed to get system health' });
   }
 });
 

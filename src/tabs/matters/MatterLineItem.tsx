@@ -1,4 +1,5 @@
-import { Text, Icon } from '@fluentui/react';
+import { Text } from '@fluentui/react/lib/Text';
+import { Icon } from '@fluentui/react/lib/Icon';
 import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { NormalizedMatter } from '../../app/functionality/types';
 import { useTheme } from '../../app/functionality/ThemeContext';

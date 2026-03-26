@@ -5,7 +5,7 @@
  */
 
 import React from 'react';
-import { Icon } from '@fluentui/react';
+import { Icon } from '@fluentui/react/lib/Icon';
 import { colours } from '../../../app/styles/colours';
 import type { Enquiry } from '../../../app/functionality/types';
 
@@ -58,24 +58,26 @@ const ActionsCell: React.FC<ActionsCellProps> = ({
   setShowEditModal,
   setExpandedNotesInTable,
 }) => {
+  const actionBoxSize = 22;
   const phone = item.Phone_Number || (item as any).phone;
   const isDemoProspect = String(item.ID || (item as any).id || '').toUpperCase().startsWith('DEMO-ENQ-');
   const canShowShareAction = areActionsEnabled || isDemoProspect;
-  const neutralBorder = isDarkMode ? `${colours.dark.borderColor}8c` : 'rgba(160, 160, 160, 0.28)';
-  const neutralBackground = isDarkMode ? colours.darkBlue : colours.grey;
-  const neutralBackgroundHover = isDarkMode ? colours.helixBlue : colours.highlightBlue;
-  const neutralText = isDarkMode ? colours.subtleGrey : colours.greyText;
-  const neutralTextStrong = isDarkMode ? colours.dark.text : colours.light.text;
-  const interactiveAccent = isDarkMode ? colours.highlight : colours.highlight;
+  const showQuickActions = areActionsEnabled && mainShowClaimer && !isMainTeamInboxPoc;
+  const neutralBorder = isDarkMode ? 'rgba(75, 85, 99, 0.52)' : 'rgba(160, 160, 160, 0.24)';
+  const neutralBackground = isDarkMode ? 'rgba(8, 28, 48, 0.42)' : 'rgba(244, 244, 246, 0.74)';
+  const neutralBackgroundHover = isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(214, 232, 255, 0.88)';
+  const neutralText = isDarkMode ? 'rgba(209, 213, 219, 0.82)' : colours.greyText;
+  const neutralTextStrong = isDarkMode ? 'rgba(243, 244, 246, 0.94)' : colours.light.text;
+  const interactiveAccent = isDarkMode ? colours.accent : colours.highlight;
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px' }}>
-      {/* Call / Email / Rate — only when claimed, not team inbox; animated reveal on hover */}
-      {mainShowClaimer && !isMainTeamInboxPoc && (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '3px' }}>
+      {/* Call / Email / Rate — only in unlocked action mode */}
+      {showQuickActions && (
         <div style={{
           display: 'flex',
           alignItems: 'center',
-          gap: '4px',
+          gap: '3px',
           opacity: isHovered ? 1 : 0,
           transform: isHovered ? 'translateX(0)' : 'translateX(6px)',
           transition: 'opacity 140ms ease, transform 160ms ease',
@@ -90,10 +92,10 @@ const ActionsCell: React.FC<ActionsCellProps> = ({
               if (phone) window.open(`tel:${phone}`, '_self');
             }}
             style={{
-              width: 22,
-              height: 22,
-              minWidth: 22,
-              minHeight: 22,
+              width: actionBoxSize,
+              height: actionBoxSize,
+              minWidth: actionBoxSize,
+              minHeight: actionBoxSize,
               flexShrink: 0,
               borderRadius: 0,
               border: `1px solid ${neutralBorder}`,
@@ -120,7 +122,7 @@ const ActionsCell: React.FC<ActionsCellProps> = ({
             }}
             title={phone ? `Call ${phone}` : 'No phone number'}
           >
-            <Icon iconName="Phone" styles={{ root: { fontSize: 11 } }} />
+            <Icon iconName="Phone" styles={{ root: { fontSize: 11, color: 'currentColor' } }} />
           </button>
 
           {/* Email */}
@@ -132,10 +134,10 @@ const ActionsCell: React.FC<ActionsCellProps> = ({
                 window.open(`mailto:${item.Email}`, '_blank');
               }}
               style={{
-                width: 22,
-                height: 22,
-                minWidth: 22,
-                minHeight: 22,
+                width: actionBoxSize,
+                height: actionBoxSize,
+                minWidth: actionBoxSize,
+                minHeight: actionBoxSize,
                 flexShrink: 0,
                 borderRadius: 0,
                 border: `1px solid ${neutralBorder}`,
@@ -159,7 +161,7 @@ const ActionsCell: React.FC<ActionsCellProps> = ({
               }}
               title={`Email ${item.Email}`}
             >
-              <Icon iconName="Mail" styles={{ root: { fontSize: 11 } }} />
+              <Icon iconName="Mail" styles={{ root: { fontSize: 11, color: 'currentColor' } }} />
             </button>
           )}
 
@@ -171,10 +173,10 @@ const ActionsCell: React.FC<ActionsCellProps> = ({
               handleRate(item.ID);
             }}
             style={{
-              width: 22,
-              height: 22,
-              minWidth: 22,
-              minHeight: 22,
+              width: actionBoxSize,
+              height: actionBoxSize,
+              minWidth: actionBoxSize,
+              minHeight: actionBoxSize,
               flexShrink: 0,
               borderRadius: 0,
               border: `1px solid ${getRatingChipMeta(item.Rating, isDarkMode).borderColor}`,
@@ -218,29 +220,34 @@ const ActionsCell: React.FC<ActionsCellProps> = ({
           });
         }}
         style={{
-          width: 22,
-          height: 22,
-          minWidth: 22,
-          minHeight: 22,
+          width: actionBoxSize,
+          height: actionBoxSize,
+          minWidth: actionBoxSize,
+          minHeight: actionBoxSize,
           flexShrink: 0,
           borderRadius: 0,
           background: neutralBackground,
           border: `1px solid ${neutralBorder}`,
+          color: (hasNotes || hasInlineWorkbench) ? neutralText : (isDarkMode ? 'rgba(160, 160, 160, 0.45)' : 'rgba(107, 107, 107, 0.45)'),
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           cursor: (hasNotes || hasInlineWorkbench) ? 'pointer' : 'default',
-          transition: 'all 0.2s ease',
+          transition: 'background 0.16s ease, border-color 0.16s ease, color 0.16s ease, transform 0.16s ease, opacity 0.16s ease',
           opacity: (hasNotes || hasInlineWorkbench) ? 1 : 0.4,
         }}
         onMouseEnter={(e) => {
           if (!(hasNotes || hasInlineWorkbench)) return;
           e.currentTarget.style.background = neutralBackgroundHover;
-          e.currentTarget.style.transform = 'scale(1.05)';
+          e.currentTarget.style.borderColor = interactiveAccent;
+          e.currentTarget.style.color = interactiveAccent;
+          e.currentTarget.style.transform = 'translateY(-1px)';
         }}
         onMouseLeave={(e) => {
           e.currentTarget.style.background = neutralBackground;
-          e.currentTarget.style.transform = 'scale(1)';
+          e.currentTarget.style.borderColor = neutralBorder;
+          e.currentTarget.style.color = (hasNotes || hasInlineWorkbench) ? neutralText : (isDarkMode ? 'rgba(160, 160, 160, 0.45)' : 'rgba(107, 107, 107, 0.45)');
+          e.currentTarget.style.transform = 'translateY(0)';
         }}
         title={
           !(hasNotes || hasInlineWorkbench)
@@ -252,10 +259,7 @@ const ActionsCell: React.FC<ActionsCellProps> = ({
                 : (hasNotes ? 'Show notes' : 'Show workbench'))
         }
       >
-        <Icon
-          iconName={isNotesExpanded ? 'ChevronUp' : 'ChevronDown'}
-          styles={{ root: { fontSize: '10px', color: neutralText } }}
-        />
+        <Icon iconName={isNotesExpanded ? 'ChevronUp' : 'ChevronDown'} styles={{ root: { fontSize: 10, color: 'currentColor' } }} />
       </div>
 
       {/* Share — available for demo rows even when lock is off */}
@@ -266,33 +270,38 @@ const ActionsCell: React.FC<ActionsCellProps> = ({
             void handleShareEnquiry(item);
           }}
           style={{
-            width: 22,
-            height: 22,
-            minWidth: 22,
-            minHeight: 22,
+            width: actionBoxSize,
+            height: actionBoxSize,
+            minWidth: actionBoxSize,
+            minHeight: actionBoxSize,
             flexShrink: 0,
             borderRadius: 0,
             background: neutralBackground,
             border: `1px solid ${neutralBorder}`,
+            color: neutralText,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             cursor: 'pointer',
-            transition: 'all 0.2s ease',
+            transition: 'background 0.16s ease, border-color 0.16s ease, color 0.16s ease, transform 0.16s ease',
           }}
           onMouseEnter={(e) => {
             e.currentTarget.style.background = neutralBackgroundHover;
-            e.currentTarget.style.transform = 'scale(1.05)';
+            e.currentTarget.style.borderColor = interactiveAccent;
+            e.currentTarget.style.color = interactiveAccent;
+            e.currentTarget.style.transform = 'translateY(-1px)';
           }}
           onMouseLeave={(e) => {
             e.currentTarget.style.background = neutralBackground;
-            e.currentTarget.style.transform = 'scale(1)';
+            e.currentTarget.style.borderColor = neutralBorder;
+            e.currentTarget.style.color = neutralText;
+            e.currentTarget.style.transform = 'translateY(0)';
           }}
           title="Share enquiry access"
         >
           <Icon
             iconName="PeopleAdd"
-            styles={{ root: { fontSize: '10px', color: neutralTextStrong } }}
+            styles={{ root: { fontSize: '10px', color: 'currentColor' } }}
           />
         </div>
       )}
@@ -307,33 +316,38 @@ const ActionsCell: React.FC<ActionsCellProps> = ({
               setShowEditModal(true);
             }}
             style={{
-              width: 22,
-              height: 22,
-              minWidth: 22,
-              minHeight: 22,
+              width: actionBoxSize,
+              height: actionBoxSize,
+              minWidth: actionBoxSize,
+              minHeight: actionBoxSize,
               flexShrink: 0,
               borderRadius: 0,
               background: neutralBackground,
               border: `1px solid ${neutralBorder}`,
+              color: neutralText,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               cursor: 'pointer',
-              transition: 'all 0.2s ease',
+              transition: 'background 0.16s ease, border-color 0.16s ease, color 0.16s ease, transform 0.16s ease',
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.background = neutralBackgroundHover;
-              e.currentTarget.style.transform = 'scale(1.05)';
+              e.currentTarget.style.borderColor = interactiveAccent;
+              e.currentTarget.style.color = interactiveAccent;
+              e.currentTarget.style.transform = 'translateY(-1px)';
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.background = neutralBackground;
-              e.currentTarget.style.transform = 'scale(1)';
+              e.currentTarget.style.borderColor = neutralBorder;
+              e.currentTarget.style.color = neutralText;
+              e.currentTarget.style.transform = 'translateY(0)';
             }}
             title="Edit enquiry"
           >
             <Icon
               iconName="Edit"
-              styles={{ root: { fontSize: '10px', color: neutralTextStrong } }}
+              styles={{ root: { fontSize: '10px', color: 'currentColor' } }}
             />
           </div>
 

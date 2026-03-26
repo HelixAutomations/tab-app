@@ -1,8 +1,7 @@
 // invisible change 3
 // src/components/CustomDivider.tsx
 import React from 'react';
-import { mergeStyles } from '@fluentui/react';
-
+import { mergeStyles } from '@fluentui/react/lib/Styling';
 const dividerStyle = mergeStyles({
   borderTop: '1px solid #eaeaea',
   margin: '20px 0',

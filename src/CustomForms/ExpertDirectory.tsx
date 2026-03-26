@@ -3,25 +3,18 @@
 // Protected by passcode guard
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import {
-  Stack,
-  Text,
-  DefaultButton,
-  MessageBar,
-  MessageBarType,
-  DetailsList,
-  DetailsListLayoutMode,
-  SelectionMode,
-  IColumn,
-  Icon,
-  IconButton,
-  Dropdown,
-  IDropdownOption,
-  Spinner,
-  SpinnerSize,
-  SearchBox,
-  Link,
-} from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Text } from '@fluentui/react/lib/Text';
+import { DefaultButton, IconButton } from '@fluentui/react/lib/Button';
+import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
+import { DetailsList, DetailsListLayoutMode, SelectionMode } from '@fluentui/react/lib/DetailsList';
+import type { IColumn } from '@fluentui/react/lib/DetailsList';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { Dropdown } from '@fluentui/react/lib/Dropdown';
+import type { IDropdownOption } from '@fluentui/react/lib/Dropdown';
+import { Spinner, SpinnerSize } from '@fluentui/react/lib/Spinner';
+import { SearchBox } from '@fluentui/react/lib/SearchBox';
+import { Link } from '@fluentui/react/lib/Link';
 import { getProxyBaseUrl } from '../utils/getProxyBaseUrl';
 import { UserData } from '../app/functionality/types';
 import { useTheme } from '../app/functionality/ThemeContext';

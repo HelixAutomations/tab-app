@@ -11,9 +11,7 @@
  *   useReassignment    — reassignment dropdown + handler
  */
 
-import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
-import { Icon } from '@fluentui/react';
-import { colours } from '../../../app/styles/colours';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import type { Enquiry } from '../../../app/functionality/types';
 
 // ─── useRowHover ──────────────────────────────────────────────
@@ -223,7 +221,7 @@ export function useEditModal(): EditModalState {
 
 type PipelineChipLabelMode = 'full' | 'short' | 'icon';
 
-const CHIP_MIN_WIDTHS = { icon: 32, short: 84, full: 104 };
+const CHIP_MIN_WIDTHS = { icon: 24, short: 68, full: 92 };
 
 export interface PipelineMeasurementState {
   pipelineGridMeasureRef: React.MutableRefObject<HTMLDivElement | null>;
@@ -260,7 +258,7 @@ export function usePipelineMeasurement(
 ): PipelineMeasurementState {
   const pipelineGridMeasureRef = useRef<HTMLDivElement | null>(null);
   const [pipelineChipLabelMode, setPipelineChipLabelMode] = useState<PipelineChipLabelMode>('short');
-  const [visiblePipelineChipCount, setVisiblePipelineChipCount] = useState<number>(3);
+  const [visiblePipelineChipCount, setVisiblePipelineChipCount] = useState<number>(7);
   const pipelineMeasureRetryRef = useRef(0);
   const pipelineMeasureRetryTimerRef = useRef<number | null>(null);
   const [pipelineRemeasureKey, setPipelineRemeasureKey] = useState<number>(0);
@@ -312,16 +310,13 @@ export function usePipelineMeasurement(
 
   const getPipelineHoverPosition = useCallback((target: EventTarget & HTMLElement) => {
     const rect = target.getBoundingClientRect();
-    const offset = 12;
-    const estimatedWidth = 240;
-    let x = rect.right + offset;
-    let y = rect.top;
+    const gap = 6;
+    let x = rect.left + rect.width / 2;
+    let y = rect.top - gap;
     if (typeof window !== 'undefined') {
-      const maxX = window.innerWidth - estimatedWidth - 8;
-      if (x > maxX) x = rect.left - offset;
       if (x < 8) x = 8;
-      if (y < 8) y = 8;
-      if (y > window.innerHeight - 8) y = window.innerHeight - 8;
+      if (x > window.innerWidth - 8) x = window.innerWidth - 8;
+      if (y < 32) y = rect.bottom + gap;
     }
     return { x, y };
   }, []);
@@ -359,7 +354,10 @@ export function usePipelineMeasurement(
 
     const computeLayout = (totalWidth: number) => {
       const columnGap = 8;
-      const navButtonWidth = 24;
+      const navOverlayWidth = 32;
+      const responsiveSafetyPadding = 36;
+      const chipComfortWidths = { full: 12, short: 10, icon: 8 };
+      const availableWidth = Math.max(0, totalWidth - responsiveSafetyPadding);
       const minFull = CHIP_MIN_WIDTHS.full;
       const minShort = CHIP_MIN_WIDTHS.short;
       const minIcon = CHIP_MIN_WIDTHS.icon;
@@ -367,42 +365,35 @@ export function usePipelineMeasurement(
       let nextMode: PipelineChipLabelMode = 'short';
       let nextCount = 7;
 
-      // Grid always includes nav column: repeat(N, minmax(W, 1fr)) 24px
-      // Total = N * W + N * gap + navButtonWidth
-      const widthNeeded = (count: number, chipWidth: number) =>
-        count * chipWidth + count * columnGap + navButtonWidth;
+      const widthNeeded = (count: number, chipWidth: number, reserveOverlay: boolean, chipComfortWidth: number) =>
+        count * (chipWidth + chipComfortWidth) + Math.max(0, count - 1) * columnGap + (reserveOverlay ? navOverlayWidth : 0);
 
-      if (totalWidth >= widthNeeded(7, minFull)) {
-        nextMode = 'full';
-        nextCount = 7;
-      } else if (totalWidth >= widthNeeded(7, minShort)) {
-        nextMode = 'short';
-        nextCount = 7;
-      } else if (totalWidth >= widthNeeded(7, minIcon)) {
-        nextMode = 'icon';
-        nextCount = 7;
-      } else {
-        nextMode = 'short';
-        nextCount = 3;
-        let shortFitFound = false;
-        for (let n = 6; n >= 3; n--) {
-          if (totalWidth >= widthNeeded(n, minShort)) {
-            nextCount = n;
-            shortFitFound = true;
-            break;
-          }
+      let fitFound = false;
+      for (let n = 7; n >= 1; n--) {
+        const reserveOverlay = n < 7;
+        if (availableWidth >= widthNeeded(n, minFull, reserveOverlay, chipComfortWidths.full)) {
+          nextMode = 'full';
+          nextCount = n;
+          fitFound = true;
+          break;
         }
-
-        if (!shortFitFound) {
+        if (availableWidth >= widthNeeded(n, minShort, reserveOverlay, chipComfortWidths.short)) {
+          nextMode = 'short';
+          nextCount = n;
+          fitFound = true;
+          break;
+        }
+        if (availableWidth >= widthNeeded(n, minIcon, reserveOverlay, chipComfortWidths.icon)) {
           nextMode = 'icon';
-          nextCount = 3;
-          for (let n = 6; n >= 3; n--) {
-            if (totalWidth >= widthNeeded(n, minIcon)) {
-              nextCount = n;
-              break;
-            }
-          }
+          nextCount = n;
+          fitFound = true;
+          break;
         }
+      }
+
+      if (!fitFound) {
+        nextMode = 'icon';
+        nextCount = 1;
       }
 
       setPipelineChipLabelMode((prev) => (prev === nextMode ? prev : nextMode));
@@ -443,13 +434,6 @@ export function usePipelineMeasurement(
     };
     window.addEventListener('resize', handleResize);
 
-    const pollInterval = setInterval(() => {
-      const rect = el.getBoundingClientRect();
-      if (rect.width && Math.abs(rect.width - lastMeasuredWidth) > 1) {
-        measureAndApply();
-      }
-    }, 500);
-
     const observer = new ResizeObserver((items) => {
       const rect = items[0]?.contentRect;
       if (!rect) return;
@@ -460,7 +444,6 @@ export function usePipelineMeasurement(
     return () => {
       observer.disconnect();
       clearTimeout(delayedMeasure);
-      clearInterval(pollInterval);
       if (resizeRaf) cancelAnimationFrame(resizeRaf);
       if (pipelineMeasureRetryTimerRef.current) {
         window.clearTimeout(pipelineMeasureRetryTimerRef.current);
@@ -572,7 +555,6 @@ export function useReassignment(
         setAllEnquiries(updater);
         setTeamWideEnquiries(updater);
         showToast('Enquiry reassigned', `Now assigned to ${newOwnerName}`, 'success');
-        if (onRefreshEnquiries) setTimeout(() => onRefreshEnquiries(), 800);
       } else {
         showToast('Reassignment failed', result.message || 'Please try again', 'error', 4000);
       }
@@ -582,7 +564,7 @@ export function useReassignment(
     } finally {
       setIsReassigning(false);
     }
-  }, [reassignmentDropdown, teamMemberOptions, showToast, setAllEnquiries, setTeamWideEnquiries, onRefreshEnquiries]);
+  }, [reassignmentDropdown, teamMemberOptions, showToast, setAllEnquiries, setTeamWideEnquiries]);
 
   const closeReassignmentDropdown = useCallback(() => {
     setReassignmentDropdown(null);

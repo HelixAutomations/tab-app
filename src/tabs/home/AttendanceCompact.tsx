@@ -6,7 +6,10 @@ import React, {
     useState,
     useRef,
 } from 'react';
-import { Icon, TooltipHost, mergeStyles, DefaultButton } from '@fluentui/react';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { TooltipHost } from '@fluentui/react/lib/Tooltip';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
+import { DefaultButton } from '@fluentui/react/lib/Button';
 import { sharedDefaultButtonStyles } from '../../app/styles/ButtonStyles';
 import { colours } from '../../app/styles/colours';
 import { cardStyles } from '../instructions/componentTokens';
@@ -51,6 +54,8 @@ interface AttendanceProps {
     userData: any;
     onAttendanceUpdated?: (updatedRecords: AttendanceRecord[]) => void;
 }
+
+type CompactAttendanceStatus = 'office' | 'home' | 'away' | 'pending';
 
 // Lightweight collapsible section reused from Attendance.tsx
 const CollapsibleSection: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => {
@@ -333,14 +338,14 @@ const AttendanceCompact = forwardRef<
                 records
                     .map((rec) => rec.Attendance_Days || '')
                     .filter(Boolean)
-                    .join(',') || 'None'
+                    .join(',') || (targetDayStr > formatDateLocal(new Date()) ? 'Not set yet' : 'None')
             );
         };
 
         const getStatus = (
             personAttendance: string,
             initials: string
-        ): 'office' | 'home' | 'away' => {
+        ): CompactAttendanceStatus => {
             const isOnLeave = combinedLeaveRecords.some(
                 (leave) =>
                     leave.status === 'booked' &&
@@ -361,11 +366,12 @@ const AttendanceCompact = forwardRef<
                     .split(',')
                     .map((s) => dayMap[s.trim()] || s.trim())
                 : [];
+            if (attendedDays.length === 0 && targetDayStr > formatDateLocal(new Date())) return 'pending';
             return attendedDays.includes(targetDayLabel) ? 'office' : 'home';
         };
 
         const groups = useMemo(() => {
-            const group = { office: [] as any[], home: [] as any[], away: [] as any[] };
+            const group = { office: [] as any[], home: [] as any[], away: [] as any[], pending: [] as any[] };
             teamData.forEach((teamMember) => {
                 const records = attendanceRecords.filter(
                     (rec) =>
@@ -379,23 +385,25 @@ const AttendanceCompact = forwardRef<
                 const status = getStatus(attendanceDays, teamMember.Initials);
                 if (status === 'office') group.office.push(teamMember);
                 else if (status === 'home') group.home.push(teamMember);
-                else group.away.push(teamMember);
+                else if (status === 'away') group.away.push(teamMember);
+                else group.pending.push(teamMember);
             });
             return group;
         }, [attendanceRecords, teamData, getStatus, weekStartToUse, targetDayLabel, targetDayStr]);
 
-        const renderAvatar = (member: any, status: 'office' | 'home' | 'away') => {
+        const renderAvatar = (member: any, status: CompactAttendanceStatus) => {
             let background = colours.grey;
             if (status === 'office') background = colours.blue;
             else if (status === 'home') background = colours.highlight;
-            else background = colours.greyText;
+            else if (status === 'away') background = colours.greyText;
+            else background = isDarkMode ? colours.darkBlue : colours.grey;
             const week = getMemberWeek(member.Initials);
             return (
                 <TooltipHost content={week} key={`tt-${member.Initials}`}>
                     <div
                         key={member.Initials} // Inner key kept for clarity though outer TooltipHost has key
                         className={avatarStyle}
-                        style={{ background }}
+                        style={{ background, opacity: status === 'pending' ? 0.45 : 1, filter: status === 'pending' ? 'saturate(0.7)' : 'none' }}
                         title={member.Nickname || member.First}
                     >
                         {member.Initials.toUpperCase()}
@@ -406,7 +414,7 @@ const AttendanceCompact = forwardRef<
 
         const renderGroup = (
             members: any[],
-            status: 'office' | 'home' | 'away',
+            status: CompactAttendanceStatus,
             icon: string
         ) => {
             const perRow = 6;
@@ -423,7 +431,7 @@ const AttendanceCompact = forwardRef<
                             return (
                                 <div
                                     key={rowKey}
-                                    style={{ display: 'flex', flexDirection: idx % 2 ? 'row-reverse' : 'row' }}
+                                    style={{ display: 'flex', flexDirection: idx % 2 ? 'row-reverse' : 'row', opacity: status === 'pending' ? 0.72 : 1 }}
                                 >
                                     {row.map((m: any) => renderAvatar(m, status))}
                                 </div>
@@ -446,11 +454,17 @@ const AttendanceCompact = forwardRef<
                                 <div className={groupContainer}>
                                         {renderGroup(groups.office, 'office', 'CityNext')}
                                     {renderGroup(groups.home, 'home', 'Home')}
+                                    {renderGroup(groups.pending, 'pending', 'Clock')}
                                     {renderGroup(groups.away, 'away', 'Airplane')}
                                 </div>
                                 <div style={{ marginTop: '8px', fontSize: '12px', color: colours.greyText }}>
                                         Showing: {targetDayLabel}
                                     </div>
+                                    {targetDayStr > formatDateLocal(new Date()) && groups.pending.length > 0 && (
+                                        <div style={{ marginTop: '4px', fontSize: '11px', color: colours.subtleGrey }}>
+                                            Faded initials = future week not set yet
+                                        </div>
+                                    )}
                                     {!currentConfirmed && (
                                         <div style={{ marginTop: '8px' }}>
                                             <DefaultButton text="Confirm Attendance" onClick={openConfirmationPanel} styles={sharedDefaultButtonStyles} />

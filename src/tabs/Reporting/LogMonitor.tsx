@@ -1,11 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import {
-  IconButton,
-  Spinner,
-  SpinnerSize,
-  MessageBar,
-  MessageBarType,
-} from '@fluentui/react';
+import { IconButton } from '@fluentui/react/lib/Button';
+import { Spinner, SpinnerSize } from '@fluentui/react/lib/Spinner';
+import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
 import { colours } from '../../app/styles/colours';
 import { useTheme } from '../../app/functionality/ThemeContext';
 
@@ -41,6 +37,7 @@ const LogMonitor: React.FC<LogMonitorProps> = ({ onBack }) => {
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pausedLogsRef = useRef<LogEntry[]>([]);
   const sseRetryCountRef = useRef(0);
+  const sseOpenedAtRef = useRef<number | null>(null);
   const lastSeenIdRef = useRef<string | null>(null);
   const isPausedRef = useRef(false);
   const mountedRef = useRef(true);
@@ -152,6 +149,7 @@ const LogMonitor: React.FC<LogMonitorProps> = ({ onBack }) => {
     try {
       const eventSource = new EventSource('/api/logs/stream');
       eventSourceRef.current = eventSource;
+      let receivedData = false;
 
       // Timeout — if SSE doesn't open within 8s it's probably blocked by Azure/IIS
       const sseTimeout = setTimeout(() => {
@@ -168,20 +166,49 @@ const LogMonitor: React.FC<LogMonitorProps> = ({ onBack }) => {
         }
       }, 8000);
 
+      // Secondary check — if SSE opens but no data arrives within 5s, the
+      // proxy is likely buffering the stream. Count it as a failed attempt.
+      const dataTimeout = setTimeout(() => {
+        if (!mountedRef.current || receivedData) return;
+        if (eventSource.readyState === EventSource.OPEN) {
+          eventSource.close();
+          eventSourceRef.current = null;
+          sseRetryCountRef.current++;
+          if (sseRetryCountRef.current >= MAX_SSE_RETRIES) {
+            startPolling();
+          } else {
+            setError('Stream opened but no data — retrying...');
+            setConnectionMode('disconnected');
+            setTimeout(() => { if (mountedRef.current) connectSSE(); }, 2000);
+          }
+        }
+      }, 5000);
+
       eventSource.onopen = () => {
         clearTimeout(sseTimeout);
         if (!mountedRef.current) { eventSource.close(); return; }
+        sseOpenedAtRef.current = Date.now();
         setConnectionMode('sse');
         setIsConnecting(false);
         setError(null);
-        sseRetryCountRef.current = 0;
-        showToast('Connected to live stream');
+        // Don't reset sseRetryCountRef here — only reset after a stable
+        // connection (>15s) to prevent open-drop loops from never reaching
+        // the polling fallback threshold.
       };
 
       eventSource.onmessage = (event) => {
+        receivedData = true;
+        clearTimeout(dataTimeout);
+        // Connection is confirmed working — reset retry counter
+        if (sseRetryCountRef.current > 0) {
+          sseRetryCountRef.current = 0;
+        }
         try {
           const data = JSON.parse(event.data);
-          if (data.type === 'connected') return;
+          if (data.type === 'connected') {
+            showToast('Connected to live stream');
+            return;
+          }
           if (data.type === 'clear') {
             setLogs([]);
             pausedLogsRef.current = [];
@@ -205,6 +232,7 @@ const LogMonitor: React.FC<LogMonitorProps> = ({ onBack }) => {
 
       eventSource.onerror = () => {
         clearTimeout(sseTimeout);
+        clearTimeout(dataTimeout);
         eventSource.close();
         eventSourceRef.current = null;
         if (!mountedRef.current) return;
@@ -241,6 +269,7 @@ const LogMonitor: React.FC<LogMonitorProps> = ({ onBack }) => {
     stopPolling();
     setConnectionMode('disconnected');
     sseRetryCountRef.current = 0;
+    sseOpenedAtRef.current = null;
   }, [stopPolling]);
 
   // Toggle pause/resume
@@ -375,7 +404,7 @@ const LogMonitor: React.FC<LogMonitorProps> = ({ onBack }) => {
           {!isConnected && !isConnecting && (
             <IconButton
               iconProps={{ iconName: 'Refresh' }}
-              onClick={() => { sseRetryCountRef.current = 0; connectSSE(); }}
+              onClick={() => { sseRetryCountRef.current = 0; sseOpenedAtRef.current = null; connectSSE(); }}
               title="Reconnect"
               styles={{ root: { color: textColor } }}
             />

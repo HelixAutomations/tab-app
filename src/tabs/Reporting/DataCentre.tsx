@@ -1,6 +1,12 @@
 import React from 'react';
 import type { CSSProperties } from 'react';
-import { DefaultButton, FontIcon, Spinner, SpinnerSize, Modal, DatePicker, Dialog, DialogType, DialogFooter, PrimaryButton, ChoiceGroup } from '@fluentui/react';
+import { DefaultButton, PrimaryButton } from '@fluentui/react/lib/Button';
+import { FontIcon } from '@fluentui/react/lib/Icon';
+import { DatePicker } from '@fluentui/react/lib/DatePicker';
+import { Spinner, SpinnerSize } from '@fluentui/react/lib/Spinner';
+import { Modal } from '@fluentui/react/lib/Modal';
+import { Dialog, DialogType, DialogFooter } from '@fluentui/react/lib/Dialog';
+import { ChoiceGroup } from '@fluentui/react/lib/ChoiceGroup';
 import { OperationValidator } from './components/OperationValidator';
 import {
   reportingPanelBackground,
@@ -10,6 +16,7 @@ import {
 } from './styles/reportingFoundation';
 import { colours } from '../../app/styles/colours';
 import { useTheme } from '../../app/functionality/ThemeContext';
+import { useToast } from '../../components/feedback/ToastProvider';
 import { useNavigatorActions } from '../../app/functionality/NavigatorContext';
 import NavigatorDetailBar from '../../components/NavigatorDetailBar';
 
@@ -419,8 +426,9 @@ const DataCentre: React.FC<DataCentreProps> = ({
   userName,
 }) => {
   const { isDarkMode } = useTheme();
+  const { showToast, updateToast } = useToast();
   const { setContent } = useNavigatorActions();
-  type ActiveTab = 'collected' | 'wip' | 'people' | 'finance' | 'compliance' | 'ads';
+  type ActiveTab = 'collected' | 'wip' | 'agedDebt' | 'people' | 'finance' | 'compliance' | 'ads';
   const [activeOp, setActiveOp] = React.useState<ActiveTab>('collected');
 
   /* ─── Navigator bar — managed by DataCentre itself ─── */
@@ -432,6 +440,7 @@ const DataCentre: React.FC<DataCentreProps> = ({
         tabs={[
           { key: 'collected', label: 'Collected' },
           { key: 'wip', label: 'WIP' },
+          { key: 'agedDebt', label: 'Aged Debt' },
           { key: 'people', label: 'People' },
           { key: 'finance', label: 'Finance' },
           { key: 'compliance', label: 'Compliance' },
@@ -496,8 +505,7 @@ const DataCentre: React.FC<DataCentreProps> = ({
   const [opsLoading, setOpsLoading] = React.useState(false);
   const [syncingCollected, setSyncingCollected] = React.useState(false);
   const [syncingWip, setSyncingWip] = React.useState(false);
-  const [syncResultCollected, setSyncResultCollected] = React.useState<{ success: boolean; message: string } | null>(null);
-  const [syncResultWip, setSyncResultWip] = React.useState<{ success: boolean; message: string } | null>(null);
+
   const [confirmingCollected, setConfirmingCollected] = React.useState(false);
   const [confirmingWip, setConfirmingWip] = React.useState(false);
   const [collectedConfirmChecked, setCollectedConfirmChecked] = React.useState(false);
@@ -508,7 +516,7 @@ const DataCentre: React.FC<DataCentreProps> = ({
   const [wipWeekExclusionChecked, setWipWeekExclusionChecked] = React.useState(false);
 
   /* Month coverage side panel state */
-const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' | null>(null);
+const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' | 'agedDebt' | null>(null);
   const [monthAuditData, setMonthAuditData] = React.useState<MonthAuditEntry[]>([]);
   const [monthAuditLoading, setMonthAuditLoading] = React.useState(false);
   const [coverageOpen, setCoverageOpen] = React.useState(true);
@@ -524,7 +532,7 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
   const [dataHubLoading, setDataHubLoading] = React.useState(false);
   const opsLogIntervalRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const toggleCoverage = React.useCallback(async (op: 'collectedTime' | 'wip') => {
+  const toggleCoverage = React.useCallback(async (op: 'collectedTime' | 'wip' | 'agedDebt') => {
     if (coverageOpen && monthAuditOp === op) {
       // collapse
       setCoverageOpen(false);
@@ -556,7 +564,10 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
   const [backfillDone, setBackfillDone] = React.useState<string[]>([]);
   const [backfillErrors, setBackfillErrors] = React.useState<string[]>([]);
 
-  const syncMonthKey = React.useCallback(async (monthKey: string, op: 'collectedTime' | 'wip') => {
+  const syncMonthKey = React.useCallback(async (monthKey: string, op: 'collectedTime' | 'wip' | 'agedDebt') => {
+    // Aged debt doesn't have a sync operation — it's natively created in the hub
+    if (op === 'agedDebt') return { insertedRows: 0, skipped: true, message: 'Aged debt is hub-native — no sync needed.' };
+
     const start = `${monthKey}-01`;
     const [y, mon] = monthKey.split('-').map(Number);
     const lastDay = new Date(y, mon, 0).getDate();
@@ -756,7 +767,10 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
 
   // Auto-open coverage panel and sync to active operation card
   React.useEffect(() => {
-    const opKey = activeOp === 'collected' ? 'collectedTime' as const : 'wip' as const;
+    if (activeOp !== 'collected' && activeOp !== 'wip' && activeOp !== 'agedDebt') return;
+    const opKey = activeOp === 'collected' ? 'collectedTime' as const
+      : activeOp === 'agedDebt' ? 'agedDebt' as const
+      : 'wip' as const;
     // Always open coverage and switch to the correct operation
     setCoverageOpen(true);
     setMonthAuditOp(opKey);
@@ -769,11 +783,13 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
       .then(data => { if (data) setMonthAuditData(data.months || []); })
       .catch(e => console.warn('Coverage auto-fetch failed:', e))
       .finally(() => setMonthAuditLoading(false));
-    // Fetch monthly totals if expanded but empty
-    const totalsKey = activeOp;
-    const totals = activeOp === 'collected' ? monthlyCollected : monthlyWip;
-    if (monthlyExpanded === totalsKey && totals.length === 0) {
-      fetchMonthlyTotals(totalsKey);
+    // Fetch monthly totals if expanded but empty (not applicable to aged debt)
+    if (activeOp !== 'agedDebt') {
+      const totalsKey = activeOp;
+      const totals = activeOp === 'collected' ? monthlyCollected : monthlyWip;
+      if (monthlyExpanded === totalsKey && totals.length === 0) {
+        fetchMonthlyTotals(totalsKey);
+      }
     }
   }, [activeOp]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1012,7 +1028,6 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
       if (!opsLogIntervalRef.current) opsLogIntervalRef.current = setInterval(fetchOpsLog, 8000);
     }
     setSyncingCollected(true);
-    setSyncResultCollected(null);
 
     const payload = {
       daysBack: -1,
@@ -1048,6 +1063,13 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
       message: 'Sync initiated...'
     }, ...prev]);
 
+    const toastId = showToast({
+      type: 'loading',
+      title: 'Syncing Collected Time',
+      message: `Fetching payments from Clio (${PRESET_LABELS[collectedRange.preset]})…`,
+      persist: true,
+    });
+
     try {
       const res = await fetch('/api/data-operations/sync-collected', {
         method: 'POST',
@@ -1056,21 +1078,36 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        setSyncResultCollected({
-          success: true,
+        updateToast(toastId, {
+          type: 'success',
+          title: 'Collected Time Synced',
           message: `+${data.insertedRows?.toLocaleString() ?? 0} rows in ${((data.durationMs ?? 0) / 1000).toFixed(1)}s`,
+          persist: false,
+          duration: 4000,
         });
         fetchOpsStatus();
         onRefreshCollected();
       } else {
-        setSyncResultCollected({ success: false, message: data.error || 'Sync failed' });
+        updateToast(toastId, {
+          type: 'error',
+          title: 'Collected Time Sync Failed',
+          message: data.error || 'Sync failed',
+          persist: false,
+          duration: 6000,
+        });
       }
     } catch (e) {
-      setSyncResultCollected({ success: false, message: String(e) });
+      updateToast(toastId, {
+        type: 'error',
+        title: 'Collected Time Sync Failed',
+        message: String(e),
+        persist: false,
+        duration: 6000,
+      });
     } finally {
       setSyncingCollected(false);
     }
-  }, [collectedRange, planMode, fetchOpsStatus, onRefreshCollected]);
+  }, [collectedRange, planMode, fetchOpsStatus, onRefreshCollected, showToast, updateToast]);
 
   const handleWipSync = React.useCallback(async () => {
     if (!wipRange.startDate || !wipRange.endDate) return;
@@ -1080,13 +1117,19 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
       if (!opsLogIntervalRef.current) opsLogIntervalRef.current = setInterval(fetchOpsLog, 8000);
     }
     setSyncingWip(true);
-    setSyncResultWip(null);
 
     const payload = {
       startDate: wipRange.startDate.toISOString(),
       endDate: wipRange.endDate.toISOString(),
       ...(userName && { invokedBy: userName }),
     };
+
+    const toastId = showToast({
+      type: 'loading',
+      title: 'Syncing Recorded Time (WIP)',
+      message: `Fetching activities from Clio (${PRESET_LABELS[wipRange.preset]})…`,
+      persist: true,
+    });
 
     try {
       const res = await fetch('/api/data-operations/sync-wip', {
@@ -1099,17 +1142,32 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
         const syncMessage = data?.message
           ? String(data.message)
           : `−${data.deletedRows?.toLocaleString() ?? 0} / +${data.insertedRows?.toLocaleString() ?? 0} rows in ${((data.durationMs ?? 0) / 1000).toFixed(1)}s`;
-        setSyncResultWip({
-          success: true,
+        updateToast(toastId, {
+          type: 'success',
+          title: 'WIP Synced',
           message: syncMessage,
+          persist: false,
+          duration: 4000,
         });
         fetchOpsStatus();
         onRefreshAll();
       } else {
-        setSyncResultWip({ success: false, message: data.error || 'Sync failed' });
+        updateToast(toastId, {
+          type: 'error',
+          title: 'WIP Sync Failed',
+          message: data.error || 'Sync failed',
+          persist: false,
+          duration: 6000,
+        });
       }
     } catch (e) {
-      setSyncResultWip({ success: false, message: String(e) });
+      updateToast(toastId, {
+        type: 'error',
+        title: 'WIP Sync Failed',
+        message: String(e),
+        persist: false,
+        duration: 6000,
+      });
     } finally {
       setSyncingWip(false);
     }
@@ -1130,7 +1188,7 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
         message: 'Abort signal sent.'
       }, ...prev]);
     } catch (e) {
-      alert('Failed to abort: ' + e);
+      showToast({ type: 'error', title: 'Abort Failed', message: String(e), duration: 5000 });
     }
   }, []);
 
@@ -1197,7 +1255,7 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
     const hrs = Math.floor(ago / 3_600_000);
     const days = Math.floor(ago / 86_400_000);
     const label = days > 0 ? `${days}d ago` : hrs > 0 ? `${hrs}h ago` : `${mins}m ago`;
-    const colour = hrs >= 6 ? '#ef4444' : hrs >= 2 ? '#f59e0b' : '#22c55e';
+    const colour = hrs >= 6 ? colours.cta : hrs >= 2 ? colours.orange : colours.green;
     return { label, colour };
   }, []);
 
@@ -1393,7 +1451,7 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
       {
         key: 'compliance',
         title: 'Compliance & leave',
-        feeds: ['poidData', 'annualLeave'],
+        feeds: ['annualLeave'],
       },
       {
         key: 'ads',
@@ -1432,7 +1490,6 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
       allMatters: 'matters',
       teamData: 'team',
       userData: 'team',
-      poidData: 'poid',
       annualLeave: 'annualLeave',
       deals: 'deals',
       instructions: 'instructions',
@@ -2112,30 +2169,6 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
               </div>
             )}
 
-            {/* Result Banner */}
-            {syncResultCollected && (
-              <div style={{
-                padding: '6px 10px',
-                borderRadius: 0,
-                fontSize: 10,
-                fontWeight: 600,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                background: syncResultCollected.success
-                  ? (isDarkMode ? 'rgba(34, 197, 94, 0.12)' : 'rgba(34, 197, 94, 0.06)')
-                  : (isDarkMode ? 'rgba(239, 68, 68, 0.12)' : 'rgba(239, 68, 68, 0.06)'),
-                border: `1px solid ${syncResultCollected.success
-                  ? (isDarkMode ? 'rgba(34, 197, 94, 0.25)' : 'rgba(34, 197, 94, 0.2)')
-                  : (isDarkMode ? 'rgba(239, 68, 68, 0.25)' : 'rgba(239, 68, 68, 0.2)')}`,
-                color: syncResultCollected.success ? '#22c55e' : '#ef4444',
-              }}>
-                <FontIcon iconName={syncResultCollected.success ? 'CheckMark' : 'ErrorBadge'} style={{ fontSize: 11 }} />
-                {syncResultCollected.message}
-                <button onClick={() => setSyncResultCollected(null)} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontSize: 9, padding: '0 2px' }}>✕</button>
-              </div>
-            )}
-
             {/* Confirmation / Action */}
             {confirmingCollected && !syncingCollected ? (
               <div style={{
@@ -2146,6 +2179,7 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
                 display: 'flex',
                 flexDirection: 'column',
                 gap: 8,
+                animation: 'helix-slide-in-up 250ms cubic-bezier(0, 0, 0.2, 1)',
               }}>
                 <div style={{ fontSize: 11, fontWeight: 600, color: isDarkMode ? colours.blue : colours.missedBlue }}>
                   Confirm Sync — Collected Time
@@ -2342,30 +2376,6 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
               </div>
             )}
 
-            {/* Result Banner */}
-            {syncResultWip && (
-              <div style={{
-                padding: '6px 10px',
-                borderRadius: 0,
-                fontSize: 10,
-                fontWeight: 600,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                background: syncResultWip.success
-                  ? (isDarkMode ? 'rgba(34, 197, 94, 0.12)' : 'rgba(34, 197, 94, 0.06)')
-                  : (isDarkMode ? 'rgba(239, 68, 68, 0.12)' : 'rgba(239, 68, 68, 0.06)'),
-                border: `1px solid ${syncResultWip.success
-                  ? (isDarkMode ? 'rgba(34, 197, 94, 0.25)' : 'rgba(34, 197, 94, 0.2)')
-                  : (isDarkMode ? 'rgba(239, 68, 68, 0.25)' : 'rgba(239, 68, 68, 0.2)')}`,
-                color: syncResultWip.success ? '#22c55e' : '#ef4444',
-              }}>
-                <FontIcon iconName={syncResultWip.success ? 'CheckMark' : 'ErrorBadge'} style={{ fontSize: 11 }} />
-                {syncResultWip.message}
-                <button onClick={() => setSyncResultWip(null)} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontSize: 9, padding: '0 2px' }}>✕</button>
-              </div>
-            )}
-
             {/* Confirmation / Action */}
             {confirmingWip && !syncingWip ? (
               <div style={{
@@ -2376,6 +2386,7 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
                 display: 'flex',
                 flexDirection: 'column',
                 gap: 8,
+                animation: 'helix-slide-in-up 250ms cubic-bezier(0, 0, 0.2, 1)',
               }}>
                 <div style={{ fontSize: 11, fontWeight: 600, color: isDarkMode ? '#5eead4' : '#0d9488' }}>
                   Confirm Sync — Recorded Time (WIP)
@@ -2508,6 +2519,184 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
       )}
 
       {/* ─── Feed Group Pages ─── */}
+
+      {/* ─── Aged Debt Coverage ─── */}
+      {activeOp === 'agedDebt' && (
+      <section style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {/* Header */}
+        <div style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          gap: 8,
+          padding: '6px 8px',
+          border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)'}`,
+          background: isDarkMode ? 'rgba(15,23,42,0.2)' : 'rgba(248,250,252,0.6)',
+          borderRadius: 2,
+        }}>
+          <span style={{ fontSize: 10, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text }}>
+            Aged Debt Ledger
+          </span>
+          <span style={{ fontSize: 9, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>
+            Transaction intake &amp; aged debt coverage by month
+          </span>
+        </div>
+
+        {/* Loading */}
+        {monthAuditLoading && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: 8 }}>
+            <Spinner size={SpinnerSize.xSmall} />
+            <span style={{ fontSize: 9, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>Loading coverage…</span>
+          </div>
+        )}
+
+        {/* Empty state */}
+        {!monthAuditLoading && monthAuditData.length > 0 && monthAuditData.every(m => !m.stats) && (
+          <div style={{
+            padding: '16px 12px',
+            textAlign: 'center',
+            fontSize: 12,
+            color: isDarkMode ? colours.greyText : colours.subtleGrey,
+          }}>
+            No transactions recorded yet. Use Transaction Intake to record inbound payments.
+          </div>
+        )}
+
+        {/* Month grid */}
+        {!monthAuditLoading && monthAuditData.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {[...monthAuditData]
+              .sort((a, b) => a.key < b.key ? 1 : -1)
+              .slice(0, coverageVisibleCount)
+              .map((m, idx) => {
+                const stats = m.stats as any;
+                const hasData = !!stats && stats.totalRows > 0;
+                const stripe = idx % 2 === 0;
+                const accent = colours.orange;
+                const freshnessCue = getFreshnessCue(m.key, m.lastSync?.ts);
+
+                return (
+                  <div
+                    key={m.key}
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 4,
+                      padding: '8px 10px',
+                      background: stripe
+                        ? (isDarkMode ? 'rgba(15,23,42,0.35)' : 'rgba(248,250,252,0.5)')
+                        : 'transparent',
+                      border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)'}`,
+                      borderRadius: 2,
+                    }}
+                  >
+                    {/* Row 1: Month label + freshness + total value */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{
+                        width: 6, height: 6, borderRadius: '50%',
+                        background: !hasData ? (isDarkMode ? colours.dark.border : '#d1d5db')
+                          : freshnessCue.color,
+                        flexShrink: 0,
+                      }} />
+                      <span style={{
+                        fontSize: 11, fontWeight: 700, minWidth: 52,
+                        color: isDarkMode ? colours.dark.text : colours.light.text,
+                      }}>
+                        {m.label}
+                      </span>
+
+                      {hasData && (
+                        <>
+                          <span style={{
+                            fontSize: 10, fontWeight: 600,
+                            color: accent,
+                          }}>
+                            £{stats.totalValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                          </span>
+                          <span style={{
+                            fontSize: 9,
+                            color: isDarkMode ? colours.greyText : colours.subtleGrey,
+                            marginLeft: 'auto',
+                          }}>
+                            {stats.totalRows} txn{stats.totalRows !== 1 ? 's' : ''}
+                          </span>
+                        </>
+                      )}
+
+                      {!hasData && (
+                        <span style={{
+                          fontSize: 9, fontStyle: 'italic',
+                          color: isDarkMode ? `${colours.subtleGrey}88` : `${colours.greyText}88`,
+                        }}>
+                          No transactions
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Row 2: Status breakdown chips */}
+                    {hasData && (
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginLeft: 12 }}>
+                        {stats.pendingCount > 0 && (
+                          <span style={{
+                            fontSize: 9, fontWeight: 600, padding: '1px 6px',
+                            background: isDarkMode ? 'rgba(255,140,0,0.15)' : 'rgba(255,140,0,0.1)',
+                            color: colours.orange, borderRadius: 2,
+                          }}>
+                            {stats.pendingCount} pending
+                          </span>
+                        )}
+                        {stats.approvedCount > 0 && (
+                          <span style={{
+                            fontSize: 9, fontWeight: 600, padding: '1px 6px',
+                            background: isDarkMode ? 'rgba(32,178,108,0.15)' : 'rgba(32,178,108,0.1)',
+                            color: colours.green, borderRadius: 2,
+                          }}>
+                            {stats.approvedCount} approved
+                          </span>
+                        )}
+                        {stats.leftCount > 0 && (
+                          <span style={{
+                            fontSize: 9, fontWeight: 600, padding: '1px 6px',
+                            background: isDarkMode ? 'rgba(160,160,160,0.15)' : 'rgba(160,160,160,0.1)',
+                            color: colours.subtleGrey, borderRadius: 2,
+                          }}>
+                            {stats.leftCount} left in client
+                          </span>
+                        )}
+                        {stats.rejectedCount > 0 && (
+                          <span style={{
+                            fontSize: 9, fontWeight: 600, padding: '1px 6px',
+                            background: isDarkMode ? 'rgba(214,85,65,0.15)' : 'rgba(214,85,65,0.1)',
+                            color: colours.cta, borderRadius: 2,
+                          }}>
+                            {stats.rejectedCount} rejected
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+            {/* Show more / less */}
+            {monthAuditData.filter(m => !!m.stats).length > coverageVisibleCount && (
+              <button
+                onClick={() => setCoverageVisibleCount(prev => prev + 6)}
+                style={{
+                  background: 'none', border: 'none', cursor: 'pointer',
+                  fontSize: 9, fontWeight: 600, padding: '4px 0',
+                  color: isDarkMode ? colours.accent : colours.highlight,
+                }}
+              >
+                Show more months…
+              </button>
+            )}
+          </div>
+        )}
+      </section>
+      )}
+
+      {/* ─── Feed Group Pages (continued) ─── */}
       {(activeOp === 'people' || activeOp === 'finance' || activeOp === 'compliance' || activeOp === 'ads') && (() => {
         const group = feedGroups.find(g => g.key === activeOp);
         if (!group) return null;

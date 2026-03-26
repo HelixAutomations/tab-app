@@ -1,18 +1,13 @@
 
 import React, { useState, useEffect } from 'react';
-import {
-  Stack,
-  Text,
-  Icon,
-  Link,
-  PrimaryButton,
-  DefaultButton,
-  MessageBar,
-  MessageBarType,
-  IconButton,
-  mergeStyles,
-  TooltipHost,
-} from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Text } from '@fluentui/react/lib/Text';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { Link } from '@fluentui/react/lib/Link';
+import { PrimaryButton, DefaultButton, IconButton } from '@fluentui/react/lib/Button';
+import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
+import { TooltipHost } from '@fluentui/react/lib/Tooltip';
 import { Enquiry } from '../../app/functionality/types'; // Adjust the import path as needed
 import { colours } from '../../app/styles/colours'; // Adjust the import path as needed
 import BubbleTextField from '../../app/styles/BubbleTextField'; // Adjust the import path as needed

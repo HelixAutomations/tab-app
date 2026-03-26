@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { format } from 'date-fns';
-import { mergeStyles } from '@fluentui/react';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
 import {
     FaPoundSign,
     FaUsers,

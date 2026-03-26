@@ -1,15 +1,12 @@
 import React from 'react';
-import {
-  Stack,
-  Text,
-  TextField,
-  PrimaryButton,
-  IconButton,
-  TooltipHost,
-  mergeStyles,
-  IStackTokens,
-  Icon,
-} from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import type { IStackTokens } from '@fluentui/react/lib/Stack';
+import { Text } from '@fluentui/react/lib/Text';
+import { TextField } from '@fluentui/react/lib/TextField';
+import { PrimaryButton, IconButton } from '@fluentui/react/lib/Button';
+import { TooltipHost } from '@fluentui/react/lib/Tooltip';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
+import { Icon } from '@fluentui/react/lib/Icon';
 import { useTheme } from '../../../app/functionality/ThemeContext';
 import { colours } from '../../../app/styles/colours';
 

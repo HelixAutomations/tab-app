@@ -2,7 +2,9 @@
 // src/CustomPagination.tsx
 
 import React, { useMemo } from 'react';
-import { Stack, Text, IconButton } from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Text } from '@fluentui/react/lib/Text';
+import { IconButton } from '@fluentui/react/lib/Button';
 import { mergeStyles } from '@fluentui/react/lib/Styling';
 
 interface CustomPaginationProps {

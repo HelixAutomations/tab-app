@@ -1,5 +1,5 @@
 import React from 'react';
-import { FaArrowRight, FaCheck } from 'react-icons/fa';
+import { FaCheck } from 'react-icons/fa';
 import { colours } from '../../app/styles/colours';
 import '../../tabs/enquiries/styles/ProspectOverview.css';
 
@@ -34,33 +34,19 @@ export const WorkbenchJourneyRail: React.FC<WorkbenchJourneyRailProps> = ({
   return (
     <div
       className="prospect-pipeline-rail"
+      role="tablist"
+      aria-label="Workbench stages"
       style={{
-        padding: compact ? '6px 8px' : '8px 16px 8px',
+        padding: 0,
         justifyContent: 'flex-start',
-        alignItems: 'center',
-        gap: compact ? 4 : 8,
+        alignItems: 'stretch',
+        gap: 0,
         overflowX: 'auto',
         overflowY: 'hidden',
-        WebkitOverflowScrolling: 'touch',
         ...railStyle,
       }}
     >
-      {showLeadingArrow && (
-        <span style={{
-          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-          color: isDarkMode ? colours.subtleGrey : colours.greyText,
-          fontSize: 10, lineHeight: 1, flexShrink: 0,
-          opacity: 0.5, marginRight: 2,
-        }}>
-          <FaArrowRight size={8} />
-        </span>
-      )}
-
       {stages.map((stage, idx) => {
-        const isLast = idx === stages.length - 1;
-        const nextStage = !isLast ? stages[idx + 1] : null;
-        const connectorFilled = stage.status === 'complete' && nextStage?.status === 'complete';
-        const connectorActive = stage.status === 'complete' && nextStage && nextStage.status !== 'disabled';
         const isDisabled = stage.status === 'disabled' || !stage.onClick;
 
         const tone = stage.toneColor || (stage.status === 'complete'
@@ -68,18 +54,10 @@ export const WorkbenchJourneyRail: React.FC<WorkbenchJourneyRailProps> = ({
           : stage.status === 'review'
             ? colours.cta
             : stage.status === 'current' || stage.status === 'processing'
-              ? colours.subtleGrey
+              ? (isDarkMode ? colours.accent : colours.highlight)
               : stage.status === 'disabled'
                 ? (isDarkMode ? colours.dark.border : colours.light.border)
                 : colours.subtleGrey);
-
-        const pillBorder = stage.isActive
-          ? tone
-          : (isDarkMode ? `${colours.dark.border}90` : colours.highlightNeutral);
-
-        const pillBackground = stage.isActive
-          ? (isDarkMode ? colours.websiteBlue : '#ffffff')
-          : 'transparent';
 
         const pillTextColour = stage.status === 'disabled'
           ? (isDarkMode ? colours.subtleGrey : colours.greyText)
@@ -90,33 +68,45 @@ export const WorkbenchJourneyRail: React.FC<WorkbenchJourneyRailProps> = ({
           : tone;
 
         return (
-          <React.Fragment key={stage.key}>
-            <button
-              type="button"
-              className="prospect-pipeline-node"
-              data-disabled={isDisabled ? 'true' : undefined}
-              title={stage.label}
-              onClick={isDisabled ? undefined : stage.onClick}
-              style={{
-                '--pill-index': idx,
-                display: 'inline-flex',
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'flex-start',
-                gap: compact ? 5 : 8,
-                minWidth: 0,
-                padding: compact ? '4px 8px' : '6px 12px',
-                borderRadius: 999,
-                border: `1px solid ${pillBorder}`,
-                background: pillBackground,
-                color: pillTextColour,
-                fontFamily: "'Raleway', sans-serif",
-                cursor: isDisabled ? 'default' : 'pointer',
-                opacity: stage.status === 'disabled' ? 0.72 : 1,
-                transition: 'all 0.15s ease',
-              } as React.CSSProperties}
-            >
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: compact ? 4 : 6, minWidth: 0 }}>
+          <button
+            key={stage.key}
+            type="button"
+            className="prospect-pipeline-node"
+            role="tab"
+            aria-selected={stage.isActive ? 'true' : 'false'}
+            data-disabled={isDisabled ? 'true' : undefined}
+            data-active={stage.isActive ? 'true' : undefined}
+            data-status={stage.status}
+            title={stage.label}
+            onClick={isDisabled ? undefined : stage.onClick}
+            style={{
+              '--pill-index': idx,
+              '--pipeline-node-underline': tone,
+              display: 'inline-flex',
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: compact ? 'flex-start' : 'center',
+              gap: compact ? 5 : 8,
+              minWidth: 'max-content',
+              flex: compact ? '0 0 auto' : '1 0 max-content',
+              padding: compact ? '10px 12px' : '12px 16px',
+              borderRadius: 0,
+              border: 'none',
+              borderRight: idx === stages.length - 1 ? 'none' : `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.34)' : 'rgba(160, 160, 160, 0.18)'}`,
+              background: 'transparent',
+              color: pillTextColour,
+              fontFamily: "'Raleway', 'Segoe UI', sans-serif",
+              cursor: isDisabled ? 'default' : 'pointer',
+              opacity: stage.status === 'disabled' ? 0.72 : 1,
+              transition: 'all 0.15s ease',
+              marginBottom: 0,
+              position: 'relative',
+              zIndex: 1,
+              textAlign: compact ? 'left' : 'center',
+              overflow: 'hidden',
+            } as React.CSSProperties}
+          >
+              <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: compact ? 'flex-start' : 'center', gap: compact ? 4 : 6, minWidth: 0, width: '100%', flex: compact ? '0 1 auto' : '1 1 auto' }}>
                 <span
                   style={{
                     display: 'inline-flex',
@@ -137,10 +127,14 @@ export const WorkbenchJourneyRail: React.FC<WorkbenchJourneyRailProps> = ({
                     fontSize: compact ? 9 : 10,
                     fontWeight: stage.isActive ? 700 : 600,
                     color: pillTextColour,
-                    lineHeight: 1,
+                    lineHeight: compact ? 1 : 1.15,
                     whiteSpace: 'nowrap',
                     letterSpacing: '0.1px',
                     minWidth: 0,
+                    overflow: compact ? 'hidden' : 'visible',
+                    textOverflow: compact ? 'ellipsis' : 'clip',
+                    maxWidth: compact ? '100%' : 'none',
+                    textAlign: compact ? 'left' : 'center',
                   }}
                 >
                   {stage.shortLabel}
@@ -163,31 +157,6 @@ export const WorkbenchJourneyRail: React.FC<WorkbenchJourneyRailProps> = ({
                 </span>
               )}
             </button>
-
-            {!isLast && (
-              <div
-                className="prospect-pipeline-connector"
-                data-filled={connectorFilled ? 'true' : undefined}
-                data-active={connectorActive ? 'true' : undefined}
-                style={{
-                  '--pill-index': idx,
-                  width: compact ? 8 : 16,
-                  minWidth: compact ? 8 : 16,
-                  maxWidth: compact ? 8 : 16,
-                  height: 1.5,
-                  alignSelf: 'center',
-                  marginTop: 0,
-                  borderRadius: 999,
-                  background: connectorFilled
-                    ? colours.green
-                    : connectorActive
-                      ? (isDarkMode ? `${colours.dark.borderColor}` : `${colours.subtleGrey}`)
-                      : (isDarkMode ? `${colours.dark.border}80` : `${colours.highlightNeutral}`),
-                  flexShrink: 0,
-                } as React.CSSProperties}
-              />
-            )}
-          </React.Fragment>
         );
       })}
     </div>

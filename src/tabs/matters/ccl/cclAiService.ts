@@ -326,6 +326,7 @@ export interface CclIntegrations {
 const DEMO_CLIO_MATTER_ID = '3311402';
 const DEMO_MATTER_ID = 'DEMO-3311402';
 const DEMO_DISPLAY_NUMBER = 'HELIX01-01';
+const DEMO_ND_WORKSPACE_REF = '5257922/HELIX01-01';
 
 const isDemoMatter = (id: string) =>
   id === DEMO_CLIO_MATTER_ID || id === DEMO_MATTER_ID || id === DEMO_DISPLAY_NUMBER;
@@ -336,21 +337,27 @@ export async function checkCclIntegrations(matterId: string): Promise<CclIntegra
     nd: { available: false, workspaceId: null, workspaceName: '' },
   };
 
-  // Demo mode: return mock integrations so the upload flow is testable
-  if (isDemoMatter(matterId)) {
-    return {
-      clio: { available: true, matterId: DEMO_CLIO_MATTER_ID, description: 'Admin (demo)' },
-      nd: { available: false, workspaceId: null, workspaceName: '' },
-    };
-  }
-
   try {
     const res = await fetch(`/api/ccl-ops/integrations?matterId=${encodeURIComponent(matterId)}`);
     if (!res.ok) return fallback;
     const data = await readJsonResponse<{ clio?: CclIntegrations['clio']; nd?: CclIntegrations['nd'] }>(res);
-    return { clio: data?.clio || fallback.clio, nd: data?.nd || fallback.nd };
+    return {
+      clio: data?.clio || (isDemoMatter(matterId)
+        ? { available: true, matterId: DEMO_CLIO_MATTER_ID, description: 'Admin (demo)' }
+        : fallback.clio),
+      nd: data?.nd || (isDemoMatter(matterId)
+        ? { available: true, workspaceId: DEMO_ND_WORKSPACE_REF, workspaceName: 'HELIX01-01 demo workspace' }
+        : fallback.nd),
+    };
   } catch {
-    return fallback;
+    return {
+      clio: isDemoMatter(matterId)
+        ? { available: true, matterId: DEMO_CLIO_MATTER_ID, description: 'Admin (demo)' }
+        : fallback.clio,
+      nd: isDemoMatter(matterId)
+        ? { available: true, workspaceId: DEMO_ND_WORKSPACE_REF, workspaceName: 'HELIX01-01 demo workspace' }
+        : fallback.nd,
+    };
   }
 }
 
@@ -384,16 +391,17 @@ export async function uploadToClio(params: {
 export async function uploadToNetDocuments(params: {
   matterId: string;
   matterDisplayNumber: string;
-  ndWorkspaceId: string;
+  ndWorkspaceId?: string;
   fileName?: string;
-}): Promise<{ ok: boolean; error?: string; docxPath?: string }> {
+  fields?: Record<string, string>;
+}): Promise<{ ok: boolean; error?: string; docxPath?: string; unresolvedPlaceholders?: string[]; unresolvedCount?: number }> {
   try {
     const res = await fetch('/api/ccl-ops/upload-nd', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(params),
     });
-    return await readJsonResponse<{ ok: boolean; error?: string; docxPath?: string }>(res)
+    return await readJsonResponse<{ ok: boolean; error?: string; docxPath?: string; unresolvedPlaceholders?: string[]; unresolvedCount?: number }>(res)
       || { ok: false, error: 'Upload returned an invalid response' };
   } catch {
     return { ok: false, error: 'Network error' };

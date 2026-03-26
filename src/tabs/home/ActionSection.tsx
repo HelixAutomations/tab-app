@@ -1,6 +1,10 @@
 import React, { useState, useMemo } from 'react';
 // invisible change 2
-import { Text, Toggle, mergeStyles, Icon, Separator } from '@fluentui/react';
+import { Text } from '@fluentui/react/lib/Text';
+import { Toggle } from '@fluentui/react/lib/Toggle';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { Separator } from '@fluentui/react/lib/Separator';
 import { Transaction, Matter, OutstandingClientBalance } from '../../app/functionality/types';
 import { colours } from '../../app/styles/colours';
 import { cardStyles } from '../instructions/componentTokens';

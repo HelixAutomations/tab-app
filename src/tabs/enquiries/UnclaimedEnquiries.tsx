@@ -1,5 +1,6 @@
 import React from 'react';
-import { Stack, Text } from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Text } from '@fluentui/react/lib/Text';
 import { Enquiry } from '../../app/functionality/types';
 import NewUnclaimedEnquiryCard from './NewUnclaimedEnquiryCard';
 

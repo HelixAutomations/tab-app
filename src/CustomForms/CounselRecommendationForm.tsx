@@ -2,20 +2,16 @@
 // Form for recommending barristers/counsel → saves to counsel_recommendations table
 
 import React, { useState, useCallback } from 'react';
-import {
-  Stack,
-  Text,
-  TextField,
-  PrimaryButton,
-  DefaultButton,
-  MessageBar,
-  MessageBarType,
-  Dropdown,
-  IDropdownOption,
-  Icon,
-  ChoiceGroup,
-  IChoiceGroupOption,
-} from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Text } from '@fluentui/react/lib/Text';
+import { TextField } from '@fluentui/react/lib/TextField';
+import { PrimaryButton, DefaultButton } from '@fluentui/react/lib/Button';
+import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
+import { Dropdown } from '@fluentui/react/lib/Dropdown';
+import type { IDropdownOption } from '@fluentui/react/lib/Dropdown';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { ChoiceGroup } from '@fluentui/react/lib/ChoiceGroup';
+import type { IChoiceGroupOption } from '@fluentui/react/lib/ChoiceGroup';
 import { useTheme } from '../app/functionality/ThemeContext';
 import { getProxyBaseUrl } from '../utils/getProxyBaseUrl';
 import { UserData } from '../app/functionality/types';

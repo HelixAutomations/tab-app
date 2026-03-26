@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, Suspense } from 'react';
-import { Modal } from '@fluentui/react';
+import { Modal } from '@fluentui/react/lib/Modal';
 import { useTheme } from '../app/functionality/ThemeContext';
 import { colours } from '../app/styles/colours';
 import ThemedSpinner from './ThemedSpinner';

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { mergeStyles } from '@fluentui/react';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { FaCheck, FaTimes, FaInfoCircle, FaExclamationTriangle, FaSpinner } from 'react-icons/fa';
 import { ANIMATION_DURATION, EASING, createTransition } from '../../app/styles/animations';
 

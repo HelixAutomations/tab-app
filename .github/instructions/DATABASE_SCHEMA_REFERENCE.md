@@ -410,6 +410,93 @@ WHERE i.InstructionRef = 'HLX-XXXXX-XXXXX';
 
 ---
 
+## Transactions (`transactions`) — V1
+
+**Database**: Core Data DB (`SQL_CONNECTION_STRING`)
+**Purpose**: Financial transaction requests (transfers, leave-in-client) from fee earners to ops. The Operations Queue surfaces and actions these.
+
+### Schema Summary
+
+| Column | Type | Purpose |
+|--------|------|---------|
+| `transaction_id` | nvarchar | Primary key — unique transaction identifier |
+| `matter_ref` | nvarchar | Clio display number (e.g. `AMIN11036-00001`) |
+| `matter_description` | nvarchar | Matter description text |
+| `fe` | nvarchar | Fee earner initials |
+| `amount` | decimal | Transaction amount £ |
+| `transaction_date` | date | Date of transaction |
+| `from_client` | nvarchar | Client name/source |
+| `money_sender` | nvarchar | Who sent the money |
+| `type` | nvarchar | Transaction type |
+| `status` | nvarchar | `requested` / `transfer` / `leave_in_client` / `processed` |
+
+### Status Lifecycle
+
+```
+requested → transfer (approved by ops) → processed (completed)
+requested → leave_in_client (ops opts not to transfer)
+```
+
+### Key Query Pattern
+
+```sql
+-- MTD transactions for ops queue
+SELECT transaction_id, matter_ref, matter_description, fe, amount,
+       transaction_date, from_client, money_sender, type, status
+FROM transactions
+WHERE transaction_date >= @sinceDate
+ORDER BY transaction_date DESC;
+```
+
+---
+
+## Payments (`Payments`) — Stripe Integration
+
+**Database**: Instructions DB (`INSTRUCTIONS_SQL_CONNECTION_STRING`)
+**Purpose**: Stripe payment records linked to instructions/deals. Populated by Stripe webhook from instruct-pitch checkout.
+
+### Schema Summary
+
+| Column | Type | Purpose |
+|--------|------|---------|
+| `id` | nvarchar | Primary key — Stripe payment ID (e.g. `cs_live_...`) |
+| `payment_intent_id` | nvarchar | Stripe PaymentIntent ID (e.g. `pi_...`) |
+| `amount` | decimal | Payment amount |
+| `currency` | nvarchar | Currency code (default `GBP`) |
+| `payment_status` | nvarchar | Stripe status (`succeeded`, `pending`, etc.) |
+| `internal_status` | nvarchar | Hub status (`paid`, `confirmed`, `archived`) |
+| `instruction_ref` | nvarchar | FK to `Instructions.InstructionRef` |
+| `service_description` | nvarchar | Service description from deal |
+| `area_of_work` | nvarchar | Area of work |
+| `created_at` | datetime | Payment creation timestamp |
+| `updated_at` | datetime | Last update timestamp |
+
+### Joins
+
+```sql
+-- Payment lookup with instruction + deal context
+SELECT p.*, i.FirstName, i.LastName, i.HelixContact, i.Email, i.Stage,
+       d.Passcode, d.DealId
+FROM Payments p
+LEFT JOIN Instructions i ON p.instruction_ref = i.InstructionRef
+LEFT JOIN Deals d ON i.DealId = d.DealId
+WHERE p.id = @q OR p.payment_intent_id = @q;
+```
+
+### Payment Lifecycle
+
+```
+Client pays via Stripe (instruct-pitch checkout)
+    ↓
+Stripe webhook → Payments table INSERT (payment_status='succeeded')
+    ↓
+Bank transfer → PaymentOperations table → ops queue
+    ↓
+Ops confirms → internal_status='confirmed'
+```
+
+---
+
 ## Collected Time (`collectedTime`)
 
 **Database**: Core Data DB (`SQL_CONNECTION_STRING`)

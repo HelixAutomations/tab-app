@@ -1,5 +1,8 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { Stack, Label, Text, mergeStyles } from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Label } from '@fluentui/react/lib/Label';
+import { Text } from '@fluentui/react/lib/Text';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
 import BubbleTextField from '../../../app/styles/BubbleTextField';
 import { colours } from '../../../app/styles/colours';
 

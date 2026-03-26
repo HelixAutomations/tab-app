@@ -1,24 +1,18 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import type { CSSProperties } from 'react';
-import {
-    Stack,
-    Text,
-    mergeStyles,
-    MessageBar,
-    MessageBarType,
-    Spinner,
-    SpinnerSize,
-    IconButton,
-    Pivot,
-    PivotItem,
-    Link as FluentLink,
-    DefaultButton,
-    IButtonStyles,
-    Icon,
-    DatePicker,
-    DayOfWeek,
-    IDatePickerStyles,
-} from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Text } from '@fluentui/react/lib/Text';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
+import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
+import { Spinner, SpinnerSize } from '@fluentui/react/lib/Spinner';
+import { IconButton, DefaultButton } from '@fluentui/react/lib/Button';
+import { Pivot, PivotItem } from '@fluentui/react/lib/Pivot';
+import { Link as FluentLink } from '@fluentui/react/lib/Link';
+import { DatePicker } from '@fluentui/react/lib/DatePicker';
+import { DayOfWeek } from '@fluentui/react/lib/Calendar';
+import type { IDatePickerStyles } from '@fluentui/react/lib/DatePicker';
+import type { IButtonStyles } from '@fluentui/react/lib/Button';
+import { Icon } from '@fluentui/react/lib/Icon';
 import {
     BarChart,
     Bar,
@@ -107,16 +101,8 @@ async function callGetMatterOverview(matterId: number) {
 // callGetComplianceData helper function (new)
 // ----------------------------------------------
 async function callGetComplianceData(matterId: string, clientId: string): Promise<any> {
-    const code = process.env.REACT_APP_GET_COMPLIANCE_DATA_CODE;
-    const path = process.env.REACT_APP_GET_COMPLIANCE_DATA_PATH;
-    const baseUrl = getProxyBaseUrl();
-    if (!code || !path || !baseUrl) {
-        console.error('Missing required environment variables for getComplianceData');
-        return null;
-    }
-    const url = `${baseUrl}/${path}?code=${code}`;
     try {
-        const response = await fetch(url, {
+        const response = await fetch('/api/compliance', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ matterId, clientId }),

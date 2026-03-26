@@ -1,12 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { 
-  DatePicker, 
-  DefaultButton, 
-  Icon,
-  type IDatePickerStyles, 
-  type IButtonStyles,
-  DayOfWeek
-} from "@fluentui/react";
+import { DatePicker } from '@fluentui/react/lib/DatePicker';
+import { DayOfWeek } from '@fluentui/react/lib/Calendar';
+import type { IDatePickerStyles } from '@fluentui/react/lib/DatePicker';
+import type { IButtonStyles } from '@fluentui/react/lib/Button';
+import { DefaultButton } from '@fluentui/react/lib/Button';
+import { Icon } from '@fluentui/react/lib/Icon';
 import { colours } from "../../app/styles/colours";
 import { useTheme } from "../../app/functionality/ThemeContext";
 import { TeamData } from "../../app/functionality/types";

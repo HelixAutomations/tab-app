@@ -1,24 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import type { CSSProperties } from 'react';
-import {
-  ActionButton,
-  DefaultButton,
-  PrimaryButton,
-  Modal,
-  Spinner,
-  SpinnerSize,
-  FontIcon,
-  type IButtonStyles,
-  Slider,
-  TooltipHost,
-  IconButton,
-  Callout,
-} from '@fluentui/react';
+import { ActionButton, DefaultButton, PrimaryButton, IconButton } from '@fluentui/react/lib/Button';
+import { Modal } from '@fluentui/react/lib/Modal';
+import { Spinner, SpinnerSize } from '@fluentui/react/lib/Spinner';
+import { FontIcon } from '@fluentui/react/lib/Icon';
+import type { IButtonStyles } from '@fluentui/react/lib/Button';
+import { Slider } from '@fluentui/react/lib/Slider';
+import { TooltipHost } from '@fluentui/react/lib/Tooltip';
+import { Callout } from '@fluentui/react/lib/Callout';
 import { FaChartLine, FaClipboardList, FaFolderOpen, FaInbox } from 'react-icons/fa';
 import { colours } from '../../app/styles/colours';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { useNavigatorActions } from '../../app/functionality/NavigatorContext';
-import type { Enquiry, Matter, POID, TeamData, UserData } from '../../app/functionality/types';
+import type { Enquiry, Matter, TeamData, UserData } from '../../app/functionality/types';
 import { endOfDay, format, startOfDay, subMonths } from 'date-fns';
 import ManagementDashboard, { WIP } from './ManagementDashboard';
 import AnnualLeaveReport, { AnnualLeaveRecord } from './AnnualLeaveReport';
@@ -31,10 +25,12 @@ import { getNormalizedEnquirySource } from '../../utils/enquirySource';
 import HomePreview from './HomePreview';
 import EnquiriesReport, { MarketingMetrics } from './EnquiriesReport';
 import LogMonitor from './LogMonitor';
+import CacheMonitor from './CacheMonitor';
+import AgedDebtsReport from './AgedDebtsReport';
 import DataCentre from './DataCentre';
 import { useStreamingDatasets } from '../../hooks/useStreamingDatasets';
 import { fetchWithRetry, fetchJSON } from '../../utils/fetchUtils';
-import { isAdminUser, isPowerUser } from '../../app/admin';
+import { isAdminUser, isPowerUser, canSeePrivateHubControls } from '../../app/admin';
 import markWhite from '../../assets/markwhite.svg';
 import type { PpcIncomeMetrics } from './PpcReport';
 import { useToast } from '../../components/feedback/ToastProvider';
@@ -309,7 +305,6 @@ let cachedData: DatasetMap = {
   allMatters: null,
   wip: null,
   recoveredFees: null,
-  poidData: null,
   annualLeave: null,
   metaMetrics: null,
   googleAnalytics: null,
@@ -568,7 +563,6 @@ interface DatasetMap {
   allMatters: Matter[] | null;
   wip: WIP[] | null;
   recoveredFees: RecoveredFee[] | null;
-  poidData: POID[] | null;
   annualLeave: AnnualLeaveRecord[] | null;
   metaMetrics: MarketingMetrics[] | null;
   googleAnalytics: GoogleAnalyticsData[] | null;
@@ -592,7 +586,6 @@ const DATASETS = [
   { key: 'allMatters', name: 'Matters' },
   { key: 'wip', name: 'WIP' },
   { key: 'recoveredFees', name: 'Collected Fees' },
-  { key: 'poidData', name: 'ID Submissions' },
   { key: 'annualLeave', name: 'Annual Leave' },
   { key: 'metaMetrics', name: 'Meta Ads' },
   { key: 'googleAnalytics', name: 'Google Analytics' },
@@ -1409,14 +1402,20 @@ const REPORT_NAV_TABS: { key: typeof ACTIVE_VIEW_TYPE; label: string; draft?: bo
   { key: 'dashboard' as const, label: 'Dashboard' },
   { key: 'enquiries' as const, label: 'Enquiries' },
   { key: 'annualLeave' as const, label: 'Leave', draft: true },
-  { key: 'metaMetrics' as const, label: 'Meta' },
+  { key: 'metaMetrics' as const, label: 'Meta', draft: true },
   // ── Draft (visually muted) ──────────────────────
   { key: 'matters' as const, label: 'Matters', draft: true },
   { key: 'ppcReport' as const, label: 'PPC', draft: true },
   { key: 'seoReport' as const, label: 'SEO', draft: true },
+  { key: 'agedDebts' as const, label: 'Debts', draft: true },
 ];
-type ActiveViewType = 'overview' | 'dashboard' | 'annualLeave' | 'enquiries' | 'metaMetrics' | 'seoReport' | 'ppcReport' | 'matters' | 'logMonitor' | 'dataCentre';
+type ActiveViewType = 'overview' | 'dashboard' | 'annualLeave' | 'enquiries' | 'metaMetrics' | 'seoReport' | 'ppcReport' | 'matters' | 'logMonitor' | 'dataCentre' | 'cacheMonitor' | 'agedDebts';
 const ACTIVE_VIEW_TYPE: ActiveViewType = 'overview';
+
+interface ReportingNavigationRequest {
+  view: ActiveViewType;
+  requestedAt: number;
+}
 
 // reportNavigatorBackStyles removed — now shared via NavigatorDetailBar
 
@@ -1510,18 +1509,27 @@ interface ReportingHomeProps {
   teamData?: TeamData[] | null;
   demoModeEnabled?: boolean;
   featureToggles?: Record<string, boolean>;
+  navigationRequest?: ReportingNavigationRequest | null;
+  onNavigationRequestHandled?: (requestedAt: number) => void;
 }
 
 /**
  * Streamlined reporting landing page that centres on the Management Dashboard experience.
  */
-const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, teamData: propTeamData, demoModeEnabled = false, featureToggles }) => {
+const ReportingHome: React.FC<ReportingHomeProps> = ({
+  userData: propUserData,
+  teamData: propTeamData,
+  demoModeEnabled = false,
+  featureToggles,
+  navigationRequest = null,
+  onNavigationRequestHandled,
+}) => {
   const { isDarkMode } = useTheme();
   const { setContent } = useNavigatorActions();
   const { showToast, hideToast, updateToast } = useToast();
   const loadingToastIdRef = useRef<string | null>(null);
   const [currentTime, setCurrentTime] = useState(() => new Date());
-  const [activeView, setActiveView] = useState<'overview' | 'dashboard' | 'annualLeave' | 'enquiries' | 'metaMetrics' | 'seoReport' | 'ppcReport' | 'matters' | 'logMonitor' | 'dataCentre'>('overview');
+  const [activeView, setActiveView] = useState<ActiveViewType>('overview');
   const [mattersWipRangeKey, setMattersWipRangeKey] = useState<MattersWipRangeKey>('12m');
   const [pendingMattersRangeKey, setPendingMattersRangeKey] = useState<MattersWipRangeKey>(mattersWipRangeKey);
   const [enquiriesRangeKey, setEnquiriesRangeKey] = useState<ReportRangeKey>('12m');
@@ -1577,6 +1585,15 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
   const [testMode, setTestMode] = useState(() => demoModeEnabled);
   // (Removed marketing data settings state; always fetch 24 months)
+
+  useEffect(() => {
+    if (!navigationRequest) {
+      return;
+    }
+
+    setActiveView(navigationRequest.view);
+    onNavigationRequestHandled?.(navigationRequest.requestedAt);
+  }, [navigationRequest, onNavigationRequestHandled]);
   
   // Memoize handlers to prevent recreation on every render
   const handleBackToOverview = useCallback(() => {
@@ -1672,7 +1689,6 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     allMatters: cachedData.allMatters,
     wip: cachedData.wip,
     recoveredFees: cachedData.recoveredFees,
-    poidData: cachedData.poidData,
     annualLeave: cachedData.annualLeave,
     metaMetrics: cachedData.metaMetrics,
     googleAnalytics: cachedData.googleAnalytics,
@@ -1805,7 +1821,6 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
           kind: 'Service',
         },
       ],
-      poidData: [],
       annualLeave: [],
       metaMetrics: [],
       googleAnalytics: [],
@@ -2594,6 +2609,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     const isTabView = REPORT_NAV_TABS.some(t => t.key === activeView);
     const utilityLabels: Record<string, string> = {
       logMonitor: 'Log Monitor',
+      cacheMonitor: 'Cache Monitor',
     };
 
     // Draft tabs: always visible locally (unless viewAsProd); in prod only for LZ/AW
@@ -2601,7 +2617,11 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     const isViewingAsProd = Boolean(featureToggles?.viewAsProd);
     const initials = extractUserInitials(propUserData);
     const isDraftViewer = (isLocalNow && !isViewingAsProd) || initials === 'LZ' || initials === 'AW';
-    const visibleTabs = REPORT_NAV_TABS.filter(t => !t.draft || isDraftViewer);
+    const PROD_TAB_KEYS = ['dashboard', 'enquiries'];
+    // In prod: only prod tabs. Locally: show all (drafts muted via isDraftViewer).
+    const visibleTabs = (isLocalNow && !isViewingAsProd)
+      ? REPORT_NAV_TABS
+      : REPORT_NAV_TABS.filter(t => PROD_TAB_KEYS.includes(t.key as string));
 
     setContent(
       <NavigatorDetailBar
@@ -4015,7 +4035,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   }, [datasetSummaries]);
 
   // Detect datasets stuck loading for too long and auto-mark as error
-  // Heavy datasets (recoveredFees, poidData) get up to 10min; light datasets get 2min
+  // Heavy datasets (recoveredFees, wip) get up to 10min; light datasets get 2min
   useEffect(() => {
     if (!refreshStartedAt || !isFetching) return;
     
@@ -4025,7 +4045,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
       datasetSummaries.forEach(summary => {
         if (summary.status === 'loading') {
           // Heavy datasets get more time (10 min / 600s)
-          const isHeavy = ['recoveredFees', 'poidData', 'wip'].includes(summary.definition.key);
+          const isHeavy = ['recoveredFees', 'wip'].includes(summary.definition.key);
           const timeoutMs = isHeavy ? 600000 : 120000; // 10min vs 2min
           
           if (elapsedMs > timeoutMs) {
@@ -4318,12 +4338,23 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
   }, [datasetData.userData]);
 
   const renderAvailableReportCards = () => {
+    const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+    const PROD_REPORT_KEYS = ['dashboard', 'enquiries'];
+
+    // In production: only show prod reports. Locally: show all.
+    const visibleCards = isLocal
+      ? reportCards
+      : reportCards.filter(card => PROD_REPORT_KEYS.includes(card.key));
+
     // Hero: dashboard stands alone
-    const heroCard = reportCards.find(card => card.key === 'dashboard');
+    const heroCard = visibleCards.find(card => card.key === 'dashboard');
     // Split remaining into active vs disabled
-    const activeCards = reportCards.filter(card => card.key !== 'dashboard' && !card.disabled && !card.development);
-    const developmentCards = reportCards.filter(card => card.development && !card.disabled);
-    const disabledCards = reportCards.filter(card => card.disabled);
+    const activeCards = visibleCards.filter(card => card.key !== 'dashboard' && !card.disabled && !card.development);
+    const developmentCards = visibleCards.filter(card => card.development && !card.disabled);
+    const disabledCards = visibleCards.filter(card => card.disabled);
+
+    // Locally: grey out non-prod cards
+    const isGreyedOut = (key: string) => isLocal && !PROD_REPORT_KEYS.includes(key);
     
     return (
       <>
@@ -4443,7 +4474,11 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                 gap: 10,
               }}
             >
-              {developmentCards.map((card, index) => renderReportCard(card, false, activeCards.length + index + 1))}
+              {developmentCards.map((card, index) => (
+                <div key={card.key} style={isGreyedOut(card.key) ? { opacity: 0.4, pointerEvents: 'none', filter: 'grayscale(0.6)' } : undefined}>
+                  {renderReportCard(card, false, activeCards.length + index + 1)}
+                </div>
+              ))}
             </div>
           </div>
         )}
@@ -4480,7 +4515,11 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
                 gap: 10,
               }}
             >
-              {disabledCards.map((card, index) => renderReportCard(card, false, activeCards.length + index + 1))}
+              {disabledCards.map((card, index) => (
+                <div key={card.key} style={isGreyedOut(card.key) ? { opacity: 0.4, pointerEvents: 'none', filter: 'grayscale(0.6)' } : undefined}>
+                  {renderReportCard(card, false, activeCards.length + index + 1)}
+                </div>
+              ))}
             </div>
           </div>
         )}
@@ -5657,7 +5696,6 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
         allMatters: describeMattersRange(mattersWipRangeKey),
         wip: describeMattersRange(mattersWipRangeKey),
         recoveredFees: describeMattersRange(mattersWipRangeKey),
-        poidData: 'Last 24 months',
         annualLeave: 'Current year',
         metaMetrics: describeRangeKey(enquiriesRangeKey),
         googleAnalytics: describeRangeKey(enquiriesRangeKey),
@@ -5767,7 +5805,6 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
             recoveredFees={datasetData.recoveredFees}
             teamData={datasetData.teamData}
             userData={datasetData.userData}
-            poidData={datasetData.poidData}
               annualLeave={datasetData.annualLeave}
               triggerRefresh={refreshDatasetsWithStreaming}
               lastRefreshTimestamp={lastRefreshTimestamp ?? undefined}
@@ -5901,6 +5938,22 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
     return (
       <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
         <LogMonitor onBack={handleBackToOverview} />
+      </div>
+    );
+  }
+
+  if (activeView === 'cacheMonitor') {
+    return (
+      <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
+        <CacheMonitor onBack={handleBackToOverview} />
+      </div>
+    );
+  }
+
+  if (activeView === 'agedDebts') {
+    return (
+      <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
+        <AgedDebtsReport onBack={handleBackToOverview} />
       </div>
     );
   }
@@ -6601,6 +6654,75 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({ userData: propUserData, t
               />
             </div>
           )}
+
+          {/* ── Cache Monitor — only for LZ/AC in prod, everyone locally ── */}
+          {(() => {
+            const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+            const canSeeCacheMonitor = isLocal || canSeePrivateHubControls(primaryUser);
+            if (!canSeeCacheMonitor) return null;
+            return (
+              <div
+                onClick={() => navigateToReport('cacheMonitor')}
+                style={{
+                  marginTop: 8,
+                  padding: '10px 14px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  cursor: 'pointer',
+                  borderRadius: 0,
+                  border: `0.5px solid ${subtleStroke(isDarkMode)}`,
+                  background: isDarkMode ? 'rgba(10, 28, 50, 0.35)' : 'rgba(244, 244, 246, 0.35)',
+                  backdropFilter: 'blur(12px) saturate(1.3)',
+                  transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                  opacity: 0.78,
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.opacity = '1';
+                  e.currentTarget.style.borderColor = isDarkMode ? 'rgba(75, 85, 99, 0.36)' : 'rgba(6, 23, 51, 0.1)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.opacity = '0.78';
+                  e.currentTarget.style.borderColor = isDarkMode ? 'rgba(75, 85, 99, 0.28)' : 'rgba(6, 23, 51, 0.06)';
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{
+                    fontSize: 14,
+                    color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                    display: 'flex',
+                    alignItems: 'center',
+                  }}>
+                    <FontIcon iconName="Database" style={{ fontSize: 14 }} />
+                  </span>
+                  <div>
+                    <span style={{
+                      fontSize: 12,
+                      fontWeight: 600,
+                      color: isDarkMode ? colours.subtleGrey : colours.greyText,
+                      fontFamily: 'Raleway, sans-serif',
+                    }}>
+                      Cache monitor
+                    </span>
+                    <span style={{
+                      fontSize: 10,
+                      color: isDarkMode ? 'rgba(75, 85, 99, 0.7)' : 'rgba(107, 107, 107, 0.8)',
+                      marginLeft: 10,
+                    }}>
+                      Redis state · TTL · hit rates · staleness
+                    </span>
+                  </div>
+                </div>
+                <FontIcon
+                  iconName="ChevronRight"
+                  style={{
+                    fontSize: 10,
+                    color: isDarkMode ? colours.greyText : colours.subtleGrey,
+                  }}
+                />
+              </div>
+            );
+          })()}
         </section>
 
       </div>

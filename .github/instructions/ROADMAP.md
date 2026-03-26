@@ -6,6 +6,211 @@ Use this file to park improvements discovered while delivering a request, when t
 
 ---
 
+## March 2026 Rework Baseline
+
+This section captures the current cross-app review baseline for the performance and usability rework. Treat it as the implementation anchor. Do not re-litigate these assumptions unless code or Azure state changes.
+
+### Product Objective
+
+- Make the app fast enough that users move through work without waiting for the system to catch up.
+- Reduce workflow complexity in the UI. Luke's visual model can stay rich, but user-facing paths must bias toward "get the thing done".
+- Favour architectural fixes over localised loading tweaks when the lag is caused by duplicated contracts or over-fetching.
+
+### Three-App Contract
+
+| Surface | Role | Rule |
+|--------|------|------|
+| `enquiry-processing-v2` | Primary enquiry capture, routing, Teams-card workflow, response handling | Source of truth for new enquiry-writing semantics |
+| `tab-app` | Internal command centre and operational workspace | Must read/write against the new enquiry flow instead of preserving legacy-first behaviour |
+| `instruct-pitch` | Client onboarding, checkout, instruction continuation, portal | Must stay aligned with the same prospect/instruction lifecycle, not drift into a separate model |
+
+### Source-of-Truth Rules
+
+- `enquiry-processing-v2` is now the primary enquiry-writing system.
+- Legacy enquiries data still matters, but as a compatibility bridge, not as the default semantic model.
+- `ID` vs `acid` differences are bridge mechanics. They are not a reason to keep legacy-centric read paths in `tab-app`.
+- When Home, Prospects, or any Hub workflow disagree, prefer new-space semantics first and then preserve legacy behaviour explicitly.
+
+### What The Review Established
+
+#### 1. Home and Prospects are still running different contracts
+
+- Prospects uses the heavier unified path (`/api/enquiries-unified`) with team inbox, collaborator, and merge semantics.
+- Home still uses narrower `/api/home-enquiries` and `/api/home-enquiries/details` contracts.
+- This is why users can see "real" live work in Prospects while Home panels appear sparse or stale.
+
+#### 2. Performance work has been too route-local
+
+- Several recent gains improved first paint and reduced wasted calls, but the larger bottleneck remains contract duplication.
+- Making split read paths faster is not enough if Home, Prospects, and downstream actions still disagree on what state a record is in.
+
+#### 3. Team Hub identity is operationally misnamed and partly reserved
+
+- `Team Hub` app registration (`bee758ec-919c-45b2-9cdf-540c6419561f`) is the main Teams app identity in `appPackage/manifest.json`.
+- The same identity is also treated as attached to Tasking-v3 bot usage, which makes it effectively "taken" and unsuitable as a free app ID for new bot work until that is cleaned up.
+- `Team-Hub-Notification-Handler` (`3d935d23-349e-4502-a9c0-6f5ca48d5d33`) is already the notification-side app used by Team Hub server code.
+- `Aiden` (`bb3357f0-dca3-4fef-9c4d-e58f69dde46c`) remains the enquiry-processing bot identity and live Azure Bot resource.
+
+#### 4. Submodule work must leave this repo as briefs, not commits
+
+- Do not edit or push `submodules/enquiry-processing-v2` or `submodules/instruct-pitch` from this workspace.
+- When another repo needs action, create a very brief implementation brief for the owning repo/agent.
+
+### Implementation Streams
+
+#### Stream A — Tab-app speed and usability rework
+
+Owner: this repo
+
+Status: **Stream A complete as of 17 March 2026.** All 7 workstream items delivered. Remaining optimisation (Prospects decomposition, dead code) tracked separately below.
+
+**Core architecture (completed 16 Mar):**
+- Home + Prospects both project from shared unified enquiries model — no more separate Home-only read path.
+- SSE consolidated: app shell is sole owner of `/api/enquiries-unified/stream`. Enquiries subscribes via callback. Halves SSE connections.
+- Shell boot snapshot (sessionStorage, 15-min TTL) for stale-first paint. Live fetches overwrite in background.
+- Home parallel fetch deduped. Team-data fetch hoisted to fire alongside user-data (no serial dependency).
+
+**Speed and UX pass (completed 16–17 Mar):**
+- **Tab keep-alive**: Home always-mounted, Enquiries stays mounted once visited. Instant CSS display toggle with scroll position save/restore.
+- **Aggressive caching**: Shell snapshot 15min, Home metrics snapshot 5min, in-memory 10min. Cache preheater at 20s. Idle chunk preloading.
+- **Prospects loading surface**: Skeleton queue → batched row reveal → live queue. Filter compound redesigned.
+- **Progressive immediate actions**: Chips render immediately; skeletons only when genuinely empty.
+- **Steady loading geometry**: All skeletons reserve final footprint. No layout shift. Navigator opacity-fades instead of null-rendering.
+- **Snapshot-to-live hardening**: 8min expiry, never blank on failure, explicit snapshot-vs-live tracking. Tab-return auto-refresh with cooldown.
+- **Home comparison rail**: Experimental conversion-vs-pipeline rail (dev-gated) with today/yesterday, week/month, AOW filters, combo charts.
+- **Home unclaimed panel**: Single-action "take one now" model with immediate claim feedback, period tabs, AOW filters, stale-age cues.
+
+**Infrastructure hardening (completed 17 Mar):**
+- **Dev console** (`server/utils/devConsole.js`): Structured local dev output with startup banner, connection status, colour-coded request logging, cache-source badges (MEM/RDS/SQL/CLO/OLD). 10 hot routes annotated.
+- **Activity Monitor production fix**: logs-stream + release-notes routes registered in production server. SSE hardened for Azure (req.setTimeout(0), 15s heartbeat, immediate flush). Client retry resets on confirmed data only.
+- **SQL startup race fix**: `app.listen()` gated behind Key Vault hydration promise.
+- **Annual leave routing fix**: Server computes approvers from team AOW data.
+- **Hybrid theme states fix**: Declarative hover/press styling in CustomTabs and command-centre sections.
+
+**Control plane restructure (completed 17 Mar):**
+- **UserBubble refactor**: 2065-line monolith → lean orchestrator (~480 lines) + 5 sub-components + shared tokens. CSS 238→88 lines.
+- **Hub Tools chip** (`src/components/HubToolsChip.tsx`): Private floating bottom-right ops surface for Luke/Alex/local dev. Separate `canSeePrivateHubControls` gating (not broad `isAdminUser`). Hosts AdminControls, LocalDev, refresh/admin actions, local-only modals.
+- **Reporting utility routing**: Hub Tools → Activity Monitor and Data Centre via typed `ReportingNavigationRequest` handoff.
+
+**Operations dashboard micro-clarity follow-ups (parked 26 Mar):**
+- Add a compact in-panel jump rail for Pipeline, Bank, Transactions, Debts, Recent, and CCL so the queue reads as a purpose-built operational console rather than one long stack.
+- Add a shared action summary strip above the sections so users can read “needs action now” before scanning cards.
+- Tighten completion separation: completed/recent items should visually step back harder than action-required items.
+- Normalise status grammar across payments, transactions, debts, and CCL so action ownership is readable from the same vocabulary.
+
+1. ~~Unify Home and Prospects around one operational enquiry contract.~~ ✅
+2. ~~Collapse duplicate boot and dashboard fetch logic.~~ ✅
+3. ~~Introduce snapshot-first paint with background reconciliation.~~ ✅
+4. ~~Move heavy enrichment behind staged hydration.~~ ✅
+5. ~~Replace "system is busy" UX with progressive, task-oriented surfaces.~~ ✅
+6. ~~Harden production infrastructure (routes, SSE, SQL race, dev console).~~ ✅
+7. ~~Restructure control plane (UserBubble split, Hub Tools chip, Reporting routing).~~ ✅
+
+#### Stream B — Enquiry-processing alignment brief
+
+Owner: `HelixAutomations/enquiry-processing-v2`
+
+1. Keep bot, Teams-card, and claim flows aligned with the primary enquiries schema.
+2. Remove query drift where new-space flows still use legacy column assumptions.
+3. Expose clearer state signals back to Hub where claim/channel/card state changes.
+
+#### Stream C — Instruct-pitch alignment brief
+
+Owner: `HelixAutomations/instruct-pitch`
+
+1. Keep payment, instruction, and portal flows aligned with shared operational state.
+2. Remove contract drift where backend-wide operational modes are not reflected in the client.
+3. Preserve a lightweight client experience while staying tied to the same lifecycle model as Hub.
+
+#### Stream D — Realtime architecture, Azure alignment, and resource management
+
+Owner: this repo (tab-app) — cross-app implications managed via Streams B and C briefs.
+
+**Core principle**: Cache is acceleration, not truth. Every operational surface must know whether it is showing a snapshot, reconciling, or live-confirmed. The app must never silently serve stale data as if it were current.
+
+Status: **In progress — started 17 March 2026.**
+
+##### D1. Cache-vs-live truth layer (NOT STARTED)
+- [ ] Define a freshness state model: every data-bearing component tracks `snapshot | reconciling | live-confirmed`.
+- [ ] Add visible freshness indicators so users and devs can see what they're looking at (subtle badge, not intrusive).
+- [ ] Replace page-owned SSE scatter with one app-owned live event layer. The shell already owns the enquiry SSE — extend to cover claim, stage, instruction, payment, and matter-opened events.
+- [ ] Every mutation (claim, assign, stage change, instruction completion, payment result, matter open) must emit an event AND clear the exact affected cache slice.
+- [ ] Redis is useful for warm snapshots — but the app must never treat a Redis hit as truth when a live signal has invalidated it.
+
+##### D2. Cross-app event contract (NOT STARTED)
+- [ ] Define the event shape all 3 apps use: `{ eventType, entityId, entityType, source, timestamp, payload }`.
+- [ ] `enquiry-processing-v2` emits events on: enquiry create, claim, reassign, card state change, stage transition.
+- [ ] `instruct-pitch` emits events on: payment result, instruction completion, CFA status change, portal entry.
+- [ ] `tab-app` consumes events and drives: cache invalidation, SSE fan-out to connected clients, optimistic UI updates.
+- [ ] Decide mechanism: SQL-backed polling (simplest), Azure Service Bus (decoupled), or Azure Web PubSub (realtime fan-out). Start with SQL polling + SSE fan-out for simplicity; upgrade path to Web PubSub if latency matters.
+
+##### D3. Azure resource alignment (NOT STARTED)
+- [ ] Audit current Azure resource state: App Services, Function Apps, Key Vault, SQL, Redis, Storage, Bot Services.
+- [ ] Finish retiring local Azure Functions boot dependency: audit remaining `proxyToAzureFunctions` callers (`getUserData`, `getTeamData`, snippet edit flows, roadmap, transactions update paths), move them to Express/local routes, then remove `func start` from default dev boot.
+- [ ] Enable `WEBSITE_RUN_FROM_PACKAGE=1` on link-hub-v1 (zip mount, ~2 min deploy vs 30 min).
+- [ ] Wire staging slot swap into deployment script (slot already exists).
+- [ ] Evaluate Azure Web PubSub or SignalR for cross-app event fan-out.
+- [ ] App Service Always On + run-from-package + slot swap for hot serving.
+- [ ] Resolve Azure identity conflict: `bee758ec` is shared between Team Hub tab and Tasking-v3 bot (see Azure Identity section below).
+
+##### D4. Hub Tools consolidation (IN PROGRESS)
+- [x] Private floating Hub Tools chip created with separate access gating.
+- [x] Reporting utility routing (Activity Monitor, Data Centre) wired into chip.
+- [x] Cache Monitor view added to Reports tab (`CacheMonitor.tsx`) — shows Redis connection state, per-key status/TTL/age/size, hit rate, expiration distribution. Gated via `canSeePrivateHubControls` in prod, everyone locally. Auto-polls every 8s.
+- [ ] Pull remaining Reporting-only ops controls (cache invalidation modals in ReportingHome) into Hub Tools.
+- [ ] Extend Cache Monitor or add separate panel for: SQL pool health, Clio auth status, scheduler tier status.
+- [ ] Add enquiry freshness state visibility: snapshot age, SSE connection status, last event timestamp.
+- [ ] Add cross-app status: instruct-pitch server reachable, enquiry-processing-v2 last heartbeat.
+
+##### D5. Resource creation and management (NOT STARTED)
+- [ ] Identify which Azure resources need creating, updating, or reconfiguring as part of this rework.
+- [ ] Document resource requirements in a manifest (what exists, what's needed, what needs changing).
+- [ ] Plan any new infrastructure (Web PubSub, Service Bus, additional Function Apps) with IaC or CLI scripts.
+
+### First Delivery Order
+
+1. ~~Fix the Hub architecture first: shared enquiry semantics, faster boot, progressive landing, less contradictory state.~~ ✅ Stream A complete.
+2. In parallel, issue repo briefs for `enquiry-processing-v2` and `instruct-pitch` where the review found contract drift. *(Briefs written below — not yet executed by owning repos.)*
+3. **Stream D active**: Cache-vs-live truth layer → cross-app event contract → Azure resource alignment. This is the "next level" work that brings it all together.
+4. After the event contract is stable, tighten Teams notification/app-registration design so posting approaches can expand cleanly.
+
+### Repo Briefs
+
+#### Brief: enquiry-processing-v2
+
+Objective: align the Teams/bot workflow with the primary enquiries schema and make Hub integration cleaner.
+
+- Verify and fix claim/DM lookup paths that query new enquiries using legacy column names.
+- Audit bot/card workflows for any remaining legacy-schema assumptions in new-space paths.
+- Keep `Aiden` as the enquiry-processing bot identity unless explicitly changed at the Azure layer.
+- Return a concise note on any webhook/event signal Hub can rely on for claim state, card state, and assignment changes.
+
+Implementation brief for owning repo/agent:
+
+- Treat the instructions/new-space enquiry record as the primary processing identity for claim, assignment, and card lifecycle actions. Legacy/Core Data identifiers remain bridge metadata only.
+- Audit `CtaController`, claim handlers, and Teams card action handlers for any path that still resolves by legacy-only fields when the new-space enquiry row already exists.
+- Standardise the write-back payload for claim events so Hub can trust one shape for: `processingEnquiryId`, `processingSource`, `claimedBy`, `claimedAt`, `stage`, `channelId`, `activityId`, `cardType`.
+- Ensure `TeamsBotActivityTracking` is updated consistently for claim/reassign/card-refresh flows, including `ClaimedBy`, `ClaimedAt`, `UpdatedAt`, active card stage, and channel linkage.
+- Confirm whether the repo can emit a lightweight outbound signal for Hub consumption on claim/create/reassign/card-stage changes. If webhook/event work is too heavy, return the exact table/column contract Hub should poll instead.
+- Preserve existing user-facing Teams behaviour. This brief is about schema/state alignment, not redesigning card UX.
+
+#### Brief: instruct-pitch
+
+Objective: keep instruction/payment/client continuation flows aligned with operational state from Hub.
+
+- Make backend-wide payment-disabled state part of the real client contract instead of a backend-only flag.
+- Audit any portal or checkout flows that can diverge from shared instruction/prospect lifecycle state.
+- Preserve lightweight UX; avoid adding heavy blocking initialisation to the client.
+
+Implementation brief for owning repo/agent:
+
+- Make the portal/client app consume the same lifecycle truth that Hub now expects: prospect/enquiry → pitch/deal → instructed/compliance → matter/portal.
+- Promote payment availability/disablement into the explicit client contract returned to the frontend so the UI does not infer operational state from missing behaviour.
+- Audit continuation/resume flows, success pages, and portal entry points for places where portal state can drift from `Instructions`, `Deals`, or `Matters` status held by Hub.
+- Ensure client-visible labels and states match Hub semantics for payment, ID, risk, instruction completion, and matter-opened progression.
+- Keep client boot lightweight: prefer a thin lifecycle payload over multiple blocking requests or duplicated state reconstruction in the browser.
+- Return a concise note describing any remaining places where instruct-pitch must intentionally diverge from Hub semantics, and why.
+
 ## Vision: Helix CRM
 
 This platform is evolving into **Helix CRM** — the single source of truth for every dataset, workflow, and validation at Helix Law. Not a tab app. Not a reporting dashboard. A platform that owns its data, explains itself, and increasingly runs without babysitting.
@@ -20,7 +225,7 @@ This platform is evolving into **Helix CRM** — the single source of truth for 
 
 ## High Priority
 
-- [ ] **Staged app boot + deep-link routing plan** — First entry still blocks on heavyweight data fetches and the current navigation model is split across `activeTab`, custom events, and `localStorage` handoffs (`navigateToEnquiryId`, `navigateToInstructions`, `navigateToMatter`). Continue in small stages: (1) finish staged boot so Home paints before prospects/matters payloads complete, (2) profile production first-load request waterfall for `/api/enquiries-unified`, `/api/matters-unified`, `Home.tsx` parallel fetches, and `Enquiries.tsx` eager enrichment/pulse polling, (3) introduce a route state layer that can express tab + entity + subview, e.g. prospects workbench + pipeline pill, while still working inside Teams and browser entry.
+- [x] **Staged app boot + deep-link routing plan** — ✅ Completed 16–17 Mar 2026. Shell boot snapshot (15min TTL, stale-first paint), tab keep-alive (Home always-mounted, Enquiries stays mounted), SSE consolidation to single app-shell owner, progressive immediate actions, steady loading geometry, snapshot-to-live hardening, `navigateToEnquiry` CustomEvent replacing localStorage. Remaining future item: full route-state layer for tab + entity + subview (e.g. prospects workbench + pipeline pill).
 - [ ] **Prospects component optimisation** — `src/tabs/enquiries/Enquiries.tsx` is 11,349 lines with 222+ hooks. Decompose in safe, incremental stages. See dedicated section below: **[Prospects Optimisation Plan](#prospects-optimisation-plan)**.
 - [ ] **Data Centre → Helix CRM Control Plane** — The Data Centre is the operational backbone. Current state: 3-layer OperationValidator, audit trail with user attribution, post-sync auto-validation. **Next steps**:
   - [ ] Drift alerts — compare today's sums against yesterday's and flag anomalies
@@ -128,6 +333,188 @@ Full pipeline architecture documented in `.github/instructions/PIPELINE_ARCHITEC
 
 ---
 
+## Operations Queue — Unified Ops Hub (Mar 2026)
+
+**Status**: Production-ready (gated to ops/tech roles + LZ/AC). Five sections: bank transfer approvals, CCL date confirmations, transaction approvals, Stripe payments, Asana accounts pipeline.
+
+### Current state (updated 25 Mar 2026)
+
+- Server: `server/routes/opsQueue.js` — 10 routes across 4 data sources (Core Data DB, Instructions DB, Stripe, Asana API).
+- Client: `src/components/modern/OperationsQueue.tsx` — inline row rendering with in-place expansion, payment lookup, Asana pipeline grid. Helix dark surface styling. V1/V2 transaction toggle (V2 default for LZ+AC).
+- Auth utilities: `server/utils/asana.js` — shared Asana credential resolution (env token → per-user OAuth refresh from team table).
+- CCL date confirm calls Clio API (PATCH custom field 381463) + SQL UPDATE matters.CCL_date. Helpers reused from `server/routes/ccl-date.js`.
+- Transaction approve updates Core Data `transactions` table status (leave_in_client / transfer / transfer_custom).
+- Asana integration: live API fetch from Accounts project (project `1203336124217593`), 5-min server-side cache, matter ref extraction from task names.
+
+**Route inventory:**
+
+| Method | Endpoint | Source | Purpose |
+|--------|----------|--------|---------|
+| GET | `/pending` | Core Data DB | Bank transfers awaiting approval |
+| GET | `/recent` | Core Data DB | Recent approvals/actions |
+| POST | `/approve` | Core Data DB | Approve a bank transfer |
+| GET | `/ccl-dates-pending` | Core Data DB | CCL dates awaiting confirmation |
+| POST | `/ccl-date-confirm` | Core Data + Clio API | Confirm a CCL date (stamps Clio + SQL) |
+| GET | `/transactions-pending` | Core Data DB | Transactions by date range |
+| POST | `/transaction-approve` | Core Data DB | Approve a transaction |
+| GET | `/payment-lookup` | Instructions DB | Look up payment by ID or payment_intent_id |
+| GET | `/stripe-recent` | Instructions DB | Last 14 days of Stripe payments |
+| GET | `/asana-account-tasks` | Asana API (live) | Accounts project sections + tasks |
+
+### Asana integration (IMPLEMENTED — live API, not DB-backed)
+
+The original plan (below) proposed a DB-backed `OpsAsanaTasks` table. The actual implementation uses **live Asana API calls** with server-side caching (5 min TTL). This is simpler and avoids sync drift, but means data is only as fresh as the cache window.
+
+**Implementation:**
+- [x] `server/utils/asana.js` — shared auth: env `ASANA_ACCESS_TOKEN` → per-user OAuth refresh from `team` table (Core Data DB)
+- [x] `GET /api/ops-queue/asana-account-tasks` — fetches sections + incomplete tasks from Asana Accounts project
+- [x] Client renders pipeline grid (section counts) + Asana labels on matching transaction rows
+- [x] Asana labels are clickable `<a>` tags opening task in Asana
+
+**Asana Accounts Project:**
+- Project GID: `1203336124217593`
+- Workspace GID: `1203336123398249`
+- 7 sections: Requested, Set up on IPortal, Unclaimed Client funds, Write offs, Paid by AC/JW, Added to Clio/Xero, Rejected
+
+**Matter ref extraction from task names:**
+- Task names follow pattern: `AMIN11036-00001 - Transfer Request` or `HLX-12345-67890 - Description`
+- Regex: `/^([A-Z]+\d*-\d+-\d+)/i` — captures `LETTERS[DIGITS]-DIGITS-DIGITS` format
+- Extracted `matterRef` is matched against transaction `matter_ref` to show Asana stage on transaction rows
+
+**Known issue (outstanding):** The current regex `^([A-Z]+-\d+-\d+)` requires a hyphen between letters and first digit group, which misses refs like `AMIN11036-00001`. Fix: change to `^([A-Z]+\d+-\d+)` to make the hyphen after letters optional.
+
+### Phase 1 — DB-backed task layer (FUTURE — deferred in favour of live API)
+
+The DB-backed approach below remains a valid upgrade path if: (a) Asana API latency becomes a problem, (b) we need historical task tracking, or (c) we need to correlate tasks across multiple Asana projects.
+
+**Data model** — new table `OpsAsanaTasks` in Instructions DB:
+
+| Column | Type | Purpose |
+|--------|------|---------|
+| `Id` | uniqueidentifier PK | Internal row ID |
+| `AsanaTaskGid` | nvarchar(50) | Asana task GID (external key) |
+| `AsanaProjectGid` | nvarchar(50) | Asana project GID |
+| `TaskName` | nvarchar(500) | Cached task name |
+| `Assignee` | nvarchar(100) | Cached assignee name |
+| `AssigneeInitials` | nvarchar(10) | Mapped to Helix team initials |
+| `DueDate` | date | Cached due date |
+| `Status` | nvarchar(50) | `not_started` / `in_progress` / `completed` |
+| `Priority` | nvarchar(20) | `low` / `medium` / `high` / `urgent` |
+| `Category` | nvarchar(100) | Ops category: `comms`, `admin`, `compliance`, `finance`, `it` |
+| `InstructionRef` | nvarchar(50) nullable | Linked instruction if applicable |
+| `MatterRef` | nvarchar(50) nullable | Linked matter if applicable |
+| `LastSyncedAt` | datetime2 | Last Asana API sync timestamp |
+| `CreatedAt` | datetime2 | Row created |
+| `CompletedAt` | datetime2 nullable | When marked done |
+| `Notes` | nvarchar(max) nullable | Cached task notes/description |
+
+**Sync mechanism** (deferred):
+- [ ] Server route `GET /api/ops-queue/asana-tasks` — reads from `OpsAsanaTasks` table, returns pending tasks grouped by category
+- [ ] Server route `POST /api/ops-queue/asana-task-complete` — marks task done in Asana API + updates local row
+- [ ] Server route `POST /api/ops-queue/asana-sync` — pulls tasks from configured Asana projects, upserts into `OpsAsanaTasks`. Triggered manually or by scheduler.
+- [ ] Migration script: `scripts/init-ops-asana-table.mjs` to create `OpsAsanaTasks` table
+
+**Asana project mapping** (to configure):
+- Operations board → `comms`, `admin`, `compliance`, `finance` categories
+- Tech board → `it` category
+- Each project maps to a set of categories; sync pulls incomplete tasks from these projects
+
+### Phase 2 — Communications and updates
+
+- [ ] Add `OpsComms` table — tracks client/team communications that need sending or follow-up
+- [ ] Surface "comms due" items in the operations queue (e.g. "Client X needs a status update", "Fee earner Y hasn't updated matter Z in 14 days")
+- [ ] Asana tasks tagged `comms` auto-appear in a dedicated Communications section of the ops queue
+- [ ] Action: "Mark sent" stamps completion in Asana + local DB, with who/when attribution
+- [ ] Drift detection: matters with no activity entries in Clio for >N days surface as "needs attention"
+
+### Phase 3 — Task hub surface
+
+- [ ] Dedicated Tasks tab in Hub (not just ops queue on Home) — full Asana board view with filters, search, assignee grouping
+- [ ] Two-way sync: create tasks from Hub → Asana, complete in either direction
+- [ ] Link tasks to instructions/matters/enquiries — clicking a task shows the linked pipeline context
+- [ ] Personal task queue: "my tasks" view filtered by logged-in user's initials
+- [ ] Task creation from ops queue actions: completing an ops item can auto-create follow-up Asana tasks
+
+### Phase 4 — Insights and reporting
+
+- [ ] Ops throughput metrics: items processed per day/week, average time-to-action, queue depth trends
+- [ ] Per-person ops load: who is actioning what, balance across team
+- [ ] Asana completion rates by category, with trend charts
+- [ ] Surface bottlenecks: items sitting unactioned for >N hours get escalation styling
+- [ ] Weekly ops digest: auto-generated summary of what was actioned, by whom, what's overdue
+
+### Dependencies
+
+- Asana PAT already in use via `server/routes/techTickets.js` — reuse auth pattern
+- Instructions DB connection — already available in opsQueue.js
+- Team data reference — map Asana assignees to Helix initials via `TEAM_DATA_REFERENCE.md`
+- Future: ties into Stream D2 (cross-app event contract) when task events need to flow between apps
+
+### Read vs Write — Two-Surface Architecture
+
+The operations queue is the **write/action** surface (ops team). It needs a companion **read/visibility** surface for fee earners. Same underlying data, different intent.
+
+#### Write surface (Ops Queue — ops team only)
+
+What ops sees and actions:
+- Bank transfer confirmations (Stripe webhook → PaymentOperations → ops confirms)
+- CCL date confirmations (stamp Clio custom field 381463 + SQL)
+- Transaction requests (transfer/leave from financial forms via Asana)
+- Asana task items from operations/admin/compliance boards
+- Communications due (follow-ups, status updates, client chase)
+
+Data sources: PaymentOperations (Instructions DB), matters (Core Data), transactions (Core Data), OpsAsanaTasks (Instructions DB — planned), Clio outstanding balances API.
+
+#### Read surface (My Finances — per fee earner)
+
+What each fee earner sees for their own matters:
+- **Payment lifecycle**: Deal pitched → Client received link → Stripe payment pending → Payment succeeded → Bank transfer confirmed by ops. Shows which stage each payment is at.
+- **Outstanding balances**: Bills unpaid, overdue days, last payment date. Already served by `/api/outstanding-balances/user/:entraId` (Clio API, 30min cache).
+- **Transfer/payment request status**: "I submitted a transfer request at 10am — has ops actioned it?" Requires Asana task status lookup or local DB mirror.
+- **Matter funds**: Client account balance per matter. Already served by MatterOverview KPI banner.
+- **WIP**: Current week vs last week hours/value. Already served by `/api/home-wip?entraId=`.
+
+No action buttons. Read-only. Transparency surface.
+
+#### Data flow connecting them
+
+```
+Fee earner submits financial form (Transfer Request / Payment Request)
+    ↓
+Asana task created (existing BespokeForm → Asana form submission)
+    ↓
+Ops queue Asana sync pulls task into OpsAsanaTasks table
+    ↓
+Ops sees item in write surface → actions it → marks complete
+    ↓
+Status update flows back: OpsAsanaTasks.Status → 'completed', CompletedAt stamped
+    ↓
+Fee earner's read surface shows "Transfer processed · completed by AC · 14:30"
+```
+
+```
+Client pays via Stripe (instruct-pitch checkout)
+    ↓
+Stripe webhook → /api/stripe/webhook → Payments table updated (payment_status='succeeded')
+    ↓
+Bank transfer → PaymentOperations table → ops queue write surface
+    ↓
+Ops confirms → payment_status='confirmed', internal_status='paid'
+    ↓
+Fee earner's read surface shows "Payment confirmed · £2,400 · 23 Mar"
+```
+
+#### Implementation notes
+
+- Read surface component: `MyFinancesPanel.tsx` — renders on Home for all users (not just ops)
+- Aggregates from 3 existing endpoints (outstanding-balances, home-wip, payments) + new OpsAsanaTasks lookup
+- Transaction request status requires either: (a) Asana API lookup by task_id on Transaction record, or (b) local OpsAsanaTasks table mirror (preferred — avoids per-user Asana API calls)
+- Payment lifecycle needs a thin projection endpoint: `/api/my-finances/payments?initials=XX` → returns Payments + PaymentOperations status for that fee earner's instructions
+- Outstanding balances endpoint already exists and filters by Entra ID
+- No new tables needed for read surface — it projects from existing data + OpsAsanaTasks
+
+---
+
 ## Medium Priority
 
 - [ ] **Year Comparison Report** — New report tab: 5-year financial-year bar charts for WIP, Collected, and Matters Opened. Compares same date window (1 Apr → today's equivalent) across current FY + 4 prior. Needs: (1) confirm historical WIP data source in SQL (current Clio API only serves live week), (2) server endpoint `/api/reporting/year-comparison` querying collected_time, wip, matters tables with FY date bounds, (3) React component `YearComparisonReport.tsx` with 3 grouped bar charts + date-range picker. Add as `draft: true` tab in `REPORT_NAV_TABS` until validated with real data.
@@ -152,7 +539,6 @@ Full pipeline architecture documented in `.github/instructions/PIPELINE_ARCHITEC
 ## Low Priority
 
 - [ ] **AML annual review automation** — The SRA AML Firm-Wide Risk Assessment is annual (Feb–Feb cycle). Current process: run `scripts/amlReview12Months.mjs` for aggregated stats, then `scripts/amlReviewFollowUp.mjs` for PEP names + high-risk country details, then manually look up matter descriptions in Clio. Consider: (1) a combined "AML annual report" script that does everything in one pass including Clio lookups, (2) a Hub UI panel in Data Centre that generates the report on demand, (3) recording AML data differently at source so extraction is simpler (Kanchel's suggestion). See `docs/AML_REVIEW_12_MONTH_REPORT_RUNBOOK.md` for full methodology and gotchas.
-- [ ] **Audit decoupled-functions/** — Only 2 of ~15 functions actually used (fetchInstructionData, recordRiskAssessment). Consider migrating to server routes or deleting unused.
 - [ ] **Remove commented-out code** — Scattered across codebase.
 - [ ] **Consistent naming conventions** — snake_case vs camelCase inconsistency.
 - [ ] **Remove unused routes** — Grep server route registrations against actual frontend `fetch()` calls to identify dead endpoints.
@@ -248,20 +634,9 @@ Each task is a standalone change. Do them in order. Confirm the build compiles a
   - **Why**: Eliminates 1 wasted render cycle per data/filter change.
   - **Test**: Switch between Mine/All views. Confirm enquiry counts match. Claimed view still shows claimed items.
 
-- [ ] **1d. Consolidate toast state**
-  - Search for `const [toastVisible, setToastVisible]`.
-  - Replace 4 separate `useState` calls (`toastVisible`, `toastMessage`, `toastDetails`, `toastType`) with:
-    ```ts
-    const [toast, setToast] = useState<{ visible: boolean; message: string; details: string; type: 'success' | 'error' | 'info' | 'warning' } | null>(null);
-    ```
-  - Grep for `setToastVisible\|setToastMessage\|setToastDetails\|setToastType` to find all call sites. Replace multi-line set sequences with a single `setToast(...)` call.
-  - Update reads: `toastVisible` → `toast?.visible`, `toastMessage` → `toast?.message || ''`, etc.
-  - **Test**: Claim an enquiry, trigger a toast, confirm it renders.
+- [x] **1d. Consolidate toast state** ✅ Done — 4 useState → 1 + showToast() helper with auto-dismiss timer ref. All 15 call sites + JSX reads updated.
 
-- [ ] **1e. Consolidate demo overlay state**
-  - Search for `const [demoOverlayVisible, setDemoOverlayVisible]`.
-  - Same pattern as 1d: replace `demoOverlayVisible`, `demoOverlayMessage`, `demoOverlayDetails` with single object.
-  - **Test**: Open a demo prospect, confirm overlay still works.
+- [x] **1e. Consolidate demo overlay state** ✅ Done — 3 useState → 1 object. Write site + JSX reads updated.
 
 ### Phase 2 — Component extraction (visual structure unchanged)
 

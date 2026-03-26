@@ -45,7 +45,7 @@ interface UseStreamingDatasetsResult {
 
 export function useStreamingDatasets(options: UseStreamingDatasetsOptions = {}): UseStreamingDatasetsResult {
   const {
-    datasets = ['userData', 'teamData', 'enquiries', 'allMatters', 'wip', 'recoveredFees', 'poidData', 'wipClioCurrentWeek'],
+    datasets = ['userData', 'teamData', 'enquiries', 'allMatters', 'wip', 'recoveredFees', 'wipClioCurrentWeek'],
     entraId,
     bypassCache = false,
     autoStart = false,

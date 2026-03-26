@@ -1,7 +1,11 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { format, formatDistanceToNow } from 'date-fns';
-import { mergeStyles } from '@fluentui/react';
-import { TextField, DefaultButton, PrimaryButton, Dropdown, IDropdownOption, Icon } from '@fluentui/react';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
+import { TextField } from '@fluentui/react/lib/TextField';
+import { DefaultButton, PrimaryButton } from '@fluentui/react/lib/Button';
+import { Dropdown } from '@fluentui/react/lib/Dropdown';
+import type { IDropdownOption } from '@fluentui/react/lib/Dropdown';
+import { Icon } from '@fluentui/react/lib/Icon';
 import { colours } from '../../app/styles/colours';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import OperationStatusToast from '../enquiries/pitch-builder/OperationStatusToast';

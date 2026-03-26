@@ -1035,7 +1035,7 @@ const CompactMatterWizard: React.FC<CompactMatterWizardProps> = ({
             setProcessingSteps(prev => prev.map((s, idx) => idx === i ? { ...s, status: 'success', message: 'Context preview skipped (non-blocking)' } : s));
             setProcessingLogs(prev => [...prev, `✓ CCL context preview skipped — ${err instanceof Error ? err.message : 'error'}`]);
           }
-        } else if (i === total - 1 && initialSteps[i].label === 'Draft CCL Generated') {
+        } else if (i === total - 1 && initialSteps[i].label === 'CCL Service Generated') {
           try {
             const resp = await fetch('/api/ccl/service/run', {
               method: 'POST',
@@ -1061,12 +1061,12 @@ const CompactMatterWizard: React.FC<CompactMatterWizardProps> = ({
               }),
             });
             const payload = resp.ok ? await resp.clone().json() : null;
-            const msg = resp.ok ? `Draft CCL created · ${(payload?.preview?.dataSources || []).length} sources (real)` : 'Draft CCL skipped';
+            const msg = resp.ok ? `CCL service generated · ${(payload?.preview?.dataSources || []).length} sources (real)` : 'CCL service skipped';
             setProcessingSteps(prev => prev.map((s, idx) => idx === i ? { ...s, status: 'success', message: msg } : s));
             setProcessingLogs(prev => [...prev, `✓ ${msg}`]);
           } catch (err) {
-            setProcessingSteps(prev => prev.map((s, idx) => idx === i ? { ...s, status: 'success', message: 'Draft CCL skipped (non-blocking)' } : s));
-            setProcessingLogs(prev => [...prev, `✓ Draft CCL skipped — ${err instanceof Error ? err.message : 'error'}`]);
+            setProcessingSteps(prev => prev.map((s, idx) => idx === i ? { ...s, status: 'success', message: 'CCL service skipped (non-blocking)' } : s));
+            setProcessingLogs(prev => [...prev, `✓ CCL service skipped — ${err instanceof Error ? err.message : 'error'}`]);
           }
         } else {
           // Simulate success for all other steps

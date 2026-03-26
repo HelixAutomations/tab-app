@@ -2,8 +2,8 @@
  * CCL Operations — support tickets, Clio upload, NetDocuments upload.
  *
  * POST /api/ccl-ops/report     → Submit a CCL support ticket (→ tech_problems + Asana)
- * POST /api/ccl-ops/upload-clio → Upload generated .docx to Clio matter (3-step presigned URL)
- * POST /api/ccl-ops/upload-nd   → Upload generated .docx to ND workspace (stub)
+ * POST /api/ccl-ops/upload-clio → Upload generated .docx to Clio matter (legacy path)
+ * POST /api/ccl-ops/upload-nd   → Upload generated .docx to the NetDocuments workspace
  * GET  /api/ccl-ops/integrations → Check which integrations are available for a matter
  */
 
@@ -11,13 +11,246 @@ const express = require('express');
 const router = express.Router();
 const path = require('path');
 const fs = require('fs');
+const https = require('https');
+const { URL } = require('url');
+const { getSecret } = require('../utils/getSecret');
 const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
 const { getClioAccessToken, CLIO_API_BASE } = require('../utils/clioAuth');
 const { generateWordFromJson } = require('../utils/wordGenerator.js');
-const { getCclContentById } = require('../utils/cclPersistence');
+const { getCclContentById, getLatestCclContent, markCclUploaded } = require('../utils/cclPersistence');
 
 // CCL docx lives in public/ccls/{matterId}.docx (matches ccl.js)
 const CCL_DIR = path.join(process.cwd(), 'public', 'ccls');
+const CCL_OUTPUT_DIR = path.join(process.cwd(), 'logs', 'ccl-outputs');
+const DEMO_ND_WORKSPACE_REF = process.env.CCL_ND_DEMO_WORKSPACE || '5257922/HELIX01-01';
+let netDocumentsTokenCache = { token: null, exp: 0 };
+
+async function safeGetSecret(name) {
+  try {
+    return await getSecret(name);
+  } catch {
+    return null;
+  }
+}
+
+async function getNetDocumentsAccessToken() {
+  const now = Math.floor(Date.now() / 1000);
+  if (netDocumentsTokenCache.token && netDocumentsTokenCache.exp - 90 > now) {
+    return netDocumentsTokenCache.token;
+  }
+
+  const [authUrl, tokenUrlFallback, basicKey, scope, serviceClientId, serviceClientSecret, repository] = await Promise.all([
+    safeGetSecret('nd-authurl'),
+    safeGetSecret('nd-accesstokenurl'),
+    safeGetSecret('nd-basic-key'),
+    safeGetSecret('nd-scope'),
+    safeGetSecret('nd-serviceaccount-clientid'),
+    safeGetSecret('nd-serviceaccount-clientsecret'),
+    safeGetSecret('nd-repository'),
+  ]);
+
+  const tokenUrl = authUrl || tokenUrlFallback;
+  if (!tokenUrl) throw new Error('NetDocuments OAuth credentials are missing.');
+  if (!basicKey && (!serviceClientId || !serviceClientSecret)) throw new Error('NetDocuments credentials are missing.');
+  if (/\/neWeb2/i.test(tokenUrl) || !/\/oauth/i.test(tokenUrl)) {
+    throw new Error(
+      `NetDocuments token URL must be the API OAuth endpoint (e.g. https://api.eu.netdocuments.com/v1/OAuth). Current value: ${tokenUrl}`
+    );
+  }
+
+  const headers = {
+    'Content-Type': 'application/x-www-form-urlencoded',
+    Accept: 'application/json',
+  };
+
+  let tokenBasic = '';
+  if (serviceClientId && serviceClientSecret) {
+    const finalClientId = repository && !serviceClientId.includes('|') ? `${serviceClientId}|${repository}` : serviceClientId;
+    tokenBasic = Buffer.from(`${finalClientId}:${serviceClientSecret}`).toString('base64');
+  } else if (basicKey) {
+    const trimmedBasic = String(basicKey).replace(/^Basic\s+/i, '').trim();
+    tokenBasic = trimmedBasic.includes(':') ? Buffer.from(trimmedBasic).toString('base64') : trimmedBasic;
+  }
+  if (tokenBasic) {
+    headers.Authorization = `Basic ${tokenBasic}`;
+  }
+
+  const bodyStr = `grant_type=client_credentials&scope=${scope || 'datatables_full full'}`;
+  headers['Content-Length'] = Buffer.byteLength(bodyStr);
+
+  const tokenData = await new Promise((resolve, reject) => {
+    const urlObj = new URL(tokenUrl);
+    const request = https.request(
+      {
+        hostname: urlObj.hostname,
+        path: `${urlObj.pathname}${urlObj.search || ''}`,
+        method: 'POST',
+        headers,
+      },
+      (response) => {
+        let data = '';
+        response.on('data', (chunk) => {
+          data += chunk;
+        });
+        response.on('end', () => {
+          if ((response.statusCode || 500) >= 400) {
+            reject(new Error(`Failed to obtain NetDocuments access token: ${data}`));
+            return;
+          }
+
+          try {
+            resolve(JSON.parse(data));
+          } catch {
+            reject(new Error(`Failed to parse NetDocuments token response: ${data}`));
+          }
+        });
+      }
+    );
+
+    request.on('error', reject);
+    request.setTimeout(10000, () => {
+      request.destroy();
+      reject(new Error('NetDocuments token request timed out'));
+    });
+    request.write(bodyStr);
+    request.end();
+  });
+  const accessToken = tokenData.access_token || tokenData.token;
+
+  if (!accessToken) throw new Error('NetDocuments access token missing from response.');
+
+  netDocumentsTokenCache = { token: accessToken, exp: now + (tokenData.expires_in || 3600) };
+  return accessToken;
+}
+
+async function resolveDemoNdWorkspace() {
+  const port = process.env.PORT || 8080;
+  const isNamedPipe = typeof port === 'string' && port.startsWith('\\.\\pipe\\');
+  const base = isNamedPipe && process.env.WEBSITE_HOSTNAME
+    ? `https://${process.env.WEBSITE_HOSTNAME}`
+    : `http://localhost:${port}`;
+  const response = await fetch(`${base}/api/resources/core/netdocuments-workspace?q=${encodeURIComponent(DEMO_ND_WORKSPACE_REF)}`);
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || !payload?.ok || !payload?.result?.id) {
+    throw new Error(payload?.error || `Unable to resolve NetDocuments demo workspace ${DEMO_ND_WORKSPACE_REF}.`);
+  }
+  return {
+    workspaceId: String(payload.result.id),
+    workspaceName: String(payload.result.name || 'HELIX01-01 demo workspace'),
+  };
+}
+
+async function prepareCclDocx({ matterId, matterDisplayNumber, fileName, fields: liveFields }) {
+  const docxName = fileName || `CCL-${matterDisplayNumber || matterId || 'draft'}.docx`;
+  const docxPath = path.join(CCL_DIR, `${matterId || matterDisplayNumber || 'draft'}.docx`);
+  const jsonFilePath = path.join(CCL_DIR, `${matterId || matterDisplayNumber || 'draft'}.json`);
+
+  // Also check the generation output directory (logs/ccl-outputs/) as fallback
+  const altDocxPath = path.join(CCL_OUTPUT_DIR, `${matterId || matterDisplayNumber || 'draft'}.docx`);
+  const altJsonPath = path.join(CCL_OUTPUT_DIR, `${matterId || matterDisplayNumber || 'draft'}.json`);
+
+  let draftJson = null;
+  if (liveFields && typeof liveFields === 'object' && Object.keys(liveFields).length > 0) {
+    const diskJson = fs.existsSync(jsonFilePath) ? JSON.parse(fs.readFileSync(jsonFilePath, 'utf-8'))
+      : fs.existsSync(altJsonPath) ? JSON.parse(fs.readFileSync(altJsonPath, 'utf-8'))
+      : {};
+    draftJson = { ...diskJson, ...liveFields };
+  } else if (fs.existsSync(jsonFilePath)) {
+    draftJson = JSON.parse(fs.readFileSync(jsonFilePath, 'utf-8'));
+  } else if (fs.existsSync(altJsonPath)) {
+    draftJson = JSON.parse(fs.readFileSync(altJsonPath, 'utf-8'));
+  }
+
+  if (draftJson) {
+    const generationMeta = await generateWordFromJson(draftJson, docxPath);
+    const unresolvedPlaceholders = generationMeta?.unresolvedPlaceholders || [];
+    fs.writeFileSync(jsonFilePath, JSON.stringify(draftJson, null, 2));
+    if (unresolvedPlaceholders.length > 0) {
+      return {
+        ok: false,
+        docxName,
+        docxPath,
+        unresolvedPlaceholders,
+        unresolvedCount: unresolvedPlaceholders.length,
+      };
+    }
+  }
+
+  if (!fs.existsSync(docxPath)) {
+    // Fall back to generation output directory
+    if (fs.existsSync(altDocxPath)) {
+      return { ok: true, docxName, docxPath: altDocxPath };
+    }
+    throw new Error('Document not found. Generate the .docx first.');
+  }
+
+  return { ok: true, docxName, docxPath };
+}
+
+function buildNdMultipartBody({ workspaceId, fileName, fileBuffer, cabinet }) {
+  const boundary = `----HelixCclBoundary${Date.now().toString(16)}`;
+  const chunks = [];
+  const appendField = (name, value) => {
+    chunks.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`));
+  };
+
+  appendField('id', workspaceId);
+  appendField('name', path.parse(fileName).name);
+  appendField('extension', path.extname(fileName).replace(/^\./, '') || 'docx');
+  if (cabinet) appendField('cabinet', cabinet);
+  chunks.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${fileName}"\r\nContent-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document\r\n\r\n`));
+  chunks.push(fileBuffer);
+  chunks.push(Buffer.from(`\r\n--${boundary}--\r\n`));
+
+  return { boundary, body: Buffer.concat(chunks) };
+}
+
+async function uploadDocumentToNetDocuments({ workspaceId, fileName, fileBuffer }) {
+  const [baseUrl, cabinet, accessToken] = await Promise.all([
+    safeGetSecret('nd-baseurl'),
+    safeGetSecret('nd-cabinet'),
+    getNetDocumentsAccessToken(),
+  ]);
+  if (!baseUrl) throw new Error('NetDocuments base URL missing.');
+
+  const { boundary, body } = buildNdMultipartBody({ workspaceId, fileName, fileBuffer, cabinet });
+  const urlObj = new URL(`${String(baseUrl).replace(/\/$/, '')}/v2/content/upload-document`);
+
+  return await new Promise((resolve, reject) => {
+    const request = https.request({
+      hostname: urlObj.hostname,
+      path: urlObj.pathname + urlObj.search,
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: 'application/json',
+        'Content-Type': `multipart/form-data; boundary=${boundary}`,
+        'Content-Length': body.length,
+      },
+    }, (response) => {
+      let data = '';
+      response.on('data', (chunk) => { data += chunk; });
+      response.on('end', () => {
+        if ((response.statusCode || 500) >= 400) {
+          reject(new Error(data || `NetDocuments upload failed (${response.statusCode}).`));
+          return;
+        }
+        try {
+          resolve(data ? JSON.parse(data) : {});
+        } catch {
+          resolve({});
+        }
+      });
+    });
+    request.on('error', reject);
+    request.setTimeout(20000, () => {
+      request.destroy();
+      reject(new Error('NetDocuments upload timed out.'));
+    });
+    request.write(body);
+    request.end();
+  });
+}
 
 function parseCandidateDate(raw) {
   if (!raw || typeof raw !== 'string') return null;
@@ -515,48 +748,91 @@ router.post('/upload-clio', async (req, res) => {
 });
 
 
-// ─── NetDocuments Upload (Stub) ──────────────────────────────────────────────
-// Will upload a generated CCL .docx to the ND workspace for this matter.
-// Phase: awaiting integration testing.
+// ─── NetDocuments Upload ─────────────────────────────────────────────────────
+// Uploads the generated CCL .docx into the shared HELIX01-01 demo workspace.
 
 router.post('/upload-nd', async (req, res) => {
-  const { matterId, matterDisplayNumber, ndWorkspaceId, fileName } = req.body;
-
-  if (!ndWorkspaceId) {
-    return res.status(400).json({ ok: false, error: 'NetDocuments workspace ID is required. Run integration check first.' });
-  }
+  const { matterId, matterDisplayNumber, ndWorkspaceId: requestedWorkspaceId, fileName, fields: liveFields } = req.body;
+  const startMs = Date.now();
+  const uploadedBy = req.user?.initials || 'Hub';
 
   try {
-    const docxPath = path.join(CCL_DIR, `${matterId || matterDisplayNumber || 'draft'}.docx`);
+    const prepared = await prepareCclDocx({
+      matterId,
+      matterDisplayNumber,
+      fileName,
+      fields: liveFields,
+    });
 
-    if (!fs.existsSync(docxPath)) {
-      return res.status(404).json({ ok: false, error: 'Document not found. Generate the .docx first.' });
+    if (!prepared.ok) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Cannot upload yet: unresolved fields remain in the Client Care Letter.',
+        unresolvedPlaceholders: prepared.unresolvedPlaceholders,
+        unresolvedCount: prepared.unresolvedCount,
+      });
     }
 
-    // TODO: Phase 2 — NetDocuments upload via ndApiRequest
-    // Uses POST /v2/content/upload-document with multipart form:
-    //   - id: ndWorkspaceId (destination container)
-    //   - file: the .docx binary
-    //   - DocProfile fields: name, extension, cabinet
-    //
-    // Token: getNetDocumentsAccessToken() from resources-core.js
-    // Helper: ndApiRequest() already supports POST with body
-    // Reference: NetDocuments REST API v2 documentation
+    const workspace = requestedWorkspaceId
+      ? { workspaceId: String(requestedWorkspaceId), workspaceName: 'HELIX01-01 demo workspace' }
+      : await resolveDemoNdWorkspace();
+    const fileBuffer = fs.readFileSync(prepared.docxPath);
 
-    trackEvent('CCL.Upload.ND.Attempted', {
-      matterId: matterDisplayNumber || matterId,
-      ndWorkspaceId,
-      status: 'stub',
+    trackEvent('CCL.Upload.ND.Started', {
+      matterId: String(matterDisplayNumber || matterId || ''),
+      targetWorkspace: workspace.workspaceName,
+      targetWorkspaceId: workspace.workspaceId,
+      fileName: prepared.docxName,
+      fileSizeBytes: String(fileBuffer.length),
+      uploadedBy,
     });
 
-    return res.status(501).json({
-      ok: false,
-      error: 'NetDocuments upload is not yet active. The document has been generated — upload it manually to NetDocuments for now.',
-      ndWorkspaceId,
-      docxPath: `/ccls/${path.basename(docxPath)}`,
+    const ndPayload = await uploadDocumentToNetDocuments({
+      workspaceId: workspace.workspaceId,
+      fileName: prepared.docxName,
+      fileBuffer,
+    });
+    const ndDocumentId = ndPayload?.standardAttributes?.id || ndPayload?.id || ndPayload?.documentId || null;
+
+    const latestContent = matterId ? await getLatestCclContent(matterId) : null;
+    if (latestContent?.CclContentId) {
+      await markCclUploaded(latestContent.CclContentId, {
+        nd: true,
+        ndDocId: ndDocumentId ? String(ndDocumentId) : null,
+        finalizedBy: uploadedBy,
+      });
+    }
+
+    const durationMs = Date.now() - startMs;
+    trackEvent('CCL.Upload.ND.Completed', {
+      matterId: String(matterDisplayNumber || matterId || ''),
+      targetWorkspace: workspace.workspaceName,
+      targetWorkspaceId: workspace.workspaceId,
+      ndDocumentId: ndDocumentId ? String(ndDocumentId) : '',
+      fileName: prepared.docxName,
+      durationMs: String(durationMs),
+    });
+    trackMetric('CCL.Upload.ND.Duration', durationMs, {
+      matterId: String(matterDisplayNumber || matterId || ''),
+    });
+
+    return res.json({
+      ok: true,
+      ndDocumentId,
+      workspaceId: workspace.workspaceId,
+      workspaceName: workspace.workspaceName,
+      fileName: prepared.docxName,
+      docxPath: `/ccls/${path.basename(prepared.docxPath)}`,
+      message: `Document uploaded to NetDocuments workspace ${workspace.workspaceName}.`,
     });
   } catch (error) {
+    const durationMs = Date.now() - startMs;
     trackException(error, { operation: 'CCL.Upload.ND', matterId: matterDisplayNumber || matterId });
+    trackEvent('CCL.Upload.ND.Failed', {
+      matterId: String(matterDisplayNumber || matterId || ''),
+      error: error.message,
+      durationMs: String(durationMs),
+    });
     return res.status(500).json({ ok: false, error: error.message || 'NetDocuments upload failed.' });
   }
 });

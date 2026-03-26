@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { mergeStyles } from '@fluentui/react/lib/Styling';
-import { Text, Icon } from '@fluentui/react';
+import { Text } from '@fluentui/react/lib/Text';
+import { Icon } from '@fluentui/react/lib/Icon';
 import { Enquiry } from '../../app/functionality/types';
 import { colours } from '../../app/styles/colours';
 import { useTheme } from '../../app/functionality/ThemeContext';

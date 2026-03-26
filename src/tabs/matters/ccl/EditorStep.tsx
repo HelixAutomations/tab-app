@@ -1,5 +1,5 @@
 import React, { useMemo, useEffect } from 'react';
-import { Icon } from '@fluentui/react';
+import { Icon } from '@fluentui/react/lib/Icon';
 import { colours } from '../../../app/styles/colours';
 import { FIELD_DISPLAY_NAMES } from '../../../shared/ccl';
 import ToolbarButton from './ToolbarButton';

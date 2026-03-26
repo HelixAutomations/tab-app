@@ -167,16 +167,11 @@ Migration plan (summary):
 Topology
 - React dev server (http://localhost:3000) → Express API (http://localhost:8080) under `/api/*`.
 - Unified routes: `/api/matters-unified` (direct MSSQL with TTL cache), `/api/instructions` (unified instructions).
-- Fallbacks (only when Express is down or a route is missing):
-  - TypeScript Azure Functions at http://localhost:7072 (folder `api`)
-  - Decoupled Functions at http://localhost:7071 (folder `decoupled-functions`)
+- All API calls go through Express. Azure Functions (local and decoupled) have been fully retired.
 
 Start locally
-- VS Code task: “Start Teams App Locally” (runs prerequisites → provision → deploy → start frontend/backend).
-- Or run tasks individually:
-  - “Start frontend” → `npm run dev-tab:teamsfx` (background)
-  - “Watch backend” → watches `api` functions (background)
-  - “Start backend” → `npm run dev:teamsfx` (Express) (background)
+- `npm run dev:all` — starts Express server + React dev server.
+- Or VS Code task: "Start Teams App Locally".
 
 Ports/CORS
 - Functions Core Tools: do not set `cors` in `api/host.json`.

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Icon } from '@fluentui/react';
+import { Icon } from '@fluentui/react/lib/Icon';
 import { FaCheckCircle, FaChevronDown, FaChevronRight, FaDatabase, FaExternalLinkAlt, FaFileAlt, FaLock, FaMagic, FaPlayCircle, FaSyncAlt } from 'react-icons/fa';
 import type { NormalizedMatter } from '../../../app/functionality/types';
 import { colours } from '../../../app/styles/colours';

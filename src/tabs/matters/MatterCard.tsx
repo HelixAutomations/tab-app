@@ -1,6 +1,10 @@
 import React from 'react';
 import type { CSSProperties } from 'react';
-import { Stack, Text, Icon, IconButton, TooltipHost } from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Text } from '@fluentui/react/lib/Text';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { IconButton } from '@fluentui/react/lib/Button';
+import { TooltipHost } from '@fluentui/react/lib/Tooltip';
 import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { Matter } from '../../app/functionality/types';
 import { colours } from '../../app/styles/colours';

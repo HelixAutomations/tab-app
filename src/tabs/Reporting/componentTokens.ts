@@ -1,4 +1,4 @@
-import { mergeStyles } from '@fluentui/react';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { colours } from '../../app/styles/colours';
 
 export const cardStyles = {

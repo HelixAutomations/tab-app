@@ -1,12 +1,8 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import {
-  Stack,
-  Persona,
-  PersonaSize,
-  MessageBar,
-  MessageBarType,
-} from '@fluentui/react';
-import { mergeStyles, keyframes } from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Persona, PersonaSize } from '@fluentui/react/lib/Persona';
+import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
+import { mergeStyles, keyframes } from '@fluentui/react/lib/Styling';
 import { format, parseISO, isValid, eachDayOfInterval, isWeekend } from 'date-fns';
 import { colours } from '../app/styles/colours';
 import { useTheme } from '../app/functionality/ThemeContext';
@@ -79,23 +75,18 @@ const slideIn = keyframes({
 --------------------------------------------------------------------------- */
 const getCardStyle = (isDarkMode: boolean, isActive: boolean, isAnimatingOut: boolean, animationStatus?: 'booked' | 'discarded' | 'acknowledged') => 
   mergeStyles({
-    background: isDarkMode
-      ? 'linear-gradient(135deg, rgba(10, 16, 30, 0.95) 0%, rgba(18, 26, 42, 0.92) 100%)'
-      : 'linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 250, 252, 0.95) 100%)',
-    backdropFilter: 'blur(12px)',
-    WebkitBackdropFilter: 'blur(12px)',
-    borderRadius: '8px',
+    background: isDarkMode ? colours.darkBlue : colours.grey,
     border: isAnimatingOut
-      ? `2px solid ${animationStatus === 'discarded' ? colours.red : colours.green}`
+      ? `1px solid ${animationStatus === 'discarded' ? colours.red : colours.green}`
       : isActive
-        ? `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.5)' : 'rgba(54, 144, 206, 0.4)'}`
-        : `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(148, 163, 184, 0.15)'}`,
+        ? `1px solid ${colours.highlight}`
+        : `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
     boxShadow: isActive && !isAnimatingOut
       ? isDarkMode
-        ? '0 4px 20px rgba(54, 144, 206, 0.15), 0 1px 6px rgba(0,0,0,0.2)'
+        ? '0 10px 28px rgba(0, 3, 25, 0.34), 0 0 0 1px rgba(54, 144, 206, 0.16)'
         : '0 4px 20px rgba(54, 144, 206, 0.1), 0 1px 6px rgba(0,0,0,0.03)'
       : isDarkMode
-        ? '0 2px 12px rgba(0,0,0,0.25), 0 1px 4px rgba(0,0,0,0.15)'
+        ? '0 10px 28px rgba(0, 3, 25, 0.3)'
         : '0 2px 12px rgba(0,0,0,0.04), 0 1px 4px rgba(0,0,0,0.02)',
     padding: 0,
     overflow: 'hidden',
@@ -105,14 +96,14 @@ const getCardStyle = (isDarkMode: boolean, isActive: boolean, isAnimatingOut: bo
       : `${slideIn} 0.3s ease-out`,
     backgroundColor: isAnimatingOut
       ? (animationStatus === 'discarded' 
-          ? (isDarkMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)')
-          : (isDarkMode ? 'rgba(34, 197, 94, 0.15)' : 'rgba(34, 197, 94, 0.1)'))
+          ? (isDarkMode ? `${colours.red}1F` : `${colours.red}14`)
+          : (isDarkMode ? `${colours.green}1F` : `${colours.green}14`))
       : undefined,
     pointerEvents: isAnimatingOut ? 'none' : 'auto',
     ':hover': {
-      borderColor: isDarkMode ? 'rgba(54, 144, 206, 0.35)' : 'rgba(54, 144, 206, 0.25)',
+      borderColor: colours.highlight,
       boxShadow: isDarkMode
-        ? '0 4px 20px rgba(0,0,0,0.35), 0 2px 8px rgba(0,0,0,0.2)'
+        ? '0 10px 30px rgba(0, 3, 25, 0.36)'
         : '0 4px 20px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.03)',
     },
   });
@@ -125,9 +116,9 @@ const getCardHeaderStyle = (isDarkMode: boolean, status: string) => {
   return mergeStyles({
     padding: '16px 20px',
     background: isDarkMode
-      ? 'linear-gradient(135deg, rgba(7, 16, 32, 0.6) 0%, rgba(11, 30, 55, 0.5) 100%)'
-      : 'linear-gradient(135deg, rgba(248, 250, 252, 0.8) 0%, rgba(241, 245, 249, 0.7) 100%)',
-    borderBottom: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(148, 163, 184, 0.12)'}`,
+      ? colours.darkBlue
+      : colours.grey,
+    borderBottom: `1px solid ${isDarkMode ? colours.dark.border : colours.highlightNeutral}`,
     borderLeft: `3px solid ${accentColor}`,
     display: 'flex',
     alignItems: 'center',
@@ -146,18 +137,18 @@ const getMetricPillStyle = (isDarkMode: boolean, isAccent?: boolean) =>
     alignItems: 'center',
     gap: '6px',
     padding: '4px 10px',
-    borderRadius: '12px',
+    borderRadius: '999px',
     fontSize: '12px',
     fontWeight: 600,
     backgroundColor: isAccent
-      ? (isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)')
-      : (isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(148, 163, 184, 0.1)'),
+      ? (isDarkMode ? `${colours.highlight}24` : `${colours.highlight}14`)
+      : (isDarkMode ? `${colours.dark.cardBackground}` : colours.sectionBackground),
     color: isAccent
       ? colours.highlight
-      : (isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.75)'),
+      : (isDarkMode ? colours.dark.text : colours.light.text),
     border: `1px solid ${isAccent 
-      ? (isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.2)')
-      : 'transparent'}`,
+      ? (isDarkMode ? `${colours.highlight}40` : `${colours.highlight}33`)
+      : (isDarkMode ? colours.dark.border : colours.highlightNeutral)}`,
   });
 
 const getStatusBadgeStyle = (isDarkMode: boolean, status: string) => {
@@ -171,7 +162,7 @@ const getStatusBadgeStyle = (isDarkMode: boolean, status: string) => {
     alignItems: 'center',
     gap: '4px',
     padding: '4px 10px',
-    borderRadius: '12px',
+    borderRadius: '999px',
     fontSize: '11px',
     fontWeight: 700,
     textTransform: 'uppercase',
@@ -182,21 +173,21 @@ const getStatusBadgeStyle = (isDarkMode: boolean, status: string) => {
       : isApproved
         ? (isDarkMode ? 'rgba(32, 178, 108, 0.15)' : 'rgba(32, 178, 108, 0.1)')
         : isPending
-          ? (isDarkMode ? 'rgba(255, 183, 77, 0.15)' : 'rgba(255, 152, 0, 0.1)')
+          ? (isDarkMode ? `${colours.orange}1F` : `${colours.orange}14`)
           : (isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.1)'),
     color: isRejected 
       ? colours.red 
       : isApproved 
         ? colours.green
         : isPending
-          ? (isDarkMode ? '#FFB74D' : '#E65100')
+          ? colours.orange
           : colours.highlight,
     border: `1px solid ${isRejected 
       ? colours.red 
       : isApproved 
         ? colours.green
         : isPending
-          ? (isDarkMode ? 'rgba(255, 183, 77, 0.3)' : 'rgba(255, 152, 0, 0.3)')
+          ? (isDarkMode ? `${colours.orange}59` : `${colours.orange}40`)
           : colours.highlight}40`,
   });
 };
@@ -207,9 +198,9 @@ const getInfoRowStyle = (isDarkMode: boolean) =>
     alignItems: 'center',
     gap: '16px',
     padding: '12px 16px',
-    borderRadius: '6px',
-    backgroundColor: isDarkMode ? 'rgba(2, 6, 23, 0.35)' : 'rgba(248, 250, 252, 0.85)',
-    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(15, 23, 42, 0.06)'}`,
+    borderRadius: 0,
+    backgroundColor: isDarkMode ? colours.darkBlue : colours.grey,
+    border: `1px solid ${isDarkMode ? colours.dark.border : colours.highlightNeutral}`,
     flexWrap: 'wrap' as const,
   });
 
@@ -246,7 +237,7 @@ const getExpandButtonStyle = (isDarkMode: boolean) =>
     alignItems: 'center',
     gap: '6px',
     padding: '6px 12px',
-    borderRadius: '4px',
+    borderRadius: 0,
     fontSize: '12px',
     fontWeight: 600,
     color: colours.highlight,
@@ -264,7 +255,7 @@ const getActionButtonStyle = (isDarkMode: boolean, variant: 'primary' | 'seconda
     flex: 1,
     minWidth: '120px',
     padding: '10px 16px',
-    borderRadius: '6px',
+    borderRadius: 0,
     fontSize: '13px',
     fontWeight: 600,
     cursor: 'pointer',
@@ -276,22 +267,22 @@ const getActionButtonStyle = (isDarkMode: boolean, variant: 'primary' | 'seconda
     border: variant === 'primary'
       ? 'none'
       : `1px solid ${variant === 'danger' 
-          ? (isDarkMode ? 'rgba(239, 68, 68, 0.4)' : 'rgba(239, 68, 68, 0.3)')
-          : (isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(15, 23, 42, 0.15)')}`,
+          ? (isDarkMode ? `${colours.red}59` : `${colours.red}40`)
+          : (isDarkMode ? colours.dark.borderColor : colours.highlightNeutral)}`,
     backgroundColor: variant === 'primary'
       ? colours.highlight
       : 'transparent',
     color: variant === 'primary'
       ? '#ffffff'
       : variant === 'danger'
-        ? (isDarkMode ? '#f87171' : '#dc2626')
-        : (isDarkMode ? 'rgba(226, 232, 240, 0.85)' : 'rgba(15, 23, 42, 0.75)'),
+        ? colours.red
+        : (isDarkMode ? colours.dark.text : colours.light.text),
     ':hover': {
       backgroundColor: variant === 'primary'
-        ? '#2f7fb7'
+        ? colours.highlight
         : variant === 'danger'
-          ? (isDarkMode ? 'rgba(239, 68, 68, 0.1)' : 'rgba(239, 68, 68, 0.08)')
-          : (isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(15, 23, 42, 0.05)'),
+          ? (isDarkMode ? `${colours.red}1F` : `${colours.red}14`)
+          : (isDarkMode ? colours.dark.cardHover : colours.sectionBackground),
       transform: 'translateY(-1px)',
       boxShadow: variant === 'primary'
         ? '0 4px 12px rgba(54, 144, 206, 0.3)'
@@ -308,9 +299,9 @@ const getDetailsSectionStyle = (isDarkMode: boolean) =>
   mergeStyles({
     marginTop: '16px',
     padding: '16px',
-    borderRadius: '6px',
-    backgroundColor: isDarkMode ? 'rgba(2, 6, 23, 0.4)' : 'rgba(248, 250, 252, 0.9)',
-    border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(15, 23, 42, 0.06)'}`,
+    borderRadius: 0,
+    backgroundColor: isDarkMode ? colours.dark.cardBackground : colours.sectionBackground,
+    border: `1px solid ${isDarkMode ? colours.dark.border : colours.highlightNeutral}`,
     animation: `${slideIn} 0.2s ease-out`,
   });
 
@@ -330,13 +321,13 @@ const getDetailsContentStyle = (isDarkMode: boolean, isError?: boolean) =>
     lineHeight: 1.5,
     color: isDarkMode ? colours.dark.text : colours.light.text,
     padding: '10px 12px',
-    borderRadius: '4px',
+    borderRadius: 0,
     backgroundColor: isError
-      ? (isDarkMode ? 'rgba(239, 68, 68, 0.08)' : 'rgba(239, 68, 68, 0.05)')
-      : (isDarkMode ? 'rgba(7, 16, 32, 0.5)' : 'rgba(255, 255, 255, 0.8)'),
+      ? (isDarkMode ? `${colours.red}14` : `${colours.red}0D`)
+      : (isDarkMode ? colours.websiteBlue : colours.grey),
     border: `1px solid ${isError
-      ? (isDarkMode ? 'rgba(239, 68, 68, 0.2)' : 'rgba(239, 68, 68, 0.15)')
-      : (isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(148, 163, 184, 0.12)')}`,
+      ? (isDarkMode ? `${colours.red}40` : `${colours.red}26`)
+      : (isDarkMode ? colours.dark.border : colours.highlightNeutral)}`,
   });
 
 const getEmptyStateStyle = (isDarkMode: boolean) =>
@@ -795,7 +786,7 @@ const AnnualLeaveBookings: React.FC<AnnualLeaveBookingsProps> = ({ bookings, onC
               dismissButtonAriaLabel="Close"
               styles={{
                 root: {
-                  borderRadius: '6px',
+                  borderRadius: 0,
                   boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
                 }
               }}
@@ -826,7 +817,7 @@ const AnnualLeaveBookings: React.FC<AnnualLeaveBookingsProps> = ({ bookings, onC
               width: '80px',
               height: '80px',
               borderRadius: '50%',
-              backgroundColor: isDarkMode ? 'rgba(34, 197, 94, 0.15)' : 'rgba(34, 197, 94, 0.1)',
+              backgroundColor: isDarkMode ? `${colours.green}24` : `${colours.green}14`,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -834,7 +825,7 @@ const AnnualLeaveBookings: React.FC<AnnualLeaveBookingsProps> = ({ bookings, onC
             }}>
               <FaUmbrellaBeach style={{ 
                 fontSize: '32px', 
-                color: isDarkMode ? '#22c55e' : '#16a34a' 
+                color: colours.green 
               }} />
             </div>
             <div style={{

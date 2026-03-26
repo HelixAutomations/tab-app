@@ -89,6 +89,16 @@ Recommended icon set (Feather-style inline SVGs, 24×24 viewBox):
 - Document: file with fold corner
 - Clock: circle with hands
 
+## 1d. Structural Loading Contract
+
+Loading states must preserve the final page geometry. Skeletons are not decorative placeholders; they reserve space so the live surface can settle in without pushing surrounding content around.
+
+- Keep the final shell mounted whenever practical and swap the internals, not the outer layout.
+- Match fallback footprint to the settled panel as closely as possible: same padding, same section rhythm, same approximate height.
+- Reserve height for lazy boundaries and async panels up front. Do not let live content define the first stable layout after it arrives.
+- Prefer in-place fade or settle-in reveals inside a fixed shell over late insertion of whole cards or sections.
+- Treat layout shift, header bounce, and control bar remounts as UX bugs, not polish debt.
+
 ## 2. Dark-Mode Surface Depth Ladder
 
 All dark surfaces sit on a 215° hue ramp. Moving "up" in the stack means higher lightness. Never skip levels — start from page and work up.

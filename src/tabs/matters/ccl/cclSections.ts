@@ -9,16 +9,11 @@ or
 
 {{we_cannot_give_an_estimate_of_our_overall_charges_in_this_matter_because_reason_why_estimate_is_not_possible}}. The next stage in your matter is {{next_stage}} and we estimate that our charges up to the completion of that stage will be in the region of £{{figure_or_range}}.]`;
 
-const ORIGINAL_DISBURSEMENTS_PARAGRAPH = `[Based on the information you have provided, we expect to incur the following disbursements:
-
-Description | Amount | VAT chargeable
-[Describe disbursement] | £[Insert estimated amount of disbursement] | [Yes OR No]
-[Describe disbursement] | £[Insert estimated amount of disbursement] | [Yes OR No]
-[Describe disbursement] | £[Insert estimated amount of disbursement] | [Yes OR No]
+const ORIGINAL_DISBURSEMENTS_PARAGRAPH = `[Based on the information you have provided, we do not expect disbursements to be a major feature at the outset of your matter. If third-party expenses become necessary, such as court fees, counsel's fees, expert fees, search fees or similar external costs, we will discuss them with you in advance and, where possible, give you an estimate before we incur them on your behalf.
 
 OR
 
-We cannot give an exact figure for your disbursements, but this is likely to be in the region of £{{estimate}} {{in_total_including_vat_or_for_the_next_steps_in_your_matter}} including {{give_examples_of_what_your_estimate_includes_eg_accountants_report_and_court_fees}}.]`;
+At this stage we cannot give an exact figure for your disbursements, but these are likely to be in the region of £{{estimate}} {{in_total_including_vat_or_for_the_next_steps_in_your_matter}} including {{give_examples_of_what_your_estimate_includes_eg_accountants_report_and_court_fees}}. We will discuss any significant disbursement with you before it is incurred on your behalf.]`;
 
 const ORIGINAL_COSTS_OTHER_PARTY_PARAGRAPH = `We do not expect that you will have to pay another party's costs. This only tends to arise in litigation and is therefore not relevant to your matter.
 

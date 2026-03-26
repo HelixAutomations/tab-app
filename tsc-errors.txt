@@ -1,0 +1,2 @@
+﻿src/components/modern/OperationsDashboard.tsx(2210,19): error TS1005: ')' expected.
+src/components/modern/OperationsDashboard.tsx(2211,12): error TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { mergeStyles } from '@fluentui/merge-styles';
-import { FontIcon } from '@fluentui/react';
+import { FontIcon } from '@fluentui/react/lib/Icon';
 import { colours } from '../../app/styles/colours';
 import clioIcon from '../../assets/clio.svg';
 import RelatedClientsSection from './components/RelatedClientsSection';

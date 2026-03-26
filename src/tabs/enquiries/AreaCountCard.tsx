@@ -1,6 +1,7 @@
 
 import React from 'react';
-import { Text, Icon } from '@fluentui/react';
+import { Text } from '@fluentui/react/lib/Text';
+import { Icon } from '@fluentui/react/lib/Icon';
 import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { colours } from '../../app/styles/colours';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';

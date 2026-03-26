@@ -1,4 +1,4 @@
-import React, { useState, useEffect, lazy, Suspense, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useLayoutEffect, lazy, Suspense, useMemo, useCallback } from 'react';
 import CustomTabs from './styles/CustomTabs';
 import './styles/index.css';
 import './styles/ImmediateActionsPortal.css';
@@ -7,18 +7,16 @@ import Navigator from '../components/Navigator';
 import { useNavigatorActions } from './functionality/NavigatorContext';
 import FormsModal from '../components/FormsModal';
 import ResourcesModal from '../components/ResourcesModal';
-import DemoPromptsModal from '../components/DemoPromptsModal';
 import { NavigatorProvider } from './functionality/NavigatorContext';
 import { ToastProvider } from '../components/feedback/ToastProvider';
 import { colours } from './styles/colours';
 import { app } from '@microsoft/teams-js';
 import { Matter, UserData, Enquiry, Tab, TeamData, POID, Transaction, BoardroomBooking, SoundproofPodBooking, InstructionData, NormalizedMatter } from './functionality/types';
 import { hasActiveMatterOpening } from './functionality/matterOpeningUtils';
-import localIdVerifications from '../localData/localIdVerifications.json';
-import localInstructionData from '../localData/localInstructionData.json';
+import { normalizeMatterData } from '../utils/matterNormalization';
 import { getProxyBaseUrl } from '../utils/getProxyBaseUrl';
-import { ADMIN_USERS, isAdminUser } from './admin';
-import Loading from './styles/Loading';
+import { ADMIN_USERS, isAdminUser, canSeePrivateHubControls } from './admin';
+import HubToolsChip from '../components/HubToolsChip';
 import MaintenanceNotice from './MaintenanceNotice';
 import { useServiceHealthMonitor } from './functionality/useServiceHealthMonitor';
 
@@ -28,10 +26,19 @@ const Home = lazy(() => import('../tabs/home/Home'));
 const Enquiries = lazy(() => import('../tabs/enquiries/Enquiries'));
 const Instructions = lazy(() => import('../tabs/instructions/Instructions'));
 const Matters = lazy(() => import('../tabs/matters/Matters'));
+const Roadmap = lazy(() => import('../tabs/roadmap/Roadmap'));
 const ReportingHome = lazy(() => import('../tabs/Reporting/ReportingHome')); // Replace ReportingCode with ReportingHome
 
-function buildInitialPoidData(): POID[] {
-  return (localIdVerifications as any[])
+type LocalInstructionFixtures = {
+  instructionData: InstructionData[];
+  rawIdVerifications: any[];
+  poidData: POID[];
+};
+
+let localInstructionFixturesPromise: Promise<LocalInstructionFixtures> | null = null;
+
+function mapLocalIdVerifications(rawIdVerifications: any[]): POID[] {
+  return rawIdVerifications
     .map((v) => ({
       poid_id: String(v.InternalId),
       first: v.FirstName,
@@ -78,10 +85,33 @@ function buildInitialPoidData(): POID[] {
     );
 }
 
+async function loadLocalInstructionFixtures(): Promise<LocalInstructionFixtures> {
+  if (!localInstructionFixturesPromise) {
+    localInstructionFixturesPromise = Promise.all([
+      import('../localData/localInstructionData.json'),
+      import('../localData/localIdVerifications.json'),
+    ]).then(([instructionModule, idVerificationModule]) => {
+      const instructionData = (((instructionModule as { default?: InstructionData[] }).default) ?? instructionModule) as InstructionData[];
+      const rawIdVerifications = ((((idVerificationModule as { default?: any[] }).default) ?? idVerificationModule) as any[]);
+
+      return {
+        instructionData,
+        rawIdVerifications,
+        poidData: mapLocalIdVerifications(rawIdVerifications),
+      };
+    });
+  }
+
+  return localInstructionFixturesPromise;
+}
+
 interface AppProps {
   teamsContext: app.Context | null;
   userData: UserData[] | null;
   enquiries: Enquiry[] | null;
+  enquiriesUsingSnapshot?: boolean;
+  enquiriesLiveRefreshInFlight?: boolean;
+  enquiriesLastLiveSyncAt?: number | null;
   matters: NormalizedMatter[];
   isLoading: boolean;
   error: string | null;
@@ -94,12 +124,23 @@ interface AppProps {
   onRefreshEnquiries?: () => Promise<void>;
   onRefreshMatters?: () => Promise<void>;
   onOptimisticClaim?: (enquiryId: string, claimerEmail: string) => void;
+  subscribeToEnquiryStream?: (listener: (event: { changeType: string; enquiryId: string; claimedBy?: string; claimedAt?: string | null; record?: Record<string, unknown> }) => void) => () => void;
+}
+
+type ReportingNavigationView = 'logMonitor' | 'dataCentre';
+
+interface ReportingNavigationRequest {
+  view: ReportingNavigationView;
+  requestedAt: number;
 }
 
 const App: React.FC<AppProps> = ({
   teamsContext,
   userData,
   enquiries,
+  enquiriesUsingSnapshot = false,
+  enquiriesLiveRefreshInFlight = false,
+  enquiriesLastLiveSyncAt = null,
   matters,
   isLoading,
   error,
@@ -112,12 +153,17 @@ const App: React.FC<AppProps> = ({
   onRefreshEnquiries,
   onRefreshMatters,
   onOptimisticClaim,
+  subscribeToEnquiryStream,
 }) => {
   const [activeTab, setActiveTab] = useState('home');
+  const [enquiriesEverVisited, setEnquiriesEverVisited] = useState(false);
+  const [mattersEverVisited, setMattersEverVisited] = useState(false);
+  const [instructionsEverVisited, setInstructionsEverVisited] = useState(false);
   const [pendingMatterId, setPendingMatterId] = useState<string | null>(null);
   const [pendingShowCcl, setPendingShowCcl] = useState(false);
-  const [devToolbarOpen, setDevToolbarOpen] = useState(false);
-  const [showDevDemoPrompts, setShowDevDemoPrompts] = useState(false);
+  const [pendingEnquiryId, setPendingEnquiryId] = useState<string | null>(null);
+  const [pendingEnquirySubTab, setPendingEnquirySubTab] = useState<string | null>(null);
+  const [reportingNavigationRequest, setReportingNavigationRequest] = useState<ReportingNavigationRequest | null>(null);
   const [demoModeEnabled, setDemoModeEnabled] = useState<boolean>(() => {
     try {
       return localStorage.getItem('demoModeEnabled') === 'true';
@@ -217,41 +263,27 @@ const App: React.FC<AppProps> = ({
     return (
       <div
         style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          width: '100%',
-          height: '100%',
-          backgroundColor: isDarkMode ? colours.dark.background : colours.light.background,
-          zIndex: 9999,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: 200,
+          flex: 1,
         }}
       >
-        <Loading
-          message="Loading content..."
-          detailMessages={[
-            'Fetching module data…',
-            'Applying filters…',
-            'Rendering components…',
-            'Almost ready…',
-          ]}
-          isDarkMode={isDarkMode}
-        />
+        <div style={{ width: 120, height: 2, overflow: 'hidden', borderRadius: 0 }}>
+          <div style={{
+            height: '100%',
+            background: `linear-gradient(90deg, transparent 0%, ${isDarkMode ? colours.accent : colours.highlight} 50%, transparent 100%)`,
+            backgroundSize: '200% 100%',
+            animation: 'helix-shimmer 1.5s ease-in-out infinite',
+          }} />
+        </div>
       </div>
     );
   };
-  const workspaceLoadingMessages = useMemo(
-    () => [
-      'Syncing Microsoft Teams context…',
-      'Loading user profile…',
-      'Retrieving matters and enquiries…',
-      'Preparing dashboards…',
-    ],
-    [],
-  );
 
-  const initialPoidData = useMemo(() => buildInitialPoidData(), []);
-
-  const [poidData, setPoidData] = useState<POID[]>(() => initialPoidData);
+  const [poidData, setPoidData] = useState<POID[]>([]);
+  const [initialLocalPoidCount, setInitialLocalPoidCount] = useState<number | null>(null);
   const [instructionData, setInstructionData] = useState<InstructionData[]>([]);
   const [allInstructionData, setAllInstructionData] = useState<InstructionData[]>([]); // Admin: all users' instructions
   const [allMattersFromHome, setAllMattersFromHome] = useState<Matter[] | null>(null);
@@ -259,6 +291,7 @@ const App: React.FC<AppProps> = ({
   const [transactions, setTransactions] = useState<Transaction[] | undefined>(undefined);
   const [boardroomBookings, setBoardroomBookings] = useState<BoardroomBooking[] | null>(null);
   const [soundproofBookings, setSoundproofBookings] = useState<SoundproofPodBooking[] | null>(null);
+  const [isHydratingMattersOnDemand, setIsHydratingMattersOnDemand] = useState(false);
   
   // Modal state management with mutual exclusivity
   const [isFormsModalOpen, setIsFormsModalOpen] = useState(false);
@@ -275,16 +308,68 @@ const App: React.FC<AppProps> = ({
       const parsed = saved ? JSON.parse(saved) : {};
       // rateChangeTracker defaults to false - users opt-in via UserBubble
       // showAttendance defaults to true - annual leave visible by default
-      return { rateChangeTracker: false, showPhasedOutCustomTab: false, showAttendance: true, ...parsed };
+      return { rateChangeTracker: false, showPhasedOutCustomTab: false, showAttendance: true, cclGuideMode: false, showOpsQueue: true, ...parsed };
     } catch {
-      return { rateChangeTracker: false, showPhasedOutCustomTab: false, showAttendance: true };
+      return { rateChangeTracker: false, showPhasedOutCustomTab: false, showAttendance: true, cclGuideMode: false, showOpsQueue: true };
     }
   });
 
   const [teamWideEnquiries, setTeamWideEnquiries] = useState<Enquiry[] | null>(null);
+  const mattersHydrationRequestedForUserRef = React.useRef<string | null>(null);
+  // Scroll position map for keep-alive tabs
+  const tabScrollPositions = React.useRef<Record<string, number>>({});
+  // Scroll-driven collapse for ImmediateActionsBar
+  const [actionsHidden, setActionsHidden] = React.useState(false);
   const currentUser = userData?.[0] || null;
+  const useLocalData = useMemo(() => {
+    if (process.env.REACT_APP_USE_LOCAL_DATA === 'true') {
+      return true;
+    }
+
+    if (process.env.REACT_APP_USE_LOCAL_DATA === 'false') {
+      return false;
+    }
+
+    if (typeof window === 'undefined') {
+      return Boolean(isLocalDev);
+    }
+
+    return window.location.hostname === 'localhost';
+  }, [isLocalDev]);
   const isProductionPreview = Boolean(featureToggles?.viewAsProd);
+  const homeFeatureToggles = useMemo(
+    () => ({ ...(featureToggles || {}), viewAsProd: false }),
+    [featureToggles]
+  );
   const showPhasedOutCustomTab = isLocalDev && !isProductionPreview && (featureToggles?.showPhasedOutCustomTab ?? false);
+  const showRoadmapTab = isLocalDev && !isProductionPreview;
+  const matterSeedUserName = useMemo(() => {
+    const user = userData?.[0];
+    if (!user) {
+      return '';
+    }
+
+    return String(
+      user.FullName ||
+      [user.First, user.Last].filter(Boolean).join(' ') ||
+      user.Email ||
+      ''
+    );
+  }, [userData]);
+  const seededMattersForTab = useMemo<NormalizedMatter[]>(() => {
+    if ((matters || []).length > 0) {
+      return matters;
+    }
+
+    if (!(allMattersFromHome || []).length) {
+      return [];
+    }
+
+    return (allMattersFromHome || []).map((matter) =>
+      normalizeMatterData(matter, matterSeedUserName, 'legacy_all')
+    );
+  }, [matters, allMattersFromHome, matterSeedUserName]);
+  const hasSeededMattersForTab = seededMattersForTab.length > 0;
 
   useEffect(() => {
     if ((isLocalDev && !isProductionPreview) || !featureToggles?.showPhasedOutCustomTab) {
@@ -487,24 +572,132 @@ const App: React.FC<AppProps> = ({
     }
   }, [activeTab]);
 
+  // Track first visit to Enquiries for keep-alive mounting
+  useEffect(() => {
+    if (activeTab === 'enquiries' && !enquiriesEverVisited) {
+      setEnquiriesEverVisited(true);
+    }
+    if (activeTab === 'matters' && !mattersEverVisited) {
+      setMattersEverVisited(true);
+    }
+    if (activeTab === 'instructions' && !instructionsEverVisited) {
+      setInstructionsEverVisited(true);
+    }
+  }, [activeTab, enquiriesEverVisited, mattersEverVisited, instructionsEverVisited]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || isLocalDev) return;
+    if (!teamsContext || !userData?.[0]) return;
+
+    let cancelled = false;
+    const warmEnquiriesChunk = () => {
+      if (cancelled) return;
+      void import('../tabs/enquiries/Enquiries');
+    };
+
+    if ('requestIdleCallback' in window) {
+      const idleId = (window as typeof window & {
+        requestIdleCallback: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
+      }).requestIdleCallback(() => warmEnquiriesChunk(), { timeout: 300 });
+
+      return () => {
+        cancelled = true;
+        if ('cancelIdleCallback' in window) {
+          (window as typeof window & { cancelIdleCallback: (id: number) => void }).cancelIdleCallback(idleId);
+        }
+      };
+    }
+
+    const timer = globalThis.setTimeout(() => warmEnquiriesChunk(), 150);
+    return () => {
+      cancelled = true;
+      globalThis.clearTimeout(timer);
+    };
+  }, [isLocalDev, teamsContext, userData]);
+
+  // Save scroll position for the active tab continuously + collapse ImmediateActions on scroll
+  useEffect(() => {
+    const scrollRegion = document.querySelector('.app-scroll-region') as HTMLElement | null;
+    if (!scrollRegion) return;
+    let ticking = false;
+    const handleScroll = () => {
+      tabScrollPositions.current[activeTab] = scrollRegion.scrollTop;
+      if (!ticking) {
+        ticking = true;
+        requestAnimationFrame(() => {
+          const scrollY = scrollRegion.scrollTop;
+          setActionsHidden(activeTab === 'home' && scrollY > 30);
+          ticking = false;
+        });
+      }
+    };
+    // Reset on tab switch
+    if (activeTab !== 'home') setActionsHidden(false);
+    scrollRegion.addEventListener('scroll', handleScroll, { passive: true });
+    return () => scrollRegion.removeEventListener('scroll', handleScroll);
+  }, [activeTab]);
+
+  // Restore scroll position when switching tabs (synchronous to prevent flash)
+  useLayoutEffect(() => {
+    const scrollRegion = document.querySelector('.app-scroll-region') as HTMLElement | null;
+    if (!scrollRegion) return;
+    scrollRegion.scrollTop = tabScrollPositions.current[activeTab] || 0;
+  }, [activeTab]);
+
+  useEffect(() => {
+    mattersHydrationRequestedForUserRef.current = null;
+  }, [userData?.[0]?.Email, userData?.[0]?.EntraID]);
+
+  useEffect(() => {
+    if (activeTab !== 'matters') return;
+    if (!onRefreshMatters) return;
+    if (isHydratingMattersOnDemand) return;
+    if ((matters || []).length > 0) return;
+
+    const userKey = userData?.[0]?.Email || userData?.[0]?.EntraID || 'unknown';
+    if (mattersHydrationRequestedForUserRef.current === userKey) {
+      return;
+    }
+    mattersHydrationRequestedForUserRef.current = userKey;
+
+    let cancelled = false;
+    const shouldBlockOnHydration = !hasSeededMattersForTab;
+    if (shouldBlockOnHydration) {
+      setIsHydratingMattersOnDemand(true);
+    }
+    Promise.resolve(onRefreshMatters())
+      .catch(() => {
+        if (!cancelled) {
+          mattersHydrationRequestedForUserRef.current = null;
+        }
+      })
+      .finally(() => {
+        if (!cancelled && shouldBlockOnHydration) {
+          setIsHydratingMattersOnDemand(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, matters, onRefreshMatters, isHydratingMattersOnDemand, userData, hasSeededMattersForTab]);
+
+  // Stable callbacks for keep-alive children (avoids new closure per render)
+  const handlePendingEnquiryHandled = useCallback(() => {
+    setPendingEnquiryId(null);
+    setPendingEnquirySubTab(null);
+  }, []);
+  const handlePendingMatterHandled = useCallback(() => {
+    setPendingMatterId(null);
+    setPendingShowCcl(false);
+  }, []);
+
   const handleAllMattersFetched = (fetchedMatters: Matter[]) => {
     setAllMattersFromHome(fetchedMatters);
   };
 
   const handleOutstandingBalancesFetched = (data: any) => {
     setOutstandingBalances(data);
-  };
-
-  const handlePOID6YearsFetched = (data: any[]) => {
-    // Don't override the local POID data with POID6Years data
-    // We should store this separately but never use it for the main POID list
-    // NEVER DO: setPoidData(data);
-    
-    // Since POID data should only come from localIdVerifications.json,
-    // we'll reset poidData to initialPoidData if it's been corrupted
-    if (poidData.length !== initialPoidData.length) {
-      setPoidData(initialPoidData);
-    }
   };
 
   const handleTransactionsFetched = (fetchedTransactions: Transaction[]) => {
@@ -539,21 +732,22 @@ const App: React.FC<AppProps> = ({
     const closeLoadingScreen = () => {
       const loadingScreen = document.getElementById('loading-screen');
       if (loadingScreen) {
-        loadingScreen.style.transition = 'opacity 0.5s';
+        loadingScreen.style.transition = 'opacity 0.3s';
         loadingScreen.style.opacity = '0';
-        setTimeout(() => loadingScreen.remove(), 500);
+        setTimeout(() => loadingScreen.remove(), 300);
       }
     };
 
-    if (teamsContext && userData && enquiries) {
+    if (teamsContext && userData) {
       closeLoadingScreen();
     }
-  }, [teamsContext, userData, enquiries]);
+  }, [teamsContext, userData]);
 
   // Boot preheat: warm server cache for core reporting datasets on first load.
   // Only for admin users (Reports tab is admin-only) — avoids unnecessary server load for non-admin users.
   const bootPreheatFired = React.useRef(false);
   useEffect(() => {
+    if (isLocalDev) return;
     if (bootPreheatFired.current || !userData?.[0]?.EntraID) return;
     if (!isAdminUser(userData[0])) return;
     bootPreheatFired.current = true;
@@ -566,9 +760,9 @@ const App: React.FC<AppProps> = ({
           entraId: userData[0].EntraID,
         }),
       }).catch(() => { /* fire-and-forget */ });
-    }, 3000); // 3s after boot — let critical UI settle first
+    }, 20000); // 20s after boot — warm server caches once Home data has settled
     return () => clearTimeout(timer);
-  }, [userData]);
+  }, [isLocalDev, userData]);
 
   // Listen for navigation events from child components
   useEffect(() => {
@@ -582,7 +776,29 @@ const App: React.FC<AppProps> = ({
     const handleNavigateToEnquiries = () => {
       setActiveTab('enquiries');
     };
-    const handleNavigateToReporting = () => {
+    const handleNavigateToHome = () => {
+      setActiveTab('home');
+    };
+    const handleNavigateToEnquiry = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.enquiryId) {
+        setPendingEnquiryId(String(detail.enquiryId));
+        if (detail.subTab) setPendingEnquirySubTab(detail.subTab);
+        if (detail.timelineItem) {
+          try { localStorage.setItem('navigateToTimelineItem', detail.timelineItem); } catch {}
+        }
+      }
+      setActiveTab('enquiries');
+    };
+    const handleNavigateToReporting = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      const requestedView = detail?.view;
+      if (requestedView === 'logMonitor' || requestedView === 'dataCentre') {
+        setReportingNavigationRequest({
+          view: requestedView,
+          requestedAt: Date.now(),
+        });
+      }
       setActiveTab('reporting');
     };
     const handleNavigateToMatter = (e: Event) => {
@@ -594,14 +810,18 @@ const App: React.FC<AppProps> = ({
       setActiveTab('matters');
     };
 
+    window.addEventListener('navigateToHome', handleNavigateToHome);
     window.addEventListener('navigateToInstructions', handleNavigateToInstructions);
     window.addEventListener('navigateToEnquiries', handleNavigateToEnquiries);
+    window.addEventListener('navigateToEnquiry', handleNavigateToEnquiry);
     window.addEventListener('navigateToReporting', handleNavigateToReporting);
     window.addEventListener('navigateToMatter', handleNavigateToMatter);
 
     return () => {
+      window.removeEventListener('navigateToHome', handleNavigateToHome);
       window.removeEventListener('navigateToInstructions', handleNavigateToInstructions);
       window.removeEventListener('navigateToEnquiries', handleNavigateToEnquiries);
+      window.removeEventListener('navigateToEnquiry', handleNavigateToEnquiry);
       window.removeEventListener('navigateToReporting', handleNavigateToReporting);
       window.removeEventListener('navigateToMatter', handleNavigateToMatter);
     };
@@ -666,6 +886,12 @@ const App: React.FC<AppProps> = ({
     [handleShowTestEnquiry]
   );
 
+  const handleOpenDemoMatter = useCallback((showCcl = false) => {
+    setPendingMatterId('DEMO-3311402');
+    setPendingShowCcl(showCcl);
+    setActiveTab('matters');
+  }, []);
+
   useEffect(() => {
     if (!pendingDemoMode || activeTab !== 'enquiries') {
       return;
@@ -687,13 +913,12 @@ const App: React.FC<AppProps> = ({
   // Determine the current user's initials
   const userInitials = userData?.[0]?.Initials?.toUpperCase() || '';
 
-  // Fetch instruction data lazily when Instructions tab is opened.
-  // Enquiries and Matters also need access to this dataset for InlineWorkbench expansion.
+  // Fetch instruction data when Instructions or Enquiries tab is active.
+  // Enquiries needs workbench data (instruction/EID/payment/risk/matter) for pipeline chips.
   useEffect(() => {
     const currentUser = userData?.[0] || null;
 
-    // Only fetch instructions when Instructions/Enquiries/Matters are active.
-    if (activeTab !== 'instructions' && activeTab !== 'enquiries' && activeTab !== 'matters') {
+    if (activeTab !== 'instructions' && activeTab !== 'enquiries') {
       return;
     }
 
@@ -702,10 +927,6 @@ const App: React.FC<AppProps> = ({
       return;
     }
 
-    const useLocalData =
-      process.env.REACT_APP_USE_LOCAL_DATA === "true" ||
-      (process.env.REACT_APP_USE_LOCAL_DATA !== "false" && window.location.hostname === "localhost");
-
     async function fetchInstructionData() {
       const pilotUsers = ["AC", "JW", "KW", "BL", "LZ"];
       // Use the actual user's initials for filtering, not LZ's
@@ -713,18 +934,26 @@ const App: React.FC<AppProps> = ({
       const isAdmin = isAdminUser(currentUser);
 
       if (useLocalData) {
+        const {
+          instructionData: localInstructionData,
+          rawIdVerifications,
+          poidData: localPoidData,
+        } = await loadLocalInstructionFixtures();
+
+        setInitialLocalPoidCount(localPoidData.length);
+        setPoidData((current) => (current.length > 0 ? current : localPoidData));
 
         // Merge local instruction data with ID verification data
         const instructionsWithIdVerifications = (localInstructionData as InstructionData[]).map(prospect => ({
           ...prospect,
           // Add ID verifications to prospect level
-          idVerifications: (localIdVerifications as any[]).filter(
+          idVerifications: rawIdVerifications.filter(
             (idv: any) => prospect.instructions?.some((inst: any) => inst.InstructionRef === idv.InstructionRef)
           ),
           // Also add to instructions level for easier access
           instructions: prospect.instructions?.map(inst => ({
             ...inst,
-            idVerifications: (localIdVerifications as any[]).filter(
+            idVerifications: rawIdVerifications.filter(
               (idv: any) => idv.InstructionRef === inst.InstructionRef
             )
           }))
@@ -904,7 +1133,7 @@ const App: React.FC<AppProps> = ({
     if (userInitials) {
       fetchInstructionData();
     }
-  }, [activeTab, userInitials, userData, instructionData.length, allInstructionData.length, instructionRefreshTrigger]);
+  }, [activeTab, userInitials, userData, instructionData.length, allInstructionData.length, instructionRefreshTrigger, useLocalData]);
 
   // Tabs visible to all users start with the Enquiries tab.
   // Only show the Reports tab to admins.
@@ -918,9 +1147,10 @@ const App: React.FC<AppProps> = ({
       { key: 'matters', text: 'Matters' },
       { key: 'forms', text: 'Forms', disabled: true },
       { key: 'resources', text: 'Resources', disabled: true },
+      ...(showRoadmapTab ? [{ key: 'roadmap', text: 'Roadmap' }] : []),
       ...(showReportsTab ? [{ key: 'reporting', text: 'Reports' }] : []),
     ];
-  }, [currentUser, showPhasedOutCustomTab]);
+  }, [currentUser, showPhasedOutCustomTab, showRoadmapTab]);
 
   // Ensure the active tab is still valid when tabs change (e.g., when switching users)
   // If current tab is no longer available, redirect to home instead of breaking navigation
@@ -937,125 +1167,15 @@ const App: React.FC<AppProps> = ({
 
   const { setContent } = useNavigatorActions();
 
-  // Ensure Navigator content is cleared when navigating away from Home
+  // Ensure Navigator content is cleared when navigating away from keep-alive tabs
+  // to non-keep-alive tabs (Instructions, Matters, Reporting) which don't write content.
   React.useEffect(() => {
-    if (activeTab !== 'home') {
+    if (activeTab !== 'home' && activeTab !== 'enquiries') {
       setContent(null);
     }
   }, [activeTab, setContent]);
 
-  const renderContent = () => {
-    switch (activeTab) {
-      case 'home':
-        return (
-          <Home
-            context={teamsContext}
-            userData={userData}
-            enquiries={enquiries}
-            matters={matters}
-            instructionData={instructionData}
-            onAllMattersFetched={handleAllMattersFetched}
-            onOutstandingBalancesFetched={handleOutstandingBalancesFetched}
-            onPOID6YearsFetched={handlePOID6YearsFetched}
-            onTransactionsFetched={handleTransactionsFetched}
-            onBoardroomBookingsFetched={handleBoardroomBookingsFetched}
-            onSoundproofBookingsFetched={handleSoundproofBookingsFetched}
-            teamData={teamData}
-            isInMatterOpeningWorkflow={isInMatterOpeningWorkflow}
-            onImmediateActionsChange={setHasImmediateActions}
-            originalAdminUser={originalAdminUser}
-            featureToggles={featureToggles}
-            demoModeEnabled={demoModeEnabled}
-          />
-        );
-      case 'enquiries':
-        return (
-          <Enquiries
-            context={teamsContext}
-            userData={userData}
-            enquiries={enquiries}
-            teamData={teamData}
-            poidData={poidData}
-            setPoidData={setPoidData}
-            onRefreshEnquiries={onRefreshEnquiries}
-            onOptimisticClaim={onOptimisticClaim}
-            instructionData={allInstructionData}
-            featureToggles={featureToggles}
-            demoModeEnabled={demoModeEnabled}
-            isActive={activeTab === 'enquiries'}
-            onTeamWideEnquiriesLoaded={setTeamWideEnquiries}
-          />
-        );
-      case 'instructions':
-        return (
-          <Instructions
-            userInitials={userInitials}
-            instructionData={instructionData}
-            setInstructionData={setInstructionData}
-            allInstructionData={allInstructionData}
-            teamData={teamData}
-            userData={userData}
-            matters={allMattersFromHome || []}
-            hasActiveMatter={hasActiveMatter}
-            setIsInMatterOpeningWorkflow={setIsInMatterOpeningWorkflow}
-            poidData={poidData}
-            setPoidData={setPoidData}
-            enquiries={enquiries}
-            featureToggles={featureToggles}
-            demoModeEnabled={demoModeEnabled}
-          />
-        );
-      case 'matters':
-        return (
-          <Matters
-            matters={matters}
-            isLoading={isLoading}
-            error={error}
-            userData={userData}
-            teamData={teamData}
-            enquiries={(teamWideEnquiries && teamWideEnquiries.length > 0) ? teamWideEnquiries : enquiries}
-            workbenchByInstructionRef={workbenchByInstructionRef}
-            pendingMatterId={pendingMatterId}
-            pendingShowCcl={pendingShowCcl}
-            onPendingMatterHandled={() => { setPendingMatterId(null); setPendingShowCcl(false); }}
-            demoModeEnabled={demoModeEnabled}
-          />
-        );
-      case 'reporting':
-        return <ReportingHome userData={userData} teamData={teamData} demoModeEnabled={demoModeEnabled} featureToggles={featureToggles} />;
-      default:
-        return (
-          <Home
-            context={teamsContext}
-            userData={userData}
-            enquiries={enquiries}
-            matters={matters}
-            onAllMattersFetched={handleAllMattersFetched}
-            onOutstandingBalancesFetched={handleOutstandingBalancesFetched}
-            onPOID6YearsFetched={handlePOID6YearsFetched}
-            onTransactionsFetched={handleTransactionsFetched}
-            onBoardroomBookingsFetched={handleBoardroomBookingsFetched}
-            onSoundproofBookingsFetched={handleSoundproofBookingsFetched}
-            teamData={teamData}
-            onImmediateActionsChange={setHasImmediateActions}
-            originalAdminUser={originalAdminUser}
-            featureToggles={featureToggles}
-            demoModeEnabled={demoModeEnabled}
-            isSwitchingUser={isLoading}
-          />
-        );
-    }
-  };
-
-  if (!teamsContext || !userData) {
-    return (
-      <Loading
-        message="Loading your workspace..."
-        detailMessages={workspaceLoadingMessages}
-        isDarkMode={isDarkMode}
-      />
-    );
-  }
+  const dataReady = !!(teamsContext && userData);
 
   return (
     <NavigatorProvider>
@@ -1078,7 +1198,7 @@ const App: React.FC<AppProps> = ({
             onHomeClick={() => setActiveTab('home')}
             tabs={tabs}
             ariaLabel="Main Navigation Tabs"
-            user={userData[0]}
+            user={userData?.[0]}
             onFormsClick={handleFormsTabClick}
             onResourcesClick={handleResourcesTabClick}
             hasActiveMatter={hasActiveMatter}
@@ -1098,383 +1218,52 @@ const App: React.FC<AppProps> = ({
             demoModeEnabled={demoModeEnabled}
             onToggleDemoMode={handleToggleDemoMode}
           />
-          {/* Navigator wrapper ensures correct layering and clickability */}
-          <div className="app-navigator">
+          {/* Thin loading bar — visible when boot data is still loading */}
+          {(!enquiries || enquiries.length === 0) && !isLoading && (
+            <div style={{
+              height: 2,
+              background: `linear-gradient(90deg, transparent 0%, ${colours.highlight} 50%, transparent 100%)`,
+              backgroundSize: '200% 100%',
+              animation: 'helix-shimmer 1.5s ease-in-out infinite',
+              flexShrink: 0,
+            }} />
+          )}
+          <style>{`@keyframes helix-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }`}</style>
+          {/* Navigator + Immediate Actions — scroll-driven collapse on home tab */}
+          <div
+            className="app-navigator"
+            style={{
+              overflow: 'hidden',
+              maxHeight: (activeTab === 'home' && actionsHidden) ? 0 : 200,
+              opacity: (activeTab === 'home' && actionsHidden) ? 0 : 1,
+              transition: 'opacity 180ms ease, max-height 220ms ease',
+              transitionDelay: (activeTab === 'home' && actionsHidden) ? '0ms' : '120ms',
+              pointerEvents: (activeTab === 'home' && actionsHidden) ? 'none' : undefined,
+            } as React.CSSProperties}
+          >
             <Navigator />
           </div>
           
-          {/* Dev Toolbar — persistent bottom-left when on localhost */}
-          {isLocalDev && (() => {
-            const activeUsers: UserData[] = (teamData || [])
-              .filter(u => !u.status || u.status.toLowerCase() === 'active')
-              .map(u => ({
-                ...(u as unknown as Record<string, unknown>),
-                FullName: u['Full Name'],
-                First: u['First'],
-                Last: u['Last'],
-                Initials: u['Initials'],
-                Email: u['Email'],
-                status: u.status,
-              } as UserData));
-            const userInitials = currentUser?.Initials?.toUpperCase() || '?';
-            const openDemoProspect = () => {
-              setPendingMatterId(null);
-              setPendingShowCcl(false);
-              setActiveTab('enquiries');
-              setDevToolbarOpen(false);
-              window.setTimeout(() => {
-                window.dispatchEvent(new CustomEvent('selectTestEnquiry'));
-              }, 120);
-            };
-            const openDemoMatter = (showCcl = false) => {
-              setPendingMatterId('DEMO-3311402');
-              setPendingShowCcl(showCcl);
-              setActiveTab('matters');
-              setDevToolbarOpen(false);
-            };
-            return (
-              <>
-                {/* Backdrop — closes panel on outside click */}
-                {devToolbarOpen && (
-                  <div
-                    style={{ position: 'fixed', inset: 0, zIndex: 9998 }}
-                    onClick={() => setDevToolbarOpen(false)}
-                  />
-                )}
-                <div
-                  style={{
-                    position: 'fixed',
-                    bottom: 16,
-                    left: 16,
-                    zIndex: 9999,
-                    userSelect: 'none',
-                    fontFamily: 'Raleway, sans-serif',
-                  }}
-                >
-                  {/* Expanded panel */}
-                  {devToolbarOpen && (
-                    <div style={{
-                      marginBottom: 6,
-                      background: 'rgba(6, 23, 51, 0.96)',
-                      backdropFilter: 'blur(16px)',
-                      border: '1px solid rgba(135, 243, 243, 0.12)',
-                      boxShadow: '0 8px 32px rgba(0,0,0,0.45)',
-                      padding: '9px 10px',
-                      minWidth: 240,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 8,
-                    }}>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                        <div
-                          style={{
-                            display: 'flex', alignItems: 'center', gap: 8, minHeight: 28, padding: '4px 8px', cursor: 'pointer',
-                            background: featureToggles.viewAsProd ? 'rgba(234, 179, 8, 0.12)' : 'rgba(255,255,255,0.02)',
-                            transition: 'background 150ms ease',
-                          }}
-                          onClick={() => {
-                            const next = !featureToggles.viewAsProd;
-                            handleFeatureToggle('viewAsProd', next);
-                          }}
-                        >
-                          {featureToggles.viewAsProd ? (
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#eab308" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
-                          ) : (
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={colours.accent} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
-                          )}
-                          <span style={{ flex: 1, fontSize: 10, fontWeight: 700, letterSpacing: '0.45px', color: featureToggles.viewAsProd ? '#eab308' : '#f3f4f6', textTransform: 'uppercase' }}>
-                            Env · {featureToggles.viewAsProd ? 'Prod Preview' : 'Local Dev'}
-                          </span>
-                          <div style={{
-                            width: 24, height: 12, borderRadius: 7, position: 'relative', flexShrink: 0,
-                            background: featureToggles.viewAsProd ? 'rgba(234, 179, 8, 0.35)' : 'rgba(135, 243, 243, 0.18)',
-                            transition: 'background 180ms ease',
-                          }}>
-                            <div style={{
-                              width: 10, height: 10, borderRadius: '50%', position: 'absolute', top: 1,
-                              left: featureToggles.viewAsProd ? 13 : 1,
-                              background: featureToggles.viewAsProd ? '#eab308' : colours.accent,
-                              transition: 'left 180ms ease, background 180ms ease',
-                            }} />
-                          </div>
-                        </div>
-
-                        <div
-                          style={{
-                            display: 'flex', alignItems: 'center', gap: 8, minHeight: 28, padding: '4px 8px', cursor: 'pointer',
-                            background: demoModeEnabled ? 'rgba(32, 178, 108, 0.12)' : 'rgba(255,255,255,0.02)',
-                            transition: 'background 150ms ease',
-                          }}
-                          onClick={() => handleToggleDemoMode(!demoModeEnabled)}
-                        >
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={demoModeEnabled ? colours.green : '#A0A0A0'} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
-                          </svg>
-                          <span style={{ flex: 1, fontSize: 10, fontWeight: 700, letterSpacing: '0.45px', color: demoModeEnabled ? colours.green : '#f3f4f6', textTransform: 'uppercase' }}>
-                            Demo · {demoModeEnabled ? 'On' : 'Off'}
-                          </span>
-                          <div style={{
-                            width: 24, height: 12, borderRadius: 7, position: 'relative', flexShrink: 0,
-                            background: demoModeEnabled ? 'rgba(32, 178, 108, 0.35)' : 'rgba(255, 255, 255, 0.08)',
-                            transition: 'background 180ms ease',
-                          }}>
-                            <div style={{
-                              width: 10, height: 10, borderRadius: '50%', position: 'absolute', top: 1,
-                              left: demoModeEnabled ? 13 : 1,
-                              background: demoModeEnabled ? colours.green : '#6B6B6B',
-                              transition: 'left 180ms ease, background 180ms ease',
-                            }} />
-                          </div>
-                        </div>
-                      </div>
-
-                      {demoModeEnabled && (
-                        <div>
-                          <div style={{ fontSize: 9, fontWeight: 600, letterSpacing: '0.75px', color: 'rgba(135, 243, 243, 0.6)', textTransform: 'uppercase', marginBottom: 6 }}>Demo Tools</div>
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 4 }}>
-                            <button
-                              type="button"
-                              onClick={openDemoProspect}
-                              style={{
-                                padding: '7px 8px', background: 'rgba(255,255,255,0.03)', color: '#f3f4f6', border: '1px solid rgba(255,255,255,0.07)',
-                                fontSize: 10, fontWeight: 700, letterSpacing: '0.35px', cursor: 'pointer', textTransform: 'uppercase',
-                              }}
-                            >
-                              Prospect
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => openDemoMatter(false)}
-                              style={{
-                                padding: '7px 8px', background: 'rgba(255,255,255,0.03)', color: '#f3f4f6', border: '1px solid rgba(255,255,255,0.07)',
-                                fontSize: 10, fontWeight: 700, letterSpacing: '0.35px', cursor: 'pointer', textTransform: 'uppercase',
-                              }}
-                            >
-                              Matter
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => openDemoMatter(true)}
-                              style={{
-                                padding: '7px 8px', background: 'rgba(135, 243, 243, 0.08)', color: colours.accent, border: `1px solid ${'rgba(135, 243, 243, 0.16)'}`,
-                                fontSize: 10, fontWeight: 700, letterSpacing: '0.35px', cursor: 'pointer', textTransform: 'uppercase',
-                              }}
-                            >
-                              CCL
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setDevToolbarOpen(false);
-                                setShowDevDemoPrompts(true);
-                              }}
-                              style={{
-                                padding: '7px 8px', background: 'rgba(255,255,255,0.03)', color: '#f3f4f6', border: '1px solid rgba(255,255,255,0.07)',
-                                fontSize: 10, fontWeight: 700, letterSpacing: '0.35px', cursor: 'pointer', textTransform: 'uppercase',
-                              }}
-                            >
-                              Todo
-                            </button>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Section: Switch User */}
-                      {onUserChange && activeUsers.length > 0 && (
-                        <div>
-                          <div style={{ fontSize: 9, fontWeight: 600, letterSpacing: '0.8px', color: 'rgba(135, 243, 243, 0.6)', textTransform: 'uppercase', marginBottom: 6 }}>Switch User</div>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                            {activeUsers.map(u => {
-                              const initials = u.Initials?.toUpperCase() || '?';
-                              const isActive = initials === userInitials;
-                              const isSwitchedUser = originalAdminUser && initials === currentUser?.Initials?.toUpperCase();
-                              return (
-                                <div
-                                  key={initials}
-                                  onClick={() => {
-                                    if (!isActive) {
-                                      onUserChange(u);
-                                    }
-                                  }}
-                                  title={u.FullName || `${u.First || ''} ${u.Last || ''}`}
-                                  style={{
-                                    width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    fontSize: 9, fontWeight: 700, letterSpacing: '0.3px',
-                                    cursor: isActive ? 'default' : 'pointer',
-                                    background: isActive
-                                      ? 'rgba(135, 243, 243, 0.18)'
-                                      : isSwitchedUser
-                                        ? 'rgba(54, 144, 206, 0.15)'
-                                        : 'rgba(255, 255, 255, 0.04)',
-                                    color: isActive ? colours.accent : isSwitchedUser ? colours.highlight : '#A0A0A0',
-                                    border: isActive
-                                      ? `1px solid ${colours.accent}`
-                                      : '1px solid rgba(255, 255, 255, 0.06)',
-                                    transition: 'all 150ms ease',
-                                    opacity: isActive ? 1 : 0.85,
-                                  }}
-                                  onMouseEnter={e => {
-                                    if (!isActive) {
-                                      e.currentTarget.style.background = 'rgba(135, 243, 243, 0.1)';
-                                      e.currentTarget.style.color = '#f3f4f6';
-                                      e.currentTarget.style.opacity = '1';
-                                    }
-                                  }}
-                                  onMouseLeave={e => {
-                                    if (!isActive) {
-                                      e.currentTarget.style.background = isSwitchedUser ? 'rgba(54, 144, 206, 0.15)' : 'rgba(255, 255, 255, 0.04)';
-                                      e.currentTarget.style.color = isSwitchedUser ? colours.highlight : '#A0A0A0';
-                                      e.currentTarget.style.opacity = '0.85';
-                                    }
-                                  }}
-                                >
-                                  {initials}
-                                </div>
-                              );
-                            })}
-                          </div>
-                          {originalAdminUser && (
-                            <div
-                              style={{
-                                marginTop: 6, fontSize: 10, color: '#A0A0A0', cursor: 'pointer',
-                                display: 'flex', alignItems: 'center', gap: 4,
-                              }}
-                              onClick={() => {
-                                if (onReturnToAdmin) onReturnToAdmin();
-                              }}
-                              onMouseEnter={e => { e.currentTarget.style.color = colours.accent; }}
-                              onMouseLeave={e => { e.currentTarget.style.color = '#A0A0A0'; }}
-                            >
-                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 14l-4-4 4-4"/><path d="M5 10h11a4 4 0 0 1 0 8h-1"/></svg>
-                              Back to {originalAdminUser.Initials}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Collapsed pill — click to expand */}
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6,
-                      padding: '4px 10px 4px 6px',
-                      background: devToolbarOpen ? 'rgba(6, 23, 51, 0.96)' : 'rgba(6, 23, 51, 0.88)',
-                      backdropFilter: 'blur(8px)',
-                      border: '1px solid rgba(135, 243, 243, 0.12)',
-                      boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
-                      cursor: 'pointer',
-                      transition: 'all 180ms ease',
-                    }}
-                    onClick={() => setDevToolbarOpen(prev => !prev)}
-                    title="Dev Controls"
-                  >
-                    {/* Chevron */}
-                    <svg
-                      width="8" height="8" viewBox="0 0 24 24" fill="none" stroke={colours.accent} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
-                      style={{ transition: 'transform 180ms ease', transform: devToolbarOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}
-                    >
-                      <path d="M18 15l-6-6-6 6"/>
-                    </svg>
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        const next = !featureToggles.viewAsProd;
-                        handleFeatureToggle('viewAsProd', next);
-                      }}
-                      title={featureToggles.viewAsProd ? 'Switch back to dev view' : 'View as production'}
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 4,
-                        padding: '2px 6px',
-                        border: featureToggles.viewAsProd ? '1px solid #eab308' : '1px solid rgba(255, 255, 255, 0.08)',
-                        background: featureToggles.viewAsProd ? 'rgba(234, 179, 8, 0.12)' : 'rgba(255, 255, 255, 0.04)',
-                        color: featureToggles.viewAsProd ? '#eab308' : '#d1d5db',
-                        cursor: 'pointer',
-                        fontSize: 9,
-                        fontWeight: 700,
-                        letterSpacing: '0.35px',
-                        textTransform: 'uppercase',
-                        fontFamily: 'inherit',
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: 6,
-                          height: 6,
-                          borderRadius: '50%',
-                          background: featureToggles.viewAsProd ? '#eab308' : '#4b5563',
-                          transition: 'background 180ms ease',
-                        }}
-                      />
-                      <span>Prod</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        handleToggleDemoMode(!demoModeEnabled);
-                      }}
-                      title={demoModeEnabled ? 'Turn demo mode off' : 'Turn demo mode on'}
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 4,
-                        padding: '2px 6px',
-                        border: demoModeEnabled ? `1px solid ${colours.green}` : '1px solid rgba(255, 255, 255, 0.08)',
-                        background: demoModeEnabled ? 'rgba(32, 178, 108, 0.12)' : 'rgba(255, 255, 255, 0.04)',
-                        color: demoModeEnabled ? colours.green : '#d1d5db',
-                        cursor: 'pointer',
-                        fontSize: 9,
-                        fontWeight: 700,
-                        letterSpacing: '0.35px',
-                        textTransform: 'uppercase',
-                        fontFamily: 'inherit',
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: 6,
-                          height: 6,
-                          borderRadius: '50%',
-                          background: demoModeEnabled ? colours.green : '#4b5563',
-                          transition: 'background 180ms ease',
-                        }}
-                      />
-                      <span>Demo</span>
-                    </button>
-                    {/* Status dots */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                      <div style={{ width: 6, height: 6, borderRadius: '50%', background: featureToggles.viewAsProd ? '#eab308' : colours.accent, transition: 'background 180ms ease' }} title={featureToggles.viewAsProd ? 'Prod view' : 'Dev'} />
-                      <div style={{ width: 6, height: 6, borderRadius: '50%', background: demoModeEnabled ? colours.green : '#4b5563', transition: 'background 180ms ease' }} title={demoModeEnabled ? 'Demo ON' : 'Demo OFF'} />
-                    </div>
-                    {/* Current user chip */}
-                    <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.4px', color: colours.accent }}>{userInitials}</span>
-                  </div>
-                </div>
-              </>
-            );
-          })()}
-          
-          {/* App-level Immediate Actions Bar */}
-          {activeTab === 'home' && (
-            <div
-              id="app-level-immediate-actions"
-              className="immediate-actions-portal"
-              style={{
-                position: 'relative',
-                zIndex: 1,
-                width: '100%',
-                minWidth: 0,
-                boxSizing: 'border-box',
-                color: 'inherit',
-              } as React.CSSProperties}
-            />
-          )}
+          {/* App-level Immediate Actions Bar — always mounted, scroll-driven collapse */}
+          <div
+            id="app-level-immediate-actions"
+            className="immediate-actions-portal"
+            style={{
+              position: 'relative',
+              zIndex: 1,
+              width: '100%',
+              minHeight: (activeTab === 'home' && !actionsHidden) ? 56 : 0,
+              maxHeight: (activeTab === 'home' && !actionsHidden) ? 200 : 0,
+              minWidth: 0,
+              boxSizing: 'border-box',
+              color: 'inherit',
+              overflow: 'hidden',
+              opacity: (activeTab === 'home' && !actionsHidden) ? 1 : 0,
+              pointerEvents: (activeTab === 'home' && !actionsHidden) ? undefined : 'none',
+              transition: 'opacity 180ms ease, max-height 220ms ease, min-height 220ms ease',
+              transitionDelay: (activeTab === 'home' && actionsHidden) ? '120ms' : '0ms',
+            } as React.CSSProperties}
+          />
 
           {/* Full-width Modal Overlays */}
           <FormsModal
@@ -1488,31 +1277,186 @@ const App: React.FC<AppProps> = ({
             isOpen={isResourcesModalOpen}
             onDismiss={closeResourcesModal}
             userData={userData}
+            teamData={teamData}
             demoModeEnabled={demoModeEnabled}
             isLocalDev={isLocalDev}
             viewAsProd={Boolean(featureToggles?.viewAsProd)}
           />
-          {isLocalDev && showDevDemoPrompts && (
-            <DemoPromptsModal
-              isOpen={showDevDemoPrompts}
-              onClose={() => setShowDevDemoPrompts(false)}
+          
+          {!demoModeEnabled && (
+            <MaintenanceNotice
+              state={serviceHealth}
+              isDarkMode={Boolean(isDarkMode)}
+              onDismiss={dismissMaintenance}
             />
           )}
           
-          <MaintenanceNotice
-            state={demoModeEnabled
-              ? { isUnavailable: true, lastStatus: 503, lastUrl: '/api/cache/clear-cache', lastError: 'Service Unavailable', lastChecked: new Date(), consecutiveFailures: 3 }
-              : serviceHealth}
-            isDarkMode={Boolean(isDarkMode)}
-            onDismiss={dismissMaintenance}
-          />
-          
           <div className="app-scroll-region">
-            <Suspense fallback={<ThemedSuspenseFallback /> }>
-              {renderContent()}
-            </Suspense>
+            {!dataReady ? (
+              /* Shell-first boot: tabs are visible, content area shows a shimmer bar */
+              <div style={{
+                flex: 1,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                minHeight: 200,
+              }}>
+                <div style={{ width: 120, height: 2, overflow: 'hidden', borderRadius: 0 }}>
+                  <div style={{
+                    height: '100%',
+                    background: `linear-gradient(90deg, transparent 0%, ${isDarkMode ? colours.accent : colours.highlight} 50%, transparent 100%)`,
+                    backgroundSize: '200% 100%',
+                    animation: 'helix-shimmer 1.5s ease-in-out infinite',
+                  }} />
+                </div>
+              </div>
+            ) : (
+            <>
+            {/* Keep-alive: Home always mounted, visibility toggled */}
+            <div style={{ display: activeTab === 'home' ? undefined : 'none' }}>
+              <Suspense fallback={<ThemedSuspenseFallback />}>
+                <Home
+                  context={teamsContext}
+                  userData={userData}
+                  enquiries={enquiries}
+                  isActive={activeTab === 'home'}
+                  matters={matters}
+                  instructionData={instructionData}
+                  onAllMattersFetched={handleAllMattersFetched}
+                  onOutstandingBalancesFetched={handleOutstandingBalancesFetched}
+                  onTransactionsFetched={handleTransactionsFetched}
+                  onBoardroomBookingsFetched={handleBoardroomBookingsFetched}
+                  onSoundproofBookingsFetched={handleSoundproofBookingsFetched}
+                  teamData={teamData}
+                  isInMatterOpeningWorkflow={isInMatterOpeningWorkflow}
+                  onImmediateActionsChange={setHasImmediateActions}
+                  originalAdminUser={originalAdminUser}
+                  featureToggles={homeFeatureToggles}
+                  demoModeEnabled={demoModeEnabled}
+                />
+              </Suspense>
+            </div>
+            {/* Keep-alive: Enquiries mounted once visited, then kept alive */}
+            {enquiriesEverVisited && (
+              <div style={{ display: activeTab === 'enquiries' ? undefined : 'none' }}>
+                <Suspense fallback={<ThemedSuspenseFallback />}>
+                  <Enquiries
+                    context={teamsContext}
+                    userData={userData}
+                    enquiries={enquiries}
+                    enquiriesUsingSnapshot={enquiriesUsingSnapshot}
+                    enquiriesLiveRefreshInFlight={enquiriesLiveRefreshInFlight}
+                    enquiriesLastLiveSyncAt={enquiriesLastLiveSyncAt}
+                    teamData={teamData}
+                    prefetchedTeamWideEnquiries={teamWideEnquiries}
+                    poidData={poidData}
+                    setPoidData={setPoidData}
+                    onRefreshEnquiries={onRefreshEnquiries}
+                    onOptimisticClaim={onOptimisticClaim}
+                    subscribeToEnquiryStream={subscribeToEnquiryStream}
+                    instructionData={allInstructionData}
+                    featureToggles={featureToggles}
+                    demoModeEnabled={demoModeEnabled}
+                    isActive={activeTab === 'enquiries'}
+                    onTeamWideEnquiriesLoaded={setTeamWideEnquiries}
+                    pendingEnquiryId={pendingEnquiryId}
+                    pendingEnquirySubTab={pendingEnquirySubTab}
+                    onPendingEnquiryHandled={handlePendingEnquiryHandled}
+                  />
+                </Suspense>
+              </div>
+            )}
+            {/* Keep-alive: Matters mounted once visited, then kept alive */}
+            {mattersEverVisited && (
+              <div style={{ display: activeTab === 'matters' ? undefined : 'none' }}>
+                <Suspense fallback={<ThemedSuspenseFallback />}>
+                  <Matters
+                    matters={seededMattersForTab}
+                    isLoading={isLoading || (!hasSeededMattersForTab && isHydratingMattersOnDemand)}
+                    error={error}
+                    userData={userData}
+                    isActive={activeTab === 'matters'}
+                    teamData={teamData}
+                    enquiries={(teamWideEnquiries && teamWideEnquiries.length > 0) ? teamWideEnquiries : enquiries}
+                    workbenchByInstructionRef={workbenchByInstructionRef}
+                    pendingMatterId={pendingMatterId}
+                    pendingShowCcl={pendingShowCcl}
+                    onPendingMatterHandled={handlePendingMatterHandled}
+                    demoModeEnabled={demoModeEnabled}
+                  />
+                </Suspense>
+              </div>
+            )}
+            {/* Keep-alive: Instructions mounted once visited */}
+            {instructionsEverVisited && (
+              <div style={{ display: activeTab === 'instructions' ? undefined : 'none' }}>
+                <Suspense fallback={<ThemedSuspenseFallback />}>
+                  <Instructions
+                    userInitials={userInitials}
+                    instructionData={instructionData}
+                    setInstructionData={setInstructionData}
+                    allInstructionData={allInstructionData}
+                    teamData={teamData}
+                    userData={userData}
+                    matters={allMattersFromHome || []}
+                    hasActiveMatter={hasActiveMatter}
+                    setIsInMatterOpeningWorkflow={setIsInMatterOpeningWorkflow}
+                    poidData={poidData}
+                    setPoidData={setPoidData}
+                    enquiries={enquiries}
+                    featureToggles={featureToggles}
+                    demoModeEnabled={demoModeEnabled}
+                  />
+                </Suspense>
+              </div>
+            )}
+            {/* Reporting: admin-only, mount/unmount is fine */}
+            {activeTab === 'reporting' && (
+              <Suspense fallback={<ThemedSuspenseFallback />}>
+                <ReportingHome
+                  userData={userData}
+                  teamData={teamData}
+                  demoModeEnabled={demoModeEnabled}
+                  featureToggles={featureToggles}
+                  navigationRequest={reportingNavigationRequest}
+                  onNavigationRequestHandled={(requestedAt) => {
+                    setReportingNavigationRequest((current) => (
+                      current && current.requestedAt === requestedAt ? null : current
+                    ));
+                  }}
+                />
+              </Suspense>
+            )}
+            {activeTab === 'roadmap' && (
+              <Suspense fallback={<ThemedSuspenseFallback />}>
+                <Roadmap userData={userData} />
+              </Suspense>
+            )}
+            </>
+            )}
           </div>
         </div>
+        {dataReady && (isLocalDev || canSeePrivateHubControls(userData[0] || null)) && (
+          <HubToolsChip
+            user={userData[0] || { First: 'Local', Last: 'Dev', Initials: 'LD', AOW: 'Commercial, Construction, Property, Employment, Misc/Other', Email: 'local@dev.com' }}
+            isLocalDev={isLocalDev}
+            bottomOffset={(!demoModeEnabled && serviceHealth.isUnavailable) ? 72 : 18}
+            availableUsers={teamData as UserData[] || undefined}
+            onUserChange={onUserChange}
+            onReturnToAdmin={onReturnToAdmin}
+            originalAdminUser={originalAdminUser}
+            onRefreshEnquiries={onRefreshEnquiries}
+            onRefreshMatters={onRefreshMatters}
+            onFeatureToggle={handleFeatureToggle}
+            featureToggles={featureToggles}
+            demoModeEnabled={demoModeEnabled}
+            onToggleDemoMode={handleToggleDemoMode}
+            enquiriesUsingSnapshot={enquiriesUsingSnapshot}
+            enquiriesLiveRefreshInFlight={enquiriesLiveRefreshInFlight}
+            enquiriesLastLiveSyncAt={enquiriesLastLiveSyncAt}
+            onOpenDemoMatter={handleOpenDemoMatter}
+          />
+        )}
         </ToastProvider>
       </ThemeProvider>
     </NavigatorProvider>

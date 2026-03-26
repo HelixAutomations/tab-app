@@ -13,6 +13,23 @@ Operating constraint (prevents clutter): deliver the user request first; only do
 
 ---
 
+## Report Visibility Gating (ReportingHome.tsx)
+
+Reports follow a rollout model. When adding a new report:
+
+1. Add a tab entry to `REPORT_NAV_TABS` with `draft: true`.
+2. Add a card to `renderAvailableReportCards()`.
+3. The report will be **hidden in production** and **greyed out locally** (opacity 0.4, grayscale, no pointer events) until promoted.
+4. To promote to production: add the tab key to `PROD_REPORT_KEYS` (line ~4342) and remove `draft: true`.
+
+**Current prod-visible reports**: `dashboard`, `enquiries`. Everything else is draft.
+
+**Gating logic**: `isLocal` → show all cards (grey out non-prod); production → only render `PROD_REPORT_KEYS` cards. Tab bar follows the same filter.
+
+**Cache Monitor** (utility, not a report card) is gated separately via `canSeePrivateHubControls(primaryUser)` in production, visible to everyone locally.
+
+---
+
 ## Directory Structure Intent
 
 ```

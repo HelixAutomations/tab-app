@@ -1,14 +1,10 @@
 
 import React, { useState } from 'react';
-import {
-  Dialog,
-  DialogType,
-  DialogFooter,
-  PrimaryButton,
-  DefaultButton,
-  TextField,
-  Text as FluentText, // Alias to avoid conflict
-} from '@fluentui/react';
+import { Dialog, DialogType, DialogFooter } from '@fluentui/react/lib/Dialog';
+import { PrimaryButton, DefaultButton } from '@fluentui/react/lib/Button';
+import { TextField } from '@fluentui/react/lib/TextField';
+import { Text as FluentText } from '@fluentui/react/lib/Text';
+
 import { Enquiry } from '../../app/functionality/types'; // Correct import
 import { colours } from '../../app/styles/colours';
 import EnquiryOverview from './EnquiryOverview';

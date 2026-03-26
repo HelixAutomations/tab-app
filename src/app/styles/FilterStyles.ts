@@ -1,7 +1,8 @@
 // invisible change 3
 // src/app/styles/FilterStyles.ts
 
-import { mergeStyles, IDropdownStyles } from '@fluentui/react';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
+import type { IDropdownStyles } from '@fluentui/react/lib/Dropdown';
 import { colours } from './colours';
 
 export const sharedSearchBoxContainerStyle = (isDarkMode: boolean) =>

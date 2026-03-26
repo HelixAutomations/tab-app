@@ -1,26 +1,20 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import {
-  Stack,
-  IDropdownOption,
-  PrimaryButton,
-  DefaultButton,
-  mergeStyles,
-  Label,
-  Icon,
-  Callout,
-  IconButton,
-  Dropdown,
-  FocusZone,
-  FocusZoneDirection,
-  DirectionalHint,
-  Separator,
-  Checkbox,
-  ChoiceGroup,
-  IChoiceGroupOption,
-  IPoint,
-  Text,
-  TooltipHost,
-} from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Dropdown } from '@fluentui/react/lib/Dropdown';
+import type { IDropdownOption } from '@fluentui/react/lib/Dropdown';
+import { PrimaryButton, DefaultButton, IconButton } from '@fluentui/react/lib/Button';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
+import { Label } from '@fluentui/react/lib/Label';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { Callout, DirectionalHint } from '@fluentui/react/lib/Callout';
+import { FocusZone, FocusZoneDirection } from '@fluentui/react/lib/FocusZone';
+import { Separator } from '@fluentui/react/lib/Separator';
+import type { IPoint } from '@fluentui/react/lib/Utilities';
+import { Checkbox } from '@fluentui/react/lib/Checkbox';
+import { ChoiceGroup } from '@fluentui/react/lib/ChoiceGroup';
+import type { IChoiceGroupOption } from '@fluentui/react/lib/ChoiceGroup';
+import { Text } from '@fluentui/react/lib/Text';
+import { TooltipHost } from '@fluentui/react/lib/Tooltip';
 import { Enquiry, UserData } from '../../app/functionality/types';
 import { colours } from '../../app/styles/colours';
 import { isAdminUser } from '../../app/admin';

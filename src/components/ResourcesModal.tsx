@@ -1,10 +1,16 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { IconButton, Text, Modal, Icon, Stack, DefaultButton, Spinner, SpinnerSize } from '@fluentui/react';
+import { IconButton, DefaultButton } from '@fluentui/react/lib/Button';
+import { Text } from '@fluentui/react/lib/Text';
+import { Modal } from '@fluentui/react/lib/Modal';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Spinner, SpinnerSize } from '@fluentui/react/lib/Spinner';
 import { app } from '@microsoft/teams-js';
 import { useTheme } from '../app/functionality/ThemeContext';
 import { isInTeams } from '../app/functionality/isInTeams';
-import type { UserData } from '../app/functionality/types';
+import type { UserData, TeamData } from '../app/functionality/types';
 import { colours } from '../app/styles/colours';
+import RegistersWorkspace from '../tabs/resources/registers/RegistersWorkspace';
 
 // Import Custom SVG Icons (original provider logos)
 import asanaIcon from '../assets/asana.svg';
@@ -23,6 +29,7 @@ interface ResourcesModalProps {
     isOpen: boolean;
     onDismiss: () => void;
     userData?: UserData[] | null;
+    teamData?: TeamData[] | null;
     demoModeEnabled?: boolean;
     isLocalDev?: boolean;
     viewAsProd?: boolean;
@@ -152,6 +159,7 @@ const sectionConfig: Record<string, { label: string; color: string }> = {
     'Document & Case Management': { label: 'Documents', color: colours.helixBlue },
     'Analytics & Development': { label: 'Analytics & Dev', color: colours.orange },
     'Collaboration & HR': { label: 'Collaboration', color: colours.darkBlue },
+    'Compliance & Practice': { label: 'Compliance', color: colours.cta },
 };
 
 // Resource card component - matching FormCard style
@@ -166,7 +174,7 @@ const ResourceCard: React.FC<{
     showOpsBadge: boolean;
 }> = ({ resource, accentColor, isDarkMode, isFavorite, onOpen, onCopyLink, onToggleFavorite, showOpsBadge }) => {
     const [isHovered, setIsHovered] = useState(false);
-    const resourcesWithOperations = new Set(['Asana', 'Clio', 'Azure', 'NetDocuments']);
+    const resourcesWithOperations = new Set(['Asana', 'Clio', 'Azure', 'NetDocuments', 'Registers']);
     const hasOperations = resourcesWithOperations.has(resource.title);
 
     const bg = isDarkMode ? colours.darkBlue : colours.light.cardBackground;
@@ -352,6 +360,7 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
     isOpen,
     onDismiss,
     userData,
+    teamData,
     demoModeEnabled = false,
     isLocalDev = false,
     viewAsProd = false,
@@ -473,6 +482,12 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
                 { title: 'Miro', url: 'https://miro.com/login/', icon: 'Whiteboard', description: 'Collaborative whiteboard' },
                 { title: 'Psychometric Testing', url: 'https://links.helix-law.co.uk/assessment', icon: 'TestBeaker', description: 'Assessments' },
                 { title: 'Cognito Forms', url: 'https://www.cognitoforms.com/helix1', icon: 'FormLibrary', description: 'Form builder' }
+            ]
+        },
+        {
+            title: 'Compliance & Practice',
+            resources: [
+                { title: 'Registers', url: '', icon: 'ClipboardList', description: 'L&D, Undertakings, Complaints' }
             ]
         }
     ];
@@ -1173,6 +1188,38 @@ const ResourcesModal: React.FC<ResourcesModalProps> = ({
     };
 
     const renderSelectedPanel = (resource: Resource) => {
+        // Registers gets a full workspace instead of the normal resource panel
+        if (resource.title === 'Registers') {
+            return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <IconButton
+                            iconProps={{ iconName: 'ChromeBack' }}
+                            title="Back"
+                            onClick={() => setSelectedResource(null)}
+                            styles={{
+                                root: {
+                                    width: 32,
+                                    height: 32,
+                                    borderRadius: 0,
+                                    border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.light.border}`,
+                                    background: isDarkMode ? colours.helixBlue : colours.light.cardBackground,
+                                },
+                                rootHovered: {
+                                    background: isDarkMode ? colours.dark.cardHover : colours.light.cardHover,
+                                },
+                                icon: { color: isDarkMode ? colours.dark.text : colours.light.text, fontSize: 14 },
+                            }}
+                        />
+                        <Text style={{ fontSize: 18, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text }}>
+                            Registers
+                        </Text>
+                    </div>
+                    <RegistersWorkspace userData={userData} teamData={teamData} isDarkMode={isDarkMode} />
+                </div>
+            );
+        }
+
         const cardStyle = {
             border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
             borderRadius: 0,

@@ -2,6 +2,7 @@ const express = require('express');
 const { withRequest } = require('../utils/db');
 
 const router = express.Router();
+const { annotate } = require('../utils/devConsole');
 
 // Get all team data (shared pool + retry via withRequest)
 router.get('/', async (_req, res) => {
@@ -38,6 +39,7 @@ router.get('/', async (_req, res) => {
     const active = rows.filter((m) => String(m.status || '').toLowerCase() === 'active').length;
     const inactive = rows.filter((m) => String(m.status || '').toLowerCase() === 'inactive').length;
     console.info('[teamData] Summary', { active, inactive });
+    annotate(res, { source: 'sql', note: `${active} active, ${inactive} inactive` });
     return res.json(rows);
   } catch (error) {
     console.error('\u274c Team data fetch error:', error);

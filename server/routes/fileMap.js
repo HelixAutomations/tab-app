@@ -11,8 +11,7 @@ const router = express.Router();
  */
 const ALLOWED_ROOTS = [
   "src",
-  "api/src", 
-  "decoupled-functions",
+  "api/src",
   "server",
   "database",
   "infra",
@@ -161,9 +160,7 @@ function buildUsedFilesSet(repoRoot) {
     path.join(repoRoot, 'server', 'server.js'),
     path.join(repoRoot, 'server.js'),
     // Azure Functions TS
-    path.join(repoRoot, 'api', 'src', 'index.ts'),
-    // Decoupled functions (optional)
-    path.join(repoRoot, 'decoupled-functions', 'index.js')
+    path.join(repoRoot, 'api', 'src', 'index.ts')
   ];
   const entries = entryCandidates.filter(fileExists);
   const used = new Set(entries.map(p => path.resolve(p)));

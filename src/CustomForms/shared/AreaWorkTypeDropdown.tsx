@@ -2,7 +2,9 @@
 // Shared cascading dropdown for Area of Work → Worktype selection
 
 import React, { useMemo } from 'react';
-import { Dropdown, IDropdownOption, Stack } from '@fluentui/react';
+import { Dropdown } from '@fluentui/react/lib/Dropdown';
+import type { IDropdownOption } from '@fluentui/react/lib/Dropdown';
+import { Stack } from '@fluentui/react/lib/Stack';
 import { practiceAreasByArea } from '../../tabs/instructions/MatterOpening/config';
 
 interface AreaWorkTypeDropdownProps {

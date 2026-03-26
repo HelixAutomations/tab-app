@@ -2,7 +2,8 @@
 // src/app/styles/BubbleTextField.tsx
 
 import React, { CSSProperties } from 'react';
-import { TextField, ITextFieldStyles } from '@fluentui/react';
+import { TextField } from '@fluentui/react/lib/TextField';
+import type { ITextFieldStyles } from '@fluentui/react/lib/TextField';
 import { colours } from './colours';
 
 interface BubbleTextFieldProps {

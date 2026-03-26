@@ -1,12 +1,10 @@
 import React from 'react';
-import {
-  Modal,
-  Stack,
-  Text,
-  IconButton,
-  mergeStyles,
-  Icon
-} from '@fluentui/react';
+import { Modal } from '@fluentui/react/lib/Modal';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Text } from '@fluentui/react/lib/Text';
+import { IconButton } from '@fluentui/react/lib/Button';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
+import { Icon } from '@fluentui/react/lib/Icon';
 import { useTheme } from '../app/functionality/ThemeContext';
 import { colours } from '../app/styles/colours';
 

@@ -2,7 +2,7 @@ import React, { useState, useEffect, lazy, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import "./app/styles/index.css";
 import App from "./app/App";
-import { createTheme, ThemeProvider } from "@fluentui/react";
+import { createTheme, ThemeProvider } from '@fluentui/react/lib/Theme';
 import { colours } from "./app/styles/colours";
 import { app } from "@microsoft/teams-js";
 import { isInTeams } from "./app/functionality/isInTeams";
@@ -10,11 +10,12 @@ import { Matter, UserData, Enquiry, TeamData, NormalizedMatter } from "./app/fun
 import { mergeMattersFromSources } from "./utils/matterNormalization";
 import { getCachedData, setCachedData, cleanupOldCache } from "./utils/storageHelpers";
 import { debugLog } from "./utils/debug";
-import { isAdminUser } from "./app/admin";
+import { isDevOwner } from "./app/admin";
 import { appendDefaultEnquiryProcessingParams } from "./app/functionality/enquiryProcessingModel";
+import { trackClientError, trackClientEvent } from "./utils/telemetry";
 
 import "./utils/callLogger";
-import { initializeIcons } from "@fluentui/react";
+import { initializeIcons } from '@fluentui/react/lib/Icons';
 import Loading from "./app/styles/Loading";
 import ErrorBoundary from "./components/ErrorBoundary";
 import EntryGate from "./components/EntryGate";
@@ -100,6 +101,12 @@ if (typeof window !== "undefined") {
     };
 
     const reloadOnceForChunkError = (source: 'unhandledrejection' | 'error', reason: unknown) => {
+      trackClientEvent('Browser', 'chunk-reload', { source }, {
+        error: reason instanceof Error ? reason.message : String(reason || 'Chunk load error'),
+        throttleKey: `chunk-reload:${source}`,
+        cooldownMs: 60000,
+      });
+
       try {
         if (sessionStorage.getItem(hasChunkReloadedKey) === 'true') {
           console.error('[ChunkLoadError] reload already attempted; staying put', { source });
@@ -122,6 +129,11 @@ if (typeof window !== "undefined") {
         return;
       }
 
+      trackClientError('Browser', 'unhandled-rejection', event.reason, {}, {
+        throttleKey: `browser:unhandled-rejection:${String((event.reason as any)?.message || event.reason || 'unknown')}`,
+        cooldownMs: 15000,
+      });
+
       console.error("Unhandled promise rejection:", event.reason);
       event.preventDefault();
       // Don't use alert() in Teams - it can crash the embedded app
@@ -134,7 +146,17 @@ if (typeof window !== "undefined") {
       const reason = anyEvent?.error ?? anyEvent?.message;
       if (isChunkLoadError(reason)) {
         reloadOnceForChunkError('error', reason);
+        return;
       }
+
+      trackClientError('Browser', 'window-error', reason, {
+        filename: typeof event.filename === 'string' ? event.filename.split('/').slice(-1)[0] : undefined,
+        line: typeof event.lineno === 'number' ? event.lineno : undefined,
+        column: typeof event.colno === 'number' ? event.colno : undefined,
+      }, {
+        throttleKey: `browser:window-error:${String((anyEvent?.message || '')).slice(0, 80)}`,
+        cooldownMs: 15000,
+      });
     });
   }
 }
@@ -148,10 +170,51 @@ if (typeof window !== 'undefined') {
   }
 }
 
+// ── Shell boot snapshot (sessionStorage) ──────────────────────────────────
+// Stores core boot data so the next load can paint instantly with stale data
+// while live fetches run in the background (snapshot-first paint).
+const SHELL_SNAPSHOT_KEY = 'shell-boot-snapshot-v1';
+const SHELL_SNAPSHOT_TTL = 8 * 60 * 1000; // 8 minutes — fast warm boots without stretching queue staleness too far
+
+interface ShellBootSnapshot {
+  objectId: string;
+  userData: UserData[];
+  enquiries: Enquiry[];
+  teamData: TeamData[] | null;
+  savedAt: number;
+}
+
+function readShellBootSnapshot(objectId: string): ShellBootSnapshot | null {
+  try {
+    const raw = sessionStorage.getItem(SHELL_SNAPSHOT_KEY);
+    if (!raw) return null;
+    const snapshot: ShellBootSnapshot = JSON.parse(raw);
+    if (
+      !snapshot.savedAt ||
+      Date.now() - snapshot.savedAt > SHELL_SNAPSHOT_TTL ||
+      snapshot.objectId !== objectId
+    ) {
+      sessionStorage.removeItem(SHELL_SNAPSHOT_KEY);
+      return null;
+    }
+    return snapshot;
+  } catch {
+    return null;
+  }
+}
+
+function writeShellBootSnapshot(snapshot: ShellBootSnapshot): void {
+  try {
+    sessionStorage.setItem(SHELL_SNAPSHOT_KEY, JSON.stringify(snapshot));
+  } catch {
+    // sessionStorage quota exceeded — silent
+  }
+}
+
 // In-memory cache for large datasets that exceed localStorage quota
 // This persists for the session but doesn't use localStorage
 const inMemoryCache = new Map<string, { data: any; timestamp: number }>();
-const MEMORY_CACHE_TTL = 5 * 60 * 1000; // 5 minutes (align with server enquiries TTL)
+const MEMORY_CACHE_TTL = 10 * 60 * 1000; // 10 minutes — session-level caching
 
 function getMemoryCachedData<T>(key: string): T | null {
   const cached = inMemoryCache.get(key);
@@ -255,6 +318,26 @@ function dedup<T>(key: string, factory: () => Promise<T>): Promise<T> {
   return p;
 }
 
+// Dedup at the parsed-JSON level so two callers sharing the same promise
+// don't race on Response.body consumption (body can only be read once).
+const inflightJsonRequests = new Map<string, Promise<{ ok: boolean; status: number; data?: any }>>();
+function dedupFetchJson(
+  key: string,
+  url: string,
+  init?: RequestInit,
+): Promise<{ ok: boolean; status: number; data?: any }> {
+  const existing = inflightJsonRequests.get(key);
+  if (existing) return existing;
+  const p = (async () => {
+    const resp = await fetch(url, init);
+    if (!resp.ok) return { ok: false, status: resp.status };
+    const data = await resp.json();
+    return { ok: true, status: resp.status, data };
+  })().finally(() => inflightJsonRequests.delete(key));
+  inflightJsonRequests.set(key, p);
+  return p;
+}
+
 async function fetchEnquiries(
   email: string,
   dateFrom: string,
@@ -266,13 +349,13 @@ async function fetchEnquiries(
 ): Promise<Enquiry[]> {
   // Re-enable caching for production performance
   const forceNoCaching = false; // was: process.env.NODE_ENV === 'development'
-  const cacheKey = `enquiries-${email}-${dateFrom}-${dateTo}-${userAow}`;
+  const cacheKey = `enquiries-${email}-${userInitials}-${dateFrom}-${dateTo}-${userAow}-${fetchAll ? 'all' : 'mine'}`;
   let unifiedRequestSucceeded = false;
   
   if (!bypassCache && !forceNoCaching) {
     // Try in-memory cache first (for large datasets)
     const memCached = getMemoryCachedData<Enquiry[]>(cacheKey);
-    if (memCached) {
+    if (memCached && (fetchAll || memCached.length > 0)) {
       if (process.env.NODE_ENV === 'development') {
         debugLog('📦 Using cached enquiries from memory:', memCached.length);
       }
@@ -281,7 +364,7 @@ async function fetchEnquiries(
     
     // Try localStorage cache (for smaller datasets)
     const cached = getCachedData<Enquiry[]>(cacheKey);
-    if (cached) {
+    if (cached && (fetchAll || cached.length > 0)) {
       return cached;
     }
   }
@@ -308,16 +391,18 @@ async function fetchEnquiries(
     
     const primaryUrl = `/api/enquiries-unified?${params.toString()}`;
     // Dedup: if an identical request is already in-flight, reuse it
-    const resp = await dedup(`enq:${primaryUrl}`, () =>
-      fetch(primaryUrl, {
+    const result = await dedupFetchJson(
+      `enq:${primaryUrl}`,
+      primaryUrl,
+      {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
         cache: bypassCache ? 'no-store' : 'default',
-      })
+      },
     );
-    if (resp.ok) {
+    if (result.ok) {
       unifiedRequestSucceeded = true;
-      const data = await resp.json();
+      const data = result.data;
       let raw: any[] = [];
       if (Array.isArray(data)) {
         raw = data;
@@ -348,7 +433,7 @@ async function fetchEnquiries(
         notes: (enq as any).notes || (enq as any).Notes || (enq as any).Initial_first_call_notes || '',
         ...enq
       })) as Enquiry[];
-    } else if (resp.status === 304 && !bypassCache && !forceNoCaching) {
+    } else if (result.status === 304 && !bypassCache && !forceNoCaching) {
       const memCached = getMemoryCachedData<Enquiry[]>(cacheKey);
       if (memCached) {
         enquiries = memCached;
@@ -363,81 +448,18 @@ async function fetchEnquiries(
     // non-blocking; fallback below
   }
 
-  // Fetch LEGACY enquiries as a fallback ONLY if we don't already have results
-  try {
-    if (!unifiedRequestSucceeded && enquiries.length === 0) {
+  if (!fetchAll && !bypassCache && enquiries.length === 0) {
+    return fetchEnquiries(email, dateFrom, dateTo, userAow, userInitials, fetchAll, true);
+  }
 
-    // Use local Express server proxy when developing, otherwise call production proxy
-    const legacyBaseUrl = isLocalDev
-      ? 'http://localhost:8080'
-      : 'https://helix-keys-proxy.azurewebsites.net/api';
-    const legacyPath = process.env.REACT_APP_GET_ENQUIRIES_PATH;
-    const legacyCode = process.env.REACT_APP_GET_ENQUIRIES_CODE;
-    const legacyDataUrl = `${legacyBaseUrl}/${legacyPath}?code=${legacyCode}`;
-
-    // The proxy expects POST with JSON body containing email, dateFrom, dateTo
-    // Use 'anyone' to retrieve all enquiries and filter client-side
-    const legacyResponse = await fetch(legacyDataUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email: 'anyone',
-        dateFrom,
-        dateTo,
-      }),
-    });
-
-  if (legacyResponse.ok) {
-      const legacyData = await legacyResponse.json();
-
-      let rawLegacyEnquiries: any[] = [];
-      if (Array.isArray(legacyData)) {
-        rawLegacyEnquiries = legacyData;
-      } else if (Array.isArray(legacyData.enquiries)) {
-        rawLegacyEnquiries = legacyData.enquiries;
-      }
-
-      // Filter legacy enquiries based on email matching (legacy system)
-      const userEmail = email.toLowerCase();
-
-      const filteredLegacyEnquiries = rawLegacyEnquiries.filter(enq => {
-        const pocEmail = (enq.Point_of_Contact || enq.poc || '').toLowerCase();
-        // Only keep legacy enquiries assigned to the current user or the team inbox
-        const unclaimedEmails = ['team@helix-law.com'];
-        const isUnclaimed = unclaimedEmails.includes(pocEmail);
-
-        return pocEmail === userEmail || isUnclaimed;
-      });
-
-      // Convert legacy data to Enquiry format and append to existing enquiries
-      const legacyEnquiries = filteredLegacyEnquiries.map(enq => ({
-        ID: enq.ID || enq.id || String(Math.random()),
-        Date_Created: enq.Date_Created || enq.date_created || enq.datetime,
-        Touchpoint_Date: enq.Touchpoint_Date || enq.touchpoint_date || enq.datetime,
-        Email: enq.Email || enq.email,
-        Area_of_Work: enq.Area_of_Work || enq.area_of_work || enq.aow,
-        Type_of_Work: enq.Type_of_Work || enq.type_of_work || enq.tow,
-        Method_of_Contact: enq.Method_of_Contact || enq.method_of_contact || enq.moc,
-        Point_of_Contact: enq.Point_of_Contact || enq.poc,
-        First_Name: enq.First_Name || enq.first_name || enq.first,
-        Last_Name: enq.Last_Name || enq.last_name || enq.last,
-        Phone_Number: enq.Phone_Number || enq.phone_number || enq.phone,
-        Company: enq.Company || enq.company,
-        Value: enq.Value || enq.value,
-        Rating: enq.Rating || enq.rating,
-        // Add any other fields as needed
-        ...enq
-      })) as Enquiry[];
-
-      // Use LEGACY enquiries as fallback (no NEW data loaded yet)
-      enquiries = [...legacyEnquiries];
-
-    } else {
-      await legacyResponse.text().catch(() => undefined);
+  // If unified call failed (e.g. ECONNREFUSED during boot), retry once after a short delay
+  if (!unifiedRequestSucceeded && enquiries.length === 0) {
+    try {
+      await new Promise(r => setTimeout(r, 1500));
+      return fetchEnquiries(email, dateFrom, dateTo, userAow, userInitials, fetchAll, true);
+    } catch {
+      // retry also failed — continue with empty set
     }
-    }
-  } catch (error) {
-    // Legacy enquiries error is non-blocking
   }
 
   // Filter out enquiries with placeholder emails that cause false duplicates
@@ -573,17 +595,6 @@ async function fetchMatters(fullName: string): Promise<Matter[]> {
   const cached = getCachedData<Matter[]>(cacheKey);
   if (cached) return cached;
 
-  // IMPORTANT: We previously pointed local dev legacy fetch to /api/getMatters which
-  // is now reserved for the NEW (VNet) dataset (decoupled fetchMattersData function).
-  // That caused the "legacy" path to return new data and starve the actual new dataset
-  // (because both code paths hit the same route and we then filtered by source).
-  // To restore a clean separation:
-  //  - NEW dataset   -> /api/getMatters (GET/POST)  (decoupled VNet function proxy)
-  //  - LEGACY dataset (user) -> call legacy Azure Function via helix-keys proxy even in local dev
-  //  - LEGACY dataset (all)  -> /api/getAllMatters (already legacy)
-  // This ensures local dev still sees legacy data while allowing VNet toggle to work.
-  // Route legacy per-user matters via server proxy to avoid exposing function keys
-  // Mounted under /api in the local Express server
   const legacyUrl = '/api/getMatters';
 
   let legacyData: any[] = [];
@@ -617,9 +628,6 @@ async function fetchVNetMatters(fullName?: string): Promise<any[]> {
   const cacheKey = fullName ? `vnetMatters-${fullName}` : 'vnetMatters-all';
   const cached = getCachedData<any[]>(cacheKey);
   if (cached) return cached;
-  // NEW dataset lives behind /api/getMatters (decoupled function). We previously
-  // used /api/matters which is a single-matter Clio lookup route and cannot serve
-  // bulk lists, resulting in 0 "new" matters. Switching to /api/getMatters fixes that.
   const newUrl = '/api/getMatters';
   let vnetData: any[] = [];
 
@@ -724,7 +732,6 @@ async function fetchTeamData(): Promise<TeamData[] | null> {
     return cached;
   }
   try {
-    // Use server route instead of decoupled function
     const response = await dedup('team-data', () => fetch(
       `/api/team-data`,
       {
@@ -745,6 +752,28 @@ async function fetchTeamData(): Promise<TeamData[] | null> {
   }
 }
 
+function getCachedEnquiriesSnapshot(
+  email: string,
+  dateFrom: string,
+  dateTo: string,
+  userAow: string = '',
+  userInitials: string = '',
+  fetchAll: boolean = false,
+): Enquiry[] | null {
+  const cacheKey = `enquiries-${email}-${userInitials}-${dateFrom}-${dateTo}-${userAow}-${fetchAll ? 'all' : 'mine'}`;
+  const memCached = getMemoryCachedData<Enquiry[]>(cacheKey);
+  if (memCached && (fetchAll || memCached.length > 0)) {
+    return memCached;
+  }
+
+  const cached = getCachedData<Enquiry[]>(cacheKey);
+  if (cached && (fetchAll || cached.length > 0)) {
+    return cached;
+  }
+
+  return null;
+}
+
 function resolveEffectiveDatasetUser(
   user: UserData | null | undefined,
   team: TeamData[] | null | undefined,
@@ -761,30 +790,7 @@ function resolveEffectiveDatasetUser(
   const entraId = String((user as any)?.['Entra ID'] || user?.EntraID || '').trim();
   const clioId = String((user as any)?.['Clio ID'] || user?.ClioID || '').trim();
 
-  const isLocalHost = typeof window !== 'undefined'
-    && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-
-  if (!isLocalHost || initials !== 'LZ' || !team?.length) {
-    return { email, initials, fullName, entraId, clioId };
-  }
-
-  const alex = team.find((member: any) => {
-    const memberInitials = String(member?.Initials || '').trim().toUpperCase();
-    const memberFirst = String(member?.First || '').trim().toLowerCase();
-    return memberInitials === 'AC' || memberFirst === 'alex';
-  });
-
-  if (!alex) {
-    return { email, initials, fullName, entraId, clioId };
-  }
-
-  return {
-    email: String(alex.Email || email).trim(),
-    initials: String(alex.Initials || initials).trim().toUpperCase(),
-    fullName: String(alex['Full Name'] || `${alex.First || ''} ${alex.Last || ''}`.trim() || fullName).trim(),
-    entraId: String(alex['Entra ID'] || entraId).trim(),
-    clioId: String(alex['Clio ID'] || clioId).trim(),
-  };
+  return { email, initials, fullName, entraId, clioId };
 }
 
 // Main component
@@ -799,47 +805,91 @@ const AppWithContext: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showEntryGate, setShowEntryGate] = useState(false);
+  const [enquiriesUsingSnapshot, setEnquiriesUsingSnapshot] = useState(false);
+  const [enquiriesLiveRefreshInFlight, setEnquiriesLiveRefreshInFlight] = useState(false);
+  const [lastEnquiriesLiveSyncAt, setLastEnquiriesLiveSyncAt] = useState<number | null>(null);
 
   // Avoid over-flushing server cache during rapid refresh bursts (e.g. SSE-driven refresh).
   const lastEnquiriesCacheFlushAtRef = React.useRef<number>(0);
-  
+  const appEnquiriesRefreshTimerRef = React.useRef<number | null>(null);
+  const appEnquiriesRefreshInFlightRef = React.useRef(false);
+  const appEnquiriesRefreshQueuedRef = React.useRef(false);
+  const refreshEnquiriesInFlightRef = React.useRef<Promise<void> | null>(null);
+  const refreshEnquiriesQueuedRef = React.useRef(false);
+  const refreshEnquiriesRef = React.useRef<() => Promise<void>>(async () => {});
+  const optimisticClaimEnquiryRef = React.useRef<(enquiryId: string, claimerEmail: string) => void>(() => {});
+  const bgReconcileTimerRef = React.useRef<number | null>(null);
+
+  // Realtime event distribution — app shell is sole SSE owner; downstream tabs subscribe.
+  type EnquiryRealtimeEvent = { changeType: string; enquiryId: string; claimedBy?: string; claimedAt?: string | null; record?: Record<string, unknown> };
+  const enquiryEventListenersRef = React.useRef<Set<(event: EnquiryRealtimeEvent) => void>>(new Set());
+  const subscribeToEnquiryStream = React.useCallback(
+    (listener: (event: EnquiryRealtimeEvent) => void) => {
+      enquiryEventListenersRef.current.add(listener);
+      return () => { enquiryEventListenersRef.current.delete(listener); };
+    },
+    [],
+  );
+
   // Local development state for area selection
   const [localSelectedAreas, setLocalSelectedAreas] = useState<string[]>(['Commercial', 'Construction', 'Property']);
 
   // Refresh enquiries function - can be called after claiming an enquiry
   const refreshEnquiries = async () => {
     if (!userData || !userData[0]) return;
-    
-    try {
-      // Flush server-side enquiries cache before fetching fresh data
-      try {
-        const now = Date.now();
-        const shouldFlush = now - lastEnquiriesCacheFlushAtRef.current > 15000;
-        if (shouldFlush) {
-          lastEnquiriesCacheFlushAtRef.current = now;
-          await fetch('/api/cache/clear-cache', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ scope: 'enquiries' })
-          });
-        }
-      } catch (flushErr) {
-        console.warn('Cache flush failed (non-blocking):', flushErr);
-      }
 
-      const { dateFrom, dateTo } = getDateRange();
-      const effectiveUser = resolveEffectiveDatasetUser(userData[0], teamData);
-      const userEmail = effectiveUser.email;
-      // Don't apply AOW filtering when admin has switched users - show all enquiries like Management Dashboard
-      const userAow = originalAdminUser ? "" : (userData[0].AOW || "");
-      const userInitials = effectiveUser.initials;
-
-      const enquiriesRes = await fetchEnquiries(userEmail, dateFrom, dateTo, userAow, userInitials, false, true);
-      setEnquiries(enquiriesRes);
-      
-    } catch (error) {
-      console.error('❌ Error refreshing enquiries:', error);
+    if (refreshEnquiriesInFlightRef.current) {
+      refreshEnquiriesQueuedRef.current = true;
+      return refreshEnquiriesInFlightRef.current;
     }
+    
+    const runRefresh = async () => {
+      setEnquiriesLiveRefreshInFlight(true);
+
+      try {
+        // Flush server-side enquiries cache before fetching fresh data
+        try {
+          const now = Date.now();
+          const shouldFlush = now - lastEnquiriesCacheFlushAtRef.current > 15000;
+          if (shouldFlush) {
+            lastEnquiriesCacheFlushAtRef.current = now;
+            await fetch('/api/cache/clear-cache', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ scope: 'enquiries' })
+            });
+          }
+        } catch (flushErr) {
+          console.warn('Cache flush failed (non-blocking):', flushErr);
+        }
+
+        const { dateFrom, dateTo } = getDateRange();
+        const effectiveUser = resolveEffectiveDatasetUser(userData[0], teamData);
+        const userEmail = effectiveUser.email;
+        // Don't apply AOW filtering when admin has switched users - show all enquiries like Management Dashboard
+        const userAow = originalAdminUser ? "" : (userData[0].AOW || "");
+        const userInitials = effectiveUser.initials;
+
+        const adminFetchAll = isDevOwner(userData[0]) && !originalAdminUser;
+        const enquiriesRes = await fetchEnquiries(userEmail, dateFrom, dateTo, userAow, userInitials, adminFetchAll, true);
+        setEnquiries(enquiriesRes);
+        setLastEnquiriesLiveSyncAt(Date.now());
+        setEnquiriesUsingSnapshot(false);
+      } catch (error) {
+        console.error('❌ Error refreshing enquiries:', error);
+      } finally {
+        refreshEnquiriesInFlightRef.current = null;
+        setEnquiriesLiveRefreshInFlight(false);
+        if (refreshEnquiriesQueuedRef.current) {
+          refreshEnquiriesQueuedRef.current = false;
+          void refreshEnquiries();
+        }
+      }
+    };
+
+    const refreshPromise = runRefresh();
+    refreshEnquiriesInFlightRef.current = refreshPromise;
+    return refreshPromise;
   };
 
   /**
@@ -868,6 +918,173 @@ const AppWithContext: React.FC = () => {
     });
   };
 
+  /**
+   * Patch a single enquiry record in local state from SSE event data.
+   * Normalizes field aliases so both legacy and new-schema keys stay consistent.
+   */
+  const patchEnquiry = (enquiryId: string, updates: Record<string, unknown>) => {
+    if (!enquiryId || !updates || Object.keys(updates).length === 0) return;
+    // Build normalized updates with both legacy and new-schema aliases
+    const patch: Record<string, unknown> = { ...updates };
+    if ('First_Name' in updates) patch.first = updates.First_Name;
+    if ('Last_Name' in updates) patch.last = updates.Last_Name;
+    if ('Point_of_Contact' in updates) patch.poc = updates.Point_of_Contact;
+    if ('Area_of_Work' in updates) patch.aow = updates.Area_of_Work;
+    if ('Email' in updates) patch.email = updates.Email;
+    if ('Initial_first_call_notes' in updates) patch.notes = updates.Initial_first_call_notes;
+    if ('Value' in updates) patch.value = updates.Value;
+    if ('Rating' in updates) patch.rating = updates.Rating;
+
+    setEnquiries(prev => {
+      if (!prev) return prev;
+      return prev.map(enq => {
+        const enqId = String(enq.ID || (enq as any).id || '');
+        if (enqId === String(enquiryId)) {
+          return { ...enq, ...patch };
+        }
+        return enq;
+      });
+    });
+  };
+
+  /**
+   * Schedule a silent background reconciliation — fetches fresh data without visible
+   * loading indicators. Used after SSE patches to catch any drift.
+   */
+  const scheduleBackgroundReconciliation = React.useCallback((delayMs: number = 30000) => {
+    if (bgReconcileTimerRef.current) {
+      window.clearTimeout(bgReconcileTimerRef.current);
+    }
+    bgReconcileTimerRef.current = window.setTimeout(() => {
+      bgReconcileTimerRef.current = null;
+      refreshEnquiriesRef.current().catch(() => {});
+    }, delayMs);
+  }, []);
+
+  useEffect(() => {
+    refreshEnquiriesRef.current = refreshEnquiries;
+  }, [refreshEnquiries]);
+
+  useEffect(() => {
+    optimisticClaimEnquiryRef.current = optimisticClaimEnquiry;
+  }, [optimisticClaimEnquiry]);
+
+  useEffect(() => {
+    if (!userData?.[0]) return;
+
+    let eventSource: EventSource | null = null;
+
+    const onChangedEvent = (ev: Event) => {
+      let payload: any = null;
+      try {
+        const messageEvent = ev as MessageEvent;
+        payload = typeof messageEvent?.data === 'string' ? JSON.parse(messageEvent.data) : null;
+      } catch {
+        payload = null;
+      }
+
+      const changeType = String(payload?.changeType || 'changed');
+      const enquiryId = String(payload?.enquiryId || '');
+      const record = payload?.record && typeof payload.record === 'object' ? payload.record : undefined;
+
+      // Broadcast event (with record data) to downstream subscribers (Enquiries tab, etc.)
+      const eventDetail: EnquiryRealtimeEvent = {
+        changeType,
+        enquiryId,
+        claimedBy: payload?.claimedBy != null ? String(payload.claimedBy) : undefined,
+        claimedAt: typeof payload?.claimedAt === 'string' ? payload.claimedAt : null,
+        record,
+      };
+      enquiryEventListenersRef.current.forEach(fn => {
+        try { fn(eventDetail); } catch { /* ignore downstream errors */ }
+      });
+
+      // ── Patch-first approach: apply local patches immediately, reconcile later ──
+
+      if (changeType === 'claim' && enquiryId) {
+        const claimedBy = String(payload?.claimedBy || '');
+        if (claimedBy) {
+          optimisticClaimEnquiryRef.current(enquiryId, claimedBy);
+        }
+        // Background reconciliation — no visible refetch
+        scheduleBackgroundReconciliation(30000);
+        return;
+      }
+
+      if (changeType === 'update' && enquiryId && record) {
+        // Apply field-level patch from SSE — instant UI update
+        patchEnquiry(enquiryId, record);
+        scheduleBackgroundReconciliation(30000);
+        return;
+      }
+
+      if (changeType === 'create') {
+        // New record — needs full refresh to pick up the row, but delayed
+        scheduleBackgroundReconciliation(5000);
+        return;
+      }
+
+      if (changeType === 'delete' && enquiryId) {
+        // Remove deleted record from local state immediately
+        setEnquiries(prev => {
+          if (!prev) return prev;
+          return prev.filter(enq => {
+            const enqId = String(enq.ID || (enq as any).id || '');
+            return enqId !== String(enquiryId);
+          });
+        });
+        scheduleBackgroundReconciliation(30000);
+        return;
+      }
+
+      // Fallback for unknown event types — gentle background reconciliation
+      scheduleBackgroundReconciliation(10000);
+    };
+
+    try {
+      eventSource = new EventSource('/api/enquiries-unified/stream');
+      eventSource.addEventListener('enquiries.changed', onChangedEvent as EventListener);
+      eventSource.onerror = () => {
+        // Browser will auto-retry; keep handler light.
+        trackClientEvent('AppShell', 'enquiries-stream-error', { readyState: eventSource?.readyState ?? -1 }, {
+          throttleKey: 'app:enquiries-stream-error',
+          cooldownMs: 15000,
+        });
+      };
+      trackClientEvent('AppShell', 'enquiries-stream-connected', { path: '/api/enquiries-unified/stream' }, {
+        throttleKey: 'app:enquiries-stream-connected',
+        cooldownMs: 60000,
+      });
+    } catch (error) {
+      console.warn('[App] Failed to connect enquiries realtime stream:', error);
+      trackClientError('AppShell', 'enquiries-stream-connect-failed', error, { path: '/api/enquiries-unified/stream' }, {
+        throttleKey: 'app:enquiries-stream-connect-failed',
+        cooldownMs: 30000,
+      });
+    }
+
+    return () => {
+      if (bgReconcileTimerRef.current) {
+        window.clearTimeout(bgReconcileTimerRef.current);
+        bgReconcileTimerRef.current = null;
+      }
+      if (appEnquiriesRefreshTimerRef.current) {
+        window.clearTimeout(appEnquiriesRefreshTimerRef.current);
+        appEnquiriesRefreshTimerRef.current = null;
+      }
+      appEnquiriesRefreshQueuedRef.current = false;
+      appEnquiriesRefreshInFlightRef.current = false;
+      try {
+        if (eventSource) {
+          eventSource.removeEventListener('enquiries.changed', onChangedEvent as EventListener);
+          eventSource.close();
+        }
+      } catch {
+        // ignore
+      }
+    };
+  }, [userData]);
+
   // Refresh matters function - clears local caches and fetches normalized matters for current user
   const refreshMatters = async () => {
     if (!userData || !userData[0]) return;
@@ -887,7 +1104,7 @@ const AppWithContext: React.FC = () => {
       toRemove.forEach(k => localStorage.removeItem(k));
 
       const effectiveUser = resolveEffectiveDatasetUser(userData[0], teamData);
-      const queryName = isAdminUser(userData[0]) ? '' : effectiveUser.fullName;
+      const queryName = isDevOwner(userData[0]) ? '' : effectiveUser.fullName;
       const normalized = await fetchAllMatterSources(effectiveUser.fullName, queryName);
       setMatters(normalized);
     } catch (err) {
@@ -951,7 +1168,7 @@ const AppWithContext: React.FC = () => {
       // Always fetch matters for the selected user.
       // Matters can be user-scoped server-side (queryName), so reusing a previously-loaded
       // matters list will show the wrong "Mine" results after switching user.
-      const queryName = isAdminUser(normalized) ? '' : effectiveUser.fullName;
+      const queryName = isDevOwner(normalized) ? '' : effectiveUser.fullName;
       const mattersRes = await fetchAllMatterSources(effectiveUser.fullName, queryName);
       setMatters(mattersRes);
       
@@ -1010,9 +1227,11 @@ const AppWithContext: React.FC = () => {
         String(user.Initials || '').toLowerCase() === String(userKey || '').toLowerCase()
       ) || teamUserData.find((user: any) => user.status === 'active') || teamUserData[0];
 
+      const gateSnapshotId = String(selectedUserData?.Email || userKey || 'local').trim().toLowerCase() || 'local';
+
       setTeamsContext({
         user: {
-          id: "local",
+          id: gateSnapshotId,
           userPrincipalName: selectedUserData?.Email || 'lz@helix-law.com',
         },
         app: {
@@ -1027,60 +1246,82 @@ const AppWithContext: React.FC = () => {
 
       setUserData(initialUserData as UserData[]);
 
+      const gateSnapshot = readShellBootSnapshot(gateSnapshotId);
+      if (gateSnapshot) {
+        if (gateSnapshot.enquiries?.length) setEnquiries(gateSnapshot.enquiries);
+        if (gateSnapshot.teamData) setTeamData(gateSnapshot.teamData);
+        setEnquiriesUsingSnapshot(Boolean(gateSnapshot.enquiries?.length));
+        console.info('[Boot:Gate] Shell snapshot restored — stale-first paint');
+      } else {
+        const cachedEffectiveUser = resolveEffectiveDatasetUser(initialUserData[0] as UserData, teamUserData);
+        const cachedEnquiries = getCachedEnquiriesSnapshot(
+          cachedEffectiveUser.email,
+          getDateRange().dateFrom,
+          getDateRange().dateTo,
+          initialUserData[0].AOW || '',
+          cachedEffectiveUser.initials,
+          isDevOwner(initialUserData[0] as UserData),
+        );
+
+        if (cachedEnquiries?.length) {
+          setEnquiries(cachedEnquiries);
+          setEnquiriesUsingSnapshot(true);
+          console.info(`[Boot:Gate] Enquiries cache restored — stale-first paint (${cachedEnquiries.length} rows)`);
+        }
+      }
+
+      setTeamData(teamUserData);
+      setLoading(false);
+
       // For local development, also test the dual enquiries fetching
       const { dateFrom, dateTo } = getDateRange();
       const effectiveUser = resolveEffectiveDatasetUser(initialUserData[0] as UserData, teamUserData);
 
       try {
         const gateBoot = performance.now();
-        console.info('[Boot:Gate] Starting parallel data fetch');
+        console.info('[Boot:Gate] Starting core data fetch');
         const userInitials = effectiveUser.initials;
         const enquiriesEmail = effectiveUser.email;
-        const queryName = isAdminUser(initialUserData[0]) ? '' : effectiveUser.fullName;
+        setEnquiriesLiveRefreshInFlight(true);
 
-        const [enquiriesRes, liveTeam] = await Promise.all([
-          fetchEnquiries(enquiriesEmail, dateFrom, dateTo, initialUserData[0].AOW || "", userInitials)
-            .catch(err => {
-              console.warn('⚠️ Enquiries API failed, using fallback:', err);
-              return import('./tabs/home/Home').then(m => m.getLiveLocalEnquiries(initialUserData[0].Email) as Enquiry[]);
-            }),
-          fetchTeamData().catch(() => null),
-        ]);
+        const enquiriesRes = await fetchEnquiries(enquiriesEmail, dateFrom, dateTo, initialUserData[0].AOW || "", userInitials, isDevOwner(initialUserData[0] as UserData))
+          .catch(err => {
+            console.warn('⚠️ Enquiries API failed, using fallback:', err);
+            return import('./tabs/home/Home').then(m => m.getLiveLocalEnquiries(initialUserData[0].Email) as Enquiry[]);
+          });
 
         setEnquiries(enquiriesRes);
-        setTeamData(liveTeam);
+        setLastEnquiriesLiveSyncAt(Date.now());
+        setEnquiriesUsingSnapshot(false);
         console.info(`[Boot:Gate] Core Home data ready in ${Math.round(performance.now() - gateBoot)}ms`);
-
-        fetchAllMatterSources(effectiveUser.fullName, queryName)
-          .then((normalizedMatters) => {
-            setMatters(normalizedMatters);
-            console.info(`[Boot:Gate] Matters hydrated in ${Math.round(performance.now() - gateBoot)}ms (${normalizedMatters.length} rows)`);
-          })
-          .catch(err => {
-            console.warn('⚠️ Matters API failed, using fallback:', err);
-            import('./localData/localMatters.json')
-              .then(m => mergeMattersFromSources([], m.default as unknown as Matter[], [], effectiveUser.fullName))
-              .then(fallbackMatters => {
-                setMatters(fallbackMatters);
-                console.info(`[Boot:Gate] Matters fallback hydrated in ${Math.round(performance.now() - gateBoot)}ms (${fallbackMatters.length} rows)`);
-              });
-          });
       } catch (err) {
         console.error('❌ Unexpected error in entry gate:', err);
         const { getLiveLocalEnquiries } = await import('./tabs/home/Home');
-        const { default: localMatters } = await import('./localData/localMatters.json');
         setEnquiries(getLiveLocalEnquiries(initialUserData[0].Email) as Enquiry[]);
-        setMatters(mergeMattersFromSources([], localMatters as unknown as Matter[], [], effectiveUser.fullName));
-        setTeamData(null);
+        setEnquiriesUsingSnapshot(false);
+      } finally {
+        setEnquiriesLiveRefreshInFlight(false);
       }
-
-      setLoading(false);
     } catch (error) {
       console.error('❌ Error setting up user:', error);
       setError('Failed to initialize user data');
       setLoading(false);
     }
   };
+
+  // ── Write shell boot snapshot whenever core data is populated ───────────
+  // Keeps the snapshot fresh so next boot gets stale-first paint.
+  useEffect(() => {
+    if (!userData?.[0] || !enquiries?.length) return;
+    const objectId = teamsContext?.user?.id || 'local';
+    writeShellBootSnapshot({
+      objectId,
+      userData: userData,
+      enquiries,
+      teamData,
+      savedAt: Date.now(),
+    });
+  }, [userData, enquiries, teamData, teamsContext]);
 
   useEffect(() => {
     const initializeTeamsAndFetchData = async () => {
@@ -1096,9 +1337,24 @@ const AppWithContext: React.FC = () => {
           
           const ctx = await app.getContext();
           setTeamsContext(ctx);
-          setLoading(false);
 
           const objectId = ctx.user?.id || "";
+          setEnquiriesUsingSnapshot(false);
+
+          // ── Snapshot-first paint ─────────────────────────────────────
+          // Restore cached boot data so components mount with data instead
+          // of empty arrays.  Live fetches below will overwrite silently.
+          const shellSnapshot = readShellBootSnapshot(objectId);
+          const restoredShellSnapshot = Boolean(shellSnapshot);
+          if (shellSnapshot) {
+            if (shellSnapshot.userData?.length) setUserData(shellSnapshot.userData);
+            if (shellSnapshot.enquiries?.length) setEnquiries(shellSnapshot.enquiries);
+            if (shellSnapshot.teamData) setTeamData(shellSnapshot.teamData);
+            setEnquiriesUsingSnapshot(Boolean(shellSnapshot.enquiries?.length));
+            console.info('[Boot:Teams] Shell snapshot restored — stale-first paint');
+          }
+
+          setLoading(false);
           if (!objectId) {
             setError("Missing Teams context objectId.");
             return;
@@ -1122,63 +1378,79 @@ const AppWithContext: React.FC = () => {
             const enquiriesEmail = primaryUser.Email || "";
 
             const t0Enq = performance.now();
+            setEnquiriesLiveRefreshInFlight(true);
             fetchEnquiries(
               enquiriesEmail,
               dateFrom,
               dateTo,
               "", // Empty AOW - frontend will apply AOW logic for Claimable state only
               userInitials,
+              isDevOwner(primaryUser),
             ).then(res => {
               console.info(`[Boot:Teams] Enquiries: ${Math.round(performance.now() - t0Enq)}ms (${res.length} rows)`);
               setEnquiries(res);
+              setLastEnquiriesLiveSyncAt(Date.now());
+              setEnquiriesUsingSnapshot(false);
             }).catch(err => {
               console.warn(`[Boot:Teams] Enquiries failed (${Math.round(performance.now() - t0Enq)}ms):`, err);
-              setEnquiries([]);
+            }).finally(() => {
+              setEnquiriesLiveRefreshInFlight(false);
             });
 
-            const t0Mat = performance.now();
-            fetchAllMatterSources(fullName, isAdminUser(primaryUser) ? '' : fullName)
-              .then(res => {
-                console.info(`[Boot:Teams] Matters: ${Math.round(performance.now() - t0Mat)}ms (${res.length} rows)`);
-                setMatters(res);
-              })
-              .catch(err => {
-                console.warn(`[Boot:Teams] Matters failed (${Math.round(performance.now() - t0Mat)}ms):`, err);
-                setMatters([]);
-              });
-
-            const t0Team = performance.now();
-            fetchTeamData()
-              .then(res => {
-                console.info(`[Boot:Teams] TeamData: ${Math.round(performance.now() - t0Team)}ms`);
-                setTeamData(res);
-              })
-              .catch(err => {
-                console.warn(`[Boot:Teams] TeamData failed (${Math.round(performance.now() - t0Team)}ms):`, err);
-                setTeamData(null);
-              });
+            // Dev owner: also load matters on boot (normally lazy-loaded)
+            if (isDevOwner(primaryUser)) {
+              fetchAllMatterSources(fullName, '')
+                .then(normalized => {
+                  console.info(`[Boot:Teams:DevOwner] Matters: ${normalized.length} rows`);
+                  setMatters(normalized);
+                })
+                .catch(err => console.warn('[Boot:Teams:DevOwner] Matters fetch failed:', err));
+            }
           };
+
+          // Fire team-data alongside user-data — it's a global dataset with no user dependency.
+          // This saves ~400ms by overlapping with user-data instead of waiting for it.
+          const t0Team = performance.now();
+          fetchTeamData()
+            .then(res => {
+              console.info(`[Boot:Teams] TeamData: ${Math.round(performance.now() - t0Team)}ms`);
+              setTeamData(res);
+            })
+            .catch(err => {
+              console.warn(`[Boot:Teams] TeamData failed (${Math.round(performance.now() - t0Team)}ms):`, err);
+              if (!restoredShellSnapshot) {
+                setTeamData(null);
+              }
+            });
 
           fetchUserData(objectId)
             .then((userDataRes) => {
               setUserData(userDataRes);
               if (!Array.isArray(userDataRes) || userDataRes.length === 0) {
                 console.warn('User data fetch returned no records for objectId:', objectId);
-                setError('We could not load your profile details. Some data may be unavailable.');
-                setEnquiries([]);
-                setMatters([]);
-                setTeamData(null);
+                setError(restoredShellSnapshot
+                  ? 'Live profile refresh failed. Showing recent cached data while we retry.'
+                  : 'We could not load your profile details. Some data may be unavailable.');
+                if (!restoredShellSnapshot) {
+                  setEnquiries([]);
+                  setMatters([]);
+                  setTeamData(null);
+                }
                 return;
               }
               primeUserDependentData(userDataRes);
             })
             .catch((userErr) => {
               console.error("Failed to load user data:", userErr);
-              setError("Failed to load user profile. Please refresh.");
-              setUserData([]);
-              setEnquiries([]);
-              setMatters([]);
-              setTeamData(null);
+              setError(restoredShellSnapshot
+                ? 'Live profile refresh failed. Showing recent cached data while we retry.'
+                : 'Failed to load user profile. Please refresh.');
+              if (!restoredShellSnapshot) {
+                setUserData([]);
+                setEnquiries([]);
+                setMatters([]);
+                setTeamData(null);
+              }
             });
         } catch (err: any) {
           console.error("Error initializing Teams:", err);
@@ -1209,73 +1481,131 @@ const AppWithContext: React.FC = () => {
             }];
             setUserData(initialUserData as UserData[]);
 
+            // ── Snapshot-first paint (local dev) ────────────────────────
+            const localSnapshot = readShellBootSnapshot('local');
+            if (localSnapshot) {
+              if (localSnapshot.enquiries?.length) setEnquiries(localSnapshot.enquiries);
+              if (localSnapshot.teamData) setTeamData(localSnapshot.teamData);
+              setEnquiriesUsingSnapshot(Boolean(localSnapshot.enquiries?.length));
+              setLoading(false);
+              console.info('[Boot:Local] Shell snapshot restored — stale-first paint');
+            }
+            if (!localSnapshot) {
+              setLoading(false);
+            }
+
             // Resolve the effective local dataset identity first so boot doesn't
             // fetch the main enquiries dataset as raw LZ and then correct later.
+            // Keep boot enquiry-first: matters hydrate only when the user visits Matters.
             const { dateFrom, dateTo } = getDateRange();
-            const fullName = `${initialUserData[0].First} ${initialUserData[0].Last}`.trim();
             const bootStart = performance.now();
-            console.info('[Boot] Starting parallel data fetch');
+            console.info('[Boot] Starting core data fetch');
 
             try {
-              const t0Team = performance.now();
-              let liveTeam: TeamData[] | null = null;
-              try {
-                liveTeam = await fetchTeamData();
-                console.info(`[Boot] TeamData: ${Math.round(performance.now() - t0Team)}ms`);
-              } catch (err) {
-                console.warn(`[Boot] TeamData failed (${Math.round(performance.now() - t0Team)}ms):`, err);
+              const cachedTeam = localSnapshot?.teamData || getCachedData<TeamData[]>('teamData');
+              if (!localSnapshot && cachedTeam?.length) {
+                setTeamData(cachedTeam);
               }
 
-              const effectiveUser = resolveEffectiveDatasetUser(initialUserData[0] as UserData, liveTeam);
-              const userInitials = effectiveUser.initials || "";
-              const enquiriesEmail = effectiveUser.email || "";
-              const effectiveFullName = effectiveUser.fullName || fullName;
-              const queryName = isAdminUser(initialUserData[0]) ? '' : effectiveFullName;
+              const cachedEffectiveUser = resolveEffectiveDatasetUser(initialUserData[0] as UserData, cachedTeam || null);
+              const cachedUserInitials = cachedEffectiveUser.initials || "";
+              const cachedEnquiriesEmail = cachedEffectiveUser.email || "";
 
-              const [enquiriesRes, normalizedMatters] = await Promise.all([
-                (async () => {
-                  const t0 = performance.now();
-                  try {
-                    const res = await fetchEnquiries(
-                      enquiriesEmail, dateFrom, dateTo,
-                      "", userInitials, false, false
-                    );
-                    console.info(`[Boot] Enquiries: ${Math.round(performance.now() - t0)}ms (${res.length} rows)`);
-                    return res;
-                  } catch (err) {
-                    console.warn(`[Boot] Enquiries failed (${Math.round(performance.now() - t0)}ms):`, err);
-                    const { getLiveLocalEnquiries } = await import('./tabs/home/Home');
-                    return getLiveLocalEnquiries(enquiriesEmail || initialUserData[0].Email) as Enquiry[];
-                  }
-                })(),
-                (async () => {
-                  const t0 = performance.now();
-                  try {
-                    const res = await fetchAllMatterSources(effectiveFullName, queryName);
-                    console.info(`[Boot] Matters: ${Math.round(performance.now() - t0)}ms (${res.length} rows)`);
-                    return res;
-                  } catch (err) {
-                    console.warn(`[Boot] Matters failed (${Math.round(performance.now() - t0)}ms):`, err);
-                    const { default: localMatters } = await import('./localData/localMatters.json');
-                    return mergeMattersFromSources([], localMatters as unknown as Matter[], [], effectiveFullName);
-                  }
-                })(),
-              ]);
+              if (!localSnapshot) {
+                const devOwnerBoot = isDevOwner(initialUserData[0] as UserData);
+                const cachedEnquiries = getCachedEnquiriesSnapshot(
+                  cachedEnquiriesEmail,
+                  dateFrom,
+                  dateTo,
+                  "",
+                  cachedUserInitials,
+                  devOwnerBoot,
+                );
 
-              setEnquiries(enquiriesRes);
-              setMatters(normalizedMatters);
-              setTeamData(liveTeam);
-              console.info(`[Boot] All data ready in ${Math.round(performance.now() - bootStart)}ms`);
+                if (cachedEnquiries?.length) {
+                  setEnquiries(cachedEnquiries);
+                  setEnquiriesUsingSnapshot(true);
+                  console.info(`[Boot:Local] Enquiries cache restored — stale-first paint (${cachedEnquiries.length} rows)`);
+                }
+              }
+
+              const t0Team = performance.now();
+              const liveTeamPromise = fetchTeamData()
+                .then((liveTeam) => {
+                  console.info(`[Boot] TeamData: ${Math.round(performance.now() - t0Team)}ms`);
+                  setTeamData(liveTeam);
+                  return liveTeam;
+                })
+                .catch((err) => {
+                  console.warn(`[Boot] TeamData failed (${Math.round(performance.now() - t0Team)}ms):`, err);
+                  return cachedTeam || null;
+                });
+
+              setEnquiriesLiveRefreshInFlight(true);
+
+              const refreshLocalEnquiries = async (teamForIdentity: TeamData[] | null) => {
+                const effectiveUser = resolveEffectiveDatasetUser(initialUserData[0] as UserData, teamForIdentity);
+                const userInitials = effectiveUser.initials || "";
+                const enquiriesEmail = effectiveUser.email || "";
+                const fetchAll = isDevOwner(initialUserData[0] as UserData);
+                console.info(`[Boot] Enquiries fetch: email=${enquiriesEmail} initials=${userInitials} fetchAll=${fetchAll}`);
+                const t0 = performance.now();
+
+                try {
+                  const res = await fetchEnquiries(
+                    enquiriesEmail,
+                    dateFrom,
+                    dateTo,
+                    "",
+                    userInitials,
+                    fetchAll,
+                    false,
+                  );
+                  console.info(`[Boot] Enquiries: ${Math.round(performance.now() - t0)}ms (${res.length} rows)`);
+                  setEnquiries(res);
+                  setLastEnquiriesLiveSyncAt(Date.now());
+                  setEnquiriesUsingSnapshot(false);
+                  console.info(`[Boot] Core Home data ready in ${Math.round(performance.now() - bootStart)}ms`);
+                  return { email: enquiriesEmail, initials: userInitials };
+                } catch (err) {
+                  console.warn(`[Boot] Enquiries failed (${Math.round(performance.now() - t0)}ms):`, err);
+                  const { getLiveLocalEnquiries } = await import('./tabs/home/Home');
+                  setEnquiries(getLiveLocalEnquiries(enquiriesEmail || initialUserData[0].Email) as Enquiry[]);
+                  setEnquiriesUsingSnapshot(false);
+                  return { email: enquiriesEmail, initials: userInitials };
+                }
+              };
+
+              const initialRefreshIdentity = await refreshLocalEnquiries(cachedTeam || null);
+              const liveTeam = await liveTeamPromise;
+              const liveEffectiveUser = resolveEffectiveDatasetUser(initialUserData[0] as UserData, liveTeam);
+              const liveIdentityChanged =
+                liveEffectiveUser.email !== initialRefreshIdentity.email
+                || liveEffectiveUser.initials !== initialRefreshIdentity.initials;
+
+              if (liveIdentityChanged) {
+                await refreshLocalEnquiries(liveTeam);
+              }
+
+              setEnquiriesLiveRefreshInFlight(false);
+
+              // Dev owner: also load matters on boot (normally lazy-loaded)
+              if (isDevOwner(initialUserData[0] as UserData)) {
+                const effectiveUser = resolveEffectiveDatasetUser(initialUserData[0] as UserData, liveTeam);
+                fetchAllMatterSources(effectiveUser.fullName, '')
+                  .then(normalized => {
+                    console.info(`[Boot:DevOwner] Matters: ${normalized.length} rows`);
+                    setMatters(normalized);
+                  })
+                  .catch(err => console.warn('[Boot:DevOwner] Matters fetch failed:', err));
+              }
             } catch (err) {
               console.error('❌ Unexpected error in local dev:', err);
               const { getLiveLocalEnquiries } = await import('./tabs/home/Home');
-              const { default: localMatters } = await import('./localData/localMatters.json');
               setEnquiries(getLiveLocalEnquiries(initialUserData[0].Email) as Enquiry[]);
-              setMatters(mergeMattersFromSources([], localMatters as unknown as Matter[], [], fullName));
               setTeamData(null);
+              setEnquiriesLiveRefreshInFlight(false);
             }
-
-            setLoading(false);
           } catch (e) {
             console.error('❌ Local init failed:', e);
             setLoading(false);
@@ -1298,6 +1628,9 @@ const AppWithContext: React.FC = () => {
         teamsContext={teamsContext}
         userData={userData}
         enquiries={enquiries}
+        enquiriesUsingSnapshot={enquiriesUsingSnapshot}
+        enquiriesLiveRefreshInFlight={enquiriesLiveRefreshInFlight}
+        enquiriesLastLiveSyncAt={lastEnquiriesLiveSyncAt}
         matters={matters}
         isLoading={loading}
         error={error}
@@ -1310,6 +1643,7 @@ const AppWithContext: React.FC = () => {
         onRefreshEnquiries={refreshEnquiries}
         onRefreshMatters={refreshMatters}
         onOptimisticClaim={optimisticClaimEnquiry}
+        subscribeToEnquiryStream={subscribeToEnquiryStream}
       />
       <EntryGate
         isOpen={showEntryGate}

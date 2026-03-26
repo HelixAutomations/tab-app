@@ -133,16 +133,14 @@ async function userContextMiddleware(req, res, next) {
   // Generate request ID for tracking
   req.requestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-  // Log response when finished - only errors and slow requests
+  // Log response when finished - errors only (devConsole handles timing display in dev)
   const originalSend = res.send;
   res.send = function(data) {
     const duration = Date.now() - startTime;
     
-    // Only log errors (4xx/5xx) or slow requests (>3s)
+    // Only log errors (4xx/5xx) — slow request display is handled by devConsole middleware
     if (res.statusCode >= 400) {
       console.error(`[${req.requestId}] ${res.statusCode} ${req.method} ${req.path} | ${duration}ms | ${user?.initials || 'Anon'}`);
-    } else if (duration > 3000) {
-      console.warn(`[${req.requestId}] SLOW ${req.method} ${req.path} | ${duration}ms`);
     }
 
     return originalSend.call(this, data);

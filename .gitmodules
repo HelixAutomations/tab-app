@@ -5,3 +5,9 @@
 [submodule "submodules/enquiry-processing-v2"]
 	path = submodules/enquiry-processing-v2
 	url = git@github.com:HelixAutomations/enquiry-processing-v2.git
+[submodule "submodules/aged-debts-v2"]
+	path = submodules/aged-debts-v2
+	url = git@github.com:HelixAutomations/aged-debts-v2.git
+[submodule "submodules/transaction-intake"]
+	path = submodules/transaction-intake
+	url = git@github.com:HelixAutomations/transaction-intake.git

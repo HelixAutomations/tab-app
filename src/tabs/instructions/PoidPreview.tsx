@@ -2,7 +2,9 @@
 // invisible change 2.1
 //
 import React from 'react';
-import { Stack, Text, mergeStyles } from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Text } from '@fluentui/react/lib/Text';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { POID } from '../../app/functionality/types';
 import { colours } from '../../app/styles/colours';
 

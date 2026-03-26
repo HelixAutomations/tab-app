@@ -1,7 +1,8 @@
 
 import React from 'react';
-import { TextField, ITextFieldStyles } from '@fluentui/react';
-import { mergeStyles } from '@fluentui/react';
+import { TextField } from '@fluentui/react/lib/TextField';
+import type { ITextFieldStyles } from '@fluentui/react/lib/TextField';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { colours } from '../styles/colours';
 
 interface StyledTextFieldProps {

@@ -1,7 +1,10 @@
 // ---   Imports ---
 // invisible change 2.1
 //
-import { Stack, Text, mergeStyles, Icon } from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Text } from '@fluentui/react/lib/Text';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
+import { Icon } from '@fluentui/react/lib/Icon';
 import { POID, TeamData } from '../../app/functionality/types';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';

@@ -1,4 +1,4 @@
-import { IStackTokens, IStackStyles } from '@fluentui/react';
+import type { IStackTokens, IStackStyles } from '@fluentui/react/lib/Stack';
 // invisible change 2.1
 //
 import { colours } from '../../app/styles/colours';

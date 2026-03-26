@@ -1,19 +1,15 @@
 import React, { useState, useRef, useEffect } from "react";
-import {
-  Stack,
-  TextField,
-  mergeStyles,
-  IconButton,
-  Text,
-  MessageBar,
-  MessageBarType,
-} from "@fluentui/react";
+import { Stack } from '@fluentui/react/lib/Stack';
+import { TextField } from '@fluentui/react/lib/TextField';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
+import { IconButton } from '@fluentui/react/lib/Button';
+import { Text } from '@fluentui/react/lib/Text';
+import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
 import { Enquiry } from "../../../app/functionality/types";
 
 import { colours } from "../../../app/styles/colours";
 import { inputFieldStyle } from "../../../CustomForms/BespokeForms";
-import { IDropdownOption } from "@fluentui/react";
-
+import type { IDropdownOption } from '@fluentui/react/lib/Dropdown';
 interface PitchHeaderRowProps {
   enquiry: Enquiry;
   to: string;

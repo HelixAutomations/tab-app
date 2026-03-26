@@ -4,15 +4,13 @@ import React, {
   useMemo,
   useState,
 } from 'react';
-import {
-  Icon,
-  IconButton,
-  INavLink,
-  Modal,
-  Nav,
-  Text,
-  mergeStyles,
-} from '@fluentui/react';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { IconButton } from '@fluentui/react/lib/Button';
+import { Nav } from '@fluentui/react/lib/Nav';
+import type { INavLink } from '@fluentui/react/lib/Nav';
+import { Modal } from '@fluentui/react/lib/Modal';
+import { Text } from '@fluentui/react/lib/Text';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { FixedSizeList } from 'react-window';
 import { useTheme } from '../app/functionality/ThemeContext';
 import { colours } from '../app/styles/colours';

@@ -39,7 +39,7 @@ const MiniPipelineChip: React.FC<MiniChipProps> = ({
 
   // Pending / next-action chips use neutral grey; completed chips use the stage colour.
   const activeColor =
-    inProgress || isNextAction ? (isDarkMode ? colours.accent : colours.highlight) : color;
+    inProgress || isNextAction ? colours.greyText : color;
   const iconColor =
     done || inProgress || isNextAction ? activeColor : inactiveColor;
 
@@ -53,7 +53,7 @@ const MiniPipelineChip: React.FC<MiniChipProps> = ({
       onClick={onClick}
       className={`pipeline-chip pipeline-chip-reveal${
         isNextAction || inProgress ? ' next-action-subtle-pulse' : ''
-      }`}
+      }${done ? ' pipeline-chip--done' : ''}`}
       onMouseEnter={onMouseEnter}
       onMouseMove={onMouseMove}
       onMouseLeave={onMouseLeave}
@@ -63,20 +63,16 @@ const MiniPipelineChip: React.FC<MiniChipProps> = ({
         justifyContent: 'center',
         width: '100%',
         minHeight: 24,
-        height: 'auto',
+        height: '100%',
         padding: 0,
         borderRadius: 0,
         border: 'none',
-        background: 'transparent',
         cursor: onClick ? 'pointer' : 'default',
         fontFamily: 'inherit',
         position: 'relative',
         overflow: 'visible',
       }}
     >
-      {/* Connector dash to the previous chip */}
-      {showConnector && <span className={connectorClass} />}
-
       <span className="pipeline-chip-box">
         {renderPipelineIcon(iconName, iconColor, 14)}
         <span className="pipeline-chip-label" style={{ color: iconColor }}>
@@ -87,4 +83,4 @@ const MiniPipelineChip: React.FC<MiniChipProps> = ({
   );
 };
 
-export default MiniPipelineChip;
+export default React.memo(MiniPipelineChip);

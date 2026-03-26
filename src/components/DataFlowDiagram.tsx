@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Icon } from '@fluentui/react';
+import { Icon } from '@fluentui/react/lib/Icon';
 import { useTheme } from '../app/functionality/ThemeContext';
 import { colours } from '../app/styles/colours';
 
@@ -43,10 +43,6 @@ const DataFlowDiagram: React.FC = () => {
     { id: 'api-gateway', label: 'API surface (/api/*)', lane: 'API', x: 1, y: 0 },
     { id: 'api-express', label: 'Express routes (server/*)', lane: 'API', x: 1, y: 1 },
 
-    // Functions
-    { id: 'func-core', label: 'Azure Functions (api/src)', lane: 'Functions', x: 2, y: 0 },
-    { id: 'func-decoupled', label: 'Decoupled functions', lane: 'Functions', x: 2, y: 1 },
-
     // Data
     { id: 'data-core', label: 'Core Data DB (enquiries, matters)', lane: 'Data', x: 3, y: 0 },
     { id: 'data-instructions', label: 'Instructions DB (Deals, Instructions)', lane: 'Data', x: 3, y: 1 },
@@ -64,17 +60,12 @@ const DataFlowDiagram: React.FC = () => {
     { from: 'client-dev', to: 'api-gateway' },
 
     // API routing
-    { from: 'api-gateway', to: 'func-core', label: 'Functions-backed' },
     { from: 'api-gateway', to: 'api-express', label: 'Express-backed' },
-    { from: 'api-express', to: 'func-decoupled', label: 'proxy / helpers' },
 
     // Data access
-    { from: 'func-core', to: 'data-core', label: 'queries' },
-    { from: 'func-core', to: 'data-instructions', label: 'queries' },
     { from: 'api-express', to: 'data-core', label: 'queries' },
     { from: 'api-express', to: 'data-instructions', label: 'queries' },
-    { from: 'func-core', to: 'data-secrets', label: 'secrets' },
-    { from: 'func-decoupled', to: 'data-secrets', label: 'secrets' },
+    { from: 'api-express', to: 'data-secrets', label: 'secrets' },
 
     // External services
     { from: 'func-core', to: 'ext-graph', label: 'email' },

@@ -1,7 +1,7 @@
 //
 import React, { useState } from 'react';
 // invisible change 2.2
-import { SearchBox } from '@fluentui/react';
+import { SearchBox } from '@fluentui/react/lib/SearchBox';
 import './MinimalSearchBox.css';
 
 interface MinimalSearchBoxProps {

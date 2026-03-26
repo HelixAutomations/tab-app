@@ -21,7 +21,7 @@ import {
   MdFactCheck,
   MdLocationOn,
 } from 'react-icons/md';
-import { Icon } from '@fluentui/react';
+import { Icon } from '@fluentui/react/lib/Icon';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';
 
@@ -117,7 +117,13 @@ export const ImmediateActionChip: React.FC<ImmediateActionChipProps> = ({
             : `${categoryAccent}08`)
           : (isDark ? 'rgba(255, 255, 255, 0.02)' : 'rgba(255, 255, 255, 0.35)'),
         color: text,
-        border: `1px solid ${hovered 
+        borderTop: `1px solid ${hovered
+          ? categoryAccent
+          : `${categoryAccent}30`}`,
+        borderRight: `1px solid ${hovered
+          ? categoryAccent
+          : `${categoryAccent}30`}`,
+        borderBottom: `1px solid ${hovered
           ? categoryAccent
           : `${categoryAccent}30`}`,
         borderLeft: `2px solid ${categoryAccent}`,

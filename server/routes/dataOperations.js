@@ -15,6 +15,8 @@ const { getPool } = require('../utils/db');
 const { getSecret } = require('../utils/getSecret');
 const { createLogger } = require('../utils/logger');
 const { trackEvent, trackException, trackMetric, trackDependency } = require('../utils/appInsights');
+const { deleteCachePattern } = require('../utils/redisClient');
+const { attachDataOpsStream, broadcastDataOpsChanged } = require('../utils/dataOps-stream');
 
 const opsLogger = createLogger('DataOps');
 
@@ -770,6 +772,35 @@ async function syncCollectedTime(options = {}) {
       trackException(valErr, { operation: operationKey, phase: 'validation', entity: 'CollectedTime' });
     }
 
+    // ── Post-sync cache invalidation ──
+    // Clear recovered fees caches so home page and management dashboard show fresh data
+    try {
+      const clearedRpt = await deleteCachePattern('rpt:recoveredFees*');
+      const clearedStream = await deleteCachePattern('stream:recoveredFees*');
+      // Also clear the in-memory route-level cache
+      try {
+        const reporting = require('./reporting');
+        if (typeof reporting.clearReportingCache === 'function') {
+          reporting.clearReportingCache('all');
+        }
+      } catch (_) { /* reporting module may not expose clearReportingCache */ }
+      if (clearedRpt > 0 || clearedStream > 0) {
+        console.log(`[DataOps] Cleared ${clearedRpt + clearedStream} recovered fees cache keys after sync`);
+      }
+    } catch (cacheErr) {
+      console.warn('[DataOps] Post-sync cache clear failed (non-fatal):', cacheErr.message);
+    }
+
+    // ── Broadcast SSE so connected clients refresh ──
+    try {
+      broadcastDataOpsChanged({
+        dataset: 'collectedTime',
+        dateRange: { start: startDateSql, end: endDateSql },
+        rowCount: insertedRows,
+        triggeredBy,
+      });
+    } catch (_) { /* non-fatal */ }
+
     activeJobs.delete(operationKey);
     return { success: true, deletedRows, insertedRows, durationMs };
   } catch (error) {
@@ -1248,6 +1279,33 @@ async function syncWip(options = {}) {
       console.warn('[DataOps] Post-sync WIP validation failed:', valErr.message);
       trackException(valErr, { operation: operationKey, phase: 'validation', entity: 'Wip' });
     }
+
+    // ── Post-sync cache invalidation (WIP) ──
+    try {
+      const clearedRpt = await deleteCachePattern('rpt:wip*');
+      const clearedStream = await deleteCachePattern('stream:wip*');
+      try {
+        const reporting = require('./reporting');
+        if (typeof reporting.clearReportingCache === 'function') {
+          reporting.clearReportingCache('all');
+        }
+      } catch (_) { /* reporting module may not expose clearReportingCache */ }
+      if (clearedRpt > 0 || clearedStream > 0) {
+        console.log(`[DataOps] Cleared ${clearedRpt + clearedStream} WIP cache keys after sync`);
+      }
+    } catch (cacheErr) {
+      console.warn('[DataOps] Post-sync WIP cache clear failed (non-fatal):', cacheErr.message);
+    }
+
+    // ── Broadcast SSE so connected clients refresh ──
+    try {
+      broadcastDataOpsChanged({
+        dataset: 'wip',
+        dateRange: { start: startDateSql, end: endDateSql },
+        rowCount: insertedRows,
+        triggeredBy: wipTriggeredBy,
+      });
+    } catch (_) { /* non-fatal */ }
 
     return { success: true, deletedRows, insertedRows, durationMs };
   } catch (error) {
@@ -2050,6 +2108,87 @@ router.get('/table-stats', async (req, res) => {
 router.get('/month-audit', async (req, res) => {
   const { operation } = req.query;
   if (!operation) return res.status(400).json({ error: 'operation required' });
+
+  // ─── Aged Debt: direct query against transactions_v2 (Instructions DB) ───
+  if (operation === 'agedDebt') {
+    try {
+      const pool = await getLogPool();
+      if (!pool) return res.json({ months: [] });
+
+      const result = await pool.request().query(`
+        SELECT
+          FORMAT(CAST(created_at AS DATE), 'yyyy-MM') AS month,
+          COUNT(*) AS totalRows,
+          SUM(CASE WHEN lifecycle_status = 'pending' THEN 1 ELSE 0 END) AS pendingCount,
+          SUM(CASE WHEN lifecycle_status = 'approved' THEN 1 ELSE 0 END) AS approvedCount,
+          SUM(CASE WHEN lifecycle_status = 'left_in_client' THEN 1 ELSE 0 END) AS leftCount,
+          SUM(CASE WHEN lifecycle_status = 'rejected' THEN 1 ELSE 0 END) AS rejectedCount,
+          ISNULL(SUM(CAST(amount AS DECIMAL(18,2))), 0) AS totalValue,
+          ISNULL(SUM(CASE WHEN lifecycle_status = 'approved' THEN CAST(amount AS DECIMAL(18,2)) ELSE 0 END), 0) AS approvedValue,
+          MAX(created_at) AS latestCreated,
+          MAX(approved_at) AS latestActioned
+        FROM transactions_v2
+        WHERE created_at >= DATEADD(MONTH, -24, GETUTCDATE())
+        GROUP BY FORMAT(CAST(created_at AS DATE), 'yyyy-MM')
+      `);
+
+      const statsMap = {};
+      for (const r of result.recordset) {
+        statsMap[r.month] = {
+          totalRows: r.totalRows,
+          pendingCount: r.pendingCount,
+          approvedCount: r.approvedCount,
+          leftCount: r.leftCount,
+          rejectedCount: r.rejectedCount,
+          totalValue: parseFloat(r.totalValue) || 0,
+          approvedValue: parseFloat(r.approvedValue) || 0,
+          latestCreated: r.latestCreated,
+          latestActioned: r.latestActioned,
+        };
+      }
+
+      const now = new Date();
+      const months = [];
+      for (let i = 0; i < 24; i++) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        const label = d.toLocaleDateString('en-GB', { month: 'short', year: '2-digit' });
+        const stats = statsMap[key] || null;
+
+        months.push({
+          key,
+          label,
+          lastSync: stats ? {
+            ts: stats.latestActioned || stats.latestCreated,
+            status: 'completed',
+            insertedRows: stats.totalRows,
+            message: `${stats.totalRows} transactions (${stats.pendingCount} pending, ${stats.approvedCount} approved)`,
+            invokedBy: null,
+          } : null,
+          lastValidate: null,
+          syncCount: stats ? 1 : 0,
+          validateCount: 0,
+          stats: stats ? {
+            totalRows: stats.totalRows,
+            billableRows: stats.approvedCount,
+            nonBillableRows: stats.pendingCount,
+            totalValue: stats.totalValue,
+            billableValue: stats.approvedValue,
+            nonBillableValue: stats.totalValue - stats.approvedValue,
+            pendingCount: stats.pendingCount,
+            approvedCount: stats.approvedCount,
+            leftCount: stats.leftCount,
+            rejectedCount: stats.rejectedCount,
+          } : null,
+        });
+      }
+
+      return res.json({ months });
+    } catch (err) {
+      console.error('[MonthAudit:agedDebt] failed:', err.message);
+      return res.status(500).json({ error: err.message });
+    }
+  }
 
   // Map frontend operation names to DB LIKE patterns
   const syncLike = operation === 'collectedTime' ? 'syncCollectedTime%' : 'syncWip%';
@@ -2898,6 +3037,9 @@ router.get('/explain/sample', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// Attach SSE stream endpoint at /api/data-operations/stream
+attachDataOpsStream(router);
 
 module.exports = {
   router,

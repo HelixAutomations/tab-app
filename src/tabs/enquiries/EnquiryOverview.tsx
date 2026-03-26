@@ -1,25 +1,17 @@
-
-import React from 'react';
-import {
-  Stack,
-  Text,
-  Icon,
-  mergeStyles,
-  Separator,
-  TooltipHost,
-  IconButton,
-} from '@fluentui/react';
-import { Enquiry } from '../../app/functionality/types'; // Correct import
+import React, { useMemo } from 'react';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { TooltipHost } from '@fluentui/react/lib/Tooltip';
+import { Enquiry } from '../../app/functionality/types';
 import { colours } from '../../app/styles/colours';
-import { useTheme } from '../../app/functionality/ThemeContext'; // Import useTheme
+import { useTheme } from '../../app/functionality/ThemeContext';
+import './styles/ProspectOverview.css';
 
 interface EnquiryOverviewProps {
   enquiry: Enquiry;
-  onEditRating: (id: string) => void; // Function to open modal to edit rating
-  onEditNotes: () => void; // Function to trigger editing notes
-  allEnquiries?: Enquiry[]; // All enquiries to find client history
-  onSelectEnquiry?: (enquiry: Enquiry) => void; // Function to select another enquiry
-// invisible change
+  onEditRating: (id: string) => void;
+  onEditNotes: () => void;
+  allEnquiries?: Enquiry[];
+  onSelectEnquiry?: (enquiry: Enquiry) => void;
 }
 
 const EnquiryOverview: React.FC<EnquiryOverviewProps> = ({
@@ -29,35 +21,31 @@ const EnquiryOverview: React.FC<EnquiryOverviewProps> = ({
   allEnquiries = [],
   onSelectEnquiry,
 }) => {
-  const { isDarkMode } = useTheme(); // Access isDarkMode from Theme Context
+  const { isDarkMode } = useTheme();
 
-  // Find other enquiries from the same client
-  const getClientHistory = () => {
+  const clientHistory = useMemo(() => {
     if (!allEnquiries || allEnquiries.length === 0) return [];
-    
+
     const currentClientEmail = enquiry.Email?.toLowerCase();
     const currentClientName = `${enquiry.First_Name} ${enquiry.Last_Name}`.toLowerCase();
-    
-    return allEnquiries.filter(enq => {
-      if (enq.ID === enquiry.ID) return false; // Exclude current enquiry
-      
-      const enquiryEmail = enq.Email?.toLowerCase();
-      const enquiryName = `${enq.First_Name} ${enq.Last_Name}`.toLowerCase();
-      
-      // Match by email (primary) or name (fallback)
-      return (currentClientEmail && enquiryEmail === currentClientEmail) ||
-             (!currentClientEmail && enquiryName === currentClientName);
-    }).sort((a, b) => {
-      // Sort by date, newest first
-      const dateA = new Date(a.Touchpoint_Date || '').getTime();
-      const dateB = new Date(b.Touchpoint_Date || '').getTime();
-      return dateB - dateA;
-    });
-  };
 
-  const clientHistory = getClientHistory();
+    return allEnquiries
+      .filter((candidate) => {
+        if (candidate.ID === enquiry.ID) return false;
 
-  // Function to map rating to style and icon
+        const enquiryEmail = candidate.Email?.toLowerCase();
+        const enquiryName = `${candidate.First_Name} ${candidate.Last_Name}`.toLowerCase();
+
+        return (currentClientEmail && enquiryEmail === currentClientEmail) ||
+          (!currentClientEmail && enquiryName === currentClientName);
+      })
+      .sort((first, second) => {
+        const firstDate = new Date(first.Touchpoint_Date || '').getTime();
+        const secondDate = new Date(second.Touchpoint_Date || '').getTime();
+        return secondDate - firstDate;
+      });
+  }, [allEnquiries, enquiry.Email, enquiry.First_Name, enquiry.Last_Name, enquiry.ID]);
+
   const mapRatingToStyle = (rating: string | undefined) => {
     switch (rating) {
       case 'Good':
@@ -67,41 +55,12 @@ const EnquiryOverview: React.FC<EnquiryOverviewProps> = ({
       case 'Poor':
         return { color: colours.red, icon: 'DislikeSolid', isBorder: false };
       default:
-        return { color: colours.red, icon: 'StatusCircleQuestionMark', isBorder: true }; // Red border for "Not Rated"
+        return { color: colours.red, icon: 'StatusCircleQuestionMark', isBorder: true };
     }
   };
 
-  const ratingStyle = mapRatingToStyle(enquiry.Rating); // Use enquiry.Rating directly
+  const ratingStyle = mapRatingToStyle(enquiry.Rating);
 
-  // Style for the rating bubble
-  const ratingBubbleStyle = mergeStyles({
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: '50%',
-    width: '36px',
-    height: '36px',
-    cursor: 'pointer',
-    transition: 'transform 0.2s',
-    boxShadow: '0 2px 4px rgba(0,0,0,0.2)', // Subtle shadow
-    backgroundColor: ratingStyle.isBorder ? 'transparent' : ratingStyle.color, // Transparent for "Not Rated"
-    border: ratingStyle.isBorder ? `2px solid ${ratingStyle.color}` : 'none', // Add border for "Not Rated"
-    color: ratingStyle.isBorder
-      ? isDarkMode
-        ? colours.dark.text // Match text colour in dark mode
-        : colours.light.text // Match text colour in light mode
-      : 'white', // White for filled bubbles
-    ':hover': {
-      transform: 'scale(1.1)',
-    },
-  });
-
-  // Handler for clicking the rating bubble
-  const handleRatingClick = () => {
-    onEditRating(enquiry.ID); // Trigger the modal to edit rating
-  };
-
-  // Function to format touchpoint date
   const formatTouchpointDate = (dateString: string): string => {
     const touchDate = new Date(dateString);
     const today = new Date();
@@ -118,8 +77,8 @@ const EnquiryOverview: React.FC<EnquiryOverviewProps> = ({
       touchDate.getMonth() === yesterday.getMonth() &&
       touchDate.getFullYear() === yesterday.getFullYear();
 
-    if (isToday) return 'Enquired Today';
-    if (isYesterday) return 'Enquired Yesterday';
+    if (isToday) return 'Enquired today';
+    if (isYesterday) return 'Enquired yesterday';
 
     const dayDifference = Math.floor(
       (today.getTime() - touchDate.getTime()) / (1000 * 60 * 60 * 24)
@@ -129,20 +88,19 @@ const EnquiryOverview: React.FC<EnquiryOverviewProps> = ({
       return `Enquired on ${touchDate.toLocaleDateString(undefined, {
         weekday: 'long',
       })}`;
-    } else {
-      return `Enquired on ${touchDate.toLocaleDateString(undefined, {
-        weekday: 'long',
-        day: 'numeric',
-        month: 'long',
-        year: 'numeric',
-      })}`;
     }
+
+    return `Enquired on ${touchDate.toLocaleDateString(undefined, {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    })}`;
   };
 
-  // Function to format value as British £ with comma separators
   const formatValue = (value?: string): string => {
     if (!value) return 'N/A';
-    const number = parseFloat(value.replace(/[^0-9.-]+/g, ""));
+    const number = parseFloat(value.replace(/[^0-9.-]+/g, ''));
     if (isNaN(number)) return value;
     return new Intl.NumberFormat('en-UK', {
       style: 'currency',
@@ -150,498 +108,227 @@ const EnquiryOverview: React.FC<EnquiryOverviewProps> = ({
     }).format(number);
   };
 
+  const formatHistoryDate = (dateString?: string): string => {
+    if (!dateString) return 'Unknown date';
+    const parsed = new Date(dateString);
+    if (Number.isNaN(parsed.getTime())) return dateString;
+    return parsed.toLocaleDateString('en-GB', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    });
+  };
+
+  const cleanedNotes = (enquiry.Initial_first_call_notes || '')
+    .replace(/\\n/g, '\n')
+    .replace(/\r\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  const areaLabel = enquiry.Area_of_Work?.toLowerCase().includes('other') || enquiry.Area_of_Work?.toLowerCase().includes('unsure')
+    ? 'Other'
+    : (enquiry.Area_of_Work || 'Unspecified');
+
+  const quickFacts = [
+    { label: 'Touchpoint', value: formatTouchpointDate(enquiry.Touchpoint_Date || enquiry.Date_Created || ''), icon: 'Clock' },
+    { label: 'Area', value: areaLabel, icon: 'Tag' },
+    { label: 'Value', value: formatValue(enquiry.Value), icon: 'Money' },
+    { label: 'Method', value: enquiry.Method_of_Contact || 'Unknown', icon: 'ContactCard' },
+    { label: 'Source', value: enquiry.Ultimate_Source || 'Unspecified', icon: 'Globe' },
+    { label: 'Enquiry ID', value: enquiry.ID || 'Unknown', icon: 'NumberSymbol' },
+  ];
+
+  const contactDetails = [
+    { label: 'Email', value: enquiry.Email || 'Not captured', icon: 'Mail' },
+    { label: 'Phone', value: enquiry.Phone_Number || 'Not captured', icon: 'Phone' },
+    { label: 'Company', value: enquiry.Company || 'Individual enquiry', icon: 'Building' },
+    { label: 'Client type', value: enquiry.Type_of_Work || 'Not categorised', icon: 'People' },
+  ];
+
+  const showCallAction = Boolean(enquiry.Phone_Number);
+  const showMailAction = Boolean(enquiry.Email);
+
   return (
-    <Stack
-      tokens={{ childrenGap: 20 }}
-      styles={{
-        root: {
-          padding: '20px',
-          backgroundColor: isDarkMode
-            ? colours.dark.sectionBackground
-            : colours.light.sectionBackground,
-          borderRadius: '8px',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-        },
-      }}
-    >
-      {/* Header Section: Name, Company, and Actions */}
-      <Stack
-        horizontal
-        horizontalAlign="space-between"
-        verticalAlign="center"
-        tokens={{ childrenGap: 15 }}
-        styles={{
-          root: {
-            marginBottom: '0px', // Reduced margin-bottom
-            paddingTop: '12px', // Adjusted padding-top
-            paddingBottom: '0px', // Adjusted padding-bottom
-          },
-        }}
-      >
-        {/* Name and Company */}
-        <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
-          <Icon
-            iconName="Contact"
-            styles={{ root: { fontSize: 24, color: colours.highlight } }}
-          />
-          <Text
-            variant="xLarge"
-            styles={{ root: { fontWeight: 700, color: colours.highlight } }}
-          >
-            {enquiry.First_Name} {enquiry.Last_Name}
-          </Text>
-          {enquiry.Company && (
-            <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 4 }}>
-              <Icon
-                iconName="Building"
-                styles={{
-                  root: {
-                    fontSize: 16,
-                    color: colours.highlight,
-                  },
+    <div className="prospect-overview-shell">
+      <section className="helix-panel prospect-overview-hero prospect-overview-enter" data-tier="0">
+        <div className="prospect-overview-hero-main">
+          <div className="prospect-overview-kicker">Prospect overview</div>
+          <div className="prospect-overview-identity-row">
+            <div className="prospect-overview-avatar" aria-hidden="true">
+              <Icon iconName="Contact" />
+            </div>
+            <div className="prospect-overview-identity-block">
+              <h2 className="prospect-overview-name">{enquiry.First_Name} {enquiry.Last_Name}</h2>
+              <div className="prospect-overview-subline">
+                <span>{enquiry.Company || 'Private individual'}</span>
+                <span className="prospect-overview-subline-sep" aria-hidden="true">•</span>
+                <span>{formatTouchpointDate(enquiry.Touchpoint_Date || enquiry.Date_Created || '')}</span>
+              </div>
+            </div>
+          </div>
+          <div className="prospect-overview-chip-row">
+            {quickFacts.map((fact) => (
+              <div key={fact.label} className="prospect-overview-chip">
+                <span className="prospect-overview-chip-icon" aria-hidden="true">
+                  <Icon iconName={fact.icon} />
+                </span>
+                <span className="prospect-overview-chip-label">{fact.label}</span>
+                <span className="prospect-overview-chip-value">{fact.value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <aside className="prospect-overview-hero-side">
+          <div className="prospect-overview-actions">
+            <TooltipHost content={showCallAction ? 'Call client' : 'No phone number captured'}>
+              <button
+                type="button"
+                className="prospect-overview-action"
+                onClick={() => {
+                  if (!showCallAction) return;
+                  window.location.href = `tel:${enquiry.Phone_Number}`;
                 }}
-              />
-              <Text
-                variant="medium"
-                styles={{
-                  root: {
-                    fontWeight: 'normal',
-                    color: isDarkMode ? colours.dark.text : colours.light.text,
-                  },
-                }}
+                disabled={!showCallAction}
               >
-                {enquiry.Company}
-              </Text>
-            </Stack>
-          )}
-        </Stack>
-
-        {/* Actions */}
-        <Stack horizontal tokens={{ childrenGap: 15 }} verticalAlign="center">
-          {/* Call Button */}
-          <TooltipHost content="Call">
-            <div
-              className={mergeStyles({
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: colours.grey,
-                borderRadius: '50%',
-                width: '36px',
-                height: '36px',
-                color: isDarkMode
-                  ? colours.dark.iconColor
-                  : colours.light.iconColor,
-                cursor: 'pointer',
-                boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
-                transition: 'background-color 0.2s, transform 0.2s',
-                ':hover': {
-                  backgroundColor: colours.blue,
-                  transform: 'scale(1.05)',
-                  color: 'white',
-                },
-              })}
-              onClick={(e) => {
-                e.stopPropagation(); // Prevent triggering parent click handlers
-                window.location.href = enquiry.Phone_Number
-                  ? `tel:${enquiry.Phone_Number}`
-                  : '#';
-              }}
-              title="Call"
-              aria-label="Call"
-            >
-              <Icon iconName="Phone" />
-            </div>
-          </TooltipHost>
-
-          {/* Email Button */}
-          <TooltipHost content="Email">
-            <div
-              className={mergeStyles({
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: colours.grey,
-                borderRadius: '50%',
-                width: '36px',
-                height: '36px',
-                color: isDarkMode
-                  ? colours.dark.iconColor
-                  : colours.light.iconColor,
-                cursor: 'pointer',
-                boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
-                transition: 'background-color 0.2s, transform 0.2s',
-                ':hover': {
-                  backgroundColor: colours.blue,
-                  transform: 'scale(1.05)',
-                  color: 'white',
-                },
-              })}
-              onClick={(e) => {
-                e.stopPropagation(); // Prevent triggering parent click handlers
-                window.location.href = enquiry.Email
-                  ? `mailto:${enquiry.Email}?subject=Your%20Enquiry`
-                  : '#';
-              }}
-              title="Email"
-              aria-label="Email"
-            >
-              <Icon iconName="Mail" />
-            </div>
-          </TooltipHost>
-
-          {/* Rating Bubble */}
-          <TooltipHost content={enquiry.Rating ? `Edit Rating: ${enquiry.Rating}` : 'Not Rated'}>
-            <div
-              className={ratingBubbleStyle}
-              onClick={handleRatingClick} // Make the rating bubble clickable
-              title="Edit Rating"
-              aria-label="Edit Rating"
-            >
-              <Icon iconName={ratingStyle.icon} />
-            </div>
-          </TooltipHost>
-        </Stack>
-      </Stack>
-
-      <Separator />
-
-      {/* Enquiry Notes */}
-      <Stack tokens={{ childrenGap: 10 }}>
-        <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 8 }}>
-          <Text
-            variant="mediumPlus"
-            styles={{ root: { fontWeight: 700, color: colours.highlight } }}
-          >
-            Enquiry Notes:
-          </Text>
-          <IconButton
-            iconProps={{ iconName: 'Edit' }}
-            title="Edit Notes"
-            ariaLabel="Edit Notes"
-            onClick={onEditNotes} // Trigger the edit dialog
-            styles={{
-              root: {
-                backgroundColor: 'transparent',
-                border: 'none',
-                cursor: 'pointer',
-                color: isDarkMode ? colours.dark.iconColor : colours.light.iconColor,
-                ':hover': {
-                  color: colours.blue,
-                },
-              },
-            }}
-          />
-        </Stack>
-        <Text
-          variant="medium"
-          styles={{
-            root: {
-              color: isDarkMode ? colours.dark.text : colours.light.text,
-              whiteSpace: 'pre-wrap',
-            },
-          }}
-        >
-          {enquiry.Initial_first_call_notes || 'N/A'}
-        </Text>
-      </Stack>
-
-      <Separator />
-
-      {/* Touchpoint Date */}
-      <Text
-        variant="medium"
-        styles={{
-          root: { color: isDarkMode ? colours.dark.text : colours.light.text },
-        }}
-      >
-        {formatTouchpointDate(enquiry.Touchpoint_Date)}
-      </Text>
-
-      <Separator />
-
-      {/* Tags Section */}
-      <Stack horizontal tokens={{ childrenGap: 10 }} wrap>
-        {/* Area of Work Tag */}
-        {enquiry.Area_of_Work && (
-          <TooltipHost content="Area of Work">
-            <div
-              className={mergeStyles({
-                display: 'flex',
-                alignItems: 'center',
-                backgroundColor: colours.tagBackground,
-                color: isDarkMode
-                  ? colours.dark.text
-                  : colours.light.text,
-                borderRadius: '4px',
-                padding: '4px 8px',
-              })}
-            >
-              <Icon iconName="Tag" style={{ marginRight: '4px' }} />
-              <Text variant="small">{enquiry.Area_of_Work?.toLowerCase().includes('other') || enquiry.Area_of_Work?.toLowerCase().includes('unsure') ? 'Other' : enquiry.Area_of_Work}</Text>
-            </div>
-          </TooltipHost>
-        )}
-
-        {/* Value Tag */}
-        {enquiry.Value && (
-          <TooltipHost content="Value">
-            <div
-              className={mergeStyles({
-                display: 'flex',
-                alignItems: 'center',
-                backgroundColor: colours.tagBackground,
-                color: isDarkMode
-                  ? colours.dark.text
-                  : colours.light.text,
-                borderRadius: '4px',
-                padding: '4px 8px',
-              })}
-            >
-              <Icon iconName="Money" style={{ marginRight: '4px' }} />
-              <Text variant="small">{formatValue(enquiry.Value)}</Text>
-            </div>
-          </TooltipHost>
-        )}
-
-        {/* Method of Contact Tag */}
-        {enquiry.Method_of_Contact && (
-          <TooltipHost content="Method of Contact">
-            <div
-              className={mergeStyles({
-                display: 'flex',
-                alignItems: 'center',
-                backgroundColor: colours.tagBackground,
-                color: isDarkMode
-                  ? colours.dark.text
-                  : colours.light.text,
-                borderRadius: '4px',
-                padding: '4px 8px',
-              })}
-            >
-              <Icon
-                iconName="ContactCard"
-                style={{ marginRight: '4px' }}
-              />
-              <Text variant="small">{enquiry.Method_of_Contact}</Text>
-            </div>
-          </TooltipHost>
-        )}
-
-        {/* Ultimate Source Tag */}
-        {enquiry.Ultimate_Source && (
-          <TooltipHost content="Ultimate Source">
-            <div
-              className={mergeStyles({
-                display: 'flex',
-                alignItems: 'center',
-                backgroundColor: colours.tagBackground,
-                color: isDarkMode
-                  ? colours.dark.text
-                  : colours.light.text,
-                borderRadius: '4px',
-                padding: '4px 8px',
-              })}
-            >
-              <Icon
-                iconName="Info"
-                style={{ marginRight: '4px' }} // Using 'Info' as a placeholder
-              />
-              <Text variant="small">{enquiry.Ultimate_Source}</Text>
-            </div>
-          </TooltipHost>
-        )}
-
-        {/* ID Tag */}
-        {enquiry.ID && (
-          <TooltipHost content="ID">
-            <div
-              className={mergeStyles({
-                display: 'flex',
-                alignItems: 'center',
-                backgroundColor: colours.tagBackground,
-                color: isDarkMode
-                  ? colours.dark.text
-                  : colours.light.text,
-                borderRadius: '4px',
-                padding: '4px 8px',
-              })}
-            >
-              <Icon
-                iconName="NumberSymbol"
-                style={{ marginRight: '4px' }} // Using 'NumberSymbol' as a placeholder
-              />
-              <Text variant="small">{enquiry.ID}</Text>
-            </div>
-          </TooltipHost>
-        )}
-      </Stack>
-
-      {/* Client History Section */}
-      {clientHistory.length > 0 && (
-        <>
-          <Separator styles={{
-            root: {
-              marginTop: '20px',
-              marginBottom: '20px',
-            }
-          }} />
-          
-          <Stack tokens={{ childrenGap: 15 }}>
-            <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 10 }}>
-              <Icon 
-                iconName="History" 
-                styles={{
-                  root: {
-                    fontSize: '16px',
-                    color: colours.highlight,
-                  }
+                <Icon iconName="Phone" />
+                <span>Call</span>
+              </button>
+            </TooltipHost>
+            <TooltipHost content={showMailAction ? 'Email client' : 'No email captured'}>
+              <button
+                type="button"
+                className="prospect-overview-action"
+                onClick={() => {
+                  if (!showMailAction) return;
+                  window.location.href = `mailto:${enquiry.Email}?subject=Your%20Enquiry`;
                 }}
-              />
-              <Text 
-                variant="large" 
-                styles={{
-                  root: {
-                    fontWeight: '600',
-                    color: isDarkMode ? colours.dark.text : colours.light.text,
-                  }
-                }}
+                disabled={!showMailAction}
               >
-                Client History ({clientHistory.length} previous enquir{clientHistory.length === 1 ? 'y' : 'ies'})
-              </Text>
-            </Stack>
+                <Icon iconName="Mail" />
+                <span>Email</span>
+              </button>
+            </TooltipHost>
+            <button
+              type="button"
+              className="prospect-overview-action prospect-overview-action--accent"
+              onClick={onEditNotes}
+            >
+              <Icon iconName="Edit" />
+              <span>Edit notes</span>
+            </button>
+          </div>
 
-            <Stack tokens={{ childrenGap: 12 }}>
-              {clientHistory.map((historyEnquiry, index) => (
-                <div
-                  key={historyEnquiry.ID}
-                  className={mergeStyles({
-                    padding: '16px',
-                    backgroundColor: isDarkMode 
-                      ? colours.dark.cardBackground 
-                      : colours.light.cardBackground,
-                    borderRadius: '8px',
-                    border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
-                    cursor: onSelectEnquiry ? 'pointer' : 'default',
-                    transition: 'all 0.2s ease',
-                    selectors: onSelectEnquiry ? {
-                      ':hover': {
-                        backgroundColor: isDarkMode 
-                          ? colours.dark.cardHover 
-                          : colours.light.cardHover,
-                        transform: 'translateY(-1px)',
-                        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                      }
-                    } : {},
-                  })}
-                  onClick={() => onSelectEnquiry?.(historyEnquiry)}
-                >
-                  <Stack horizontal horizontalAlign="space-between" verticalAlign="center">
-                    <Stack tokens={{ childrenGap: 8 }}>
-                      <Stack horizontal tokens={{ childrenGap: 12 }} verticalAlign="center">
-                        <Text 
-                          variant="medium" 
-                          styles={{
-                            root: {
-                              fontWeight: '600',
-                              color: isDarkMode ? colours.dark.text : colours.light.text,
-                            }
-                          }}
-                        >
-                          {historyEnquiry.Area_of_Work?.toLowerCase().includes('other') || historyEnquiry.Area_of_Work?.toLowerCase().includes('unsure') ? 'Other' : historyEnquiry.Area_of_Work}
-                        </Text>
-                        {historyEnquiry.Type_of_Work && (
-                          <Text 
-                            variant="small" 
-                            styles={{
-                              root: {
-                                color: isDarkMode ? colours.dark.subText : colours.light.subText,
-                                fontStyle: 'italic',
-                              }
-                            }}
-                          >
-                            {historyEnquiry.Type_of_Work}
-                          </Text>
-                        )}
-                      </Stack>
-                      
-                      <Stack horizontal tokens={{ childrenGap: 16 }}>
-                        <Text 
-                          variant="small" 
-                          styles={{
-                            root: {
-                              color: isDarkMode ? colours.dark.subText : colours.light.subText,
-                            }
-                          }}
-                        >
-                          {new Date(historyEnquiry.Touchpoint_Date || '').toLocaleDateString('en-GB', {
-                            day: '2-digit',
-                            month: 'short',
-                            year: 'numeric',
-                          })}
-                        </Text>
-                        
-                        {historyEnquiry.Value && (
-                          <Text 
-                            variant="small" 
-                            styles={{
-                              root: {
-                                color: colours.highlight,
-                                fontWeight: '500',
-                              }
-                            }}
-                          >
-                            {historyEnquiry.Value}
-                          </Text>
-                        )}
-                        
-                        <Text 
-                          variant="small" 
-                          styles={{
-                            root: {
-                              color: isDarkMode ? colours.dark.subText : colours.light.subText,
-                            }
-                          }}
-                        >
-                          ID: {historyEnquiry.ID}
-                        </Text>
-                      </Stack>
-                    </Stack>
+          <TooltipHost content={enquiry.Rating ? `Edit rating: ${enquiry.Rating}` : 'Set rating'}>
+            <button
+              type="button"
+              className="prospect-overview-rating"
+              onClick={() => onEditRating(enquiry.ID)}
+              style={{
+                borderColor: ratingStyle.color,
+                background: ratingStyle.isBorder ? 'transparent' : ratingStyle.color,
+                color: ratingStyle.isBorder
+                  ? (isDarkMode ? colours.dark.text : colours.light.text)
+                  : '#ffffff',
+              }}
+            >
+              <span className="prospect-overview-rating-icon">
+                <Icon iconName={ratingStyle.icon} />
+              </span>
+              <span className="prospect-overview-rating-copy">
+                <span className="prospect-overview-rating-label">Rating</span>
+                <span className="prospect-overview-rating-value">{enquiry.Rating || 'Not rated'}</span>
+              </span>
+            </button>
+          </TooltipHost>
+        </aside>
+      </section>
 
-                    {onSelectEnquiry && (
-                      <Icon 
-                        iconName="ChevronRight" 
-                        styles={{
-                          root: {
-                            fontSize: '14px',
-                            color: isDarkMode ? colours.dark.subText : colours.light.subText,
-                          }
-                        }}
-                      />
-                    )}
-                  </Stack>
+      <div className="prospect-overview-grid prospect-overview-enter" data-tier="1">
+        <section className="helix-panel prospect-overview-panel prospect-overview-panel--notes">
+          <div className="prospect-overview-panel-head">
+            <div>
+              <div className="prospect-overview-panel-kicker">Call context</div>
+              <h3 className="prospect-overview-panel-title">Initial notes</h3>
+            </div>
+            <button type="button" className="prospect-overview-inline-action" onClick={onEditNotes}>
+              <Icon iconName="Edit" />
+              <span>Edit</span>
+            </button>
+          </div>
+          <div className={`prospect-overview-notes ${cleanedNotes ? '' : 'is-empty'}`}>
+            {cleanedNotes || 'No notes captured yet.'}
+          </div>
+        </section>
+
+        <section className="helix-panel prospect-overview-panel">
+          <div className="prospect-overview-panel-head">
+            <div>
+              <div className="prospect-overview-panel-kicker">Contact</div>
+              <h3 className="prospect-overview-panel-title">Client snapshot</h3>
+            </div>
+          </div>
+          <div className="prospect-overview-detail-list">
+            {contactDetails.map((detail) => (
+              <div key={detail.label} className="prospect-overview-detail-item">
+                <div className="prospect-overview-detail-label">
+                  <Icon iconName={detail.icon} />
+                  <span>{detail.label}</span>
                 </div>
-              ))}
-            </Stack>
-            
-            {clientHistory.length > 3 && (
-              <Text 
-                variant="small" 
-                styles={{
-                  root: {
-                    textAlign: 'center',
-                    color: isDarkMode ? colours.dark.subText : colours.light.subText,
-                    fontStyle: 'italic',
-                  }
-                }}
+                <div className="prospect-overview-detail-value">{detail.value}</div>
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
+
+      {clientHistory.length > 0 && (
+        <section className="helix-panel prospect-overview-panel prospect-overview-history prospect-overview-enter" data-tier="2">
+          <div className="prospect-overview-panel-head">
+            <div>
+              <div className="prospect-overview-panel-kicker">Relationship</div>
+              <h3 className="prospect-overview-panel-title">Client history</h3>
+            </div>
+            <div className="prospect-overview-history-count">
+              {clientHistory.length} previous enquir{clientHistory.length === 1 ? 'y' : 'ies'}
+            </div>
+          </div>
+
+          <div className="prospect-overview-history-list">
+            {clientHistory.map((historyEnquiry) => (
+              <button
+                key={historyEnquiry.ID}
+                type="button"
+                className="prospect-overview-history-item"
+                onClick={() => onSelectEnquiry?.(historyEnquiry)}
+                disabled={!onSelectEnquiry}
               >
-                Total client relationship spans {clientHistory.length + 1} enquiries
-              </Text>
-            )}
-          </Stack>
-        </>
+                <div className="prospect-overview-history-main">
+                  <div className="prospect-overview-history-title-row">
+                    <span className="prospect-overview-history-area">
+                      {historyEnquiry.Area_of_Work?.toLowerCase().includes('other') || historyEnquiry.Area_of_Work?.toLowerCase().includes('unsure') ? 'Other' : historyEnquiry.Area_of_Work || 'Unspecified'}
+                    </span>
+                    {historyEnquiry.Type_of_Work && (
+                      <span className="prospect-overview-history-type">{historyEnquiry.Type_of_Work}</span>
+                    )}
+                  </div>
+                  <div className="prospect-overview-history-meta">
+                    <span>{formatHistoryDate(historyEnquiry.Touchpoint_Date)}</span>
+                    {historyEnquiry.Value && <span>{historyEnquiry.Value}</span>}
+                    <span>ID {historyEnquiry.ID}</span>
+                  </div>
+                </div>
+                {onSelectEnquiry && (
+                  <span className="prospect-overview-history-chevron" aria-hidden="true">
+                    <Icon iconName="ChevronRight" />
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        </section>
       )}
-    </Stack>
+    </div>
   );
 };
 

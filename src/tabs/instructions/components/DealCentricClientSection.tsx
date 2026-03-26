@@ -1,19 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import {
-  Stack,
-  Text,
-  DefaultButton,
-  Spinner,
-  MessageBar,
-  MessageBarType,
-  FontIcon,
-  Persona,
-  PersonaSize,
-  PersonaPresence,
-  IconButton,
-  TooltipHost,
-  Separator
-} from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Text } from '@fluentui/react/lib/Text';
+import { DefaultButton, IconButton } from '@fluentui/react/lib/Button';
+import { Spinner } from '@fluentui/react/lib/Spinner';
+import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
+import { FontIcon } from '@fluentui/react/lib/Icon';
+import { PersonaPresence } from '@fluentui/react/lib/Persona';
+import { Separator } from '@fluentui/react/lib/Separator';
+import { Persona, PersonaSize } from '@fluentui/react/lib/Persona';
+import { TooltipHost } from '@fluentui/react/lib/Tooltip';
 import { useTheme } from '../../../app/functionality/ThemeContext';
 import { colours } from '../../../app/styles/colours';
 import ClientLookupModal from './ClientLookupModal';

@@ -1,5 +1,6 @@
 import React from 'react';
-import { mergeStyles, Stack, keyframes } from '@fluentui/react';
+import { mergeStyles, keyframes } from '@fluentui/react/lib/Styling';
+import { Stack } from '@fluentui/react/lib/Stack';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';
 

@@ -1,5 +1,7 @@
 import React from 'react';
-import { mergeStyles, TooltipHost, Icon } from '@fluentui/react';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
+import { TooltipHost } from '@fluentui/react/lib/Tooltip';
+import { Icon } from '@fluentui/react/lib/Icon';
 import { colours } from '../../../app/styles/colours';
 
 export interface BlockLabelProps {

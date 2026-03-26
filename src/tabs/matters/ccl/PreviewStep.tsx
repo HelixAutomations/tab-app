@@ -1,9 +1,10 @@
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
-import { Icon, Spinner, SpinnerSize } from '@fluentui/react';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { Spinner, SpinnerSize } from '@fluentui/react/lib/Spinner';
 import { colours } from '../../../app/styles/colours';
 import type { NormalizedMatter } from '../../../app/functionality/types';
 import type { AiStatus, CclLoadInfo } from './CCLEditor';
-import { submitAiFeedback, submitCclSupportTicket, checkCclIntegrations, uploadToClio, uploadToNetDocuments, fetchPressureTest, type AiDebugTrace, type CclSupportTicket, type CclIntegrations, type PressureTestResponse, type PressureTestFieldScore } from './cclAiService';
+import { submitAiFeedback, submitCclSupportTicket, checkCclIntegrations, uploadToNetDocuments, fetchPressureTest, type AiDebugTrace, type CclSupportTicket, type CclIntegrations, type PressureTestResponse, type PressureTestFieldScore } from './cclAiService';
 import { CCL_SECTIONS } from './cclSections';
 import { FIELD_PROMPTS, FIELD_PROMPT_MAP } from './cclFieldPrompts';
 import CclOpsPanel from './CclOpsPanel';
@@ -16,6 +17,7 @@ interface PreviewSection {
   title: string;
   isSubsection: boolean;
   elements: React.ReactNode[];
+  sourceElementIndices?: number[];
 }
 
 interface GenerateDocxResult {
@@ -47,16 +49,15 @@ const AiFeedbackWidget: React.FC<AiFeedbackWidgetProps> = ({
   const [submitted, setSubmitted] = useState(false);
   const [showSources, setShowSources] = useState(false);
 
-  const handleRate = async (r: 'up' | 'down') => {
-    setRating(r);
+  const handleRate = async (nextRating: 'up' | 'down') => {
+    setRating(nextRating);
     setSubmitted(false);
-    // Auto-submit immediately for thumbs up; show comment for thumbs down
-    if (r === 'up') {
-      await submitAiFeedback({ matterId, rating: r });
+    if (nextRating === 'up') {
+      await submitAiFeedback({ matterId, rating: nextRating });
       setSubmitted(true);
-    } else {
-      setShowComment(true);
+      return;
     }
+    setShowComment(true);
   };
 
   const handleSubmitComment = async () => {
@@ -68,15 +69,15 @@ const AiFeedbackWidget: React.FC<AiFeedbackWidgetProps> = ({
 
   return (
     <div style={{ margin: '0 10px 8px' }}>
-      {/* Feedback row */}
-      <div style={{
-        padding: '8px 12px',
-        borderRadius: 4,
-        fontSize: 11,
-        background: isDarkMode ? 'rgba(54,144,206,0.05)' : 'rgba(54,144,206,0.03)',
-        border: `1px solid ${cardBorder}`,
-      }}>
-        {/* Top row: question + thumbs */}
+      <div
+        style={{
+          padding: '8px 12px',
+          borderRadius: 4,
+          fontSize: 11,
+          background: isDarkMode ? 'rgba(54,144,206,0.05)' : 'rgba(54,144,206,0.03)',
+          border: `1px solid ${cardBorder}`,
+        }}
+      >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
           <span style={{ color: textMuted, fontWeight: 600 }}>
             {submitted ? 'Thanks for the feedback' : 'How was the AI draft?'}
@@ -86,13 +87,19 @@ const AiFeedbackWidget: React.FC<AiFeedbackWidgetProps> = ({
               <button
                 type="button"
                 onClick={() => handleRate('up')}
-                title="Good — AI got it mostly right"
+                title="Good - AI got it mostly right"
                 style={{
-                  width: 26, height: 26, borderRadius: 3,
+                  width: 26,
+                  height: 26,
+                  borderRadius: 3,
                   border: `1px solid ${rating === 'up' ? accentBlue : cardBorder}`,
                   background: rating === 'up' ? (isDarkMode ? 'rgba(54,144,206,0.15)' : 'rgba(54,144,206,0.08)') : 'transparent',
-                  cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  color: rating === 'up' ? accentBlue : textMuted, fontSize: 13,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: rating === 'up' ? accentBlue : textMuted,
+                  fontSize: 13,
                   transition: 'all 0.15s ease',
                 }}
               >
@@ -101,13 +108,19 @@ const AiFeedbackWidget: React.FC<AiFeedbackWidgetProps> = ({
               <button
                 type="button"
                 onClick={() => handleRate('down')}
-                title="Needs work — tell us what was wrong"
+                title="Needs work - tell us what was wrong"
                 style={{
-                  width: 26, height: 26, borderRadius: 3,
-                  border: `1px solid ${rating === 'down' ? '#d65541' : cardBorder}`,
+                  width: 26,
+                  height: 26,
+                  borderRadius: 3,
+                  border: `1px solid ${rating === 'down' ? colours.cta : cardBorder}`,
                   background: rating === 'down' ? (isDarkMode ? 'rgba(214,85,65,0.15)' : 'rgba(214,85,65,0.08)') : 'transparent',
-                  cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  color: rating === 'down' ? '#d65541' : textMuted, fontSize: 13,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: rating === 'down' ? colours.cta : textMuted,
+                  fontSize: 13,
                   transition: 'all 0.15s ease',
                 }}
               >
@@ -115,58 +128,85 @@ const AiFeedbackWidget: React.FC<AiFeedbackWidgetProps> = ({
               </button>
             </div>
           )}
-          {submitted && (
-            <Icon iconName="SkypeCheck" styles={{ root: { fontSize: 13, color: accentBlue } }} />
-          )}
+          {submitted && <Icon iconName="SkypeCheck" styles={{ root: { fontSize: 13, color: accentBlue } }} />}
         </div>
 
-        {/* Comment field (shown on thumbs down) */}
         {showComment && !submitted && (
           <div style={{ marginTop: 8 }}>
             <textarea
               value={comment}
-              onChange={(e) => setComment(e.target.value)}
+              onChange={(event) => setComment(event.target.value)}
               placeholder="What needs improving? (optional)"
               style={{
-                width: '100%', minHeight: 48, padding: '6px 8px',
-                fontSize: 11, fontFamily: 'inherit',
-                borderRadius: 3, border: `1px solid ${cardBorder}`,
+                width: '100%',
+                minHeight: 48,
+                padding: '6px 8px',
+                fontSize: 11,
+                fontFamily: 'inherit',
+                borderRadius: 3,
+                border: `1px solid ${cardBorder}`,
                 background: isDarkMode ? 'rgba(0,0,0,0.2)' : 'rgba(0,0,0,0.03)',
-                color: text, resize: 'vertical', outline: 'none',
+                color: text,
+                resize: 'vertical',
+                outline: 'none',
               }}
             />
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 4 }}>
               <button
                 type="button"
-                onClick={() => { setShowComment(false); setRating(null); }}
-                style={{
-                  padding: '3px 10px', borderRadius: 2, fontSize: 10, fontWeight: 600,
-                  border: `1px solid ${cardBorder}`, background: 'transparent',
-                  color: textMuted, cursor: 'pointer',
+                onClick={() => {
+                  setShowComment(false);
+                  setRating(null);
                 }}
-              >Cancel</button>
+                style={{
+                  padding: '3px 10px',
+                  borderRadius: 2,
+                  fontSize: 10,
+                  fontWeight: 600,
+                  border: `1px solid ${cardBorder}`,
+                  background: 'transparent',
+                  color: textMuted,
+                  cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
               <button
                 type="button"
                 onClick={handleSubmitComment}
                 style={{
-                  padding: '3px 10px', borderRadius: 2, fontSize: 10, fontWeight: 600,
-                  border: 'none', background: accentBlue,
-                  color: '#fff', cursor: 'pointer',
+                  padding: '3px 10px',
+                  borderRadius: 2,
+                  fontSize: 10,
+                  fontWeight: 600,
+                  border: 'none',
+                  background: accentBlue,
+                  color: '#fff',
+                  cursor: 'pointer',
                 }}
-              >Submit</button>
+              >
+                Submit
+              </button>
             </div>
           </div>
         )}
 
-        {/* Data sources toggle */}
         {dataSources.length > 0 && (
           <button
             type="button"
             onClick={() => setShowSources(!showSources)}
             style={{
-              marginTop: 6, padding: 0, border: 'none', background: 'transparent',
-              color: accentBlue, fontSize: 10, fontWeight: 600, cursor: 'pointer',
-              display: 'flex', alignItems: 'center', gap: 4,
+              marginTop: 6,
+              padding: 0,
+              border: 'none',
+              background: 'transparent',
+              color: accentBlue,
+              fontSize: 10,
+              fontWeight: 600,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
               opacity: 0.8,
             }}
           >
@@ -175,26 +215,40 @@ const AiFeedbackWidget: React.FC<AiFeedbackWidgetProps> = ({
           </button>
         )}
 
-        {/* Expandable data sources panel */}
         {showSources && dataSources.length > 0 && (
-          <div style={{
-            marginTop: 4, padding: '6px 8px',
-            borderRadius: 3,
-            background: isDarkMode ? 'rgba(0,0,0,0.15)' : 'rgba(0,0,0,0.02)',
-            border: `1px solid ${cardBorder}`,
-          }}>
+          <div
+            style={{
+              marginTop: 4,
+              padding: '6px 8px',
+              borderRadius: 3,
+              background: isDarkMode ? 'rgba(0,0,0,0.15)' : 'rgba(0,0,0,0.02)',
+              border: `1px solid ${cardBorder}`,
+            }}
+          >
             <div style={{ fontSize: 10, color: textMuted, marginBottom: 4, fontWeight: 600 }}>
               Context gathered from:
             </div>
-            {dataSources.map((source, i) => (
-              <div key={i} style={{
-                fontSize: 10, color: text, padding: '2px 0',
-                display: 'flex', alignItems: 'center', gap: 5,
-              }}>
-                <span style={{
-                  width: 4, height: 4, borderRadius: '50%',
-                  background: accentBlue, flexShrink: 0,
-                }} />
+            {dataSources.map((source, index) => (
+              <div
+                key={index}
+                style={{
+                  fontSize: 10,
+                  color: text,
+                  padding: '2px 0',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                }}
+              >
+                <span
+                  style={{
+                    width: 4,
+                    height: 4,
+                    borderRadius: '50%',
+                    background: accentBlue,
+                    flexShrink: 0,
+                  }}
+                />
                 {source}
               </div>
             ))}
@@ -212,17 +266,13 @@ const AiFeedbackWidget: React.FC<AiFeedbackWidgetProps> = ({
 
 export interface PreviewStepProps {
   content: string;
-  /** Template with section choices resolved but {{field}} placeholders intact — for inline editing on A4 surface */
   templateContent?: string;
   matter: NormalizedMatter;
   fields: Record<string, string>;
   updateField?: (key: string, value: string) => void;
-  /** Keys the user has manually edited — shown with 'user' provenance (purple) */
   userEditedKeys?: Set<string>;
-  /** Current user's initials — used for per-user Clio auth on uploads (audit trail) */
   userInitials?: string;
   aiStatus?: AiStatus;
-  /** Field keys currently being streamed by the AI — show per-field loading indicators */
   aiLoadingKeys?: Set<string>;
   aiSource?: string;
   aiDurationMs?: number;
@@ -239,71 +289,68 @@ export interface PreviewStepProps {
   onBack: () => void;
   onClose?: () => void;
   onAdvancedMode?: () => void;
-  /** Trigger AI fill — must be explicitly invoked (no auto-fire on mount) */
   onTriggerAiFill?: () => void;
 }
 
-// Fallback: if the server doesn't return the system prompt (older deployment),
-// use the canonical version so the trace modal can always display it.
 const CANONICAL_SYSTEM_PROMPT = `You are a senior UK solicitor at Helix Law, a specialist litigation firm. Helix Law acts across four core practice areas: commercial disputes (shareholder and partnership disputes, investment and loan disputes, debt recovery, statutory demands, civil fraud, contract disputes, restrictive covenants, injunctions), property disputes (landlord and tenant, evictions, boundary and land disputes), construction disputes (adjudication, payment disputes, contract breaches, unlawful terminations), and employment law. The firm is SRA-regulated (ID 565557) and based in Brighton. Your task is to generate the intake fields for a Client Care Letter (CCL) based on the matter context provided.
 
 The CCL is a regulatory requirement under SRA rules. It must be professional, accurate, and tailored to the specific matter. Write in clear, professional British English suitable for a client who is not legally trained.
 
-CRITICAL: You are filling in the placeholder fields of a REAL legal template. Each field you generate is injected verbatim into the letter — it MUST read naturally in context. Below is how each field appears in the actual template so you understand exactly where your output goes.
+CRITICAL: You are filling in the placeholder fields of a real legal template. Each field you generate is injected verbatim into the letter - it must read naturally in context. Below is how each field appears in the actual template so you understand exactly where your output goes.
 
-TEMPLATE CONTEXT (how your fields are used — {{field_name}} = your output):
+TEMPLATE CONTEXT (how your fields are used - {{field_name}} = your output):
 
-Section 2 — Scope of services:
+Section 2 - Scope of services:
 "{{insert_current_position_and_scope_of_retainer}} ("Initial Scope")"
-→ This is the opening paragraph of the scope section. Write 2-4 complete sentences describing what the client has instructed Helix Law to do. Must be specific to this matter. Ends with the text ("Initial Scope") which is added by the template.
+-> This is the opening paragraph of the scope section. Write 2-4 complete sentences describing what the client has instructed Helix Law to do. Must be specific to this matter. Ends with the text ("Initial Scope") which is added by the template.
 
-Section 3 — Next steps:
+Section 3 - Next steps:
 "The next steps in your matter are {{next_steps}}."
-→ Start lowercase. This completes the sentence. List 2-3 specific actions.
+-> Start lowercase. This completes the sentence. List 2-3 specific actions.
 
 "We expect this will take {{realistic_timescale}}."
-→ A realistic period, e.g. "4-6 weeks" or "2-3 months".
+-> A realistic period, e.g. "4-6 weeks" or "2-3 months".
 
-Section 4.1 — Charges:
+Section 4.1 - Charges:
 "My rate is £{{handler_hourly_rate}} per hour."
-→ Number only (already auto-filled, but if missing use the rate given in context).
+-> Number only (already auto-filled, but if missing use the rate given in context).
 
 "{{charges_estimate_paragraph}}"
-→ 1-3 complete sentences estimating fees for the Initial Scope. Include a £ range plus VAT. Base this on the deal amount, pitch email amount, or practice area norms. Must be realistic.
+-> 1-3 complete sentences estimating fees for the Initial Scope. Include a £ range plus VAT. Base this on the deal amount, pitch email amount, or practice area norms. Must be realistic.
 
-Section 4.2 — Disbursements:
+Section 4.2 - Disbursements:
 "{{disbursements_paragraph}}"
-→ 1-2 complete sentences about likely disbursements for this matter type.
+-> 1-2 complete sentences about likely disbursements for this matter type.
 
-Section 4.3 — Costs other party:
+Section 4.3 - Costs other party:
 "{{costs_other_party_paragraph}}"
-→ 1-2 sentences. If there is an opponent: note the risk. If no opponent/not litigation: "We do not expect that you will have to pay another party's costs."
+-> 1-2 sentences. If there is an opponent: note the risk. If no opponent or not litigation: "We do not expect that you will have to pay another party's costs."
 
-Section 6 — Payment on account:
+Section 6 - Payment on account:
 "Please provide us with £{{figure}} on account of costs."
-→ Number only, no £ sign, e.g. "2,500". Usually 50-100% of the low end of the estimate range.
+-> Number only, no £ sign, e.g. "2,500". Usually 50-100% of the low end of the estimate range.
 
-Section 7 — Costs updates:
+Section 7 - Costs updates:
 "We have agreed to provide you with an update on the amount of costs as the matter progresses{{and_or_intervals_eg_every_three_months}}."
-→ Starts with ", " then the qualifier. Usually ", when appropriate" or ", monthly" or ", every three months".
+-> Starts with ", " then the qualifier. Usually ", when appropriate" or ", monthly" or ", every three months".
 
-Section 13 — Duties to court:
+Section 13 - Duties to court:
 "Your matter {{may_will}} involve court proceedings."
-→ Either "may" or "will". Use "may" unless court proceedings are certain.
+-> Either "may" or "will". Use "may" unless court proceedings are certain.
 
-Section 18 — Action points:
+Section 18 - Action points:
 "☐ {{insert_next_step_you_would_like_client_to_take}} | {{state_why_this_step_is_important}}"
-→ insert_next_step: Imperative sentence — what the client must do. Be specific to this matter.
-→ state_why_this_step_is_important: Why it matters. 1 sentence.
+-> insert_next_step: Imperative sentence - what the client must do. Be specific to this matter.
+-> state_why_this_step_is_important: Why it matters. 1 sentence.
 
 "☐ Provide a payment on account of costs and disbursements of £{{state_amount}} | If we do not receive a payment on account... {{insert_consequence}}"
-→ state_amount: Same as figure.
-→ insert_consequence: What happens if they don't pay, e.g. "we may not be able to start work on your matter"
+-> state_amount: Same as figure.
+-> insert_consequence: What happens if they don't pay, e.g. "we may not be able to start work on your matter"
 
 "{{describe_first_document_or_information_you_need_from_your_client}}"
 "{{describe_second_document_or_information_you_need_from_your_client}}"
 "{{describe_third_document_or_information_you_need_from_your_client}}"
-→ Each is a bullet point. Be specific to this matter type — name the actual documents needed.
+-> Each is a bullet point. Be specific to this matter type - name the actual documents needed.
 
 NOT SHOWN DIRECTLY AS STANDALONE SENTENCES IN THE LETTER:
 - "next_stage": Brief label for the next milestone (used for internal tracking, not shown to client)
@@ -311,17 +358,17 @@ NOT SHOWN DIRECTLY AS STANDALONE SENTENCES IN THE LETTER:
 - "estimate": Full estimate string, e.g. "£2,500 to £5,000 plus VAT"
 - "in_total_including_vat_or_for_the_next_steps_in_your_matter": Either "in total, including VAT" or "for the next steps in your matter"
 - "give_examples_of_what_your_estimate_includes_eg_accountants_report_and_court_fees": Brief list of what the estimate covers
-- "we_cannot_give_an_estimate_of_our_overall_charges_in_this_matter_because_reason_why_estimate_is_not_possible": If estimate IS possible, set to "". Only fill if genuinely impossible.
+- "we_cannot_give_an_estimate_of_our_overall_charges_in_this_matter_because_reason_why_estimate_is_not_possible": If estimate is possible, set to "". Only fill if genuinely impossible.
 - "simple_disbursements_estimate": Estimated disbursements (number only, e.g. "500")
 - "identify_the_other_party_eg_your_opponents": Supporting matter data inserted only inside the second 4.3 costs-risk alternative
 
 COST ACCURACY RULES:
-1. If a Deal Amount is provided, the costs estimate MUST be consistent with it. The payment on account (figure) should match the agreed amount unless a fee earner has explicitly said otherwise.
-2. If a Pitch Email is provided, match its quoted figures exactly — the client has already seen these numbers.
+1. If a Deal Amount is provided, the costs estimate must be consistent with it. The payment on account (figure) should match the agreed amount unless a fee earner has explicitly said otherwise.
+2. If a Pitch Email is provided, match its quoted figures exactly - the client has already seen these numbers.
 3. If neither is available, use practice area norms for a UK specialist litigation firm.
-4. Never invent costs figures that are wildly different from the deal/pitch context.
+4. Never invent costs figures that are wildly different from the deal or pitch context.
 
-Respond with ONLY a JSON object containing these fields. No markdown, no explanation, just the JSON object.`;
+Respond with only a JSON object containing these fields. No markdown, no explanation, just the JSON object.`;
 
 const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, matter, fields, updateField, userEditedKeys, userInitials, aiStatus, aiLoadingKeys, aiSource, aiDurationMs, aiDataSources, aiContextSummary, aiUserPrompt, aiSystemPrompt: aiSystemPromptRaw, aiFallbackReason, aiDebugTrace, aiGeneratedKeys, draftLoaded = true, loadInfo = null, isDarkMode, onBack: _onBack, onClose, onAdvancedMode, onTriggerAiFill }) => {
   // Use server-returned system prompt if available, otherwise canonical fallback
@@ -359,15 +406,18 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
   const expandAll = useCallback(() => setCollapsedSections(new Set()), []);
   const collapseBoilerplate = useCallback(() => setCollapsedSections(new Set(['5', '7', '8', '9', '10', '11', '12', '13', '14', '15', '16', '17'])), []);
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const sectionElementRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const introRef = useRef<HTMLDivElement | null>(null);
   const letterheadRef = useRef<HTMLDivElement | null>(null);
   const recipientRef = useRef<HTMLDivElement | null>(null);
   const [measuredSectionHeights, setMeasuredSectionHeights] = useState<Record<string, number>>({});
+  const [measuredSectionElementHeights, setMeasuredSectionElementHeights] = useState<Record<string, number>>({});
   const scrollToSection = useCallback((id: string) => {
     const el = sectionRefs.current[id];
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     setCollapsedSections(prev => { const n = new Set(prev); n.delete(id); return n; }); // expand if collapsed
   }, []);
+  const getSectionElementMeasurementKey = useCallback((sectionNumber: string, elementIndex: number) => `${sectionNumber}::${elementIndex}`, []);
 
   const generateDocx = useCallback(async (): Promise<GenerateDocxResult> => {
     const matterId = matter.matterId || matter.displayNumber;
@@ -518,6 +568,7 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
   const [promptLayout, setPromptLayout] = useState<'inline' | 'stacked'>('inline');
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
   const [editingField, setEditingField] = useState<string | null>(null);
+  const [activeNavigationKey, setActiveNavigationKey] = useState<string | null>(null);
   const [highlightedField, setHighlightedField] = useState<string | null>(null);
   const [hoveredField, setHoveredField] = useState<string | null>(null);
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -526,20 +577,27 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
   const [fieldPositions, setFieldPositions] = useState<Record<string, number>>({});
   const [promptCardHeights, setPromptCardHeights] = useState<Record<string, number>>({});
   const scrollSyncLock = useRef(false);
+  const scrollSyncReleaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showUserPrompt, setShowUserPrompt] = useState(false);
   const [showOtherDocumentFields, setShowOtherDocumentFields] = useState(false);
   const previousAutoCollapseRef = useRef<boolean | null>(null);
+
+  const pauseScrollSync = useCallback((durationMs = 700) => {
+    scrollSyncLock.current = true;
+    if (scrollSyncReleaseTimerRef.current) clearTimeout(scrollSyncReleaseTimerRef.current);
+    scrollSyncReleaseTimerRef.current = setTimeout(() => {
+      scrollSyncLock.current = false;
+      scrollSyncReleaseTimerRef.current = null;
+    }, durationMs);
+  }, []);
 
   // ─── Support Report & Integration state ───
   const [showSupportModal, setShowSupportModal] = useState(false);
   const [supportSubmitting, setSupportSubmitting] = useState(false);
   const [integrations, setIntegrations] = useState<CclIntegrations | null>(null);
   const [integrationsLoading, setIntegrationsLoading] = useState(false);
-  const [uploadingClio, setUploadingClio] = useState(false);
   const [uploadingNd, setUploadingNd] = useState(false);
-  const [showUploadMenu, setShowUploadMenu] = useState(false);
-  const uploadMenuRef = useRef<HTMLDivElement | null>(null);
-  const [showClioConfirm, setShowClioConfirm] = useState(false);
+  const [showNdConfirm, setShowNdConfirm] = useState(false);
   const shouldAutoCollapseSidebar = viewportWidth < SIDEBAR_COLLAPSE_BREAKPOINT;
   const sidebarToggleLabel = sidebarOpen ? 'Hide review panel' : 'Show review panel';
   const sidebarStatusLabel = sidebarOpen ? 'Review panel open' : shouldAutoCollapseSidebar ? 'Review panel auto-collapsed for space' : 'Review panel hidden';
@@ -554,14 +612,6 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
 
   const handleCheckIntegrations = useCallback(async () => {
     if (!matterId || integrationsLoading) return;
-    // Demo matters: inject mock integrations directly (no server call)
-    if (isDemoMatter) {
-      setIntegrations({
-        clio: { available: true, matterId: '3311402', description: 'Admin (demo)' },
-        nd: { available: false, workspaceId: null, workspaceName: '' },
-      });
-      return;
-    }
     setIntegrationsLoading(true);
     try {
       const result = await checkCclIntegrations(matterId);
@@ -579,17 +629,9 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [matterId]);
 
-  // Close upload menu on click-outside
-  useEffect(() => {
-    if (!showUploadMenu) return;
-    const handler = (e: MouseEvent) => {
-      if (uploadMenuRef.current && !uploadMenuRef.current.contains(e.target as Node)) {
-        setShowUploadMenu(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [showUploadMenu]);
+  useEffect(() => () => {
+    if (scrollSyncReleaseTimerRef.current) clearTimeout(scrollSyncReleaseTimerRef.current);
+  }, []);
 
   const clearLoadNoticeTimers = useCallback(() => {
     loadNoticeTimersRef.current.forEach(timer => clearTimeout(timer));
@@ -679,16 +721,14 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
     }
   }, [matterId, matter.displayNumber, fields, aiStatus, aiSource, aiDurationMs, aiDataSources, aiFallbackReason, aiDebugTrace]);
 
-  const handleUploadClio = useCallback(async () => {
-    const clioId = integrations?.clio?.matterId || (isDemoMatter ? '3311402' : null);
-    if (!clioId) return;
-    setUploadingClio(true);
+  const handleUploadNd = useCallback(async () => {
+    if (!integrations?.nd?.available) return;
+    setUploadingNd(true);
     try {
-      const result = await uploadToClio({
+      const result = await uploadToNetDocuments({
         matterId,
         matterDisplayNumber: matter.displayNumber || '',
-        clioMatterId: clioId,
-        initials: userInitials,
+        ndWorkspaceId: integrations.nd.workspaceId || undefined,
         fields,
       });
       if (!result.ok && result.unresolvedPlaceholders && result.unresolvedPlaceholders.length > 0) {
@@ -700,31 +740,13 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
         setSidebarOpen(true);
         return;
       }
-
       setStatus(result.ok
-        ? { type: 'success', message: isDemoMatter ? 'Uploaded to Clio (HELIX01-01)' : 'Uploaded to Clio matter' }
-        : { type: 'error', message: result.error || 'Clio upload failed' });
-    } finally {
-      setUploadingClio(false);
-    }
-  }, [matterId, matter.displayNumber, integrations, isDemoMatter, userInitials, fields]);
-
-  const handleUploadNd = useCallback(async () => {
-    if (!integrations?.nd?.available || !integrations.nd.workspaceId) return;
-    setUploadingNd(true);
-    try {
-      const result = await uploadToNetDocuments({
-        matterId,
-        matterDisplayNumber: matter.displayNumber || '',
-        ndWorkspaceId: integrations.nd.workspaceId,
-      });
-      setStatus(result.ok
-        ? { type: 'success', message: 'Uploaded to NetDocuments' }
-        : { type: 'error', message: result.error || 'ND upload not yet available (coming soon)' });
+        ? { type: 'success', message: `Uploaded to NetDocuments${matter.displayNumber ? ` as CCL-${matter.displayNumber}.docx` : ''}` }
+        : { type: 'error', message: result.error || 'NetDocuments upload failed' });
     } finally {
       setUploadingNd(false);
     }
-  }, [matterId, matter.displayNumber, integrations]);
+  }, [matterId, matter.displayNumber, integrations, fields]);
 
   const AUTO_FILL_KEYS = useMemo(() => new Set([
     'insert_clients_name', 'name_of_person_handling_matter', 'name_of_handler',
@@ -757,7 +779,7 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
   }, [fields, AUTO_FILL_KEYS, userEditedKeys, aiGeneratedKeys, hasTemplateMarkers]);
 
   const provColours = useMemo(() => ({
-    ai: { border: accentBlue, bg: isDarkMode ? 'rgba(54,144,206,0.10)' : 'rgba(54,144,206,0.08)', bgHover: isDarkMode ? 'rgba(54,144,206,0.18)' : 'rgba(54,144,206,0.12)' },
+    ai: { border: isDarkMode ? 'rgba(135,243,243,0.52)' : 'rgba(54,144,206,0.48)', bg: isDarkMode ? 'rgba(135,243,243,0.04)' : 'rgba(54,144,206,0.035)', bgHover: isDarkMode ? 'rgba(135,243,243,0.08)' : 'rgba(54,144,206,0.07)' },
     'auto-fill': { border: colours.green, bg: isDarkMode ? 'rgba(32,178,108,0.08)' : 'rgba(32,178,108,0.05)', bgHover: isDarkMode ? 'rgba(32,178,108,0.14)' : 'rgba(32,178,108,0.09)' },
     empty: { border: isDarkMode ? 'rgba(214,85,65,0.6)' : 'rgba(214,85,65,0.7)', bg: isDarkMode ? 'rgba(214,85,65,0.05)' : 'rgba(214,85,65,0.03)', bgHover: isDarkMode ? 'rgba(214,85,65,0.1)' : 'rgba(214,85,65,0.08)' },
     default: { border: isDarkMode ? 'rgba(148,163,184,0.45)' : 'rgba(100,116,139,0.35)', bg: isDarkMode ? 'rgba(148,163,184,0.05)' : 'rgba(148,163,184,0.04)', bgHover: isDarkMode ? 'rgba(148,163,184,0.10)' : 'rgba(148,163,184,0.08)' },
@@ -846,14 +868,11 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
     }
   }, [ptRunning, matter, fields]);
 
-  // Auto-run pressure test when AI fill completes
+  // Pressure test is user-initiated — no auto-trigger on AI completion.
   const prevAiStatus = useRef(aiStatus);
   useEffect(() => {
-    if (prevAiStatus.current !== 'complete' && aiStatus === 'complete' && !ptRunning && !ptResult) {
-      runPressureTest();
-    }
     prevAiStatus.current = aiStatus;
-  }, [aiStatus, ptRunning, ptResult, runPressureTest]);
+  }, [aiStatus]);
 
   useEffect(() => {
     if (aiStatus === 'loading') {
@@ -963,7 +982,19 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
       const matched = m[0];
       const href = m[1] ? matched : m[2] ? `mailto:${matched}` : `tel:${matched.replace(/\s/g, '')}`;
       nodes.push(
-        <a key={`${keyBase}-link-${idx}`} href={href} target="_blank" rel="noopener noreferrer" style={{ color: colours.highlight, textDecoration: 'underline' }}>
+        <a
+          key={`${keyBase}-link-${idx}`}
+          href={href}
+          target={m[1] ? '_blank' : undefined}
+          rel={m[1] ? 'noopener noreferrer' : undefined}
+          style={{
+            color: colours.highlight,
+            fontWeight: 700,
+            textDecoration: 'underline',
+            textDecorationColor: colours.highlight,
+            textUnderlineOffset: '2px',
+          }}
+        >
           {matched}
         </a>
       );
@@ -1066,12 +1097,11 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
               } : {}),
               ...(showProv ? {
                 borderBottom: `1.5px solid ${pc.border}`,
-                background: isAiField ? (isDarkMode ? 'rgba(54,144,206,0.10)' : 'rgba(54,144,206,0.07)') : pc.bg,
+                background: isAiField ? pc.bg : pc.bg,
                 borderRadius: 2,
                 paddingBottom: 1,
                 ...(isAiField ? {
-                  padding: '1px 3px',
-                  borderLeft: `2px solid ${isDarkMode ? colours.accent : colours.highlight}`,
+                  padding: '0 2px 1px',
                 } : isScaffoldField ? {
                   padding: '1px 3px',
                   borderLeft: `2px dashed ${pc.border}`,
@@ -1091,6 +1121,52 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
     }
     return <>{parts}</>;
   }, [fields, fieldProvenance, provColours, editingField, updateField, documentMode, linkifyText, getEmptyFieldLabel, isDarkMode, highlightedField, hoveredField]);
+
+  const renderChecklistCellContent = useCallback((primaryText: string, extraLines: string[], keyPrefix: string, tone: 'body' | 'muted' = 'body') => {
+    const cleanedExtraLines = extraLines
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => line.replace(/^[•*—–\-]\s*/, '').trim())
+      .filter(Boolean);
+
+    return (
+      <div>
+        <div>{renderWithFields(primaryText, `${keyPrefix}-primary`)}</div>
+        {cleanedExtraLines.length > 0 && (
+          <ul style={{
+            margin: '10px 0 0 0',
+            paddingLeft: 0,
+            listStyleType: 'none',
+          }}>
+            {cleanedExtraLines.map((line, index) => (
+              <li key={`${keyPrefix}-bullet-${index}`} style={{
+                display: 'grid',
+                gridTemplateColumns: '10px minmax(0, 1fr)',
+                columnGap: 8,
+                alignItems: 'start',
+                marginBottom: 6,
+                lineHeight: 1.6,
+                color: tone === 'muted' ? textMuted : text,
+                fontWeight: tone === 'muted' ? 400 : 500,
+              }}>
+                <span style={{
+                  marginTop: 7,
+                  width: 5,
+                  height: 5,
+                  borderRadius: '50%',
+                  background: accentBlue,
+                  display: 'inline-block',
+                }} />
+                <span style={{ display: 'block', minWidth: 0 }}>
+                  {renderWithFields(line, `${keyPrefix}-line-${index}`)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    );
+  }, [accentBlue, renderWithFields, text, textMuted]);
 
   /** Parse template text into grouped sections for collapsible rendering */
   const parsedSections = useMemo((): PreviewSection[] => {
@@ -1235,14 +1311,36 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
         if (peekIdx < lines.length && checkboxRe.test(lines[peekIdx].trimEnd())) {
           const headers = line.split('|').map(s => s.trim());
           i++; // skip header line
-          const items: { action: string; info: string }[] = [];
+          const items: { action: string; info: string; documents: string[] }[] = [];
           while (i < lines.length) {
             const cl = lines[i].trimEnd();
             if (checkboxRe.test(cl)) {
               const raw = cl.replace(/^☐\s*/, '');
               const parts = raw.split('|').map(s => s.trim()).filter(Boolean);
-              items.push({ action: parts[0] || '', info: parts[1] || '' });
-              i++;
+              const action = parts[0] || '';
+              const documents: string[] = [];
+              let nextIdx = i + 1;
+
+              if (action.includes('Provide the following documents')) {
+                while (nextIdx < lines.length) {
+                  const nextLine = lines[nextIdx].trimEnd();
+                  if (!nextLine.trim()) {
+                    if (documents.length === 0) {
+                      nextIdx++;
+                      continue;
+                    }
+                    break;
+                  }
+                  if (checkboxRe.test(nextLine) || sectionRe.test(nextLine) || tableRowRe.test(nextLine)) {
+                    break;
+                  }
+                  documents.push(nextLine.trim());
+                  nextIdx++;
+                }
+              }
+
+              items.push({ action, info: parts[1] || '', documents });
+              i = documents.length > 0 ? nextIdx : i + 1;
             } else if (!cl.trim()) {
               let pk = i + 1;
               while (pk < lines.length && !lines[pk].trim()) pk++;
@@ -1284,13 +1382,13 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
                       padding: '10px 12px', verticalAlign: 'top',
                       borderBottom: `1px solid ${tableBorder}`,
                       fontWeight: 600, color: text,
-                    }}>{renderWithFields(item.action, `tbl-a-${ci}`)}</td>
+                    }}>{renderChecklistCellContent(item.action, item.documents, `tbl-a-${ci}`)}</td>
                     {item.info ? (
                       <td style={{
                         padding: '10px 12px', verticalAlign: 'top',
                         borderBottom: `1px solid ${tableBorder}`,
                         color: textMuted, fontSize: 11,
-                      }}>{renderWithFields(item.info, `tbl-i-${ci}`)}</td>
+                      }}>{renderChecklistCellContent(item.info, [], `tbl-i-${ci}`, 'muted')}</td>
                     ) : <td style={{ borderBottom: `1px solid ${tableBorder}` }} />}
                   </tr>
                 ))}
@@ -1383,7 +1481,7 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
           const prefixLines = paraLines.slice(0, firstBulletIdx);
           if (prefixLines.length > 0) {
             current.elements.push(
-              <p key={key++} style={{ margin: '0 0 10px 0', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
+              <p key={key++} style={{ margin: '0 0 10px 0', lineHeight: 1.7, whiteSpace: 'pre-wrap', textAlign: 'justify', textJustify: 'inter-word' }}>
                 {renderWithFields(prefixLines.join('\n'), `p-${key}`)}
               </p>
             );
@@ -1422,7 +1520,7 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
           const suffixLines = paraLines.slice(lastBulletIdx + 1);
           if (suffixLines.length > 0) {
             current.elements.push(
-              <p key={key++} style={{ margin: '0 0 10px 0', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
+              <p key={key++} style={{ margin: '0 0 10px 0', lineHeight: 1.7, whiteSpace: 'pre-wrap', textAlign: 'justify', textJustify: 'inter-word' }}>
                 {renderWithFields(suffixLines.join('\n'), `p-${key}`)}
               </p>
             );
@@ -1438,6 +1536,8 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
             margin: '0 0 10px 0',
             lineHeight: 1.7,
             whiteSpace: 'pre-wrap',
+            textAlign: isGreeting || isClosing ? 'left' : 'justify',
+            textJustify: isGreeting || isClosing ? undefined : 'inter-word',
             ...(isGreeting ? { fontWeight: 600, marginBottom: 14 } : {}),
             ...(isClosing ? { marginTop: 18 } : {}),
           }}>
@@ -1454,92 +1554,120 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
 
   // ─── A4 page break system ─────────────────────────────────────────────────
   // Each page is rendered as its own 794×1123 card with consistent margins.
-  // Page 1 has letterhead + recipient + headed-paper footer reservation.
-  // Continuation pages have a subtle header. Sections are never split across pages.
+  // Page 1 carries the letterhead and footer treatment.
+  // Continuation pages only reserve space for the page-number box. Oversized sections can continue onto later pages.
   const A4_WIDTH = 794;
   const A4_HEIGHT = 1123;
   const PAGE_MARGIN = 64;          // left + right page margin
   const PAGE_TOP = 56;             // top padding inside page
   const PAGE_BOTTOM = 56;          // bottom padding inside page
-  const HEADED_FOOTER_H = 100;     // reserved for headed paper footer on page 1
-  const CONTINUATION_HEADER_H = 32; // "continued" header on pages 2+
+  const PAGE_NUMBER_BOX_H = 34;    // reserved for the boxed page number on every page
+  const FIRST_PAGE_FOOTER_H = 82;  // additional footer treatment on page 1
+  const SECTION_HEIGHT_FLOOR = 180;
+  const SUBSECTION_HEIGHT_FLOOR = 132;
 
   useEffect(() => {
     // Small delay so DOM has settled after content changes
     const timer = setTimeout(() => {
       const heights: Record<string, number> = {};
+      const elementHeights: Record<string, number> = {};
       for (const [num, el] of Object.entries(sectionRefs.current)) {
         if (el) heights[num] = el.offsetHeight;
+      }
+      for (const [key, el] of Object.entries(sectionElementRefs.current)) {
+        if (el) elementHeights[key] = el.offsetHeight;
       }
       if (introRef.current) heights['__intro'] = introRef.current.offsetHeight;
       if (letterheadRef.current) heights['__letterhead'] = letterheadRef.current.offsetHeight;
       if (recipientRef.current) heights['__recipient'] = recipientRef.current.offsetHeight;
       setMeasuredSectionHeights(heights);
+      setMeasuredSectionElementHeights(elementHeights);
     }, 200);
     return () => clearTimeout(timer);
   }, [parsedSections, fields]);
 
-  /** Page layout: group sections into pages with measured heights */
-  const pageBreaks = useMemo(() => {
+  /** Page layout: group section chunks into pages with measured block heights */
+  const sectionPages = useMemo(() => {
     const headerH = measuredSectionHeights['__letterhead'] || 160;
     const recipientH = measuredSectionHeights['__recipient'] || 80;
     const introH = measuredSectionHeights['__intro'] || 40;
-    const firstPageContent = A4_HEIGHT - PAGE_TOP - PAGE_BOTTOM - headerH - recipientH - introH - HEADED_FOOTER_H;
-    const nextPageContent = A4_HEIGHT - PAGE_TOP - PAGE_BOTTOM - CONTINUATION_HEADER_H;
+    const firstPageContent = A4_HEIGHT - PAGE_TOP - PAGE_BOTTOM - headerH - recipientH - introH - FIRST_PAGE_FOOTER_H - PAGE_NUMBER_BOX_H;
+    const nextPageContent = A4_HEIGHT - PAGE_TOP - PAGE_BOTTOM - PAGE_NUMBER_BOX_H;
 
-    const breaks: { beforeSectionNumber: string; pageNumber: number; showHeadedFooter: boolean }[] = [];
-    let cumHeight = 0;
+    const pages: { pageNumber: number; sections: PreviewSection[] }[] = [];
     let pageNum = 1;
     let pageMax = firstPageContent;
+    let currentPageHeight = 0;
+    let currentPageSections: PreviewSection[] = [];
     const displaySections = parsedSections.filter(s => s.id !== 'intro');
 
+    const startNewPage = () => {
+      if (currentPageSections.length > 0) {
+        pages.push({ pageNumber: pageNum, sections: currentPageSections });
+      }
+      pageNum += 1;
+      pageMax = nextPageContent;
+      currentPageHeight = 0;
+      currentPageSections = [];
+    };
+
     for (const section of displaySections) {
-      const h = measuredSectionHeights[section.number] || 80;
-      if (cumHeight + h > pageMax && cumHeight > 0) {
-        breaks.push({
-          beforeSectionNumber: section.number,
-          pageNumber: pageNum + 1,
-          showHeadedFooter: pageNum === 1,
+      const headingHeight = section.isSubsection ? 34 : 42;
+      const elementFallbackHeight = Math.max(
+        64,
+        Math.round((section.isSubsection ? SUBSECTION_HEIGHT_FLOOR : SECTION_HEIGHT_FLOOR) / Math.max(section.elements.length, 1))
+      );
+      let chunkElements: React.ReactNode[] = [];
+      let chunkSourceIndices: number[] = [];
+      let chunkHeight = headingHeight;
+      let chunkIndex = 0;
+
+      const commitChunk = () => {
+        if (chunkElements.length === 0) return;
+        currentPageSections.push({
+          ...section,
+          id: `${section.id}-page-${pageNum}-chunk-${chunkIndex}`,
+          elements: chunkElements,
+          sourceElementIndices: chunkSourceIndices,
         });
-        pageNum++;
-        pageMax = nextPageContent;
-        cumHeight = 0;
+        currentPageHeight += chunkHeight;
+        chunkElements = [];
+        chunkSourceIndices = [];
+        chunkHeight = headingHeight;
+        chunkIndex += 1;
+      };
+
+      section.elements.forEach((element, elementIndex) => {
+        const measuredHeight = measuredSectionElementHeights[getSectionElementMeasurementKey(section.number, elementIndex)] || 0;
+        const elementHeight = Math.max(measuredHeight, elementFallbackHeight);
+        const requiredHeight = chunkHeight + elementHeight;
+
+        if (chunkElements.length === 0) {
+          if (currentPageHeight > 0 && currentPageHeight + requiredHeight > pageMax) {
+            startNewPage();
+          }
+        } else if (currentPageHeight + requiredHeight > pageMax) {
+          commitChunk();
+          startNewPage();
       }
-      cumHeight += h;
-    }
-    return breaks;
-  }, [parsedSections, measuredSectionHeights]);
 
-  const pageBreakLookup = useMemo(() => {
-    const map = new Map<string, { pageNumber: number; showHeadedFooter: boolean }>();
-    for (const pb of pageBreaks) map.set(pb.beforeSectionNumber, pb);
-    return map;
-  }, [pageBreaks]);
+        chunkElements.push(element);
+        chunkSourceIndices.push(elementIndex);
+        chunkHeight += elementHeight;
+      });
 
-  const totalPages = pageBreaks.length > 0 ? pageBreaks[pageBreaks.length - 1].pageNumber : 1;
-
-  /** Group sections into per-page arrays for rendering as separate A4 cards */
-  const sectionPages = useMemo(() => {
-    const displaySections = parsedSections.filter(s => s.id !== 'intro');
-    const pages: { pageNumber: number; sections: PreviewSection[] }[] = [];
-    let currentPage: PreviewSection[] = [];
-    let pageNum = 1;
-
-    for (const section of displaySections) {
-      if (pageBreakLookup.has(section.number)) {
-        if (currentPage.length > 0) {
-          pages.push({ pageNumber: pageNum, sections: currentPage });
+      if (chunkElements.length > 0) {
+        if (currentPageHeight > 0 && currentPageHeight + chunkHeight > pageMax) {
+          startNewPage();
         }
-        pageNum = pageBreakLookup.get(section.number)!.pageNumber;
-        currentPage = [];
+        commitChunk();
       }
-      currentPage.push(section);
     }
-    if (currentPage.length > 0) {
-      pages.push({ pageNumber: pageNum, sections: currentPage });
+    if (currentPageSections.length > 0) {
+      pages.push({ pageNumber: pageNum, sections: currentPageSections });
     }
     return pages;
-  }, [parsedSections, pageBreakLookup]);
+  }, [parsedSections, measuredSectionHeights, measuredSectionElementHeights, getSectionElementMeasurementKey]);
 
   const handlePrintPdf = useCallback(() => {
     const printWindow = window.open('', '_blank', 'width=800,height=1000');
@@ -1548,15 +1676,53 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
       return;
     }
 
-    // Parse content into structured HTML for PDF
+    // Parse content into structured HTML blocks, then lay them out using the preview's page groups
     const lines = cleanedContent.split('\n');
-    let htmlBody = '';
     let idx = 0;
     const sectionRe = /^(\d+(?:\.\d+)?)\s+(.+)$/;
     const bulletRe = /^[—–\-•*]\s*(.+)$/;
     const checkboxRe = /^☐\s*(.+)$/;
     const tableRowRe = /^.+\|.+$/;
     const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const renderInlineHtml = (value: string) => {
+      const linkRe = /(https?:\/\/[^\s,)]+)|(\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b)|(\b0\d{4}\s?\d{3}\s?\d{3}\b)/g;
+      let last = 0;
+      let output = '';
+      let match: RegExpExecArray | null;
+      while ((match = linkRe.exec(value)) !== null) {
+        output += esc(value.slice(last, match.index));
+        const matched = esc(match[0]);
+        const href = match[1] ? match[0] : match[2] ? `mailto:${match[0]}` : `tel:${match[0].replace(/\s/g, '')}`;
+        const attrs = match[1] ? ' target="_blank" rel="noopener noreferrer"' : '';
+        output += `<a class="inline-link" href="${esc(href)}"${attrs}>${matched}</a>`;
+        last = match.index + match[0].length;
+      }
+      output += esc(value.slice(last));
+      return output.replace(/\n/g, '<br>');
+    };
+
+    const introParts: string[] = [];
+    const parsedPrintSections: Array<{ number: string; title: string; isSubsection: boolean; html: string }> = [];
+    let currentPrintSection: { number: string; title: string; isSubsection: boolean; parts: string[] } | null = null;
+
+    const pushPrintHtml = (html: string) => {
+      if (currentPrintSection) {
+        currentPrintSection.parts.push(html);
+        return;
+      }
+      introParts.push(html);
+    };
+
+    const flushPrintSection = () => {
+      if (!currentPrintSection) return;
+      parsedPrintSections.push({
+        number: currentPrintSection.number,
+        title: currentPrintSection.title,
+        isSubsection: currentPrintSection.isSubsection,
+        html: currentPrintSection.parts.join(''),
+      });
+      currentPrintSection = null;
+    };
 
     while (idx < lines.length) {
       const line = lines[idx].trimEnd();
@@ -1564,18 +1730,23 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
 
       const sm = line.match(sectionRe);
       if (sm) {
-        const isSub = sm[1].includes('.');
-        htmlBody += `<h${isSub ? '3' : '2'} class="${isSub ? 'sub' : 'sec'}">${esc(sm[1])}&ensp;${esc(sm[2])}</h${isSub ? '3' : '2'}>`;
+        flushPrintSection();
+        currentPrintSection = {
+          number: sm[1],
+          title: sm[2],
+          isSubsection: sm[1].includes('.'),
+          parts: [],
+        };
         idx++; continue;
       }
 
       if (bulletRe.test(line)) {
-        htmlBody += '<ul>';
+        let bulletHtml = '<ul>';
         while (idx < lines.length) {
           const bl = lines[idx].trimEnd();
           if (bulletRe.test(bl)) {
             const m = bl.match(bulletRe);
-            if (m) htmlBody += `<li>${esc(m[1])}</li>`;
+            if (m) bulletHtml += `<li>${esc(m[1])}</li>`;
             idx++;
           } else if (!bl.trim()) {
             let peek = idx + 1;
@@ -1585,18 +1756,19 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
             } else { break; }
           } else { break; }
         }
-        htmlBody += '</ul>';
+        bulletHtml += '</ul>';
+        pushPrintHtml(bulletHtml);
         continue;
       }
 
       if (checkboxRe.test(line)) {
-        htmlBody += '<table class="checklist"><tbody>';
+        let checklistHtml = '<table class="checklist"><tbody>';
         while (idx < lines.length) {
           const cl = lines[idx].trimEnd();
           if (checkboxRe.test(cl)) {
             const raw = cl.replace(/^☐\s*/, '');
             const parts = raw.split('|').map((s: string) => s.trim());
-            htmlBody += `<tr><td class="cb"></td><td><strong>${esc(parts[0])}</strong>${parts[1] ? `<br><span class="muted">${esc(parts[1])}</span>` : ''}</td></tr>`;
+            checklistHtml += `<tr><td class="cb"></td><td><strong>${esc(parts[0])}</strong>${parts[1] ? `<br><span class="muted">${esc(parts[1])}</span>` : ''}</td></tr>`;
             idx++;
           } else if (!cl.trim()) {
             let peek = idx + 1;
@@ -1604,7 +1776,8 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
             if (peek < lines.length && checkboxRe.test(lines[peek].trimEnd())) { idx = peek; } else { break; }
           } else { break; }
         }
-        htmlBody += '</tbody></table>';
+        checklistHtml += '</tbody></table>';
+        pushPrintHtml(checklistHtml);
         continue;
       }
 
@@ -1615,23 +1788,45 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
         if (peekIdx < lines.length && checkboxRe.test(lines[peekIdx].trimEnd())) {
           const headers = line.split('|').map((s: string) => s.trim());
           idx++; // skip header
-          htmlBody += '<table class="checklist"><thead><tr><th class="cb"></th>';
-          headers.forEach(h => { htmlBody += `<th>${esc(h)}</th>`; });
-          htmlBody += '</tr></thead><tbody>';
+          let checklistTableHtml = '<table class="checklist"><thead><tr><th class="cb"></th>';
+          headers.forEach(h => { checklistTableHtml += `<th>${esc(h)}</th>`; });
+          checklistTableHtml += '</tr></thead><tbody>';
           while (idx < lines.length) {
             const cl = lines[idx].trimEnd();
             if (checkboxRe.test(cl)) {
               const raw = cl.replace(/^☐\s*/, '');
               const parts = raw.split('|').map((s: string) => s.trim());
-              htmlBody += `<tr><td class="cb"></td><td><strong>${esc(parts[0])}</strong></td>${parts[1] ? `<td class="muted">${esc(parts[1])}</td>` : '<td></td>'}</tr>`;
-              idx++;
+              const action = parts[0] || '';
+              const documents: string[] = [];
+              let nextIdx = idx + 1;
+              if (action.includes('Provide the following documents')) {
+                while (nextIdx < lines.length) {
+                  const nextLine = lines[nextIdx].trimEnd();
+                  if (!nextLine.trim()) {
+                    if (documents.length === 0) {
+                      nextIdx++;
+                      continue;
+                    }
+                    break;
+                  }
+                  if (checkboxRe.test(nextLine) || sectionRe.test(nextLine) || tableRowRe.test(nextLine)) break;
+                  documents.push(nextLine.trim());
+                  nextIdx++;
+                }
+              }
+              const documentsHtml = documents.length > 0
+                ? `<ul class="checklist-sublist">${documents.map((doc) => `<li><span class="checklist-sublist-marker"></span><span class="checklist-sublist-text">${renderInlineHtml(doc.replace(/^[•*—–\-]\s*/, ''))}</span></li>`).join('')}</ul>`
+                : '';
+              checklistTableHtml += `<tr><td class="cb"></td><td><strong>${renderInlineHtml(action)}</strong>${documentsHtml}</td>${parts[1] ? `<td class="muted">${renderInlineHtml(parts[1])}</td>` : '<td></td>'}</tr>`;
+              idx = documents.length > 0 ? nextIdx : idx + 1;
             } else if (!cl.trim()) {
               let pk = idx + 1;
               while (pk < lines.length && !lines[pk].trim()) pk++;
               if (pk < lines.length && checkboxRe.test(lines[pk].trimEnd())) { idx = pk; } else { break; }
             } else { break; }
           }
-          htmlBody += '</tbody></table>';
+          checklistTableHtml += '</tbody></table>';
+          pushPrintHtml(checklistTableHtml);
           continue;
         }
 
@@ -1643,15 +1838,16 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
         }
         if (rows.length > 0) {
           const [header, ...body] = rows;
-          htmlBody += '<table class="data"><thead><tr>';
-          header.forEach(c => { htmlBody += `<th>${esc(c)}</th>`; });
-          htmlBody += '</tr></thead>';
+          let tableHtml = '<table class="data"><thead><tr>';
+          header.forEach(c => { tableHtml += `<th>${esc(c)}</th>`; });
+          tableHtml += '</tr></thead>';
           if (body.length) {
-            htmlBody += '<tbody>';
-            body.forEach(r => { htmlBody += '<tr>'; r.forEach(c => { htmlBody += `<td>${esc(c)}</td>`; }); htmlBody += '</tr>'; });
-            htmlBody += '</tbody>';
+            tableHtml += '<tbody>';
+            body.forEach(r => { tableHtml += '<tr>'; r.forEach(c => { tableHtml += `<td>${esc(c)}</td>`; }); tableHtml += '</tr>'; });
+            tableHtml += '</tbody>';
           }
-          htmlBody += '</table>';
+          tableHtml += '</table>';
+          pushPrintHtml(tableHtml);
         }
         continue;
       }
@@ -1663,26 +1859,73 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
         idx++;
       }
       if (pLines.length) {
-        const pt = esc(pLines.join('\n'));
+        const pt = renderInlineHtml(pLines.join('\n'));
         const cls = pt.startsWith('Dear ') ? ' class="greeting"' : (/^(Please contact me|Kind regards|Yours)/i.test(pt) ? ' class="closing"' : '');
-        htmlBody += `<p${cls}>${pt.replace(/\n/g, '<br>')}</p>`;
+        pushPrintHtml(`<p${cls}>${pt}</p>`);
       }
     }
+
+    flushPrintSection();
+
+    const introHtml = introParts.join('');
+    const sectionHtmlByNumber = Object.fromEntries(parsedPrintSections.map(section => [section.number, section.html]));
+    const printPages = sectionPages.length > 0 ? sectionPages : [{ pageNumber: 1, sections: [] }];
+    const renderPrintSection = (section: PreviewSection) => {
+      const bodyHtml = sectionHtmlByNumber[section.number] || '';
+      return `<section class="section-block${section.isSubsection ? ' subsection' : ''}">
+        <div class="${section.isSubsection ? 'sub' : 'sec'}">${esc(section.number)}&ensp;${esc(section.title)}</div>
+        <div class="section-content${section.isSubsection ? ' subsection-content' : ''}">${bodyHtml}</div>
+      </section>`;
+    };
+    const pagesMarkup = printPages.map((page, index) => {
+      const isFirstPage = index === 0;
+      const sectionsMarkup = page.sections.map(renderPrintSection).join('');
+      return `<section class="page${isFirstPage ? ' first-page' : ''}">
+        ${isFirstPage ? `<div class="header">
+          <div class="logo">
+            <img src="${HELIX_LOGO}" alt="Helix Law" />
+            <div class="addr">Second Floor, Britannia House<br>21 Station Street, Brighton, BN1 4DE<br>0345 314 2044 · helix-law.com</div>
+          </div>
+          <div class="details">
+            <div class="ref">${matter.displayNumber || ''}</div>
+            Client Care Letter<br>${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
+          </div>
+        </div>
+        <div class="recipient">
+          <div class="name">${esc(String(fields.insert_clients_name || matter.clientName || ''))}</div>
+          ${(fields.insert_heading_eg_matter_description || matter.description) ? `<div class="re">Re: ${esc(String(fields.insert_heading_eg_matter_description || matter.description || ''))}</div>` : ''}
+        </div>` : ''}
+        <div class="page-body">
+          ${isFirstPage && introHtml ? `<div class="intro">${introHtml}</div>` : ''}
+          ${sectionsMarkup}
+        </div>
+        ${isFirstPage ? `<div class="footer">Helix Law Ltd is authorised and regulated by the Solicitors Regulation Authority (SRA No. 669720)<br>Registered in England &amp; Wales No. 10346944</div>` : ''}
+        <div class="page-number-wrap"><span class="page-number-box">${page.pageNumber}</span></div>
+      </section>`;
+    }).join('');
 
     printWindow.document.write(`<!DOCTYPE html><html><head><title>CCL — ${matter.displayNumber || 'Draft'}</title>
 <link href="https://fonts.googleapis.com/css2?family=Raleway:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-  @page { margin: 20mm 22mm 24mm 22mm; size: A4; }
+  @page { margin: 0; size: A4; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Raleway', Arial, Helvetica, sans-serif; font-size: 10pt; line-height: 1.65; color: #061733; padding: 0; }
+  body { font-family: 'Raleway', Arial, Helvetica, sans-serif; font-size: 10pt; line-height: 1.65; color: #061733; padding: 0; background: #fff; }
+  .page { width: 210mm; min-height: 297mm; padding: 20mm 22mm 18mm 22mm; display: flex; flex-direction: column; page-break-after: always; break-after: page; }
+  .page:last-child { page-break-after: auto; break-after: auto; }
+  .page-body { flex: 1; }
   .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20pt; padding-bottom: 14pt; border-bottom: 1.5pt solid #0D2F60; }
   .header .logo img { width: 180px; height: auto; }
   .header .logo .addr { font-size: 7.5pt; color: #64748b; line-height: 1.5; margin-top: 6pt; }
   .header .details { text-align: right; font-size: 8.5pt; color: #64748b; line-height: 1.5; }
   .header .details .ref { font-size: 9pt; font-weight: 700; color: #0D2F60; margin-bottom: 4pt; }
+  .section-block { break-inside: avoid; page-break-inside: avoid; margin-bottom: 10pt; }
+  .section-content { padding-left: 14pt; margin-top: 2pt; }
+  .subsection-content { padding-left: 20pt; }
   h2.sec { font-size: 11pt; font-weight: 700; color: #0D2F60; margin: 14pt 0 4pt; }
   h3.sub { font-size: 10pt; font-weight: 700; color: #0D2F60; margin: 10pt 0 3pt; padding-left: 14pt; }
-  p { margin: 0 0 8pt; line-height: 1.65; padding-left: 14pt; }
+  .sec { font-size: 11pt; font-weight: 700; color: #0D2F60; margin: 14pt 0 4pt; }
+  .sub { font-size: 10pt; font-weight: 700; color: #0D2F60; margin: 10pt 0 3pt; padding-left: 14pt; }
+  p { margin: 0 0 8pt; line-height: 1.65; padding-left: 14pt; text-align: justify; text-justify: inter-word; }
   p.greeting { font-weight: 600; margin-bottom: 12pt; padding-left: 0; }
   p.closing { margin-top: 14pt; padding-left: 0; }
   ul { margin: 4pt 0 8pt 14pt; padding-left: 18pt; list-style: none; }
@@ -1698,32 +1941,25 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
   table.checklist td.cb { width: 22pt; vertical-align: top; padding-top: 10pt; }
   table.checklist td.cb::after { content: ''; display: inline-block; width: 10pt; height: 10pt; border: 1.2pt solid #94a3b8; border-radius: 2pt; }
   table.checklist .muted { font-size: 9pt; color: #64748b; }
+  table.checklist .checklist-sublist { margin: 7pt 0 0 0; padding-left: 0; list-style: none; }
+  table.checklist .checklist-sublist li { display: grid; grid-template-columns: 8pt minmax(0, 1fr); column-gap: 6pt; align-items: start; margin-bottom: 4pt; line-height: 1.55; }
+  table.checklist .checklist-sublist-marker { display: inline-block; width: 4pt; height: 4pt; border-radius: 50%; background: #3690CE; margin-top: 6pt; }
+  table.checklist .checklist-sublist-text { display: block; min-width: 0; }
+  a.inline-link { color: #3690CE; font-weight: 700; text-decoration: underline; text-decoration-color: #3690CE; text-underline-offset: 1.5pt; }
+  .intro { margin-bottom: 8pt; }
   .footer { margin-top: 20pt; padding-top: 10pt; border-top: 0.5pt solid #e2e8f0; font-size: 7pt; color: #94a3b8; text-align: center; line-height: 1.5; }
   .recipient { margin-bottom: 16pt; font-size: 10pt; line-height: 1.6; }
   .recipient .name { font-weight: 600; margin-bottom: 1pt; }
   .recipient .re { color: #64748b; font-size: 9pt; }
+  .page-number-wrap { margin-top: 10pt; text-align: center; }
+  .page-number-box { display: inline-flex; align-items: center; justify-content: center; min-width: 22pt; height: 18pt; padding: 0 8pt; border: 1pt solid #cbd5e1; border-radius: 999pt; font-size: 8pt; font-weight: 700; color: #64748b; letter-spacing: 0.04em; }
   @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
 </style></head><body>
-<div class="header">
-  <div class="logo">
-    <img src="${HELIX_LOGO}" alt="Helix Law" />
-    <div class="addr">Second Floor, Britannia House<br>21 Station Street, Brighton, BN1 4DE<br>0345 314 2044 · helix-law.com</div>
-  </div>
-  <div class="details">
-    <div class="ref">${matter.displayNumber || ''}</div>
-    Client Care Letter<br>${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
-  </div>
-</div>
-<div class="recipient">
-  <div class="name">${esc(String(fields.insert_clients_name || matter.clientName || ''))}</div>
-  ${(fields.insert_heading_eg_matter_description || matter.description) ? `<div class="re">Re: ${esc(String(fields.insert_heading_eg_matter_description || matter.description || ''))}</div>` : ''}
-</div>
-${htmlBody}
-<div class="footer">Helix Law Ltd is authorised and regulated by the Solicitors Regulation Authority (SRA No. 669720)<br>Registered in England &amp; Wales No. 10346944</div>
+${pagesMarkup}
 </body></html>`);
     printWindow.document.close();
     setTimeout(() => { printWindow.print(); }, 600);
-  }, [cleanedContent, matter.displayNumber, matter.clientName, matter.description, fields]);
+  }, [cleanedContent, fields, matter.clientName, matter.description, matter.displayNumber, sectionPages]);
 
   // Build field → CCL section mapping for the trace modal
   const fieldSectionMap = useMemo(() => {
@@ -1740,16 +1976,18 @@ ${htmlBody}
   const openFieldEditor = useCallback((fieldKey: string) => {
     setDocumentMode('edit');
     setSidebarOpen(true);
+    setActiveNavigationKey(fieldKey);
     // Highlight animation
     if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
     setHighlightedField(fieldKey);
     highlightTimerRef.current = setTimeout(() => setHighlightedField(null), 1500);
     // Small delay so sidebar renders before scroll
     setTimeout(() => {
+      pauseScrollSync(420);
       const el = document.querySelector(`[data-ccl-qf="${fieldKey}"]`) as HTMLElement | null;
       if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.focus(); }
     }, 100);
-  }, []);
+  }, [pauseScrollSync]);
 
   const QUICK_FIELD_ALIASES: Record<string, string[]> = useMemo(() => ({
     insert_clients_name: ['insert_clients_name', 'client_name', 'clientName', 'client'],
@@ -1813,10 +2051,43 @@ ${htmlBody}
     return map;
   }, [PROMPT_GROUPS]);
 
+  const getLeadNavigationKey = useCallback((fieldKey: string) => {
+    return promptGroupByKey[fieldKey]?.leadKey || fieldKey;
+  }, [promptGroupByKey]);
+
   const promptReviewCardCount = useMemo(() => {
     const cardKeys = new Set(FIELD_PROMPTS.map(fp => promptGroupByKey[fp.key]?.leadKey || fp.key));
     return cardKeys.size;
   }, [promptGroupByKey]);
+
+  const nextReviewCard = useMemo(() => {
+    const seen = new Set<string>();
+    for (const fp of FIELD_PROMPTS) {
+      const promptGroup = promptGroupByKey[fp.key];
+      const cardKey = promptGroup?.leadKey || fp.key;
+      if (seen.has(cardKey)) continue;
+      seen.add(cardKey);
+
+      const cardPrompts = promptGroup
+        ? promptGroup.memberKeys.map(key => fieldPromptByKey[key]).filter(Boolean)
+        : [fp];
+      const unresolvedPrompts = cardPrompts.filter(prompt => {
+        const value = String(fields[prompt.key] || '').trim();
+        const prov = fieldProvenance[prompt.key] || 'empty';
+        return !value || prov === 'scaffold';
+      });
+      if (unresolvedPrompts.length === 0) continue;
+
+      return {
+        key: cardKey,
+        label: promptGroup?.label || fp.label,
+        section: cardPrompts[0]?.section || fp.section,
+        outstandingCount: unresolvedPrompts.length,
+        nextLabel: unresolvedPrompts[0]?.label || fp.label,
+      };
+    }
+    return null;
+  }, [fieldPromptByKey, fields, fieldProvenance, promptGroupByKey]);
 
   const otherDocumentFields = useMemo(() => (
     CCL_SECTIONS
@@ -1932,10 +2203,12 @@ ${htmlBody}
   // Sync: when editing a field on the A4 surface AND sidebar is open, highlight in sidebar
   useEffect(() => {
     if (editingField && sidebarOpen) {
+      setActiveNavigationKey(getLeadNavigationKey(editingField));
       if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
       setHighlightedField(editingField);
       highlightTimerRef.current = setTimeout(() => setHighlightedField(null), 1500);
       setTimeout(() => {
+        pauseScrollSync(420);
         // Scroll in Quick Edit tab
         const qfEl = document.querySelector(`[data-ccl-qf="${editingField}"]`) as HTMLElement | null;
         if (qfEl) qfEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -1944,12 +2217,19 @@ ${htmlBody}
         if (promptEl) promptEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }, 50);
     }
-  }, [editingField, sidebarOpen]);
+  }, [editingField, getLeadNavigationKey, pauseScrollSync, sidebarOpen]);
 
   // Scroll the A4 paper to show where a field appears in the document
   const scrollFieldToDocument = useCallback((fieldKey: string) => {
     setDocumentMode('edit');
     setSidebarOpen(true);
+    const navigationKey = getLeadNavigationKey(fieldKey);
+    setActiveNavigationKey(navigationKey);
+    setExpandedCards(prev => {
+      const next = new Set(prev);
+      next.add(navigationKey);
+      return next;
+    });
     const candidates = QUICK_FIELD_ALIASES[fieldKey] || [fieldKey];
     const cclSectionId = fieldSectionMap[fieldKey]?.sectionId;
     const docSections = cclSectionId ? (CCL_SECTION_TO_DOC_SECTIONS[cclSectionId] || []) : [];
@@ -1964,9 +2244,10 @@ ${htmlBody}
 
     const runJump = () => {
       for (const candidateKey of candidates) {
-        const target = document.querySelector(`[data-ccl-field="${candidateKey}"]`) as HTMLElement | null;
+        const target = paperScrollRef.current?.querySelector(`[data-ccl-field="${candidateKey}"]`) as HTMLElement | null;
         if (target) {
           setEditingField(candidateKey);
+          pauseScrollSync();
           target.scrollIntoView({ behavior: 'smooth', block: 'center' });
           return;
         }
@@ -1975,6 +2256,7 @@ ${htmlBody}
       if (docSections.length > 0) {
         const sectionEl = sectionRefs.current[docSections[0]];
         if (sectionEl) {
+          pauseScrollSync();
           sectionEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
       }
@@ -1984,7 +2266,13 @@ ${htmlBody}
     };
 
     setTimeout(runJump, 120);
-  }, [CCL_SECTION_TO_DOC_SECTIONS, QUICK_FIELD_ALIASES, fieldLabelMap, fieldSectionMap, openFieldEditor]);
+  }, [CCL_SECTION_TO_DOC_SECTIONS, QUICK_FIELD_ALIASES, fieldLabelMap, fieldSectionMap, getLeadNavigationKey, openFieldEditor, pauseScrollSync]);
+
+  const resizeTextareaToContent = useCallback((element: HTMLTextAreaElement | null) => {
+    if (!element) return;
+    element.style.height = 'auto';
+    element.style.height = `${Math.max(element.scrollHeight, 32)}px`;
+  }, []);
 
   // Inline editable field rendered on the document surface (used by recipient block)
   const InlineField: React.FC<{
@@ -2004,14 +2292,17 @@ ${htmlBody}
       return multiline ? (
         <textarea
           autoFocus
+          ref={resizeTextareaToContent}
           value={value || ''}
-          onChange={e => updateField?.(fieldKey, e.target.value)}
+          onChange={e => {
+            resizeTextareaToContent(e.currentTarget);
+            updateField?.(fieldKey, e.target.value);
+          }}
           onBlur={() => setEditingField(null)}
           onKeyDown={e => { if (e.key === 'Escape') setEditingField(null); }}
-          rows={3}
           style={{
             ...style,
-            width: '100%', resize: 'vertical',
+            width: '100%', resize: 'none', overflow: 'hidden',
             padding: '4px 6px', borderRadius: 2, fontSize: 'inherit', lineHeight: 'inherit',
             border: `1.5px solid ${pc.border}`,
             background: pc.bg,
@@ -2117,9 +2408,10 @@ ${htmlBody}
           inset: 0,
           zIndex: 1250,
           display: 'flex',
-          alignItems: 'center',
+          alignItems: 'flex-start',
           justifyContent: 'center',
-          padding: 24,
+          paddingTop: 48,
+          padding: '48px 24px 24px',
           background: isDarkMode ? 'rgba(0, 3, 25, 0.58)' : 'rgba(6, 23, 51, 0.22)',
           backdropFilter: 'blur(10px)',
           WebkitBackdropFilter: 'blur(10px)',
@@ -2161,36 +2453,36 @@ ${htmlBody}
                     marginBottom: 4,
                   }}>
                     {workflowModalStage === 'generating'
-                      ? 'Generating CCL Draft'
+                      ? 'Generating draft'
                       : workflowModalStage === 'safety-net'
-                        ? 'Safety Net Pressure Test'
-                        : 'Review Ready'}
+                        ? 'Safety net'
+                        : 'Review ready'}
                   </div>
                   <div style={{ fontSize: 18, fontWeight: 700, color: text, lineHeight: 1.3 }}>
                     {workflowModalStage === 'generating'
-                      ? 'Building the first draft from matter context and linked evidence.'
+                      ? 'Pulling matter data and drafting field values.'
                       : workflowModalStage === 'safety-net'
-                        ? 'Cross-checking the generated draft before review opens.'
-                        : 'Opening the review panel with scored fields and flagged cues.'}
+                        ? 'Verifying draft against source data.'
+                        : 'Draft complete — review fields below.'}
                   </div>
-                  <div style={{ marginTop: 6, fontSize: 12, lineHeight: 1.5, color: textMuted }}>
-                    {workflowModalStage === 'generating'
-                      ? 'We are gathering matter detail, pitch emails, call notes and deal context into a single working draft.'
-                      : workflowModalStage === 'safety-net'
-                        ? 'Your colleague\'s Safety Net Pressure Test is checking outputs against source evidence so review starts with stronger cues.'
+                  {workflowModalStage !== 'generating' && (
+                    <div style={{ marginTop: 6, fontSize: 12, lineHeight: 1.5, color: textMuted }}>
+                      {workflowModalStage === 'safety-net'
+                        ? 'Checking outputs against source evidence.'
                         : ptSummary
-                          ? `${ptSummary.reviewedFields} AI fields reviewed · Safety Net ${ptSummary.average}/10${ptSummary.flaggedCount > 0 ? ` · ${ptSummary.flaggedCount} flagged for review` : ' · no flagged issues'}.`
-                          : 'The review queue is ready.'}
-                  </div>
+                          ? `${ptSummary.reviewedFields} fields reviewed · ${ptSummary.average}/10${ptSummary.flaggedCount > 0 ? ` · ${ptSummary.flaggedCount} flagged` : ' · none flagged'}.`
+                          : 'Ready.'}
+                    </div>
+                  )}
                 </div>
               </div>
 
               {workflowModalStage === 'generating' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {[
-                    'Collecting matter context and linked evidence',
-                    'Reviewing pitch emails, call notes and deal data',
-                    `Generating field values${aiLoadingKeys?.size ? ` (${aiLoadingKeys.size} remaining)` : ''}`,
+                    'Loading matter context',
+                    'Checking emails and notes',
+                    `Generating fields${aiLoadingKeys?.size ? ` (${aiLoadingKeys.size} remaining)` : ''}`,
                   ].map((label, index) => (
                     <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                       <span style={{ width: 16, textAlign: 'center', flexShrink: 0 }}>
@@ -2431,6 +2723,20 @@ ${htmlBody}
               padding: '6px 16px',
               minHeight: 36,
             }}>
+              {/* Page count chip */}
+              {sectionPages.length > 0 && (
+                <div style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                  padding: '3px 10px', borderRadius: 12,
+                  fontSize: 10, fontWeight: 600,
+                  background: isDarkMode ? 'rgba(244,244,246,0.06)' : 'rgba(13,47,96,0.05)',
+                  border: `1px solid ${cardBorder}`,
+                  color: textMuted,
+                }}>
+                  {sectionPages.length} page{sectionPages.length !== 1 ? 's' : ''}
+                </div>
+              )}
+
               {/* AI status chip — compact, non-expandable */}
               {aiStatus && aiStatus !== 'idle' && aiStatus !== 'loading' && (
                 <div
@@ -2490,6 +2796,25 @@ ${htmlBody}
                   </div>
                 );
               })()}
+              {/* Run Safety Net — shown when AI is done but PT hasn't run yet */}
+              {aiStatus === 'complete' && !ptResult && !ptRunning && (
+                <button
+                  type="button"
+                  onClick={runPressureTest}
+                  title="Verify AI output against source evidence (emails, calls, documents)"
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 4,
+                    padding: '3px 10px', borderRadius: 12,
+                    fontSize: 10, fontWeight: 700, cursor: 'pointer',
+                    background: isDarkMode ? 'rgba(135,243,243,0.08)' : 'rgba(135,243,243,0.06)',
+                    border: `1px solid ${isDarkMode ? 'rgba(135,243,243,0.35)' : 'rgba(135,243,243,0.25)'}`,
+                    color: colours.accent,
+                    transition: 'all 0.12s ease',
+                  }}
+                >
+                  Run Safety Net
+                </button>
+              )}
               {ptRunning && !workflowModalActive && (
                 <div style={{
                   display: 'inline-flex', alignItems: 'center', gap: 4,
@@ -2630,126 +2955,21 @@ ${htmlBody}
 
               <div style={{ width: 1, height: 16, background: cardBorder, margin: '0 2px' }} />
 
-              {/* Upload dropdown */}
-              <div ref={uploadMenuRef} style={{ position: 'relative' }}>
-                <button type="button"
-                  onClick={() => setShowUploadMenu(!showUploadMenu)}
-                  title="Upload to Clio or NetDocuments"
-                  style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 4,
-                    padding: '4px 10px', borderRadius: 3, height: 26,
-                    background: showUploadMenu ? (isDarkMode ? 'rgba(54,144,206,0.15)' : 'rgba(54,144,206,0.1)') : 'transparent',
-                    border: `1px solid ${showUploadMenu ? accentBlue : cardBorder}`,
-                    color: showUploadMenu ? accentBlue : text, fontSize: 10, fontWeight: 600,
-                    cursor: 'pointer', transition: 'all 0.12s ease',
-                  }}
-                >
-                  <Icon iconName="CloudUpload" styles={{ root: { fontSize: 10 } }} />
-                  Upload
-                  <Icon iconName={showUploadMenu ? 'ChevronUp' : 'ChevronDown'} styles={{ root: { fontSize: 8 } }} />
-                </button>
-
-                {showUploadMenu && (
-                  <div style={{
-                    position: 'absolute', top: '100%', right: 0, marginTop: 4,
-                    width: 260,
-                    background: isDarkMode ? '#0f172a' : '#ffffff',
-                    border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.25)' : 'rgba(148,163,184,0.2)'}`,
-                    borderRadius: 4,
-                    boxShadow: isDarkMode ? '0 8px 32px rgba(0,0,0,0.5)' : '0 8px 32px rgba(0,0,0,0.12)',
-                    zIndex: 100, overflow: 'hidden',
-                    animation: 'cclFadeIn 0.1s ease',
-                  }}>
-                    <div style={{ padding: '8px 12px', borderBottom: `1px solid ${cardBorder}` }}>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: textMuted, textTransform: 'uppercase' as const, letterSpacing: '0.04em' }}>
-                        Upload document to
-                      </div>
-                    </div>
-
-                    {/* Clio row */}
-                    <button type="button"
-                      onClick={() => { setShowUploadMenu(false); setShowClioConfirm(true); }}
-                      disabled={!(integrations?.clio?.available || isDemoMatter) || uploadingClio}
-                      style={{
-                        display: 'flex', alignItems: 'center', gap: 10, width: '100%',
-                        padding: '10px 12px', border: 'none', cursor: (integrations?.clio?.available || isDemoMatter) ? 'pointer' : 'default',
-                        background: 'transparent', textAlign: 'left' as const,
-                        opacity: (integrations?.clio?.available || isDemoMatter) ? 1 : 0.5,
-                        transition: 'background 0.1s ease',
-                      }}
-                      onMouseEnter={(e) => { if (integrations?.clio?.available || isDemoMatter) e.currentTarget.style.background = isDarkMode ? 'rgba(54,144,206,0.08)' : 'rgba(54,144,206,0.04)'; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-                    >
-                      <div style={{
-                        width: 28, height: 28, borderRadius: 4, flexShrink: 0,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        background: isDarkMode ? 'rgba(96,165,250,0.1)' : 'rgba(37,99,235,0.06)',
-                        border: `1px solid ${isDarkMode ? 'rgba(96,165,250,0.2)' : 'rgba(37,99,235,0.12)'}`,
-                      }}>
-                        <Icon iconName="CloudUpload" styles={{ root: { fontSize: 12, color: isDarkMode ? '#60a5fa' : '#2563eb' } }} />
-                      </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 11, fontWeight: 600, color: text }}>Clio</div>
-                        <div style={{ fontSize: 9, color: textMuted, whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {integrationsLoading ? 'Checking...'
-                            : (integrations?.clio?.available || isDemoMatter) ? `Matter: ${integrations?.clio?.description || 'Admin (demo)'}`
-                            : integrations ? 'No matching matter found' : 'Checking availability...'}
-                        </div>
-                      </div>
-                      {(integrations?.clio?.available || isDemoMatter) && (
-                        <div style={{ width: 6, height: 6, borderRadius: '50%', background: accentBlue, flexShrink: 0 }} />
-                      )}
-                    </button>
-
-                    {/* ND row */}
-                    <button type="button"
-                      onClick={() => { setShowUploadMenu(false); handleUploadNd(); }}
-                      disabled={!integrations?.nd?.available || uploadingNd}
-                      style={{
-                        display: 'flex', alignItems: 'center', gap: 10, width: '100%',
-                        padding: '10px 12px', border: 'none', cursor: integrations?.nd?.available ? 'pointer' : 'default',
-                        background: 'transparent', textAlign: 'left' as const,
-                        opacity: integrations?.nd?.available ? 1 : 0.5,
-                        transition: 'background 0.1s ease',
-                        borderTop: `1px solid ${cardBorder}`,
-                      }}
-                      onMouseEnter={(e) => { if (integrations?.nd?.available) e.currentTarget.style.background = isDarkMode ? 'rgba(54,144,206,0.08)' : 'rgba(54,144,206,0.04)'; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-                    >
-                      <div style={{
-                        width: 28, height: 28, borderRadius: 4, flexShrink: 0,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        background: isDarkMode ? 'rgba(96,165,250,0.1)' : 'rgba(37,99,235,0.06)',
-                        border: `1px solid ${isDarkMode ? 'rgba(96,165,250,0.2)' : 'rgba(37,99,235,0.12)'}`,
-                      }}>
-                        <Icon iconName="CloudUpload" styles={{ root: { fontSize: 12, color: isDarkMode ? '#60a5fa' : '#2563eb' } }} />
-                      </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 11, fontWeight: 600, color: text }}>NetDocuments</div>
-                        <div style={{ fontSize: 9, color: textMuted, whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {integrationsLoading ? 'Checking...'
-                            : integrations?.nd?.available ? `Workspace: ${integrations.nd.workspaceName || matterId}`
-                            : integrations ? 'No matching workspace found' : 'Checking availability...'}
-                        </div>
-                      </div>
-                      {integrations?.nd?.available && (
-                        <div style={{ width: 6, height: 6, borderRadius: '50%', background: colours.highlight, flexShrink: 0 }} />
-                      )}
-                    </button>
-
-                    {/* Footer note */}
-                    {isDevMode && (
-                      <div style={{
-                        padding: '6px 12px', borderTop: `1px solid ${cardBorder}`,
-                        fontSize: 9, color: textMuted, lineHeight: 1.4,
-                        background: isDarkMode ? 'rgba(15,23,42,0.5)' : 'rgba(248,250,252,0.8)',
-                      }}>
-                        Dev note: Clio upload disabled: to be swapped out for ND only.
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
+              <button type="button"
+                onClick={() => setShowNdConfirm(true)}
+                title="Upload to NetDocuments"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                  padding: '4px 10px', borderRadius: 3, height: 26,
+                  background: showNdConfirm ? (isDarkMode ? 'rgba(54,144,206,0.15)' : 'rgba(54,144,206,0.1)') : 'transparent',
+                  border: `1px solid ${showNdConfirm ? accentBlue : cardBorder}`,
+                  color: showNdConfirm ? accentBlue : text, fontSize: 10, fontWeight: 600,
+                  cursor: 'pointer', transition: 'all 0.12s ease',
+                }}
+              >
+                <Icon iconName="CloudUpload" styles={{ root: { fontSize: 10 } }} />
+                Upload to ND
+              </button>
 
               {/* Utility icons */}
               {isDevMode && (
@@ -2810,12 +3030,13 @@ ${htmlBody}
             minHeight: 0,
             overflow: 'auto',
             padding: '0 20px 32px',
+            background: isDarkMode ? '#020a18' : '#b8cedf',
           }}>
 
           {/* ── Page 1 ── */}
           <div style={{
             width: A4_WIDTH,
-            minHeight: A4_HEIGHT,
+            height: A4_HEIGHT,
             flexShrink: 0,
             margin: '32px auto 0',
             background: paperBg,
@@ -2827,6 +3048,7 @@ ${htmlBody}
             fontSize: 13, lineHeight: 1.7,
             color: isDarkMode ? '#e2e8f0' : '#061733',
             display: 'flex', flexDirection: 'column' as const,
+            overflow: 'hidden',
             position: 'relative' as const,
             animation: aiStatus !== 'loading' ? 'cclFadeIn 0.3s ease' : 'none',
           }}>
@@ -2881,7 +3103,7 @@ ${htmlBody}
             })()}
 
             {/* Page 1 sections */}
-            <div style={{ flex: 1 }}>
+            <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
               {(sectionPages[0]?.sections || []).map(section => (
                 <div key={section.id} ref={el => { sectionRefs.current[section.number] = el; }} data-section-number={section.number} style={{ marginBottom: 10 }}>
                   <div style={{
@@ -2894,7 +3116,21 @@ ${htmlBody}
                   }}>
                     {section.number}&ensp;{section.title}
                   </div>
-                  <div style={{ paddingLeft: section.isSubsection ? 28 : 20, marginTop: 2 }}>{section.elements}</div>
+                  <div style={{ paddingLeft: section.isSubsection ? 28 : 20, marginTop: 2 }}>
+                    {section.elements.map((element, elementIndex) => {
+                      const sourceElementIndex = section.sourceElementIndices?.[elementIndex] ?? elementIndex;
+                      return (
+                      <div
+                        key={`${section.id}-element-${elementIndex}`}
+                        ref={el => {
+                          sectionElementRefs.current[getSectionElementMeasurementKey(section.number, sourceElementIndex)] = el;
+                        }}
+                      >
+                        {element}
+                      </div>
+                      );
+                    })}
+                  </div>
                 </div>
               ))}
             </div>
@@ -2921,16 +3157,28 @@ ${htmlBody}
                 background: isDarkMode ? 'rgba(244,244,246,0.06)' : colours.grey,
                 padding: '3px 12px', borderRadius: 999, letterSpacing: '0.04em',
               }}>
-                Page 1 of {totalPages}
+                1
               </span>
             </div>
           </div>
 
           {/* ── Continuation pages ── */}
           {sectionPages.slice(1).map((page) => (
-            <div key={page.pageNumber} style={{
+            <React.Fragment key={page.pageNumber}>
+            {/* Page break separator */}
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 12,
+              margin: '10px auto', width: A4_WIDTH, padding: '0 40px',
+            }}>
+              <div style={{ flex: 1, height: 1, background: isDarkMode ? 'rgba(54,144,206,0.25)' : 'rgba(13,47,96,0.12)' }} />
+              <span style={{ fontSize: 9, fontWeight: 600, color: textMuted, letterSpacing: '0.06em', textTransform: 'uppercase' as const, whiteSpace: 'nowrap' as const }}>
+                Page {page.pageNumber}
+              </span>
+              <div style={{ flex: 1, height: 1, background: isDarkMode ? 'rgba(54,144,206,0.25)' : 'rgba(13,47,96,0.12)' }} />
+            </div>
+            <div style={{
               width: A4_WIDTH,
-              minHeight: A4_HEIGHT,
+              height: A4_HEIGHT,
               flexShrink: 0,
               margin: '32px auto 0',
               background: paperBg,
@@ -2942,12 +3190,13 @@ ${htmlBody}
               fontSize: 13, lineHeight: 1.7,
               color: isDarkMode ? '#e2e8f0' : '#061733',
               display: 'flex', flexDirection: 'column' as const,
+              overflow: 'hidden',
               position: 'relative' as const,
             }}>
 
 
               {/* Page sections */}
-              <div style={{ flex: 1 }}>
+              <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
                 {page.sections.map(section => (
                   <div key={section.id} ref={el => { sectionRefs.current[section.number] = el; }} data-section-number={section.number} style={{ marginBottom: 10 }}>
                     <div style={{
@@ -2960,7 +3209,21 @@ ${htmlBody}
                     }}>
                       {section.number}&ensp;{section.title}
                     </div>
-                    <div style={{ paddingLeft: section.isSubsection ? 28 : 20, marginTop: 2 }}>{section.elements}</div>
+                    <div style={{ paddingLeft: section.isSubsection ? 28 : 20, marginTop: 2 }}>
+                      {section.elements.map((element, elementIndex) => {
+                        const sourceElementIndex = section.sourceElementIndices?.[elementIndex] ?? elementIndex;
+                        return (
+                        <div
+                          key={`${section.id}-element-${elementIndex}`}
+                          ref={el => {
+                            sectionElementRefs.current[getSectionElementMeasurementKey(section.number, sourceElementIndex)] = el;
+                          }}
+                        >
+                          {element}
+                        </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -2972,10 +3235,11 @@ ${htmlBody}
                   background: isDarkMode ? 'rgba(244,244,246,0.06)' : colours.grey,
                   padding: '3px 12px', borderRadius: 999, letterSpacing: '0.04em',
                 }}>
-                  Page {page.pageNumber} of {totalPages}
+                  {page.pageNumber}
                 </span>
               </div>
             </div>
+            </React.Fragment>
           ))}
 
           </div>{/* end paper scroll area */}
@@ -3100,6 +3364,74 @@ ${htmlBody}
                         lineHeight: 1.55,
                       }}>
                         {otherDocumentFields.join(' • ')}
+                      </div>
+                    )}
+                    {nextReviewCard ? (
+                      <button
+                        type="button"
+                        onClick={() => scrollFieldToDocument(nextReviewCard.key)}
+                        style={{
+                          marginTop: 8,
+                          width: '100%',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: 10,
+                          padding: '9px 10px',
+                          borderRadius: 3,
+                          cursor: 'pointer',
+                          border: `1px solid ${activeNavigationKey === nextReviewCard.key ? accentBlue : cardBorder}`,
+                          background: activeNavigationKey === nextReviewCard.key
+                            ? (isDarkMode ? 'rgba(54,144,206,0.12)' : 'rgba(54,144,206,0.07)')
+                            : (isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.78)'),
+                          textAlign: 'left',
+                          transition: 'all 0.12s ease',
+                        }}
+                      >
+                        <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                          <span style={{
+                            fontSize: 8,
+                            fontWeight: 700,
+                            color: activeNavigationKey === nextReviewCard.key ? accentBlue : textMuted,
+                            letterSpacing: '0.06em',
+                            textTransform: 'uppercase' as const,
+                          }}>
+                            Next up
+                          </span>
+                          <span style={{ fontSize: 10.5, fontWeight: 700, color: text, lineHeight: 1.35 }}>
+                            {nextReviewCard.label}
+                          </span>
+                          <span style={{ fontSize: 9, color: textMuted, lineHeight: 1.45 }}>
+                            Section {nextReviewCard.section} · {nextReviewCard.nextLabel}
+                            {nextReviewCard.outstandingCount > 1 ? ` + ${nextReviewCard.outstandingCount - 1} more` : ''}
+                          </span>
+                        </div>
+                        <span style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          width: 20,
+                          height: 20,
+                          borderRadius: 999,
+                          background: isDarkMode ? 'rgba(135,243,243,0.10)' : 'rgba(54,144,206,0.10)',
+                          color: accentBlue,
+                          flexShrink: 0,
+                        }}>
+                          <Icon iconName="ChevronRight" styles={{ root: { fontSize: 10 } }} />
+                        </span>
+                      </button>
+                    ) : (
+                      <div style={{
+                        marginTop: 8,
+                        padding: '8px 10px',
+                        borderRadius: 3,
+                        border: `1px solid ${isDarkMode ? 'rgba(32,178,108,0.28)' : 'rgba(32,178,108,0.18)'}`,
+                        background: isDarkMode ? 'rgba(32,178,108,0.08)' : 'rgba(32,178,108,0.05)',
+                        color: colours.green,
+                        fontSize: 9.5,
+                        fontWeight: 700,
+                      }}>
+                        Review queue complete. Use any card to revisit the draft.
                       </div>
                     )}
                   </div>
@@ -3256,6 +3588,7 @@ ${htmlBody}
                       }, undefined);
                     const isExpanded = expandedCards.has(cardKey);
                     const isLinkedHighlight = promptStates.some(state => highlightedField === state.prompt.key || hoveredField === state.prompt.key);
+                    const isActiveNavigation = activeNavigationKey === cardKey;
 
                     const isAutoFillField = !promptGroup && AUTO_FILL_KEYS.has(fp.key);
                     const dataSummary = promptGroup
@@ -3412,7 +3745,9 @@ ${htmlBody}
                             background: cardBg,
                             border: `1px solid ${cardBorderCol}`,
                             borderLeft: `3px solid ${leftAccent}`,
-                            boxShadow: isLinkedHighlight
+                            boxShadow: isActiveNavigation
+                              ? `0 0 0 2px ${isDarkMode ? 'rgba(135,243,243,0.24)' : 'rgba(54,144,206,0.22)'}`
+                              : isLinkedHighlight
                               ? `0 0 0 2px ${isDarkMode ? 'rgba(135,243,243,0.18)' : 'rgba(54,144,206,0.14)'}`
                               : undefined,
                             transition: 'top 0.3s ease, background 0.12s ease',
@@ -3482,7 +3817,9 @@ ${htmlBody}
                           background: cardBg,
                           border: `1px solid ${cardBorderCol}`,
                           borderLeft: `3px solid ${leftAccent}`,
-                          boxShadow: isLinkedHighlight
+                          boxShadow: isActiveNavigation
+                            ? `0 0 0 2px ${isDarkMode ? 'rgba(135,243,243,0.24)' : 'rgba(54,144,206,0.22)'}`
+                            : isLinkedHighlight
                             ? `0 0 0 2px ${isDarkMode ? 'rgba(135,243,243,0.18)' : 'rgba(54,144,206,0.14)'}`
                             : undefined,
                           transition: 'top 0.3s ease, background 0.12s ease, border 0.2s ease',
@@ -3759,8 +4096,8 @@ ${htmlBody}
         </div>
       )}
 
-      {/* ═══ Clio Upload Confirmation Modal ═══ */}
-      {showClioConfirm && (
+      {/* ═══ NetDocuments Upload Confirmation Modal ═══ */}
+      {showNdConfirm && (
         <div style={{
           position: 'fixed', inset: 0, zIndex: 1000,
           display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
@@ -3768,7 +4105,7 @@ ${htmlBody}
           background: isDarkMode ? 'rgba(0,0,0,0.7)' : 'rgba(0,0,0,0.45)',
           backdropFilter: 'blur(3px)',
           animation: 'cclFadeIn 0.15s ease',
-        }} onClick={() => { if (!uploadingClio) setShowClioConfirm(false); }}>
+        }} onClick={() => { if (!uploadingNd) setShowNdConfirm(false); }}>
           <div onClick={e => e.stopPropagation()} style={{
             width: 420, maxWidth: '90vw',
             background: isDarkMode ? '#0f172a' : '#ffffff',
@@ -3791,7 +4128,7 @@ ${htmlBody}
                 <Icon iconName="CloudUpload" styles={{ root: { fontSize: 14, color: accentBlue } }} />
               </div>
               <div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: text }}>Upload to Clio</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: text }}>Upload to NetDocuments</div>
                 <div style={{ fontSize: 10, color: textMuted }}>Confirm document upload</div>
               </div>
             </div>
@@ -3799,7 +4136,7 @@ ${htmlBody}
             {/* Body */}
             <div style={{ padding: '16px 20px' }}>
               <div style={{ fontSize: 11, color: text, lineHeight: 1.6, marginBottom: 16 }}>
-                This will upload the generated Client Care Letter to the Clio matter as a document.
+                This will upload the generated Client Care Letter into the shared HELIX01-01 NetDocuments demo workspace while the full CCL generation path is still being stabilised.
               </div>
 
               <div style={{
@@ -3813,19 +4150,19 @@ ${htmlBody}
                   <span style={{ fontSize: 10, color: text }}>CCL-{matter.displayNumber || 'draft'}.docx</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                  <span style={{ fontSize: 10, color: textMuted, fontWeight: 600 }}>Matter</span>
-                  <span style={{ fontSize: 10, color: text }}>{integrations?.clio?.description || (isDemoMatter ? 'Admin (demo)' : matter.displayNumber || matterId)}</span>
+                  <span style={{ fontSize: 10, color: textMuted, fontWeight: 600 }}>Workspace</span>
+                  <span style={{ fontSize: 10, color: text }}>{integrations?.nd?.workspaceName || 'HELIX01-01 demo workspace'}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ fontSize: 10, color: textMuted, fontWeight: 600 }}>Clio ID</span>
-                  <span style={{ fontSize: 10, color: text }}>{integrations?.clio?.matterId || (isDemoMatter ? '3311402' : '—')}</span>
+                  <span style={{ fontSize: 10, color: textMuted, fontWeight: 600 }}>Workspace ID</span>
+                  <span style={{ fontSize: 10, color: text }}>{integrations?.nd?.workspaceId || 'Resolving…'}</span>
                 </div>
               </div>
 
-              {uploadingClio && (
+              {uploadingNd && (
                 <div style={{ fontSize: 10, color: accentBlue, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
                   <Spinner size={SpinnerSize.xSmall} />
-                  Uploading to Clio...
+                  Uploading to NetDocuments...
                 </div>
               )}
             </div>
@@ -3837,34 +4174,34 @@ ${htmlBody}
               background: isDarkMode ? 'rgba(15,23,42,0.5)' : 'rgba(248,250,252,0.8)',
             }}>
               <button type="button"
-                disabled={uploadingClio}
-                onClick={() => setShowClioConfirm(false)}
+                disabled={uploadingNd}
+                onClick={() => setShowNdConfirm(false)}
                 style={{
                   padding: '6px 16px', borderRadius: 3, height: 28,
                   background: 'transparent', border: `1px solid ${cardBorder}`,
                   color: textMuted, fontSize: 11, fontWeight: 600,
-                  cursor: uploadingClio ? 'not-allowed' : 'pointer',
-                  opacity: uploadingClio ? 0.5 : 1,
+                  cursor: uploadingNd ? 'not-allowed' : 'pointer',
+                  opacity: uploadingNd ? 0.5 : 1,
                 }}
               >
                 Cancel
               </button>
               <button type="button"
-                disabled={uploadingClio || !(integrations?.clio?.available || isDemoMatter)}
+                disabled={uploadingNd || !integrations?.nd?.available}
                 onClick={async () => {
-                  await handleUploadClio();
-                  setShowClioConfirm(false);
+                  await handleUploadNd();
+                  setShowNdConfirm(false);
                 }}
                 style={{
                   padding: '6px 16px', borderRadius: 3, height: 28,
-                  background: uploadingClio ? (isDarkMode ? 'rgba(54,144,206,0.2)' : 'rgba(54,144,206,0.1)') : accentBlue,
+                  background: uploadingNd ? (isDarkMode ? 'rgba(54,144,206,0.2)' : 'rgba(54,144,206,0.1)') : accentBlue,
                   border: 'none',
                   color: '#ffffff', fontSize: 11, fontWeight: 600,
-                  cursor: (uploadingClio || !(integrations?.clio?.available || isDemoMatter)) ? 'not-allowed' : 'pointer',
-                  opacity: (uploadingClio || !(integrations?.clio?.available || isDemoMatter)) ? 0.6 : 1,
+                  cursor: (uploadingNd || !integrations?.nd?.available) ? 'not-allowed' : 'pointer',
+                  opacity: (uploadingNd || !integrations?.nd?.available) ? 0.6 : 1,
                 }}
               >
-                {uploadingClio ? 'Uploading...' : 'Upload to Clio'}
+                {uploadingNd ? 'Uploading...' : 'Upload to NetDocuments'}
               </button>
             </div>
           </div>

@@ -1,20 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import {
-  Stack,
-  Text,
-  Icon,
-  IconButton,
-  TooltipHost,
-  Dialog,
-  DialogType,
-  DialogFooter,
-  PrimaryButton,
-  DefaultButton,
-  TextField,
-  Dropdown,
-  IDropdownOption,
-  mergeStyles,
-} from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Text } from '@fluentui/react/lib/Text';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { IconButton, PrimaryButton, DefaultButton } from '@fluentui/react/lib/Button';
+import { TooltipHost } from '@fluentui/react/lib/Tooltip';
+import { Dialog, DialogType, DialogFooter } from '@fluentui/react/lib/Dialog';
+import { TextField } from '@fluentui/react/lib/TextField';
+import { Dropdown } from '@fluentui/react/lib/Dropdown';
+import type { IDropdownOption } from '@fluentui/react/lib/Dropdown';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { getProxyBaseUrl } from '../../utils/getProxyBaseUrl';
 import {
   getFormSectionHeaderStyle,

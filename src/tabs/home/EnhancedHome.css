@@ -27,9 +27,83 @@
   100% { background-position: 200% 0; }
 }
 
+/* Cascade entrance — staggered fade-in-up for Home sections */
+@keyframes homeCascadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.home-cascade-1 {
+  animation: homeCascadeIn 0.28s ease-out both;
+}
+
+.home-cascade-2 {
+  animation: homeCascadeIn 0.28s ease-out 0.08s both;
+}
+
+.home-cascade-3 {
+  animation: homeCascadeIn 0.28s ease-out 0.16s both;
+}
+
+@keyframes homeStableReveal {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.home-stable-shell {
+  position: relative;
+  width: 100%;
+  contain: layout paint;
+}
+
+.home-stable-shell-dashboard {
+  min-height: 700px;
+}
+
+.home-stable-shell-team {
+  min-height: 340px;
+}
+
+.home-stable-shell-panel {
+  min-height: inherit;
+  width: 100%;
+}
+
+.home-stable-shell-loading {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+}
+
+.home-stable-shell-live {
+  animation: homeStableReveal 0.22s ease-out both;
+}
+
 /* Reduced motion support */
 @media (prefers-reduced-motion: reduce) {
   .skeleton-shimmer {
+    animation: none;
+  }
+  .home-cascade-1,
+  .home-cascade-2,
+  .home-cascade-3 {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+  .home-stable-shell-live {
     animation: none;
   }
 }

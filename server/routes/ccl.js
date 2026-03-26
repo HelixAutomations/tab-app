@@ -377,7 +377,8 @@ function mergeDraftWithAiFields(baseDraft = {}, aiFields = {}) {
     const merged = { ...baseDraft };
     for (const [key, value] of Object.entries(aiFields || {})) {
         const current = String(merged[key] || '').trim();
-        if (!current || current.length < 5) {
+        const isPlaceholder = /^\{\{.*\}\}$/.test(current);
+        if (!current || current.length < 5 || isPlaceholder) {
             merged[key] = value;
         }
     }
@@ -466,23 +467,67 @@ function buildSourceCoverage(preview) {
     ];
 }
 
-function deriveServiceStatus({ latestContent, fieldSummary, matterCclDate }) {
+function normalizeTraceConfidence(value) {
+    const confidence = String(value || '').trim().toLowerCase();
+    if (confidence === 'full' || confidence === 'partial' || confidence === 'fallback') {
+        return confidence;
+    }
+    return 'none';
+}
+
+function deriveAttentionReason({ stage, fieldSummary, confidence }) {
+    if (stage !== 'generated') {
+        return 'none';
+    }
+
+    if ((fieldSummary?.missing || 0) > 0) {
+        return 'missing_fields';
+    }
+
+    if (confidence === 'partial' || confidence === 'fallback') {
+        return 'low_confidence';
+    }
+
+    return 'none';
+}
+
+function deriveServiceStatus({ latestContent, fieldSummary, matterCclDate, latestTrace }) {
     const status = String(latestContent?.Status || '').toLowerCase();
+    const confidence = normalizeTraceConfidence(latestTrace?.Confidence || latestTrace?.confidence);
+
+    let key = 'pending';
+    let label = 'Pending';
+    let tone = 'neutral';
+
     if (status === 'uploaded' || matterCclDate) {
-        return { key: 'sent', label: 'Sent / confirmed', tone: 'success', needsAttention: false };
+        key = 'sent';
+        label = 'Sent';
+        tone = 'success';
+    } else if (status === 'approved' || status === 'final') {
+        key = 'reviewed';
+        label = 'Reviewed';
+        tone = 'accent';
+    } else if (latestContent || fieldSummary.populated > 0) {
+        key = 'generated';
+        label = 'Generated';
+        tone = 'accent';
     }
-    if (status === 'approved' || status === 'final') {
-        return { key: 'reviewed', label: 'Ready to send', tone: 'accent', needsAttention: false };
+
+    const attentionReason = deriveAttentionReason({ stage: key, fieldSummary, confidence });
+    const needsAttention = attentionReason !== 'none';
+
+    if (key === 'generated' && needsAttention) {
+        tone = 'warning';
     }
-    if (latestContent || fieldSummary.populated > 0) {
-        return {
-            key: 'drafted',
-            label: fieldSummary.missing > 0 ? 'Draft needs review' : 'Draft ready for review',
-            tone: fieldSummary.missing > 0 ? 'warning' : 'accent',
-            needsAttention: fieldSummary.missing > 0,
-        };
-    }
-    return { key: 'not_started', label: 'Not generated yet', tone: 'neutral', needsAttention: true };
+
+    return {
+        key,
+        label,
+        tone,
+        needsAttention,
+        attentionReason,
+        confidence,
+    };
 }
 
 async function persistCclSnapshot({
@@ -823,7 +868,7 @@ router.get('/:matterId/workbench', async (req, res) => {
             const val = String(latestFields[key] || '').trim();
             if (val) fieldValues[key] = val.length > 300 ? val.slice(0, 300) + '…' : val;
         }
-        const serviceStatus = deriveServiceStatus({ latestContent, fieldSummary, matterCclDate: cclDate });
+        const serviceStatus = deriveServiceStatus({ latestContent, fieldSummary, matterCclDate: cclDate, latestTrace });
         const sourcePreview = preview || {
             dataSources: provenance.dataSources || safeParseJson(latestTrace?.DataSourcesJson, []) || [],
             contextFields: provenance.contextFields || traceContextFields,
@@ -845,6 +890,7 @@ router.get('/:matterId/workbench', async (req, res) => {
             displayNumber: String(displayNumber || matterId),
             service: {
                 status: serviceStatus,
+                stage: serviceStatus.key,
                 version: latestContent?.Version || null,
                 contentId: latestContent?.CclContentId || null,
                 createdAt: latestContent?.CreatedAt || null,
@@ -853,6 +899,8 @@ router.get('/:matterId/workbench', async (req, res) => {
                 uploadedToClio: Boolean(latestContent?.UploadedToClio),
                 uploadedToNd: Boolean(latestContent?.UploadedToNd),
                 unresolvedCount: fieldSummary.missing,
+                attentionReason: serviceStatus.attentionReason,
+                confidence: serviceStatus.confidence,
                 fieldSummary,
                 documentUrl: fs.existsSync(filePath(matterId)) ? `/ccls/${matterId}.docx` : null,
             },
@@ -983,10 +1031,12 @@ router.post('/batch-status', async (req, res) => {
             return `@m${i}`;
         });
         const result = await request.query(`
-            SELECT c.MatterId, c.Status, c.Version, c.FeeEarner,
-                   c.PracticeArea, c.CreatedAt, c.ClientName, c.MatterDescription,
-                   c.FinalizedAt, c.UploadedToClio, c.UploadedToNd
+                 SELECT c.MatterId, c.Status, c.Version, c.FeeEarner,
+                     c.PracticeArea, c.CreatedAt, c.ClientName, c.MatterDescription,
+                     c.FinalizedAt, c.UploadedToClio, c.UploadedToNd, c.FieldsJson,
+                     t.Confidence AS TraceConfidence
             FROM CclContent c
+                 LEFT JOIN CclAiTrace t ON c.AiTraceId = t.CclAiTraceId
             INNER JOIN (
                 SELECT MatterId, MAX(Version) AS MaxV
                 FROM CclContent WHERE MatterId IN (${placeholders.join(',')})
@@ -995,17 +1045,35 @@ router.post('/batch-status', async (req, res) => {
         `);
         const results = {};
         for (const row of result.recordset) {
+            const fields = safeParseJson(row.FieldsJson, {});
+            const fieldSummary = buildFieldSummary(fields || {});
+            const derivedStatus = deriveServiceStatus({
+                latestContent: row,
+                fieldSummary,
+                matterCclDate: null,
+                latestTrace: { Confidence: row.TraceConfidence || null },
+            });
             results[row.MatterId] = {
-                status: row.Status,
+                status: derivedStatus.key,
+                rawStatus: row.Status,
+                stage: derivedStatus.key,
+                label: derivedStatus.label,
+                needsAttention: derivedStatus.needsAttention,
+                attentionReason: derivedStatus.attentionReason,
+                confidence: derivedStatus.confidence,
                 version: row.Version,
                 feeEarner: row.FeeEarner,
                 practiceArea: row.PracticeArea,
                 clientName: row.ClientName,
                 matterDescription: row.MatterDescription,
                 createdAt: row.CreatedAt,
+                generatedAt: row.CreatedAt,
                 finalizedAt: row.FinalizedAt || null,
+                reviewedAt: row.FinalizedAt || null,
+                sentAt: row.FinalizedAt || null,
                 uploadedToClio: !!row.UploadedToClio,
                 uploadedToNd: !!row.UploadedToNd,
+                unresolvedCount: fieldSummary.missing,
             };
         }
         trackEvent('CCL.BatchStatus', { count: String(ids.length), found: String(Object.keys(results).length) });
@@ -1061,6 +1129,10 @@ router.get('/:matterId', async (req, res) => {
         if (!json && fs.existsSync(jsonPath(matterId))) {
             json = JSON.parse(fs.readFileSync(jsonPath(matterId), 'utf-8'));
             source = 'json-file';
+        }
+        if (!json && latestContent?.FieldsJson) {
+            json = safeParseJson(latestContent.FieldsJson, null);
+            if (json) source = 'ccl-content';
         }
     } catch { }
     trackEvent('CCL.Load', {

@@ -1,20 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
-import {
-  DatePicker,
-  DayOfWeek,
-  DefaultButton,
-  IButtonStyles,
-  IDatePickerStyles,
-  PrimaryButton,
-  Spinner,
-  SpinnerSize,
-  Stack,
-  Icon,
-  TooltipHost,
-  DirectionalHint,
-  ITooltipProps,
-} from '@fluentui/react';
+import { DatePicker } from '@fluentui/react/lib/DatePicker';
+import { DayOfWeek } from '@fluentui/react/lib/Calendar';
+import type { IDatePickerStyles } from '@fluentui/react/lib/DatePicker';
+import type { ITooltipProps } from '@fluentui/react/lib/Tooltip';
+import type { IButtonStyles } from '@fluentui/react/lib/Button';
+import { DefaultButton, PrimaryButton } from '@fluentui/react/lib/Button';
+import { Spinner, SpinnerSize } from '@fluentui/react/lib/Spinner';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { TooltipHost } from '@fluentui/react/lib/Tooltip';
+import { DirectionalHint } from '@fluentui/react/lib/Callout';
 import { initializeIcons } from '@fluentui/react/lib/Icons';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';

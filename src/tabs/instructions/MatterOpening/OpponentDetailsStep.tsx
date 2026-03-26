@@ -1,8 +1,13 @@
 //
 import React from "react"; // invisible change
 // invisible change 2.2
-import { Stack, TextField, Dropdown, IDropdownOption, PrimaryButton, Icon, FontIcon } from "@fluentui/react";
-
+import { Stack } from '@fluentui/react/lib/Stack';
+import { TextField } from '@fluentui/react/lib/TextField';
+import { Dropdown } from '@fluentui/react/lib/Dropdown';
+import type { IDropdownOption } from '@fluentui/react/lib/Dropdown';
+import { PrimaryButton } from '@fluentui/react/lib/Button';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { FontIcon } from '@fluentui/react/lib/Icon';
 import { sharedPrimaryButtonStyles } from "../../../app/styles/ButtonStyles";
 import "../../../app/styles/MultiSelect.css";
 import BubbleTextField from "../../../app/styles/BubbleTextField";

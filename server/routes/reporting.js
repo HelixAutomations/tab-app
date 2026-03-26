@@ -5,76 +5,84 @@ const { DefaultAzureCredential } = require('@azure/identity');
 const { SecretClient } = require('@azure/keyvault-secrets');
 const fetch = require('node-fetch');
 const { getRedisClient, cacheWrapper, generateCacheKey } = require('../utils/redisClient');
+const { performUnifiedEnquiriesQuery } = require('./enquiries-unified');
 
 const router = express.Router();
+const { annotate } = require('../utils/devConsole');
 
 // Use lightweight last-week snapshot instead of full WIP to keep management fast
-const DEFAULT_DATASETS = ['userData', 'teamData', 'enquiries', 'allMatters', 'wipDbLastWeek', 'recoveredFees', 'poidData', 'wipClioCurrentWeek'];
+const DEFAULT_DATASETS = ['userData', 'teamData', 'enquiries', 'allMatters', 'wipDbLastWeek', 'recoveredFees', 'wipClioCurrentWeek'];
 const CACHE_TTL_MS = Number(process.env.REPORTING_DATASET_TTL_MS || 2 * 60 * 1000);
 const cache = new Map();
+
+// Helper: evict a Redis cache key before fetching fresh data
+async function evictAndFetch(key, queryFn, ttl) {
+  try { await deleteCache([key]); } catch (_) { /* non-fatal */ }
+  return cacheWrapper(key, queryFn, ttl);
+}
+
+// Wrap a dataset fetch call: when bypassCache is true, evict the Redis key first
+function cachedFetch(key, queryFn, ttl, bypassCache) {
+  return bypassCache ? evictAndFetch(key, queryFn, ttl) : cacheWrapper(key, queryFn, ttl);
+}
 
 // Dataset fetchers are lazy functions that compute a cache key and then call cacheWrapper
 const datasetFetchers = {
   // 5 min - user data changes rarely
-  userData: ({ connectionString, entraId }) => {
+  userData: ({ connectionString, entraId, bypassCache }) => {
     const key = generateCacheKey('rpt', 'userData', entraId || 'anon');
-    return cacheWrapper(key, () => fetchUserData({ connectionString, entraId }), 300);
+    return cachedFetch(key, () => fetchUserData({ connectionString, entraId }), 300, bypassCache);
   },
   // 30 min - team data is fairly static
-  teamData: ({ connectionString }) => {
+  teamData: ({ connectionString, bypassCache }) => {
     const key = generateCacheKey('rpt', 'teamData');
-    return cacheWrapper(key, () => fetchTeamData({ connectionString }), 1800);
+    return cachedFetch(key, () => fetchTeamData({ connectionString }), 1800, bypassCache);
   },
   // 5 min - enquiries update regularly; align with client TTL
-  enquiries: ({ connectionString }) => {
+  enquiries: ({ connectionString, bypassCache }) => {
     const key = generateCacheKey('rpt', 'enquiries');
-    return cacheWrapper(key, () => fetchEnquiries({ connectionString }), 300);
+    return cachedFetch(key, () => fetchEnquiries({ connectionString }), 300, bypassCache);
   },
   // 15 min - matters update moderately
-  allMatters: ({ connectionString }) => {
+  allMatters: ({ connectionString, bypassCache }) => {
     const key = generateCacheKey('rpt', 'allMatters');
-    return cacheWrapper(key, () => fetchAllMatters({ connectionString }), 900);
+    return cachedFetch(key, () => fetchAllMatters({ connectionString }), 900, bypassCache);
   },
   // 5 min - WIP data changes frequently (DB-sourced historical)
-  wip: ({ connectionString }) => {
+  wip: ({ connectionString, bypassCache }) => {
     const key = generateCacheKey('rpt', 'wip');
-    return cacheWrapper(key, () => fetchWip({ connectionString }), 300);
+    return cachedFetch(key, () => fetchWip({ connectionString }), 300, bypassCache);
   },
-  // 30 min - financial data less frequent
-  recoveredFees: ({ connectionString }) => {
+  // 2 min - collected fees; kept short for near-realtime parity with Home card
+  recoveredFees: ({ connectionString, bypassCache }) => {
     const key = generateCacheKey('rpt', 'recoveredFees');
-    return cacheWrapper(key, () => fetchRecoveredFees({ connectionString }), 1800);
+    return cachedFetch(key, () => fetchRecoveredFees({ connectionString }), 120, bypassCache);
   },
-  // 15 min - per-user summary; include user in key
-  recoveredFeesSummary: ({ connectionString, entraId, clioId }) => {
+  // 2 min - per-user summary; include user in key (kept short for near-realtime Home card)
+  recoveredFeesSummary: ({ connectionString, entraId, clioId, bypassCache }) => {
     const who = entraId || (typeof clioId === 'number' ? `clio:${clioId}` : 'anon');
     const key = generateCacheKey('rpt', 'recoveredFeesSummary', who);
-    return cacheWrapper(key, () => fetchRecoveredFeesSummary({ connectionString, entraId, clioId }), 900);
-  },
-  // 30 min - POID data changes infrequently
-  poidData: ({ connectionString }) => {
-    const key = generateCacheKey('rpt', 'poidData');
-    return cacheWrapper(key, () => fetchPoidData({ connectionString }), 1800);
+    return cachedFetch(key, () => fetchRecoveredFeesSummary({ connectionString, entraId, clioId }), 120, bypassCache);
   },
   // 5 min - current week WIP from Clio; user-specific when entraId provided
-  wipClioCurrentWeek: ({ connectionString, entraId }) => {
+  wipClioCurrentWeek: ({ connectionString, entraId, bypassCache }) => {
     const key = generateCacheKey('rpt', 'wipClioCurrentWeek', entraId || 'team');
-    return cacheWrapper(key, () => fetchWipClioCurrentWeek({ connectionString, entraId }), 300);
+    return cachedFetch(key, () => fetchWipClioCurrentWeek({ connectionString, entraId }), 300, bypassCache);
   },
   // 10 min - last week DB snapshot
-  wipDbLastWeek: ({ connectionString }) => {
+  wipDbLastWeek: ({ connectionString, bypassCache }) => {
     const key = generateCacheKey('rpt', 'wipDbLastWeek');
-    return cacheWrapper(key, () => fetchWipDbLastWeek({ connectionString }), 600);
+    return cachedFetch(key, () => fetchWipDbLastWeek({ connectionString }), 600, bypassCache);
   },
   // 15 min - Deal/pitch data for Meta metrics conversion tracking
-  deals: ({ connectionString }) => {
+  deals: ({ connectionString, bypassCache }) => {
     const key = generateCacheKey('rpt', 'deals');
-    return cacheWrapper(key, () => fetchDeals({ connectionString }), 900);
+    return cachedFetch(key, () => fetchDeals({ connectionString }), 900, bypassCache);
   },
   // 15 min - Instruction data for conversion funnel tracking
-  instructions: ({ connectionString }) => {
+  instructions: ({ connectionString, bypassCache }) => {
     const key = generateCacheKey('rpt', 'instructions');
-    return cacheWrapper(key, () => fetchInstructions({ connectionString }), 900);
+    return cachedFetch(key, () => fetchInstructions({ connectionString }), 900, bypassCache);
   },
 };
 
@@ -102,6 +110,7 @@ router.get('/management-datasets', async (req, res) => {
   const cacheKey = `${entraId || 'anon'}|${requestedDatasets.join(',')}`;
   const cachedEntry = cache.get(cacheKey);
   if (!bypassCache && cachedEntry && cachedEntry.expires > Date.now()) {
+    annotate(res, { source: 'memory', note: `TTL ${Math.round((cachedEntry.expires - Date.now()) / 1000)}s remaining` });
     return res.json(cachedEntry.data);
   }
 
@@ -109,7 +118,7 @@ router.get('/management-datasets', async (req, res) => {
   const errors = {};
 
   // To reduce socket resets under load, fetch heavy datasets sequentially
-  const heavy = new Set(['wip', 'recoveredFees', 'poidData']);
+  const heavy = new Set(['wip', 'recoveredFees']);
   const light = requestedDatasets.filter((d) => !heavy.has(d));
   const heavyList = requestedDatasets.filter((d) => heavy.has(d));
 
@@ -118,7 +127,7 @@ router.get('/management-datasets', async (req, res) => {
     const fetcher = datasetFetchers[datasetKey];
     if (!fetcher) return;
     try {
-      responsePayload[datasetKey] = await fetcher({ connectionString, entraId, clioId });
+      responsePayload[datasetKey] = await fetcher({ connectionString, entraId, clioId, bypassCache });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error(`Reporting dataset fetch failed for ${datasetKey}:`, message);
@@ -132,7 +141,7 @@ router.get('/management-datasets', async (req, res) => {
     const fetcher = datasetFetchers[datasetKey];
     if (!fetcher) continue;
     try {
-      responsePayload[datasetKey] = await fetcher({ connectionString, entraId, clioId });
+      responsePayload[datasetKey] = await fetcher({ connectionString, entraId, clioId, bypassCache });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error(`Reporting dataset fetch failed for ${datasetKey}:`, message);
@@ -207,6 +216,7 @@ router.get('/management-datasets', async (req, res) => {
 
   cache.set(cacheKey, { data: responsePayload, expires: Date.now() + CACHE_TTL_MS });
 
+  annotate(res, { source: 'sql', note: `${requestedDatasets.join('+')} fresh` });
   return res.json(responsePayload);
 });
 
@@ -303,20 +313,20 @@ async function fetchTeamData({ connectionString }) {
 async function fetchEnquiries({ connectionString }) {
   const { from, to } = getLast24MonthsRange();
   console.log(`[Reporting] Fetching enquiries from ${formatDateOnly(from)} to ${formatDateOnly(to)}`);
-  
-  return withRequest(connectionString, async (request, sqlClient) => {
-    request.input('dateFrom', sqlClient.Date, formatDateOnly(from));
-    request.input('dateTo', sqlClient.Date, formatDateOnly(to));
-    const result = await request.query(`
-      SELECT *
-      FROM [dbo].[enquiries]
-      WHERE Touchpoint_Date BETWEEN @dateFrom AND @dateTo
-      ORDER BY Touchpoint_Date DESC
-    `);
-    const enquiries = Array.isArray(result.recordset) ? result.recordset : [];
-    console.log(`[Reporting] Retrieved ${enquiries.length} enquiries`);
-    return enquiries;
+
+  const result = await performUnifiedEnquiriesQuery({
+    sourcePolicy: 'reporting',
+    fetchAll: 'true',
+    includeTeamInbox: 'true',
+    processingApproach: 'unified',
+    dateFrom: formatDateOnly(from),
+    dateTo: formatDateOnly(to),
+    limit: '50000',
   });
+
+  const enquiries = Array.isArray(result?.enquiries) ? result.enquiries : [];
+  console.log(`[Reporting] Retrieved ${enquiries.length} enquiries via reporting policy (${result?.processingModel?.sourceBias || 'unknown'})`);
+  return enquiries;
 }
 
 async function fetchAllMatters({ connectionString, range }) {
@@ -1009,68 +1019,6 @@ async function fetchRecoveredFeesSummary({ connectionString, entraId, clioId }) 
       currentMonthHours: currentHours,
       previousMonthHours: previousHours,
     };
-  });
-}
-
-async function fetchPoidData({ connectionString }) {
-  const { from, to } = getLast24MonthsRange();
-  return withRequest(connectionString, async (request, sqlClient) => {
-    request.input('dateFrom', sqlClient.Date, formatDateOnly(from));
-    request.input('dateTo', sqlClient.Date, formatDateOnly(to));
-    const result = await request.query(`
-      SELECT 
-        poid_id,
-        type,
-        terms_acceptance,
-        submission_url,
-        CONVERT(VARCHAR(10), submission_date, 120) AS submission_date,
-        id_docs_folder,
-        acid,
-        card_id,
-        poc,
-        nationality_iso,
-        nationality,
-        gender,
-        first,
-        last,
-        prefix,
-        date_of_birth,
-        best_number,
-        email,
-        passport_number,
-        drivers_license_number,
-        house_building_number,
-        street,
-        city,
-        county,
-        post_code,
-        country,
-        country_code,
-        company_name,
-        company_number,
-        company_house_building_number,
-        company_street,
-        company_city,
-        company_county,
-        company_post_code,
-        company_country,
-        company_country_code,
-        stage,
-        check_result,
-        check_id,
-        additional_id_submission_id,
-        additional_id_submission_url,
-        additional_id_submission_date,
-        client_id,
-        related_client_id,
-        matter_id,
-        risk_assessor,
-        risk_assessment_date
-      FROM [dbo].[poid]
-      WHERE submission_date BETWEEN @dateFrom AND @dateTo
-      ORDER BY submission_date DESC
-    `);
-    return Array.isArray(result.recordset) ? result.recordset : [];
   });
 }
 

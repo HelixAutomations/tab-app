@@ -1,14 +1,12 @@
 // src/tabs/matters/documents/Documents.tsx
 
 import React, { useState, useMemo, useEffect } from 'react';
-import {
-  Stack,
-  Text,
-  mergeStyles,
-  Icon,
-  Link,
-  SearchBox,
-} from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Text } from '@fluentui/react/lib/Text';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { Link } from '@fluentui/react/lib/Link';
+import { SearchBox } from '@fluentui/react/lib/SearchBox';
 import { useTheme } from '../../../app/functionality/ThemeContext';
 import { colours } from '../../../app/styles/colours';
 import documentIndex, { DocumentEntry } from './documentIndex';

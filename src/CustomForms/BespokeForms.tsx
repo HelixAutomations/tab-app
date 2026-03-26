@@ -2,17 +2,13 @@
 // invisible change
 
 import React from 'react';
-import {
-  Stack,
-  PrimaryButton,
-  DefaultButton,
-  ComboBox,
-  IComboBox,
-  IComboBoxOption,
-  Dropdown,
-  IDropdownOption,
-} from '@fluentui/react';
-import { mergeStyles } from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { PrimaryButton, DefaultButton } from '@fluentui/react/lib/Button';
+import { ComboBox } from '@fluentui/react/lib/ComboBox';
+import type { IComboBox, IComboBoxOption } from '@fluentui/react/lib/ComboBox';
+import { Dropdown } from '@fluentui/react/lib/Dropdown';
+import type { IDropdownOption } from '@fluentui/react/lib/Dropdown';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { colours } from '../app/styles/colours';
 import { componentTokens } from '../app/styles/componentTokens';
 import { getFormPrimaryButtonStyles, getFormDefaultButtonStyles, getDropdownStyles } from './shared/formStyles';

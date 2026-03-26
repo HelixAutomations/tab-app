@@ -21,7 +21,10 @@ import {
 } from '@fluentui/react';
 import OperationStatusToast from './pitch-builder/OperationStatusToast';
 import IconAreaFilter from '../../components/filter/IconAreaFilter';
+import { renderAreaOfWorkGlyph, getAreaGlyphMeta } from '../../components/filter/areaGlyphs';
 import PitchScenarioBadge, { getScenarioColor } from '../../components/PitchScenarioBadge';
+import { BiLogoMicrosoftTeams } from 'react-icons/bi';
+import { FaExchangeAlt, FaPoundSign, FaRegCreditCard } from 'react-icons/fa';
 import {
   BarChart,
   Bar,
@@ -248,20 +251,12 @@ const pipelineCarouselStyle = `
   max-width: 80px !important;
   opacity: 0.9 !important;
 }
-@keyframes next-action-breathe {
-  0%, 100% {
-    opacity: 0.5;
-    filter: brightness(1);
-  }
-  50% {
-    opacity: 1;
-    filter: brightness(1.15);
-  }
-}
+/* next-action-breathe animation removed — was distracting */
+.next-action-subtle-pulse,
 .next-action-subtle-pulse .pipeline-chip-box,
 .next-action-subtle-pulse > button,
 .next-action-subtle-pulse > div {
-  animation: next-action-breathe 2s ease-in-out infinite;
+  animation: none !important;
 }
 @keyframes pitch-cta-pulse {
   0%, 100% {
@@ -272,6 +267,14 @@ const pipelineCarouselStyle = `
     border-color: rgba(255, 140, 0, 0.55);
     background: rgba(255, 140, 0, 0.14);
   }
+}
+@keyframes pipeline-cascade {
+  0% { opacity: 0; transform: translateY(-6px) scale(0.9); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes pipeline-action-pulse {
+  0%, 100% { opacity: 0.45; transform: scale(0.9); }
+  50% { opacity: 1; transform: scale(1); }
 }
 `;
 
@@ -332,27 +335,23 @@ const getAreaSpecificChannelUrl = (areaOfWork: string | undefined): string => {
 
 // Helper components for Pipeline Chips
 const renderPipelineIcon = (iconName: string, color: string, size: number = 14) => {
-  if (iconName === 'CurrencyPound') {
-    return (
-      <span
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          width: size,
-          height: size,
-          fontSize: Math.max(10, size - 2),
-          fontWeight: 700,
-          lineHeight: 1,
-          color,
-        }}
-      >
-        £
-      </span>
-    );
+  if (iconName === 'TeamsLogo') {
+    return <BiLogoMicrosoftTeams size={size} color={color} style={{ display: 'block', flexShrink: 0 }} />;
   }
 
-  return <Icon iconName={iconName} styles={{ root: { fontSize: size, color } }} />;
+  if (iconName === 'PaymentCard') {
+    return <FaRegCreditCard size={size - 1} color={color} style={{ display: 'block', flexShrink: 0 }} />;
+  }
+
+  if (iconName === 'Bank') {
+    return <FaExchangeAlt size={size - 2} color={color} style={{ display: 'block', flexShrink: 0 }} />;
+  }
+
+  if (iconName === 'CurrencyPound') {
+    return <FaPoundSign size={size - 1} color={color} style={{ display: 'block', flexShrink: 0 }} />;
+  }
+
+  return <Icon iconName={iconName === 'PitchScenario' ? 'Send' : iconName} styles={{ root: { fontSize: size, color } }} />;
 };
 
 const combineDateAndTime = (dateValue: unknown, timeValue?: unknown): Date | null => {
@@ -513,17 +512,25 @@ interface MonthlyCount {
 interface EnquiriesProps {
   context?: app.Context | null;
   enquiries: Enquiry[] | null;
+  enquiriesUsingSnapshot?: boolean;
+  enquiriesLiveRefreshInFlight?: boolean;
+  enquiriesLastLiveSyncAt?: number | null;
+  prefetchedTeamWideEnquiries?: Enquiry[] | null;
   userData: UserData[] | null;
   poidData: POID[];
   setPoidData: React.Dispatch<React.SetStateAction<POID[]>>;
   teamData?: TeamData[] | null;
   onRefreshEnquiries?: () => Promise<void>;
   onOptimisticClaim?: (enquiryId: string, claimerEmail: string) => void;
+  subscribeToEnquiryStream?: (listener: (event: { changeType: string; enquiryId: string; claimedBy?: string; claimedAt?: string | null; record?: Record<string, unknown> }) => void) => () => void;
   instructionData?: any[]; // For detecting promoted enquiries
   featureToggles?: Record<string, boolean>;
   isActive?: boolean; // Whether this tab is currently active
   demoModeEnabled?: boolean;
   onTeamWideEnquiriesLoaded?: (enquiries: Enquiry[]) => void;
+  pendingEnquiryId?: string | null;
+  pendingEnquirySubTab?: string | null;
+  onPendingEnquiryHandled?: () => void;
 }
 
 // Add keyframes for loading spinner
@@ -546,28 +553,67 @@ if (typeof document !== 'undefined' && !document.head.querySelector('style[data-
   const filterCss = document.createElement('style');
   filterCss.setAttribute('data-enq-filter-css', 'true');
   filterCss.textContent = `
+    @keyframes enq-filter-signal {
+      0%, 100% { opacity: 0.45; transform: scaleX(0.92); }
+      50% { opacity: 1; transform: scaleX(1); }
+    }
+    @keyframes enq-skeleton-breathe {
+      0%, 100% { opacity: 0.72; }
+      50% { opacity: 1; }
+    }
+    .enq-filter-cluster,
+    .enq-filter-secondary-cluster {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      padding: 0;
+      border-radius: 0;
+      overflow: visible;
+      background: transparent;
+      border: none;
+    }
+    .enq-filter-constellation {
+      position: relative;
+      isolation: isolate;
+    }
+    .enq-status-primary {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
     .enq-chip {
-      display: flex; align-items: center; justify-content: center; gap: 5px;
-      padding: 0 10px; border-radius: 0; cursor: pointer;
+      display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+      min-height: 30px; padding: 0 12px; border-radius: 0; cursor: pointer;
       font-size: 11px; font-weight: 500; font-family: Raleway, sans-serif;
       letter-spacing: 0.02em; outline: none; white-space: nowrap;
-      transition: background 120ms ease, border-color 120ms ease, color 120ms ease,
-                  box-shadow 120ms ease, opacity 120ms ease;
+      transition: background 120ms ease, color 120ms ease, opacity 120ms ease, box-shadow 120ms ease;
       user-select: none;
+      box-sizing: border-box;
     }
-    .enq-chip:hover { background: var(--enq-chip-hover-bg) !important; border-color: var(--enq-chip-hover-border) !important; }
-    .enq-chip:active { transform: scale(0.97); }
     .enq-scope-chip {
-      display: flex; align-items: center; gap: 4px;
-      padding: 0 8px; border-radius: 0; cursor: pointer;
-      font-size: 11px; font-weight: 600; font-family: Raleway, sans-serif;
-      letter-spacing: 0.03em; outline: none;
-      transition: background 120ms ease, border-color 120ms ease, color 120ms ease,
-                  box-shadow 120ms ease;
+      display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+      min-height: 26px; padding: 0 10px; border-radius: 0; cursor: pointer;
+      font-size: 10px; font-weight: 600; font-family: Raleway, sans-serif;
+      letter-spacing: 0.04em; outline: none;
+      transition: background 120ms ease, color 120ms ease, opacity 120ms ease;
       user-select: none;
+      box-sizing: border-box;
     }
-    .enq-scope-chip:hover { background: var(--enq-chip-hover-bg) !important; border-color: var(--enq-chip-hover-border) !important; }
-    .enq-scope-chip:active { transform: scale(0.97); }
+    .enq-chip, .enq-scope-chip {
+      position: relative;
+      overflow: hidden;
+      transform: translateY(0);
+      border: none;
+      transition: background 140ms ease, color 140ms ease, opacity 140ms ease, box-shadow 140ms ease;
+    }
+    .enq-chip:hover, .enq-scope-chip:hover {
+      background: var(--enq-chip-hover-bg) !important;
+      box-shadow: inset 0 0 0 1px var(--enq-chip-hover-border) !important;
+    }
+    .enq-chip:active, .enq-scope-chip:active { transform: scale(0.98); }
     [data-theme="dark"] .enq-chip, [data-theme="dark"] .enq-scope-chip {
       --enq-chip-hover-bg: rgba(255,255,255,0.04);
       --enq-chip-hover-border: rgba(135,243,243,0.35);
@@ -576,56 +622,68 @@ if (typeof document !== 'undefined' && !document.head.querySelector('style[data-
       --enq-chip-hover-bg: rgba(54,144,206,0.05);
       --enq-chip-hover-border: rgba(54,144,206,0.3);
     }
-    /* Active chips keep their own bg/border on hover */
-    .enq-chip[aria-pressed="true"]:hover, .enq-scope-chip[aria-pressed="true"]:hover {
-      background: unset !important; border-color: unset !important;
-    }
     .enq-action-btn {
-      display: inline-flex; align-items: center; gap: 5px;
-      height: 26px; padding: 0 10px; border-radius: 0;
+      display: inline-flex; align-items: center; gap: 6px;
+      height: 30px; padding: 0 12px; border-radius: 0;
       cursor: pointer; font-size: 11px; font-family: Raleway, sans-serif;
-      font-weight: 600; letter-spacing: 0.02em;
-      transition: background 120ms ease, border-color 120ms ease;
+      font-weight: 500; letter-spacing: 0.02em;
+      transition: background 120ms ease, color 120ms ease, box-shadow 120ms ease;
       user-select: none;
+      border: none;
+      box-sizing: border-box;
     }
     .enq-action-btn:active { transform: scale(0.97); }
     [data-theme="dark"] .enq-action-btn {
-      color: #87F3F3; border: 1px solid rgba(135,243,243,0.25);
-      background: rgba(135,243,243,0.06);
+      color: #d1d5db;
+      background: rgba(255,255,255,0.02);
+      box-shadow: inset 0 0 0 1px rgba(75,85,99,0.24);
     }
     [data-theme="dark"] .enq-action-btn:hover {
-      background: rgba(135,243,243,0.12); border-color: #87F3F3;
+      background: rgba(135,243,243,0.07);
+      color: #87F3F3;
+      box-shadow: inset 0 0 0 1px rgba(135,243,243,0.28);
     }
     [data-theme="light"] .enq-action-btn {
-      color: #3690CE; border: 1px solid rgba(54,144,206,0.25);
-      background: rgba(54,144,206,0.05);
+      color: #6B6B6B;
+      background: rgba(255,255,255,0.7);
+      box-shadow: inset 0 0 0 1px rgba(0,0,0,0.08);
     }
     [data-theme="light"] .enq-action-btn:hover {
-      background: rgba(54,144,206,0.10); border-color: #3690CE;
+      background: rgba(54,144,206,0.05);
+      color: #3690CE;
+      box-shadow: inset 0 0 0 1px rgba(54,144,206,0.22);
     }
     .enq-add-contact-btn {
       display: inline-flex; align-items: center; justify-content: center;
-      width: 28px; height: 28px; padding: 0;
+      width: 30px; height: 30px; padding: 0;
       border-radius: 0; cursor: pointer;
       background: transparent;
-      transition: background 150ms ease, width 200ms ease, border-color 150ms ease;
+      transition: background 150ms ease, width 200ms ease, color 150ms ease, box-shadow 150ms ease;
       overflow: hidden; white-space: nowrap;
-      font-family: Raleway, sans-serif; font-size: 11px; font-weight: 600;
+      font-family: Raleway, sans-serif; font-size: 11px; font-weight: 500;
       letter-spacing: 0.02em;
+      border: none;
+      box-sizing: border-box;
     }
-    [data-theme="dark"] .enq-add-contact-btn { color: #f3f4f6; border: 1px solid #374151; }
-    [data-theme="light"] .enq-add-contact-btn { color: #061733; border: 1px solid rgba(0,0,0,0.12); }
+    [data-theme="dark"] .enq-add-contact-btn {
+      color: #d1d5db;
+      box-shadow: inset 0 0 0 1px rgba(75,85,99,0.24);
+    }
+    [data-theme="light"] .enq-add-contact-btn {
+      color: #6B6B6B;
+      box-shadow: inset 0 0 0 1px rgba(0,0,0,0.08);
+    }
     .enq-add-contact-btn:hover {
       width: auto; padding: 0 10px; gap: 5px;
     }
     [data-theme="dark"] .enq-add-contact-btn:hover {
-      background: rgba(135,243,243,0.10);
-      border-color: rgba(135,243,243,0.25);
+      background: rgba(135,243,243,0.07);
+      box-shadow: inset 0 0 0 1px rgba(135,243,243,0.28);
       color: #87F3F3;
     }
     [data-theme="light"] .enq-add-contact-btn:hover {
-      background: rgba(54,144,206,0.08);
-      border-color: rgba(54,144,206,0.25);
+      background: rgba(54,144,206,0.05);
+      box-shadow: inset 0 0 0 1px rgba(54,144,206,0.22);
       color: #3690CE;
     }
     .enq-add-contact-btn:active { transform: scale(0.97); }
@@ -637,9 +695,12 @@ if (typeof document !== 'undefined' && !document.head.querySelector('style[data-
       max-width: 100px; opacity: 1;
     }
     .enq-badge {
-      padding: 1px 4px; font-size: 9px; font-weight: 600;
+      min-width: 18px;
+      padding: 1px 5px; font-size: 9px; font-weight: 700;
       line-height: 1.2; border-radius: 0;
-      transition: background 120ms ease;
+      transition: background 120ms ease, transform 160ms ease, opacity 160ms ease;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.04);
+      text-align: center;
     }
     .enq-person-tag {
       display: inline-flex; align-items: center; gap: 6px;
@@ -670,6 +731,16 @@ const filterIconSvg = (k: string) => {
       </svg>
     );
   }
+  if (k === 'All') {
+    return (
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+        <circle cx="5.5" cy="5" r="2.5" stroke="currentColor" strokeWidth="1.5" fill="none" />
+        <path d="M1 13c0-2.2 2-4 4.5-4s4.5 1.8 4.5 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none" />
+        <circle cx="11.5" cy="5.5" r="2" stroke="currentColor" strokeWidth="1.3" fill="none" />
+        <path d="M15 12.5c0-1.7-1.5-3-3.5-3-.7 0-1.3.15-1.8.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" fill="none" />
+      </svg>
+    );
+  }
   // Triaged
   return (
     <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
@@ -689,6 +760,7 @@ interface StatusFilterWithScopeProps {
   showMineOnly: boolean;
   scopeCounts: { mineCount: number; allCount: number | null };
   isAdmin: boolean;
+  isBusy: boolean;
   onSetActiveState: (key: EnquiriesActiveState) => void;
   onSetShowMineOnly: (v: boolean) => void;
 }
@@ -699,149 +771,142 @@ const StatusFilterWithScope = React.memo<StatusFilterWithScopeProps>(({
   showMineOnly,
   scopeCounts,
   isAdmin,
+  isBusy,
   onSetActiveState,
   onSetShowMineOnly,
 }) => {
   const h = 30;
   const currentState = activeState === 'Claimable' ? 'Unclaimed' : activeState;
   const isClaimed = currentState === 'Claimed';
+  const claimedTone = isDarkMode ? colours.accent : colours.highlight;
+  const triagedTone = colours.orange;
 
-  const chipBg = (active: boolean) =>
+  const chipBg = (active: boolean, tone: string) =>
     active
-      ? (isDarkMode ? colours.dark.cardHover : colours.light.cardBackground)
+      ? (tone === triagedTone
+          ? (isDarkMode ? 'rgba(255,140,0,0.10)' : 'rgba(255,140,0,0.07)')
+          : (isDarkMode ? 'rgba(54, 144, 206, 0.10)' : 'rgba(54, 144, 206, 0.07)'))
       : 'transparent';
 
-  const chipBorder = (active: boolean, admin?: boolean) =>
+  const chipStroke = (active: boolean, tone: string, admin?: boolean) =>
     active
-      ? `1px solid ${isDarkMode ? colours.accent : colours.highlight}`
+      ? (isDarkMode && tone !== triagedTone ? 'rgba(135,243,243,0.34)' : tone)
       : admin
-        ? `1px solid ${isDarkMode ? 'rgba(255,140,0,0.25)' : 'rgba(255,140,0,0.15)'}`
-        : `1px solid ${isDarkMode ? 'rgba(55,65,81,0.4)' : 'rgba(13,47,96,0.10)'}`;
+        ? (isDarkMode ? 'rgba(255,140,0,0.18)' : 'rgba(255,140,0,0.10)')
+        : (isDarkMode ? 'rgba(75,85,99,0.22)' : 'rgba(0,0,0,0.08)');
 
-  const chipColor = (active: boolean) =>
+  const chipColor = (active: boolean, tone: string) =>
     active
-      ? (isDarkMode ? colours.dark.text : colours.darkBlue)
-      : (isDarkMode ? 'rgba(160,160,160,0.8)' : colours.greyText);
+      ? tone
+      : (isDarkMode ? '#d1d5db' : colours.greyText);
 
-  const chipShadow = (active: boolean) =>
-    active
-      ? (isDarkMode ? '0 1px 4px rgba(0,0,0,0.25)' : '0 1px 3px rgba(0,0,0,0.06)')
-      : 'none';
-
-  const scopeColor = (active: boolean) =>
-    active
-      ? (isDarkMode ? colours.accent : colours.highlight)
-      : (isDarkMode ? 'rgba(135,243,243,0.5)' : 'rgba(54,144,206,0.55)');
+  const chipShadow = (active: boolean, tone: string, admin?: boolean) =>
+    `inset 0 0 0 1px ${chipStroke(active, tone, admin)}`;
 
   const badgeBg = (active: boolean) =>
     active
-      ? (isDarkMode ? 'rgba(54,144,206,0.20)' : 'rgba(54,144,206,0.12)')
-      : 'transparent';
+      ? (isDarkMode ? 'rgba(54,144,206,0.22)' : 'rgba(54,144,206,0.14)')
+      : (isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(6,23,51,0.04)');
 
   return (
     <div
+      className="enq-filter-cluster enq-filter-constellation"
+      data-busy={isBusy ? 'true' : 'false'}
       style={{
         display: 'flex',
         alignItems: 'center',
-        height: h,
+        minHeight: h,
         padding: 0,
         background: 'transparent',
         borderRadius: 0,
-        gap: 1,
+        gap: 8,
         fontFamily: 'Raleway, sans-serif',
         userSelect: 'none',
       }}
     >
-      {/* Claimed compound: Mine | All */}
-      <button
-        type="button"
-        className="enq-scope-chip"
-        aria-pressed={isClaimed && showMineOnly}
-        onClick={() => { onSetActiveState('Claimed'); onSetShowMineOnly(true); }}
-        title={`My claimed (${scopeCounts.mineCount || 0})`}
-        style={{
-          height: h - 4,
-          background: chipBg(isClaimed && showMineOnly),
-          border: chipBorder(isClaimed && showMineOnly),
-          color: scopeColor(isClaimed && showMineOnly),
-          boxShadow: chipShadow(isClaimed && showMineOnly),
-        }}
-      >
-        <span style={{ display: 'flex', alignItems: 'center' }}>{filterIconSvg('Claimed')}</span>
-        <span>MINE</span>
-        <span className="enq-badge" key={`mine-${scopeCounts.mineCount}`} data-animate style={{ background: badgeBg(isClaimed && showMineOnly) }}>{scopeCounts.mineCount}</span>
-      </button>
+      <div className="enq-status-primary">
+        <button
+          type="button"
+          className="enq-scope-chip"
+          aria-pressed={isClaimed && showMineOnly}
+          onClick={() => { onSetActiveState('Claimed'); onSetShowMineOnly(true); }}
+          title={`My claimed (${scopeCounts.mineCount || 0})`}
+          style={{
+            minHeight: h,
+            background: chipBg(isClaimed && showMineOnly, claimedTone),
+            color: chipColor(isClaimed && showMineOnly, claimedTone),
+            boxShadow: chipShadow(isClaimed && showMineOnly, claimedTone),
+          }}
+        >
+          <span style={{ display: 'flex', alignItems: 'center' }}>{filterIconSvg('Claimed')}</span>
+          <span className="enq-chip-label">Mine</span>
+          <span className="enq-badge" key={`mine-${scopeCounts.mineCount}`} data-animate style={{ background: badgeBg(isClaimed && showMineOnly) }}>{scopeCounts.mineCount}</span>
+        </button>
 
-      <button
-        type="button"
-        className="enq-scope-chip"
-        aria-pressed={isClaimed && !showMineOnly}
-        onClick={() => { onSetActiveState('Claimed'); onSetShowMineOnly(false); }}
-        title={`All claimed${scopeCounts.allCount !== null ? ` (${scopeCounts.allCount})` : ''}`}
-        style={{
-          height: h - 4,
-          background: chipBg(isClaimed && !showMineOnly),
-          border: chipBorder(isClaimed && !showMineOnly),
-          color: scopeColor(isClaimed && !showMineOnly),
-          boxShadow: chipShadow(isClaimed && !showMineOnly),
-        }}
-      >
-        <span>ALL</span>
-        <span className="enq-badge" key={`all-${scopeCounts.allCount}`} data-animate style={{ background: badgeBg(isClaimed && !showMineOnly) }}>
-          {scopeCounts.allCount !== null ? (
-            <span style={{ display: 'inline-block' }}>{scopeCounts.allCount.toLocaleString()}</span>
-          ) : (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, animation: 'badge-breathe 1.6s ease-in-out infinite' }}>
-              <span style={{ width: 3, height: 3, borderRadius: '50%', background: 'currentColor' }} />
-              <span style={{ width: 3, height: 3, borderRadius: '50%', background: 'currentColor' }} />
-            </span>
-          )}
-        </span>
-      </button>
+        <button
+          type="button"
+          className="enq-scope-chip"
+          aria-pressed={isClaimed && !showMineOnly}
+          onClick={() => { onSetActiveState('Claimed'); onSetShowMineOnly(false); }}
+          title={`All claimed${scopeCounts.allCount !== null ? ` (${scopeCounts.allCount})` : ''}`}
+          style={{
+            minHeight: h,
+            background: chipBg(isClaimed && !showMineOnly, claimedTone),
+            color: chipColor(isClaimed && !showMineOnly, claimedTone),
+            boxShadow: chipShadow(isClaimed && !showMineOnly, claimedTone),
+          }}
+        >
+          <span style={{ display: 'flex', alignItems: 'center' }}>{filterIconSvg('All')}</span>
+          <span className="enq-chip-label">All</span>
+          <span className="enq-badge" key={`all-${scopeCounts.allCount}`} data-animate style={{ background: badgeBg(isClaimed && !showMineOnly) }}>
+            {scopeCounts.allCount !== null ? (
+              <span style={{ display: 'inline-block' }}>{scopeCounts.allCount.toLocaleString()}</span>
+            ) : (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, animation: 'badge-breathe 1.6s ease-in-out infinite' }}>
+                <span style={{ width: 3, height: 3, borderRadius: '50%', background: 'currentColor' }} />
+                <span style={{ width: 3, height: 3, borderRadius: '50%', background: 'currentColor' }} />
+              </span>
+            )}
+          </span>
+        </button>
 
-      {/* Divider */}
-      <div style={{ width: 1, height: h - 12, background: isDarkMode ? colours.dark.border : 'rgba(0,0,0,0.08)', margin: '0 3px' }} />
-
-      {/* Unclaimed */}
-      <button
-        type="button"
-        className="enq-chip"
-        aria-pressed={currentState === 'Unclaimed'}
-        onClick={() => onSetActiveState('Claimable')}
-        style={{
-          height: h - 4,
-          fontWeight: currentState === 'Unclaimed' ? 600 : 500,
-          background: chipBg(currentState === 'Unclaimed'),
-          border: chipBorder(currentState === 'Unclaimed'),
-          color: chipColor(currentState === 'Unclaimed'),
-          boxShadow: chipShadow(currentState === 'Unclaimed'),
-        }}
-      >
-        <span style={{ display: 'flex', alignItems: 'center' }}>{filterIconSvg('Unclaimed')}</span>
-        <span>Unclaimed</span>
-      </button>
-
-      {/* Triaged (admin) */}
-      {isAdmin && (
         <button
           type="button"
           className="enq-chip"
-          aria-pressed={currentState === 'Triaged'}
-          onClick={() => onSetActiveState('Triaged')}
-          title="Admin only"
+          aria-pressed={currentState === 'Unclaimed'}
+          onClick={() => onSetActiveState('Claimable')}
           style={{
-            height: h - 4,
-            fontWeight: currentState === 'Triaged' ? 600 : 500,
-            background: chipBg(currentState === 'Triaged'),
-            border: chipBorder(currentState === 'Triaged', true),
-            color: chipColor(currentState === 'Triaged'),
-            boxShadow: chipShadow(currentState === 'Triaged'),
+            height: h,
+            fontWeight: currentState === 'Unclaimed' ? 600 : 500,
+            background: chipBg(currentState === 'Unclaimed', claimedTone),
+            color: chipColor(currentState === 'Unclaimed', claimedTone),
+            boxShadow: chipShadow(currentState === 'Unclaimed', claimedTone),
           }}
         >
-          <span style={{ display: 'flex', alignItems: 'center' }}>{filterIconSvg('Triaged')}</span>
-          <span>Triaged</span>
+          <span style={{ display: 'flex', alignItems: 'center' }}>{filterIconSvg('Unclaimed')}</span>
+          <span className="enq-chip-label">Unclaimed</span>
         </button>
-      )}
+
+        {isAdmin && (
+          <button
+            type="button"
+            className="enq-chip"
+            aria-pressed={currentState === 'Triaged'}
+            onClick={() => onSetActiveState('Triaged')}
+            title="Admin only"
+            style={{
+              height: h,
+              fontWeight: currentState === 'Triaged' ? 600 : 500,
+              background: chipBg(currentState === 'Triaged', triagedTone),
+              color: chipColor(currentState === 'Triaged', triagedTone),
+              boxShadow: chipShadow(currentState === 'Triaged', triagedTone, true),
+            }}
+          >
+            <span style={{ display: 'flex', alignItems: 'center' }}>{filterIconSvg('Triaged')}</span>
+            <span className="enq-chip-label">Triaged</span>
+          </button>
+        )}
+      </div>
     </div>
   );
 });
@@ -849,18 +914,28 @@ const StatusFilterWithScope = React.memo<StatusFilterWithScopeProps>(({
 const Enquiries: React.FC<EnquiriesProps> = ({
   context,
   enquiries,
+  enquiriesUsingSnapshot = false,
+  enquiriesLiveRefreshInFlight = false,
+  enquiriesLastLiveSyncAt = null,
+  prefetchedTeamWideEnquiries,
   userData,
   poidData,
   setPoidData,
   teamData,
   onRefreshEnquiries,
   onOptimisticClaim,
+  subscribeToEnquiryStream,
   instructionData,
   featureToggles = {},
   isActive = false,
   demoModeEnabled: demoModeEnabledProp,
   onTeamWideEnquiriesLoaded,
+  pendingEnquiryId,
+  pendingEnquirySubTab,
+  onPendingEnquiryHandled,
 }) => {
+  const isLocalDevHost = typeof window !== 'undefined'
+    && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
   // Function to check if an enquiry has been promoted to pitch/instruction
   const getPromotionStatus = useCallback((enquiry: Enquiry): { promoted: boolean; type: 'pitch' | 'instruction' | null; count: number } => {
@@ -1141,19 +1216,35 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         registerForEnquiryId(wrapperId, instructions[0] ?? null, deals[0] ?? null);
       }
 
-      // Email-based secondary linkage for v2 enquiries that lack ACID.
+      // Email-based linkage for v2 enquiries (primary creation, not just copy).
+      // Enrichment matches pitches by email reliably; workbench must too.
       // Instruction.Email → workbench item, keyed as "email:<normalised>".
       instructions.forEach((inst) => {
         const instEmail = String(inst?.Email ?? inst?.email ?? '').trim().toLowerCase();
         if (!instEmail) return;
         const emailKey = `email:${instEmail}`;
         if (result.has(emailKey)) return; // don't overwrite a better match
+        // Prefer re-using the ProspectId-based entry if it succeeded
         const enquiryId = normaliseId(inst?.ProspectId ?? inst?.prospectId)
           || extractProspectIdFromRef(inst?.InstructionRef ?? inst?.instructionRef);
         const existing = enquiryId ? result.get(enquiryId) : undefined;
         if (existing) {
           result.set(emailKey, existing);
+        } else {
+          // ProspectId match failed — create a primary entry from scratch
+          registerForEnquiryId(emailKey, inst);
         }
+      });
+
+      // Deal-email fallback: Deals.LeadClientEmail may differ from Instruction.Email
+      deals.forEach((deal) => {
+        const dealEmail = String(deal?.LeadClientEmail ?? deal?.leadClientEmail ?? deal?.Email ?? deal?.email ?? '').trim().toLowerCase();
+        if (!dealEmail) return;
+        const emailKey = `email:${dealEmail}`;
+        if (result.has(emailKey)) return;
+        const dealRef = normaliseId(deal?.InstructionRef ?? deal?.instructionRef);
+        const matchingInst = dealRef ? (instructionByRef.get(dealRef) || null) : null;
+        registerForEnquiryId(emailKey, matchingInst, deal);
       });
     });
 
@@ -1357,10 +1448,16 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const getEnquiryWorkbenchItem = useCallback((enquiry: Enquiry): any | undefined => {
     const acid = (enquiry as any).ACID || (enquiry as any).acid || (enquiry as any).Acid;
     const fallbackId = (enquiry as any).ProspectId || (enquiry as any).prospectId || enquiry.ID;
+    const legacyId = (enquiry as any).legacyEnquiryId;
     const key = acid || fallbackId;
     if (key) {
       const byId = inlineWorkbenchByEnquiryId.get(String(key));
       if (byId) return byId;
+    }
+    // Legacy annotation from unified endpoint may carry the cross-referenced ID
+    if (legacyId && legacyId !== key) {
+      const byLegacy = inlineWorkbenchByEnquiryId.get(String(legacyId));
+      if (byLegacy) return byLegacy;
     }
     // v2 enquiries may lack ACID — fall back to email match
     const email = String((enquiry as any).Email || (enquiry as any).email || '').trim().toLowerCase();
@@ -1406,8 +1503,15 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     } catch {
       // ignore storage failures
     }
-    window.dispatchEvent(new CustomEvent('navigateToInstructions'));
-    window.dispatchEvent(new CustomEvent('navigateToInstructionAction'));
+    const actionDetail = {
+      source: 'enquiries-workbench',
+      instructionRef,
+      action,
+      tab: options.tab || null,
+      hasDocumentPayload: Boolean(options.doc),
+    };
+    window.dispatchEvent(new CustomEvent('navigateToInstructions', { detail: actionDetail }));
+    window.dispatchEvent(new CustomEvent('navigateToInstructionAction', { detail: actionDetail }));
   }, []);
 
   const workbenchHandlers = useMemo(() => ({
@@ -1518,6 +1622,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const [displayEnquiries, setDisplayEnquiries] = useState<NormalizedEnquiry[]>([]);
   // Team-wide dataset for suppression index (includes other users' claimed enquiries)
   const [teamWideEnquiries, setTeamWideEnquiries] = useState<NormalizedEnquiry[]>([]);
+  const lastStableDisplayRef = useRef<NormalizedEnquiry[]>([]);
   // Loading state to prevent flickering
   const [isLoadingAllData, setIsLoadingAllData] = useState<boolean>(false);
   // Track if we've already fetched all data to prevent duplicate calls
@@ -1528,6 +1633,22 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
   // Debug: track why we fetched team-wide data (avoid PII in logs)
   const lastTeamWideFetchReasonRef = useRef<string>('');
+
+  useEffect(() => {
+    if (!Array.isArray(prefetchedTeamWideEnquiries) || prefetchedTeamWideEnquiries.length === 0) {
+      return;
+    }
+
+    startTransition(() => {
+      setTeamWideEnquiries((prev) => {
+        if (prev.length >= prefetchedTeamWideEnquiries.length) {
+          return prev;
+        }
+        return prefetchedTeamWideEnquiries.map((raw: any) => normalizeEnquiry(raw));
+      });
+    });
+    hasFetchedAllData.current = true;
+  }, [prefetchedTeamWideEnquiries]);
 
   // Debug logging
 
@@ -1569,20 +1690,24 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
   type PipelineChipLabelMode = 'full' | 'short' | 'icon';
   const pipelineGridMeasureRef = useRef<HTMLDivElement | null>(null);
-  const [pipelineChipLabelMode, setPipelineChipLabelMode] = useState<PipelineChipLabelMode>('full');
-  // Number of pipeline chips that fit in the available width (7 = all chips fit after merging teams+claim)
-  // Start with 3 to ensure carousel shows by default, then ResizeObserver adjusts
-  const [visiblePipelineChipCount, setVisiblePipelineChipCount] = useState<number>(3);
+  const [pipelineChipLabelMode, setPipelineChipLabelMode] = useState<PipelineChipLabelMode>('short');
+  // Start from the optimistic full-width state and let ResizeObserver compress only if needed.
+  const [visiblePipelineChipCount, setVisiblePipelineChipCount] = useState<number>(7);
   const pipelineMeasureRetryRef = useRef(0);
   const pipelineMeasureRetryTimerRef = useRef<number | null>(null);
   // Counter to trigger re-measurement when returning from detail view
   const [pipelineRemeasureKey, setPipelineRemeasureKey] = useState<number>(0);
   // Minimum chip width at each mode (tuned for smoother width recognition)
-  const CHIP_MIN_WIDTHS = { icon: 32, short: 84, full: 104 };
-  const ACTIONS_COLUMN_WIDTH_PX = 196;
-
-  const TABLE_GRID_TEMPLATE_COLUMNS = `32px 90px 56px 90px 1.4fr 2.5fr ${ACTIONS_COLUMN_WIDTH_PX}px`;
-  const TABLE_GRID_GAP_PX = 12;
+  const CHIP_MIN_WIDTHS = { icon: 24, short: 68, full: 92 };
+  const MIN_PIPELINE_STABLE_WIDTH_PX = 180;
+  const LOCKED_ACTIONS_COLUMN_WIDTH_PX = 56;
+  const UNLOCKED_ACTIONS_COLUMN_WIDTH_PX = 188;
+  const LOCKED_ACTIONS_COLUMN_WIDTH = `clamp(32px, 4vw, ${LOCKED_ACTIONS_COLUMN_WIDTH_PX}px)`;
+  const UNLOCKED_ACTIONS_COLUMN_WIDTH = `clamp(80px, 14vw, ${UNLOCKED_ACTIONS_COLUMN_WIDTH_PX}px)`;
+  const getTableGridTemplateColumns = (actionsEnabled: boolean) => (
+    `clamp(20px, 4vw, 36px) minmax(clamp(28px, 5vw, 60px), 0.45fr) minmax(clamp(44px, 7vw, 88px), 0.6fr) minmax(clamp(50px, 9vw, 140px), 1.1fr) minmax(clamp(60px, 15vw, 260px), 3.4fr) ${actionsEnabled ? UNLOCKED_ACTIONS_COLUMN_WIDTH : LOCKED_ACTIONS_COLUMN_WIDTH}`
+  );
+  const TABLE_GRID_GAP_PX = 4;
   const PIPELINE_CHIP_MIN_WIDTH_PX = CHIP_MIN_WIDTHS[pipelineChipLabelMode] ?? CHIP_MIN_WIDTHS.short;
 
   useEffect(() => {
@@ -1663,22 +1788,14 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
   const getPipelineHoverPosition = useCallback((target: EventTarget & HTMLElement) => {
     const rect = target.getBoundingClientRect();
-    const offset = 12;
-    const estimatedWidth = 240;
-    let x = rect.right + offset;
-    let y = rect.top;
-
+    const gap = 6;
+    let x = rect.left + rect.width / 2;
+    let y = rect.top - gap;
     if (typeof window !== 'undefined') {
-      const maxX = window.innerWidth - estimatedWidth - 8;
-      if (x > maxX) {
-        x = rect.left - offset;
-      }
       if (x < 8) x = 8;
-
-      if (y < 8) y = 8;
-      if (y > window.innerHeight - 8) y = window.innerHeight - 8;
+      if (x > window.innerWidth - 8) x = window.innerWidth - 8;
+      if (y < 32) y = rect.bottom + gap;
     }
-
     return { x, y };
   }, []);
 
@@ -1704,18 +1821,23 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const [selectedPocFilter, setSelectedPocFilter] = useState<string | null>(null);
   const [isPocDropdownOpen, setIsPocDropdownOpen] = useState(false);
 
-  useEffect(() => {
+  const schedulePipelineRemeasure = useCallback((delay = 120) => {
+    if (pipelineMeasureRetryRef.current >= 8) {
+      return;
+    }
+    pipelineMeasureRetryRef.current += 1;
+    if (pipelineMeasureRetryTimerRef.current) {
+      window.clearTimeout(pipelineMeasureRetryTimerRef.current);
+    }
+    pipelineMeasureRetryTimerRef.current = window.setTimeout(() => {
+      setPipelineRemeasureKey((value) => value + 1);
+    }, delay);
+  }, []);
+
+  useLayoutEffect(() => {
     const el = pipelineGridMeasureRef.current;
     if (!el || typeof ResizeObserver === 'undefined') {
-      if (pipelineMeasureRetryRef.current < 6) {
-        pipelineMeasureRetryRef.current += 1;
-        if (pipelineMeasureRetryTimerRef.current) {
-          window.clearTimeout(pipelineMeasureRetryTimerRef.current);
-        }
-        pipelineMeasureRetryTimerRef.current = window.setTimeout(() => {
-          setPipelineRemeasureKey((v) => v + 1);
-        }, 120);
-      }
+      schedulePipelineRemeasure();
       return;
     }
 
@@ -1724,7 +1846,10 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
     const computePipelineLayout = (totalWidth: number) => {
       const columnGap = 8;
-      const navButtonWidth = 24;
+      const navOverlayWidth = 32;
+      const responsiveSafetyPadding = 36;
+      const chipComfortWidths = { full: 12, short: 10, icon: 8 };
+      const availableWidth = Math.max(0, totalWidth - responsiveSafetyPadding);
       const minFull = CHIP_MIN_WIDTHS.full;
       const minShort = CHIP_MIN_WIDTHS.short;
       const minIcon = CHIP_MIN_WIDTHS.icon;
@@ -1732,77 +1857,74 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       let nextMode: PipelineChipLabelMode = 'short';
       let nextCount = 7;
 
-      // Grid always includes nav column: repeat(N, minmax(W, 1fr)) 24px
-      // Total = N * W + N * gap + navButtonWidth  (N chips create N gaps before nav)
-      const widthNeeded = (count: number, chipWidth: number) =>
-        count * chipWidth + count * columnGap + navButtonWidth;
+      const widthNeeded = (count: number, chipWidth: number, reserveOverlay: boolean, chipComfortWidth: number) =>
+        count * (chipWidth + chipComfortWidth) + Math.max(0, count - 1) * columnGap + (reserveOverlay ? navOverlayWidth : 0);
 
-      if (totalWidth >= widthNeeded(7, minFull)) {
-        nextMode = 'full';
-        nextCount = 7;
-      } else if (totalWidth >= widthNeeded(7, minShort)) {
-        nextMode = 'short';
-        nextCount = 7;
-      } else if (totalWidth >= widthNeeded(7, minIcon)) {
-        nextMode = 'icon';
-        nextCount = 7;
-      } else {
-        nextMode = 'short';
-        nextCount = 3;
-        let shortFitFound = false;
-        for (let n = 6; n >= 3; n--) {
-          if (totalWidth >= widthNeeded(n, minShort)) {
-            nextCount = n;
-            shortFitFound = true;
-            break;
-          }
+      let fitFound = false;
+      for (let n = 7; n >= 1; n--) {
+        const reserveOverlay = n < 7;
+        if (availableWidth >= widthNeeded(n, minFull, reserveOverlay, chipComfortWidths.full)) {
+          nextMode = 'full';
+          nextCount = n;
+          fitFound = true;
+          break;
         }
-
-        if (!shortFitFound) {
+        if (availableWidth >= widthNeeded(n, minShort, reserveOverlay, chipComfortWidths.short)) {
+          nextMode = 'short';
+          nextCount = n;
+          fitFound = true;
+          break;
+        }
+        if (availableWidth >= widthNeeded(n, minIcon, reserveOverlay, chipComfortWidths.icon)) {
           nextMode = 'icon';
-          nextCount = 3;
-          for (let n = 6; n >= 3; n--) {
-            if (totalWidth >= widthNeeded(n, minIcon)) {
-              nextCount = n;
-              break;
-            }
-          }
+          nextCount = n;
+          fitFound = true;
+          break;
         }
+      }
+
+      if (!fitFound) {
+        nextMode = 'icon';
+        nextCount = 1;
       }
 
       setPipelineChipLabelMode((prev) => (prev === nextMode ? prev : nextMode));
       setVisiblePipelineChipCount(nextCount);
     };
-    
-    // Calculate and apply measurement immediately on mount (avoid layout flash)
-    const measureAndApply = () => {
-      const rect = el.getBoundingClientRect();
-      if (!rect.width) {
-        if (pipelineMeasureRetryRef.current < 6) {
-          pipelineMeasureRetryRef.current += 1;
-          if (pipelineMeasureRetryTimerRef.current) {
-            window.clearTimeout(pipelineMeasureRetryTimerRef.current);
-          }
-          pipelineMeasureRetryTimerRef.current = window.setTimeout(() => {
-            setPipelineRemeasureKey((v) => v + 1);
-          }, 120);
-        }
+
+    const applyMeasuredWidth = (width: number, force = false) => {
+      if (!width) {
+        schedulePipelineRemeasure();
+        return;
+      }
+      if (width < MIN_PIPELINE_STABLE_WIDTH_PX && pipelineMeasureRetryRef.current < 6) {
+        schedulePipelineRemeasure(140);
         return;
       }
       pipelineMeasureRetryRef.current = 0;
-      
-      // Skip if width hasn't changed significantly (within 1px tolerance)
-      if (Math.abs(rect.width - lastMeasuredWidth) < 1) return;
-      lastMeasuredWidth = rect.width;
 
-      computePipelineLayout(rect.width);
+      // Skip if width hasn't changed significantly (within 1px tolerance)
+      if (!force && Math.abs(width - lastMeasuredWidth) < 1) return;
+      lastMeasuredWidth = width;
+
+      computePipelineLayout(width);
+    };
+
+    // Calculate and apply measurement immediately on mount (avoid layout flash)
+    const measureAndApply = (force = false) => {
+      const rect = el.getBoundingClientRect();
+      applyMeasuredWidth(rect.width, force);
     };
 
     // Measure immediately on mount to prevent layout flash
-    measureAndApply();
-    requestAnimationFrame(measureAndApply);
+    measureAndApply(true);
+    const settleRaf = requestAnimationFrame(() => measureAndApply(true));
+    const settleRafLate = requestAnimationFrame(() => {
+      requestAnimationFrame(() => measureAndApply(true));
+    });
     // Also measure after a short delay to catch late layout stabilization
-    const delayedMeasure = setTimeout(measureAndApply, 100);
+    const delayedMeasure = window.setTimeout(() => measureAndApply(true), 100);
+    const delayedMeasureLate = window.setTimeout(() => measureAndApply(true), 240);
     
     // Debounced resize handler for smoother updates
     let resizeRaf: number | null = null;
@@ -1810,37 +1932,31 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       if (resizeRaf) cancelAnimationFrame(resizeRaf);
       resizeRaf = requestAnimationFrame(() => {
         lastMeasuredWidth = 0; // Force remeasure on explicit resize
-        measureAndApply();
+        measureAndApply(true);
       });
     };
     window.addEventListener('resize', handleResize);
     
-    // Polling fallback - check every 500ms in case ResizeObserver misses changes
-    const pollInterval = setInterval(() => {
-      const rect = el.getBoundingClientRect();
-      if (rect.width && Math.abs(rect.width - lastMeasuredWidth) > 1) {
-        measureAndApply();
-      }
-    }, 500);
-
     const observer = new ResizeObserver((items) => {
       const rect = items[0]?.contentRect;
       if (!rect) return;
-      computePipelineLayout(rect.width);
+      applyMeasuredWidth(rect.width);
     });
 
     observer.observe(el);
     return () => {
       observer.disconnect();
-      clearTimeout(delayedMeasure);
-      clearInterval(pollInterval);
+      window.clearTimeout(delayedMeasure);
+      window.clearTimeout(delayedMeasureLate);
+      cancelAnimationFrame(settleRaf);
+      cancelAnimationFrame(settleRafLate);
       if (resizeRaf) cancelAnimationFrame(resizeRaf);
       if (pipelineMeasureRetryTimerRef.current) {
         window.clearTimeout(pipelineMeasureRetryTimerRef.current);
       }
       window.removeEventListener('resize', handleResize);
     };
-  }, [viewMode, pipelineRemeasureKey, enquiryPipelineFilters.size, selectedPocFilter]); // Re-run when returning from detail view or filters change
+  }, [viewMode, pipelineRemeasureKey, selectedPocFilter, enquiryPipelineFilters.size, schedulePipelineRemeasure]);
   
   // Pipeline filter toggle handler - cycles through: no filter → yes → no → clear (loop)
   const cycleEnquiryPipelineFilter = useCallback((stage: EnquiryPipelineStage) => {
@@ -1967,10 +2083,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     const visibleStart = offset;
     const visibleEnd = offset + visiblePipelineChipCount;
     
-    // Grid template for visible chips only
-    const gridCols = showNav 
-      ? `repeat(${visiblePipelineChipCount}, minmax(${PIPELINE_CHIP_MIN_WIDTH_PX}px, 1fr)) 24px`
-      : `repeat(7, minmax(${PIPELINE_CHIP_MIN_WIDTH_PX}px, 1fr)) 24px`;
+    const gridCols = `repeat(${showNav ? visiblePipelineChipCount : 7}, minmax(${PIPELINE_CHIP_MIN_WIDTH_PX}px, 1fr))`;
+    const pipelineGridPaddingRight = showNav ? 32 : 0;
     
     return (
       <div style={{ position: 'relative', height: '100%', width: '100%', minWidth: 0, overflow: 'hidden' }}>
@@ -1983,67 +2097,69 @@ const Enquiries: React.FC<EnquiriesProps> = ({
             width: '100%',
             minWidth: 0,
             height: '100%',
+            paddingRight: pipelineGridPaddingRight,
+            boxSizing: 'border-box',
           }}
         >
           {showNav 
             ? children.slice(visibleStart, visibleEnd)
             : children}
-          
-          {/* Navigation chevron / gutter */}
-          {showNav ? (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                advancePipelineScroll(enquiryId, totalChips, visiblePipelineChipCount);
-              }}
-              title={hasMoreChips ? `View more stages (${totalChips - visibleEnd} hidden)` : 'Back to start'}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: '100%',
-                height: 22,
-                padding: 0,
-                border: `1px solid ${isDark ? 'rgba(160, 160, 160, 0.25)' : 'rgba(107, 107, 107, 0.2)'}`,
-                borderRadius: 0,
-                background: hasMoreChips 
-                  ? (isDark ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)')
-                  : (isDark ? 'rgba(160, 160, 160, 0.06)' : 'rgba(160, 160, 160, 0.04)'),
-                cursor: 'pointer',
-                transition: 'all 0.15s ease',
-                color: hasMoreChips 
-                  ? colours.blue 
-                  : (isDark ? 'rgba(160, 160, 160, 0.5)' : 'rgba(107, 107, 107, 0.4)'),
-              }}
-            >
-              <Icon 
-                iconName={hasMoreChips ? 'ChevronRight' : 'Refresh'} 
-                styles={{ 
-                  root: { 
-                    fontSize: hasMoreChips ? 12 : 10, 
-                    color: 'inherit',
-                    opacity: hasMoreChips ? 1 : 0.7,
-                  } 
-                }} 
-              />
-              {hasMoreChips && !isAtStart && (
-                <span style={{ 
-                  position: 'absolute',
-                  top: -2,
-                  right: -2,
-                  width: 6,
-                  height: 6,
-                  borderRadius: '50%',
-                  background: colours.blue,
-                  fontSize: 0,
-                }} />
-              )}
-            </button>
-          ) : (
-            <div />
-          )}
         </div>
+        {showNav ? (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              advancePipelineScroll(enquiryId, totalChips, visiblePipelineChipCount);
+            }}
+            title={hasMoreChips ? `View more stages (${totalChips - visibleEnd} hidden)` : 'Back to start'}
+            style={{
+              position: 'absolute',
+              top: '50%',
+              right: 0,
+              transform: 'translateY(-50%)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 24,
+              height: 22,
+              padding: 0,
+              border: `1px solid ${isDark ? 'rgba(160, 160, 160, 0.25)' : 'rgba(107, 107, 107, 0.2)'}`,
+              borderRadius: 0,
+              background: hasMoreChips
+                ? (isDark ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)')
+                : (isDark ? 'rgba(160, 160, 160, 0.06)' : 'rgba(160, 160, 160, 0.04)'),
+              cursor: 'pointer',
+              transition: 'all 0.15s ease',
+              color: hasMoreChips
+                ? colours.blue
+                : (isDark ? 'rgba(160, 160, 160, 0.5)' : 'rgba(107, 107, 107, 0.4)'),
+            }}
+          >
+            <Icon
+              iconName={hasMoreChips ? 'ChevronRight' : 'Refresh'}
+              styles={{
+                root: {
+                  fontSize: hasMoreChips ? 12 : 10,
+                  color: 'inherit',
+                  opacity: hasMoreChips ? 1 : 0.7,
+                },
+              }}
+            />
+            {hasMoreChips && !isAtStart && (
+              <span style={{
+                position: 'absolute',
+                top: -2,
+                right: -2,
+                width: 6,
+                height: 6,
+                borderRadius: '50%',
+                background: colours.blue,
+                fontSize: 0,
+              }} />
+            )}
+          </button>
+        ) : null}
       </div>
     );
   }, [pipelineNeedsCarousel, visiblePipelineChipCount, getPipelineScrollOffset, advancePipelineScroll]);
@@ -2083,8 +2199,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     
     try {
       setIsLoadingAllData(true);
-  const isLocalDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-      
+
   // Call unified server-side route for ALL environments to avoid legacy combined route
   // Use same date range as user's personal view for consistency
   const now = new Date();
@@ -2157,11 +2272,13 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       // IMPORTANT: Do not overwrite per-user dataset when fetching team-wide data for All/Mine+Claimed.
       // Keep `allEnquiries` sourced from props (per-user), and store the unified dataset only in teamWideEnquiries.
       // This prevents Mine view from briefly switching to team-wide dataset and dropping claimed items.
-      startTransition(() => {
-        setTeamWideEnquiries(normalizedEnquiries);
-      });
+      // Apply team-wide data synchronously — startTransition delays would cause
+      // downstream effects to see stale empty state and trigger duplicate fetches.
+      setTeamWideEnquiries(normalizedEnquiries);
       hasFetchedAllData.current = true;
       hasRetriedEmptyAllData.current = false;
+      setLastRefreshTime(new Date());
+      setNextRefreshIn(60);
       onTeamWideEnquiriesLoaded?.(normalizedEnquiries as Enquiry[]);
       
       console.info('[Enquiries] fetchAllEnquiries:success', {
@@ -2189,6 +2306,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   // ...existing code...
 
   const { isDarkMode } = useTheme();
+  const headerTextColor = isDarkMode ? colours.dark.text : colours.light.text;
   const { setContent } = useNavigatorActions();
   
   // Generate subtle pulse animation CSS based on theme
@@ -2297,11 +2415,11 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const [selectedArea, setSelectedArea] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<{ oldest: string; newest: string } | null>(null);
   const [isSearchActive, setSearchActive] = useState<boolean>(false);
-  const [searchInputValue, setSearchInputValue] = useState<string>(''); // Local input value for immediate UI feedback
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState<string>('');
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [showGroupedView, setShowGroupedView] = useState<boolean>(true);
   const [areActionsEnabled, setAreActionsEnabled] = useState<boolean>(false);
+  const TABLE_GRID_TEMPLATE_COLUMNS = getTableGridTemplateColumns(areActionsEnabled);
   const [shareModalEnquiry, setShareModalEnquiry] = useState<Enquiry | null>(null);
   const [shareModalSelectedEmails, setShareModalSelectedEmails] = useState<string[]>([]);
   const [shareModalExternalEmails, setShareModalExternalEmails] = useState<string[]>([]);
@@ -2314,12 +2432,13 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const showDealCapture = true;
   
   // Auto-refresh state
-  const [lastRefreshTime, setLastRefreshTime] = useState<Date>(new Date());
+  const [lastRefreshTime, setLastRefreshTime] = useState<Date>(() => enquiriesLastLiveSyncAt ? new Date(enquiriesLastLiveSyncAt) : new Date(0));
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
-  const [nextRefreshIn, setNextRefreshIn] = useState<number>(5 * 60); // 5 minutes in seconds
+  const [nextRefreshIn, setNextRefreshIn] = useState<number>(60); // 60 seconds
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const handleManualRefreshRef = useRef<(() => Promise<void>) | null>(null);
+  const lastActivationRefreshAtRef = useRef<number>(0);
   // Track recent updates to prevent overwriting with stale prop data
   const recentUpdatesRef = useRef<Map<string, { field: string; value: any; timestamp: number }>>(new Map());
 
@@ -2328,11 +2447,50 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   // Compute-respectful: only active tab subscribes; refreshes are coalesced.
   const refreshRef = useRef(onRefreshEnquiries);
   const refreshTimerRef = useRef<number | null>(null);
-  const esRef = useRef<EventSource | null>(null);
   const lastKnownEnquiryTsRef = useRef<number>(0);
   const realtimeSyncClearTimerRef = useRef<number | null>(null);
   const [sseConnected, setSseConnected] = useState(true);
   const [isRealtimeQueueSyncing, setIsRealtimeQueueSyncing] = useState(false);
+
+  useEffect(() => {
+    if (!selectedEnquiry) return;
+
+    const selectedId = String(selectedEnquiry.ID || '').trim();
+    const selectedProcessingId = String(selectedEnquiry.processingEnquiryId || '').trim();
+    const selectedPitchId = String(selectedEnquiry.pitchEnquiryId || '').trim();
+    const selectedEmail = normalizeSearchEmailArtifacts(selectedEnquiry.Email);
+    const selectedIdentityKey = buildEnquiryIdentityKey(selectedEnquiry);
+
+    const matchesSelected = (candidate: Enquiry) => {
+      const candidateId = String(candidate.ID || '').trim();
+      const candidateProcessingId = String(candidate.processingEnquiryId || '').trim();
+      const candidatePitchId = String(candidate.pitchEnquiryId || '').trim();
+      const candidateEmail = normalizeSearchEmailArtifacts(candidate.Email);
+
+      if (selectedId && candidateId === selectedId) return true;
+      if (selectedProcessingId && candidateProcessingId === selectedProcessingId) return true;
+      if (selectedPitchId && candidatePitchId === selectedPitchId) return true;
+      if (selectedIdentityKey && buildEnquiryIdentityKey(candidate) === selectedIdentityKey) return true;
+      if (selectedEmail && candidateEmail && candidateEmail === selectedEmail) return true;
+      return false;
+    };
+
+    const candidateSources: Array<Enquiry[] | null | undefined> = [displayEnquiries, teamWideEnquiries, allEnquiries];
+    let nextSelected: Enquiry | null = null;
+
+    for (const source of candidateSources) {
+      if (!Array.isArray(source) || source.length === 0) continue;
+      const found = source.find(matchesSelected);
+      if (found) {
+        nextSelected = found;
+        break;
+      }
+    }
+
+    if (nextSelected && nextSelected !== selectedEnquiry) {
+      setSelectedEnquiry(nextSelected);
+    }
+  }, [allEnquiries, displayEnquiries, selectedEnquiry, teamWideEnquiries]);
 
   // ─── New-arrival animation tracking ───────────────────────
   // Stores the set of enquiry IDs from the previous displayedItems render.
@@ -2344,6 +2502,49 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   useEffect(() => {
     refreshRef.current = onRefreshEnquiries;
   }, [onRefreshEnquiries]);
+
+  useEffect(() => {
+    if (!enquiriesLastLiveSyncAt) {
+      return;
+    }
+
+    setLastRefreshTime(prev => {
+      if (prev.getTime() === enquiriesLastLiveSyncAt) {
+        return prev;
+      }
+      return new Date(enquiriesLastLiveSyncAt);
+    });
+  }, [enquiriesLastLiveSyncAt]);
+
+  useEffect(() => {
+    if (!isActive || !refreshRef.current) {
+      return;
+    }
+
+    const now = Date.now();
+    const liveSyncAgeMs = enquiriesLastLiveSyncAt ? now - enquiriesLastLiveSyncAt : Number.POSITIVE_INFINITY;
+    const needsLiveRefresh = enquiriesUsingSnapshot || liveSyncAgeMs > 20000;
+    const recentlyAttempted = now - lastActivationRefreshAtRef.current < 8000;
+
+    if (!needsLiveRefresh || recentlyAttempted || isRefreshing || enquiriesLiveRefreshInFlight || isLoadingAllData) {
+      return;
+    }
+
+    lastActivationRefreshAtRef.current = now;
+    setIsRefreshing(true);
+
+    refreshRef.current()
+      .then(() => {
+        setLastRefreshTime(new Date());
+        setNextRefreshIn(60);
+      })
+      .catch((error) => {
+        console.warn('[Enquiries] Active-tab live refresh failed:', error);
+      })
+      .finally(() => {
+        setIsRefreshing(false);
+      });
+  }, [isActive, enquiriesUsingSnapshot, enquiriesLastLiveSyncAt, enquiriesLiveRefreshInFlight, isLoadingAllData, isRefreshing]);
 
   const getEnquiryTimestamp = useCallback((enquiry: Partial<Enquiry> | any): number => {
     const raw = enquiry?.Touchpoint_Date || enquiry?.Date_Created || enquiry?.datetime || enquiry?.claim;
@@ -2401,6 +2602,37 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     return true;
   }, []);
 
+  /**
+   * Apply a generic field-level patch from an SSE event.
+   * Normalizes both legacy and new-schema field aliases to keep state consistent.
+   */
+  const applyRealtimeUpdatePatch = useCallback((enquiryId: string, record: Record<string, unknown>) => {
+    if (!enquiryId || !record || Object.keys(record).length === 0) return;
+
+    // Build normalized patch with both legacy and new-schema aliases
+    const patch: Record<string, unknown> = { ...record };
+    if ('First_Name' in record) patch.first = record.First_Name;
+    if ('Last_Name' in record) patch.last = record.Last_Name;
+    if ('Point_of_Contact' in record) patch.poc = record.Point_of_Contact;
+    if ('Area_of_Work' in record) patch.aow = record.Area_of_Work;
+    if ('Email' in record) patch.email = record.Email;
+    if ('Initial_first_call_notes' in record) patch.notes = record.Initial_first_call_notes;
+    if ('Value' in record) patch.value = record.Value;
+    if ('Rating' in record) patch.rating = record.Rating;
+
+    const updateEnquiry = (enquiry: NormalizedEnquiry): NormalizedEnquiry => {
+      if (String(enquiry.ID) !== String(enquiryId)) return enquiry;
+      return { ...enquiry, ...patch } as NormalizedEnquiry;
+    };
+
+    setAllEnquiries(prev => prev.map(updateEnquiry));
+    setDisplayEnquiries(prev => prev.map(updateEnquiry));
+    setTeamWideEnquiries(prev => prev.map(updateEnquiry));
+  }, []);
+
+  const applyRealtimeUpdatePatchRef = useRef(applyRealtimeUpdatePatch);
+  applyRealtimeUpdatePatchRef.current = applyRealtimeUpdatePatch;
+
   const markRealtimeQueueSyncing = useCallback((active: boolean) => {
     if (realtimeSyncClearTimerRef.current) {
       window.clearTimeout(realtimeSyncClearTimerRef.current);
@@ -2455,13 +2687,17 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     };
   }, []);
 
+  // Stable refs for SSE/pulse callbacks — prevents stream reconnection when deps change
+  const applyRealtimeClaimPatchRef = useRef(applyRealtimeClaimPatch);
+  applyRealtimeClaimPatchRef.current = applyRealtimeClaimPatch;
+  const refreshVisibleRef = useRef(refreshVisibleEnquiriesDataset);
+  refreshVisibleRef.current = refreshVisibleEnquiriesDataset;
+
   useEffect(() => {
-    // Only stream when Enquiries tab is active and we have a refresh handler.
-    if (!isActive || !refreshRef.current) {
-      if (esRef.current) {
-        try { esRef.current.close(); } catch { /* ignore */ }
-        esRef.current = null;
-      }
+    // Subscribe to app shell's SSE stream instead of opening a duplicate EventSource.
+    // The app shell (index.tsx) maintains the sole SSE connection to /api/enquiries-unified/stream
+    // and broadcasts parsed events to registered listeners.
+    if (!subscribeToEnquiryStream || !isActive || !refreshRef.current) {
       if (refreshTimerRef.current) {
         window.clearTimeout(refreshTimerRef.current);
         refreshTimerRef.current = null;
@@ -2469,80 +2705,63 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       return;
     }
 
-    const es = new EventSource('/api/enquiries-unified/stream');
-    esRef.current = es;
+    setSseConnected(true); // Trust the app shell's always-on connection
 
-    console.info('[Enquiries] stream:open', { isActive });
-
-    es.onopen = () => setSseConnected(true);
-    es.onerror = () => {
-      // readyState 2 = CLOSED (will not reconnect). 0 = CONNECTING (auto-retry).
-      if (es.readyState === EventSource.CLOSED) {
-        setSseConnected(false);
-      } else {
-        setSseConnected(false);
-        // Will flip back on next successful open
-      }
-    };
-
-    const scheduleRefresh = (reason: string, delayMs = 300) => {
-      if (refreshTimerRef.current) {
-        window.clearTimeout(refreshTimerRef.current);
-      }
-      refreshTimerRef.current = window.setTimeout(() => {
-        refreshTimerRef.current = null;
-        console.info('[Enquiries] stream:refresh', { via: reason });
-        refreshVisibleEnquiriesDataset(reason);
-      }, delayMs);
-    };
-
-    const onChangedEvent = (ev: any) => {
-      // Payload is small; do not log any user identifiers.
-      let data: any;
-      try {
-        data = typeof ev?.data === 'string' ? JSON.parse(ev.data) : undefined;
-        console.info('[Enquiries] stream:event', { type: data?.changeType || 'changed' });
-      } catch {
-        console.info('[Enquiries] stream:event', { type: 'changed' });
-      }
-
-      const changeType = String(data?.changeType || 'changed');
-      const enquiryId = String(data?.enquiryId || '');
+    const unsubscribe = subscribeToEnquiryStream((event) => {
+      const { changeType, enquiryId, claimedBy, claimedAt, record } = event;
+      console.info('[Enquiries] stream:event', { type: changeType, hasRecord: !!record });
 
       if (changeType === 'claim' && enquiryId) {
-        const claimedBy = String(data?.claimedBy || '');
-        const claimedAt = typeof data?.claimedAt === 'string' ? data.claimedAt : null;
-        applyRealtimeClaimPatch(enquiryId, claimedBy, claimedAt);
-        scheduleRefresh('stream-claim-reconcile', 1200);
+        // Instant local patch — no refresh needed, background reconciliation handles drift
+        applyRealtimeClaimPatchRef.current(enquiryId, claimedBy || '', claimedAt ?? null);
+        return;
+      }
+
+      if (changeType === 'update' && enquiryId && record) {
+        // Instant field-level patch from server-confirmed data
+        applyRealtimeUpdatePatchRef.current(enquiryId, record);
+        return;
+      }
+
+      if (changeType === 'delete' && enquiryId) {
+        // Remove from all local datasets — instant
+        const removeEnquiry = (enq: NormalizedEnquiry) => String(enq.ID) !== String(enquiryId);
+        setAllEnquiries(prev => prev.filter(removeEnquiry));
+        setDisplayEnquiries(prev => prev.filter(removeEnquiry));
+        setTeamWideEnquiries(prev => prev.filter(removeEnquiry));
         return;
       }
 
       if (changeType === 'create') {
-        scheduleRefresh('stream-create', 120);
+        // New record — schedule a gentle background refresh to pick up the full row
+        // (the app shell handles the reconciliation timer)
+        if (refreshTimerRef.current) {
+          window.clearTimeout(refreshTimerRef.current);
+        }
+        refreshTimerRef.current = window.setTimeout(() => {
+          refreshTimerRef.current = null;
+          refreshVisibleRef.current('stream-create');
+        }, 5000);
         return;
       }
 
-      scheduleRefresh(`stream-${changeType}`, 350);
-    };
+      // Fallback: unknown event types — no aggressive refresh
+      console.info('[Enquiries] stream:unhandled-event', { type: changeType });
+    });
 
-    try {
-      es.addEventListener('enquiries.changed', onChangedEvent as any);
-    } catch {
-      // ignore
-    }
+    console.info('[Enquiries] stream:subscribed (via app shell)');
 
     return () => {
-      try { es.removeEventListener('enquiries.changed', onChangedEvent); } catch { /* ignore */ }
-      try { es.close(); } catch { /* ignore */ }
-      console.info('[Enquiries] stream:close');
-      if (esRef.current === es) esRef.current = null;
+      unsubscribe();
+      console.info('[Enquiries] stream:unsubscribed');
       if (refreshTimerRef.current) {
         window.clearTimeout(refreshTimerRef.current);
         refreshTimerRef.current = null;
       }
     };
-  }, [isActive, applyRealtimeClaimPatch, refreshVisibleEnquiriesDataset]);
+  }, [isActive, subscribeToEnquiryStream]);
 
+  // Pulse polling — fallback for missed SSE events. Runs at 60s intervals.
   useEffect(() => {
     if (!isActive || !refreshRef.current) return;
 
@@ -2560,7 +2779,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         if (latestTs > lastKnownEnquiryTsRef.current + 1000) {
           lastKnownEnquiryTsRef.current = latestTs;
           console.info('[Enquiries] pulse:refresh', { latestIso });
-          refreshVisibleEnquiriesDataset('pulse');
+          refreshVisibleRef.current('pulse');
         }
       } catch {
         // non-blocking
@@ -2568,12 +2787,12 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     };
 
     poll();
-    const intervalId = window.setInterval(poll, 5000);
+    const intervalId = window.setInterval(poll, 60000);
     return () => {
       cancelled = true;
       window.clearInterval(intervalId);
     };
-  }, [isActive, refreshVisibleEnquiriesDataset]);
+  }, [isActive]); // Only restart poll when tab activation changes
   // Admin check (match Matters logic) – be robust to spaced keys and fallbacks
   const userRec: any = (userData && userData[0]) ? userData[0] : {};
   const userRole: string = (userRec.Role || userRec.role || '').toString();
@@ -2596,15 +2815,18 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const [debugLoading, setDebugLoading] = useState(false);
   const [debugError, setDebugError] = useState<string | null>(null);
   
-  // Toast notification state (using OperationStatusToast)
-  const [toastVisible, setToastVisible] = useState(false);
-  const [toastMessage, setToastMessage] = useState<string>('');
-  const [toastDetails, setToastDetails] = useState<string>('');
-  const [toastType, setToastType] = useState<'success' | 'error' | 'info' | 'warning'>('success');
+  // Toast notification state (consolidated)
+  const [toast, setToast] = useState<{ visible: boolean; message: string; details: string; type: 'success' | 'error' | 'info' | 'warning' } | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' | 'warning', details = '', durationMs = 3000) => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToast({ visible: true, message, details, type });
+    if (durationMs > 0) {
+      toastTimerRef.current = setTimeout(() => setToast(prev => prev ? { ...prev, visible: false } : null), durationMs);
+    }
+  }, []);
 
-  const [demoOverlayVisible, setDemoOverlayVisible] = useState(false);
-  const [demoOverlayMessage, setDemoOverlayMessage] = useState('');
-  const [demoOverlayDetails, setDemoOverlayDetails] = useState('');
+  const [demoOverlay, setDemoOverlay] = useState<{ visible: boolean; message: string; details: string } | null>(null);
 
   const triggerFetchAllEnquiries = useCallback((reason: string) => {
     lastTeamWideFetchReasonRef.current = reason;
@@ -2631,7 +2853,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     if (hasRetriedEmptyAllData.current) return;
 
     hasRetriedEmptyAllData.current = true;
-    hasFetchedAllData.current = false;
+    // Don't reset hasFetchedAllData — that allows mode:all to double-fire.
     debugWarn('⚠️ All mode resolved empty team-wide dataset; retrying once with bypass cache');
     triggerFetchAllEnquiries('recover:empty-all');
   }, [showMineOnly, isLoadingAllData, teamWideEnquiries.length, triggerFetchAllEnquiries]);
@@ -2652,7 +2874,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   // Search handler — FilterBanner manages its own local typing state (debounceMs),
   // so this callback only fires after the debounce delay with the final value.
   const handleSearchChange = useCallback((value: string) => {
-    setSearchInputValue(value);
     setDebouncedSearchTerm(value);
   }, []);
 
@@ -2740,15 +2961,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
             );
             
             if (result.success) {
-              // Toast confirmation
-              setToastMessage('Enquiry claimed');
-              setToastType('success');
-              setToastVisible(true);
-              setTimeout(() => setToastVisible(false), 3000);
-              // Background refresh to sync with server (non-blocking)
-              if (onRefreshEnquiries) {
-                onRefreshEnquiries().catch(err => console.warn('Background refresh failed:', err));
-              }
+              // Toast confirmation — SSE will confirm the patch, no refetch needed
+              showToast('Enquiry claimed', 'success');
             } else {
               console.error('[Enquiries] Failed to claim enquiry:', result.error);
               // Revert optimistic update by refreshing
@@ -2917,7 +3131,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     
     if (!enquiries) {
       setAllEnquiries([]);
-      setDisplayEnquiries([]);
       return;
     }
     
@@ -3104,10 +3317,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     setIsReassigning(true);
     
     // Show in-progress toast
-    setToastMessage('Reassigning enquiry...');
-    setToastDetails(`Moving to ${newOwnerName}`);
-    setToastType('info');
-    setToastVisible(true);
+    showToast('Reassigning enquiry...', 'info', `Moving to ${newOwnerName}`, 0);
     
     try {
       const response = await fetch('/api/enquiries-unified/update', {
@@ -3135,37 +3345,20 @@ const Enquiries: React.FC<EnquiriesProps> = ({
             : enq
         ));
         
-        // Show success toast
-        setToastMessage('Enquiry reassigned');
-        setToastDetails(`Now assigned to ${newOwnerName}`);
-        setToastType('success');
-        setToastVisible(true);
-        setTimeout(() => setToastVisible(false), 3000);
-        
-        // Trigger full refresh after short delay
-        if (onRefreshEnquiries) {
-          setTimeout(() => onRefreshEnquiries(), 800);
-        }
+        // Show success toast — SSE broadcast will confirm the patch
+        showToast('Enquiry reassigned', 'success', `Now assigned to ${newOwnerName}`);
       } else {
         // Show error toast
-        setToastMessage('Reassignment failed');
-        setToastDetails(result.message || 'Please try again');
-        setToastType('error');
-        setToastVisible(true);
-        setTimeout(() => setToastVisible(false), 4000);
+        showToast('Reassignment failed', 'error', result.message || 'Please try again', 4000);
       }
     } catch (error) {
       console.error('Error reassigning enquiry:', error);
       // Show error toast
-      setToastMessage('Reassignment failed');
-      setToastDetails(error instanceof Error ? error.message : 'Network error - please try again');
-      setToastType('error');
-      setToastVisible(true);
-      setTimeout(() => setToastVisible(false), 4000);
+      showToast('Reassignment failed', 'error', error instanceof Error ? error.message : 'Network error - please try again', 4000);
     } finally {
       setIsReassigning(false);
     }
-  }, [reassignmentDropdown, teamMemberOptions, allEnquiries, onRefreshEnquiries]);
+  }, [reassignmentDropdown, teamMemberOptions, allEnquiries]);
 
   // Close reassignment dropdown
   const closeReassignmentDropdown = useCallback(() => {
@@ -3236,7 +3429,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     
     if (!allEnquiries.length && !teamWideEnquiries.length) {
       debugLog('⚠️ No enquiry dataset loaded yet, clearing display');
-      setDisplayEnquiries([]);
+      if (lastStableDisplayRef.current.length === 0) {
+        setDisplayEnquiries([]);
+      }
       return;
     }
 
@@ -3248,12 +3443,15 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     if (!showMineOnly) {
       if (teamWideEnquiries.length > 0) {
         debugLog('🌐 All mode - showing unified data:', teamWideEnquiries.length);
+        lastStableDisplayRef.current = teamWideEnquiries;
         setDisplayEnquiries(teamWideEnquiries);
         return;
       }
 
       debugLog('⏳ All mode - team-wide dataset pending, holding display');
-      setDisplayEnquiries([]);
+      if (lastStableDisplayRef.current.length > 0) {
+        setDisplayEnquiries(lastStableDisplayRef.current);
+      }
       return;
     }
 
@@ -3262,13 +3460,16 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     // before the real claimable/triaged rows arrive.
     if (activeState !== 'Claimed' && isAwaitingTeamWideQueue) {
       debugLog('⏳ Mine queue awaiting team-wide dataset, holding display');
-      setDisplayEnquiries([]);
+      if (lastStableDisplayRef.current.length > 0) {
+        setDisplayEnquiries(lastStableDisplayRef.current);
+      }
       return;
     }
 
     // Mine mode continues to use the scoped prop dataset for fastest first render.
     if (allEnquiries.length > 0) {
       debugLog('👤 Mine mode - using user-scoped prop data:', allEnquiries.length);
+      lastStableDisplayRef.current = allEnquiries;
       setDisplayEnquiries(allEnquiries);
       return;
     }
@@ -3276,11 +3477,14 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     // Backstop: if Mine mode lands before prop data but team-wide is already warm, use it.
     if (teamWideEnquiries.length > 0) {
       debugLog('🌐 All mode - showing unified data:', teamWideEnquiries.length);
+      lastStableDisplayRef.current = teamWideEnquiries;
       setDisplayEnquiries(teamWideEnquiries);
       return;
     }
 
-    setDisplayEnquiries([]);
+    if (lastStableDisplayRef.current.length === 0) {
+      setDisplayEnquiries([]);
+    }
   }, [allEnquiries, teamWideEnquiries, showMineOnly, activeState, isLoadingAllData]);
 
   // Initialize selected areas with user's areas + Other/Unsure
@@ -3427,21 +3631,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
   // Memoize user email to prevent unnecessary effect triggers
   const userEmail = useMemo(() => userData?.[0]?.Email?.toLowerCase() || '', [userData]);
-
-  // Area of Work icon mapping to match Teams channels
-  const getAreaOfWorkIcon = (areaOfWork: string): string => {
-    const area = (areaOfWork || '').toLowerCase().trim();
-    
-    if (area.includes('triage')) return '🩺';
-    if (area.includes('construction') || area.includes('building')) return '🏗️';
-    if (area.includes('property') || area.includes('real estate') || area.includes('conveyancing')) return '🏠';
-    if (area.includes('commercial') || area.includes('business')) return '🏢';
-    if (area.includes('employment') || area.includes('hr') || area.includes('workplace')) return '👩🏻‍💼';
-    if (area.includes('allocation')) return '📂';
-    if (area.includes('general') || area.includes('misc') || area.includes('other')) return 'ℹ️';
-    
-    return 'ℹ️'; // Default icon for General/Other
-  };
 
   const toRgba = (color: string, alpha: number): string => {
     if (!color) return `rgba(160, 160, 160, ${alpha})`;
@@ -3674,11 +3863,32 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     const d = new Date(dateStr);
     if (isNaN(d.getTime())) return { top: '-', middle: '', bottom: '' };
 
-    const datePart = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'Europe/London' });
+    const now = new Date();
+    const londonDate = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Europe/London',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    const todayKey = londonDate.format(now);
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const dateKey = londonDate.format(d);
+    const yesterdayKey = londonDate.format(yesterday);
+
     const timePart = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Europe/London' });
     const hasTime = timePart !== '00:00';
 
-    return { top: datePart, middle: '', bottom: hasTime ? timePart : '' };
+    if (dateKey === todayKey) {
+      return { top: hasTime ? `Today ${timePart}` : 'Today', middle: '', bottom: '' };
+    }
+
+    if (dateKey === yesterdayKey) {
+      return { top: hasTime ? `Yest ${timePart}` : 'Yesterday', middle: '', bottom: '' };
+    }
+
+    const datePart = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'Europe/London' });
+    return { top: datePart, middle: '', bottom: '' };
   };
   
   // Format day separator label (compact by default, full on hover; include year only if not current)
@@ -3688,15 +3898,25 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     if (isNaN(d.getTime())) return dayKey;
 
     const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const dayOnly = new Date(d.getFullYear(), d.getMonth(), d.getDate());
     const isSameYear = d.getFullYear() === now.getFullYear();
+    const isToday = dayOnly.getTime() === today.getTime();
+    const isYesterday = dayOnly.getTime() === yesterday.getTime();
 
     if (isHovered) {
+      if (isToday) return 'Today';
+      if (isYesterday) return 'Yesterday';
       return isSameYear
         ? format(d, 'EEEE d MMMM')
         : format(d, 'EEEE d MMMM yyyy');
     }
 
-    return isSameYear ? format(d, 'dd.MM') : format(d, 'dd.MM.yyyy');
+    if (isToday) return 'Today';
+    if (isYesterday) return 'Yesterday';
+    return isSameYear ? format(d, 'd MMM') : format(d, 'd MMM yyyy');
   };
   
   // Legacy helper - keep for compatibility but redirect to compact
@@ -3846,20 +4066,47 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   // Background prefetch: after initial render with prop data, lazily fetch team-wide data
   // so it's ready when user switches to All/Claimable/Triaged views
   useEffect(() => {
+    if (!isActive) return;
     if (!showMineOnly || activeState !== 'Claimed') return; // Only for initial Mine+Claimed
     if (hasFetchedAllData.current || isLoadingAllData) return;
     if (allEnquiries.length === 0) return; // Wait for prop data to load first
-    
-    // Warm the team-wide dataset on the next tick so All/Claimable/Triaged can switch without lag.
-    const timer = setTimeout(() => {
-      if (!hasFetchedAllData.current && !isLoadingAllData) {
-        debugLog('🔄 Background prefetch: warming team-wide data');
-        triggerFetchAllEnquiries('background-prefetch');
+
+    const prefetchDelayMs = isLocalDevHost ? 2400 : 700;
+    let timerId: number | null = null;
+    let idleId: number | null = null;
+
+    const runPrefetch = () => {
+      if (document.visibilityState === 'hidden') return;
+      if (hasFetchedAllData.current || isLoadingAllData) return;
+
+      debugLog('🔄 Background prefetch: warming team-wide data after initial settle');
+      triggerFetchAllEnquiries('background-prefetch');
+    };
+
+    timerId = window.setTimeout(() => {
+      if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+        idleId = (window as typeof window & {
+          requestIdleCallback: (cb: IdleRequestCallback, options?: IdleRequestOptions) => number;
+        }).requestIdleCallback(() => {
+          runPrefetch();
+        }, { timeout: isLocalDevHost ? 1800 : 900 });
+        return;
       }
-    }, 0);
-    
-    return () => clearTimeout(timer);
-  }, [allEnquiries.length, showMineOnly, activeState, isLoadingAllData, triggerFetchAllEnquiries]);
+
+      runPrefetch();
+    }, prefetchDelayMs);
+
+    return () => {
+      if (timerId !== null) {
+        window.clearTimeout(timerId);
+      }
+      if (idleId !== null && typeof window !== 'undefined' && 'cancelIdleCallback' in window) {
+        (window as typeof window & {
+          cancelIdleCallback: (id: number) => void;
+        }).cancelIdleCallback(idleId);
+      }
+    };
+  }, [allEnquiries.length, showMineOnly, activeState, isLoadingAllData, triggerFetchAllEnquiries, isActive, isLocalDevHost]);
 
   const [currentSliderStart, setCurrentSliderStart] = useState<number>(0);
   const [currentSliderEnd, setCurrentSliderEnd] = useState<number>(0);
@@ -4366,39 +4613,27 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     }
   }, [displayEnquiries, handleSelectEnquiry]);
 
-  // Handle deep link navigation from Home page To Do actions
+  // Handle deep link navigation from App.tsx props (replaces localStorage approach)
   useEffect(() => {
-    // Only process navigation when tab is active
-    if (!isActive) return;
+    if (!isActive || !pendingEnquiryId) return;
     
-    const navEnquiryId = localStorage.getItem('navigateToEnquiryId');
-    if (navEnquiryId) {
-      localStorage.removeItem('navigateToEnquiryId');
-      const navTimelineItem = localStorage.getItem('navigateToTimelineItem');
-      localStorage.removeItem('navigateToTimelineItem');
-      const navSubTab = localStorage.getItem('navigateToEnquirySubTab');
-      localStorage.removeItem('navigateToEnquirySubTab');
-      
-      const found = displayEnquiries.find(e => String(e.ID) === navEnquiryId);
-      if (found) {
-        // Select the enquiry
-        setSelectedEnquiry(found);
-        if (navSubTab === 'Pitch') {
-          setActiveSubTab('Pitch');
-          return;
-        }
-        // If we need to navigate to a timeline item, go to Timeline sub-tab
+    const found = displayEnquiries.find(e => String(e.ID) === pendingEnquiryId);
+    if (found) {
+      setSelectedEnquiry(found);
+      if (pendingEnquirySubTab === 'Pitch') {
+        setActiveSubTab('Pitch');
+      } else {
+        setActiveSubTab('Timeline');
+        // Check for timeline item stored by App.tsx handler
+        const navTimelineItem = localStorage.getItem('navigateToTimelineItem');
         if (navTimelineItem) {
-          setActiveSubTab('Timeline');
-          // Store for EnquiryTimeline to pick up and scroll to specific item
+          localStorage.removeItem('navigateToTimelineItem');
           sessionStorage.setItem('scrollToTimelineItem', navTimelineItem);
-        } else {
-          // Default behavior: go to Timeline (Overview) sub-tab
-          setActiveSubTab('Timeline');
         }
       }
+      onPendingEnquiryHandled?.();
     }
-  }, [isActive, displayEnquiries]);
+  }, [isActive, pendingEnquiryId, pendingEnquirySubTab, displayEnquiries, onPendingEnquiryHandled]);
 
   const ensureDemoEnquiryPresent = useCallback(() => {
     const currentUserEmail = userData && userData[0] && userData[0].Email
@@ -4622,10 +4857,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       ensureDemoEnquiryPresent();
       setActiveState('Claimed');
 
-      setDemoOverlayMessage('Demo mode enabled');
-      setDemoOverlayDetails('Demo prospects are now pinned to the top of your Claimed list alongside your live items.');
-      setDemoOverlayVisible(true);
-      setTimeout(() => setDemoOverlayVisible(false), 2600);
+      setDemoOverlay({ visible: true, message: 'Demo mode enabled', details: 'Demo prospects are now pinned to the top of your Claimed list alongside your live items.' });
+      setTimeout(() => setDemoOverlay(prev => prev ? { ...prev, visible: false } : null), 2600);
     };
 
     window.addEventListener('selectTestEnquiry', handleSelectTestEnquiry);
@@ -4682,7 +4915,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     try {
       await onRefreshEnquiries();
       setLastRefreshTime(new Date());
-      setNextRefreshIn(5 * 60); // Reset to 5 minutes
+      setNextRefreshIn(60); // Reset to 60 seconds
       debugLog('✅ Refresh completed successfully');
     } catch (error) {
       console.error('❌ Failed to refresh enquiries:', error);
@@ -4698,31 +4931,30 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     handleManualRefreshRef.current = handleManualRefresh;
   }, [handleManualRefresh]);
 
-  // Auto-refresh timer (5 minutes) - uses ref to avoid interval reset on function recreation
+  // Auto-refresh timer (60 seconds) - uses ref to avoid interval reset on function recreation
   useEffect(() => {
     // Clear existing intervals
     if (refreshIntervalRef.current) clearInterval(refreshIntervalRef.current);
     if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
 
-    // Set up 5-minute auto-refresh - uses ref so interval doesn't reset when function changes
+    // Set up 60-second auto-refresh
     refreshIntervalRef.current = setInterval(() => {
       debugLog('⏰ Auto-refresh timer fired');
       if (handleManualRefreshRef.current) {
         handleManualRefreshRef.current();
       }
-    }, 5 * 60 * 1000); // 5 minutes
+    }, 60 * 1000); // 60 seconds
 
-    // Set up countdown timer (updates every 30 seconds to reduce re-renders)
-    // For a 5-minute timer, second-by-second updates are unnecessary
+    // Tick every second for smooth countdown display
     countdownIntervalRef.current = setInterval(() => {
       setNextRefreshIn(prev => {
-        const newValue = prev - 30;
+        const newValue = prev - 1;
         if (newValue <= 0) {
-          return 5 * 60; // Reset to 5 minutes
+          return 60;
         }
         return newValue;
       });
-    }, 30000); // 30 seconds - reduces re-renders from 300 to 10 per cycle
+    }, 1000);
 
     debugLog('🕐 Auto-refresh intervals initialized');
 
@@ -4732,18 +4964,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     };
   }, []); // Empty deps - only run once on mount
 
-  // Format time remaining for display
-  const formatTimeRemaining = (seconds: number): string => {
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
-    const hours = Math.floor(minutes / 60);
-    const remainingMinutes = minutes % 60;
-    
-    if (hours > 0) {
-      return `${hours}h ${remainingMinutes}m ${remainingSeconds}s`;
-    }
-    return `${remainingMinutes}m ${remainingSeconds}s`;
-  };
 
   const handleRate = useCallback((id: string) => {
     setRatingEnquiryId(id);
@@ -4864,22 +5084,14 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       }, 5000);
       
       // Show success toast
-      setToastMessage(`Area updated`);
-      setToastDetails(`Enquiry area changed to ${newArea}`);
-      setToastType('success');
-      setToastVisible(true);
-      setTimeout(() => setToastVisible(false), 3000);
+      showToast('Area updated', 'success', `Enquiry area changed to ${newArea}`);
       
   debugLog('✅ Enquiry area updated successfully:', enquiryId, 'to', newArea);
       
     } catch (error) {
       console.error('Failed to update enquiry area:', error);
       // Show error toast
-      setToastMessage(`Failed to update area`);
-      setToastDetails(error instanceof Error ? error.message : 'Unknown error');
-      setToastType('error');
-      setToastVisible(true);
-      setTimeout(() => setToastVisible(false), 5000);
+      showToast('Failed to update area', 'error', error instanceof Error ? error.message : 'Unknown error', 5000);
       throw error;
     }
   }, []);
@@ -4961,22 +5173,14 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       }, 5000);
       
       // Show success toast with real-time feedback
-      setToastMessage(`Rating updated`);
-      setToastDetails(`Enquiry rated as ${newRating}`);
-      setToastType('success');
-      setToastVisible(true);
-      setTimeout(() => setToastVisible(false), 3000);
+      showToast('Rating updated', 'success', `Enquiry rated as ${newRating}`);
       
       debugLog('✅ Enquiry rating updated successfully:', enquiryId, 'to', newRating);
       
     } catch (error) {
       console.error('Failed to update enquiry rating:', error);
       // Show error toast
-      setToastMessage(`Failed to update rating`);
-      setToastDetails(error instanceof Error ? error.message : 'Unknown error');
-      setToastType('error');
-      setToastVisible(true);
-      setTimeout(() => setToastVisible(false), 5000);
+      showToast('Failed to update rating', 'error', error instanceof Error ? error.message : 'Unknown error', 5000);
       throw error;
     }
   }, []);
@@ -5036,20 +5240,12 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       setTeamWideEnquiries(prevTeamWide => prevTeamWide.filter(e => !shouldRemoveEnquiry(e)));
 
       // Show success toast
-      setToastMessage(`Enquiry deleted`);
-      setToastDetails(`${enquiryName} has been permanently removed`);
-      setToastType('success');
-      setToastVisible(true);
-      setTimeout(() => setToastVisible(false), 3000);
+      showToast('Enquiry deleted', 'success', `${enquiryName} has been permanently removed`);
       
     } catch (error) {
       console.error('[Enquiries] Failed to delete enquiry:', error);
       // Show error toast
-      setToastMessage(`Failed to delete enquiry`);
-      setToastDetails(error instanceof Error ? error.message : 'Unknown error');
-      setToastType('error');
-      setToastVisible(true);
-      setTimeout(() => setToastVisible(false), 5000);
+      showToast('Failed to delete enquiry', 'error', error instanceof Error ? error.message : 'Unknown error', 5000);
       throw error;
     }
   }, [allEnquiries]);
@@ -5152,13 +5348,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         setDisplayEnquiries((prev) => prev.map(applyDemoSharedUpdate));
         setTeamWideEnquiries((prev) => prev.map(applyDemoSharedUpdate));
 
-        setToastMessage('Demo sharing simulated');
-        setToastDetails(nextShared
+        showToast('Demo sharing simulated', 'success', nextShared
           ? 'Shared demo prospect visible for this session (including counterpart)'
           : 'Demo shared access cleared for this session');
-        setToastType('success');
-        setToastVisible(true);
-        setTimeout(() => setToastVisible(false), 3000);
         setShareModalEnquiry(null);
         setShareModalSelectedEmails([]);
         setShareModalExternalEmails([]);
@@ -5194,21 +5386,13 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       setDisplayEnquiries((prev) => prev.map(applyResponseSharedUpdate));
       setTeamWideEnquiries((prev) => prev.map(applyResponseSharedUpdate));
 
-      setToastMessage('Sharing updated');
-      setToastDetails(nextShared ? `Shared with: ${nextShared}` : 'Removed all shared access');
-      setToastType('success');
-      setToastVisible(true);
-      setTimeout(() => setToastVisible(false), 3000);
+      showToast('Sharing updated', 'success', nextShared ? `Shared with: ${nextShared}` : 'Removed all shared access');
       setShareModalEnquiry(null);
       setShareModalSelectedEmails([]);
       setShareModalExternalEmails([]);
       setShareModalSearch('');
     } catch (error) {
-      setToastMessage('Failed to update sharing');
-      setToastDetails(error instanceof Error ? error.message : 'Unknown error');
-      setToastType('error');
-      setToastVisible(true);
-      setTimeout(() => setToastVisible(false), 5000);
+      showToast('Failed to update sharing', 'error', error instanceof Error ? error.message : 'Unknown error', 5000);
     } finally {
       setIsShareModalSaving(false);
     }
@@ -5375,7 +5559,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
           const company = normalizeSearchValue(enquiry.Company);
           const typeOfWork = normalizeSearchValue(enquiry.Type_of_Work);
           const enquiryId = normalizeSearchValue(enquiry.ID);
+          const acid = normalizeSearchValue((enquiry as any).acid ?? (enquiry as any).ACID ?? (enquiry as any).Acid ?? '');
           const phoneDigits = toDigitSearchValue(enquiry.Phone_Number);
+          const acidDigits = toDigitSearchValue((enquiry as any).acid ?? (enquiry as any).ACID ?? (enquiry as any).Acid ?? '');
 
           const searchableValues = [
             firstName,
@@ -5385,6 +5571,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
             company,
             typeOfWork,
             enquiryId,
+            acid,
           ].filter(Boolean);
 
           if (email && email === term) {
@@ -5392,6 +5579,10 @@ const Enquiries: React.FC<EnquiriesProps> = ({
           }
 
           if (numericSearchTerm.length >= 6 && phoneDigits.includes(numericSearchTerm)) {
+            return true;
+          }
+
+          if (numericSearchTerm.length >= 4 && acidDigits.includes(numericSearchTerm)) {
             return true;
           }
 
@@ -5599,8 +5790,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     queueWasPendingRef.current = false;
     clearQueueRevealTimer();
 
-    const initialLandingCount = Math.min(filteredEnquiries.length, 6);
-    const quickRevealCeiling = Math.min(filteredEnquiries.length, 60);
+    const initialLandingCount = Math.min(filteredEnquiries.length, 36);
+    const quickRevealCeiling = Math.min(filteredEnquiries.length, 120);
 
     setItemsToShow(initialLandingCount);
 
@@ -5613,21 +5804,21 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
     const revealNextChunk = () => {
       setItemsToShow((prev) => {
-        const increment = prev < 18 ? 6 : 12;
+        const increment = prev < 48 ? 24 : 32;
         const next = Math.min(prev + increment, quickRevealCeiling);
 
         if (next >= quickRevealCeiling) {
           setIsQueueRevealActive(false);
           queueRevealTimerRef.current = null;
         } else {
-          queueRevealTimerRef.current = window.setTimeout(revealNextChunk, 85);
+          queueRevealTimerRef.current = window.setTimeout(revealNextChunk, 28);
         }
 
         return next;
       });
     };
 
-    queueRevealTimerRef.current = window.setTimeout(revealNextChunk, 110);
+    queueRevealTimerRef.current = window.setTimeout(revealNextChunk, 18);
 
     return clearQueueRevealTimer;
   }, [
@@ -5866,7 +6057,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       }
       
       // Keep first paint responsive: enrich a smaller visible batch, then let later passes fill in.
-      const BATCH_LIMIT = 12;
+      const BATCH_LIMIT = showMineOnly
+        ? (isLocalhost ? 12 : 6)
+        : (isLocalhost ? 24 : 14);
       const batchToEnrich = displayedEnquiriesSnapshot.slice(0, BATCH_LIMIT);
       
       // Update UI feedback
@@ -5899,8 +6092,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       if (v2EnquiryIds.length > 0 || enquiryEmails.length > 0) {
         try {
           // Add timeout to prevent hanging
+          const enrichmentTimeoutMs = isLocalhost ? 10000 : 20000;
           const timeoutPromise = new Promise<never>((_, reject) => 
-            setTimeout(() => reject(new Error('Enrichment timeout after 10 seconds')), 10000)
+            setTimeout(() => reject(new Error(`Enrichment timeout after ${Math.round(enrichmentTimeoutMs / 1000)} seconds`)), enrichmentTimeoutMs)
           );
           
           const enrichmentPromise = fetchEnquiryEnrichment(v2EnquiryIds, enquiryEmails);
@@ -5950,7 +6144,12 @@ const Enquiries: React.FC<EnquiriesProps> = ({
           setIsEnriching(false);
           setEnrichmentProgress(null);
         } catch (error) {
-          console.error('[Enquiries] Progressive enrichment failed:', error);
+          const isTimeout = error instanceof Error && error.message.includes('Enrichment timeout');
+          if (isTimeout) {
+            console.warn('[Enquiries] Progressive enrichment timed out; continuing without enrichment for this batch');
+          } else {
+            console.error('[Enquiries] Progressive enrichment failed:', error);
+          }
           
           // Create empty enrichment records to stop spinners and clear tracking
           setEnrichmentMap(prevMap => {
@@ -6012,7 +6211,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     const eagerPrefetch = async () => {
       // Warm only the first viewport-sized slice.
       const firstBatch = displayedItems
-        .slice(0, 16)
+        .slice(0, showMineOnly ? (isLocalhost ? 16 : 8) : (isLocalhost ? 40 : 24))
         .filter((item): item is NormalizedEnquiry => 
           'ID' in item && Boolean(item.ID) && !enrichmentMap.has(String(item.ID))
         );
@@ -6066,11 +6265,11 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         requestIdleCallback: (cb: IdleRequestCallback, options?: IdleRequestOptions) => number;
       }).requestIdleCallback(() => {
         eagerPrefetch().catch(() => { /* ignore */ });
-      }, { timeout: 900 });
+      }, { timeout: isLocalhost ? 900 : 1800 });
     } else {
       timeoutId = globalThis.setTimeout(() => {
         eagerPrefetch().catch(() => { /* ignore */ });
-      }, 180);
+      }, isLocalhost ? 180 : 600);
     }
 
     return () => {
@@ -6083,7 +6282,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         }).cancelIdleCallback(idleId);
       }
     };
-  }, [displayedItems.length > 0]); // Only trigger when items first appear
+  }, [displayedItems.length > 0, showMineOnly]); // Only trigger when items first appear
 
   // Reset eager prefetch when filters/view changes significantly
   useEffect(() => {
@@ -6094,7 +6293,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   useEffect(() => {
     const observerOptions = {
       root: null, // viewport
-      rootMargin: '240px',
+      rootMargin: showMineOnly ? '240px' : '480px',
       threshold: 0.01, // Trigger as soon as 1% is visible
     };
 
@@ -6112,7 +6311,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     rows.forEach(row => observer.observe(row));
 
     return () => observer.disconnect();
-  }, [displayedItems.length, handleEnquiryVisibilityChange]); // Re-observe when items change
+  }, [displayedItems.length, handleEnquiryVisibilityChange, showMineOnly]); // Re-observe when items change
 
   // Bulk fetch pitch data when Triaged filter is active (needs all emails, not just displayed)
   const triagedBulkFetchRef = useRef<boolean>(false);
@@ -6791,7 +6990,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   }, []);
 
   // Global Navigator: list vs detail
-  useEffect(() => {
+  useLayoutEffect(() => {
     // Add CSS animation for spinning refresh icon
     if (typeof document !== 'undefined' && !document.getElementById('refreshSpinAnimation')) {
       const style = document.createElement('style');
@@ -6814,6 +7013,12 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       document.head.appendChild(style);
     }
 
+    if (!isActive) {
+      // Don't write null — the newly-active tab will overwrite.
+      // Writing null here races with the other tab's setContent.
+      return;
+    }
+
     // List mode: filter/search bar in Navigator (like Matters list state)
     if (!selectedEnquiry) {
       debugLog('🔄 Setting new FilterBanner content for Enquiries');
@@ -6830,62 +7035,63 @@ const Enquiries: React.FC<EnquiriesProps> = ({
               showMineOnly={showMineOnly}
               scopeCounts={scopeCounts}
               isAdmin={isAdmin}
+              isBusy={isLoadingAllData || isRealtimeQueueSyncing || manualFilterTransitioning}
               onSetActiveState={handleSetActiveState}
               onSetShowMineOnly={setShowMineOnly}
             />
           }
           secondaryFilter={(
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <div className="enq-filter-secondary-cluster" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'nowrap', minWidth: 0, overflow: 'hidden' }}>
               {userData && userData[0]?.AOW && (
                 <IconAreaFilter
                   selectedAreas={selectedAreas}
                   availableAreas={ALL_AREAS_OF_WORK}
                   onAreaChange={handleManualAreaChange}
                   ariaLabel="Filter enquiries by area of work"
+                  variant="glyph"
                 />
-              )}
-              {/* People Search button (local dev only — not ready for production) */}
-              {isLocalhost && (
-                <button
-                  type="button"
-                  className="enq-action-btn"
-                  title="Search people across all records"
-                  aria-label="Search people"
-                  onClick={() => setIsPeopleSearchOpen(true)}
-                >
-                  <Icon iconName="Search" style={{ fontSize: 12 }} />
-                  <span>Find Person</span>
-                </button>
               )}
             </div>
           )}
           search={{
             value: debouncedSearchTerm,
             onChange: handleSearchChange,
-            placeholder: "Search (name, email, company, type, ID)",
+            placeholder: "Name, email, ACID, company",
             debounceMs: 250,
           }}
+          searchPlacement="filters"
           middleActions={undefined}
           rightActions={
-            <button
-              type="button"
-              className="enq-add-contact-btn"
-              title="Add new contact/enquiry"
-              aria-label="Add new contact"
-              onClick={() => setIsCreateContactModalOpen(true)}
-            >
-              <Icon iconName="AddFriend" style={{ fontSize: 14 }} />
-              <span className="enq-add-contact-label">Add Contact</span>
-            </button>
+            <>
+              {isLocalhost && (
+                <button
+                  type="button"
+                  className="enq-add-contact-btn"
+                  title="Search people across all records"
+                  aria-label="Search people"
+                  onClick={() => setIsPeopleSearchOpen(true)}
+                >
+                  <Icon iconName="Search" style={{ fontSize: 14 }} />
+                  <span className="enq-add-contact-label">Find Person</span>
+                </button>
+              )}
+              <button
+                type="button"
+                className="enq-add-contact-btn"
+                title="Add new contact/enquiry"
+                aria-label="Add new contact"
+                onClick={() => setIsCreateContactModalOpen(true)}
+              >
+                <Icon iconName="AddFriend" style={{ fontSize: 14 }} />
+                <span className="enq-add-contact-label">Add Contact</span>
+              </button>
+            </>
           }
           refresh={{
             onRefresh: handleManualRefresh,
-            isLoading: isRefreshing || isRealtimeQueueSyncing,
-            statusLabel: !isRefreshing && !isRealtimeQueueSyncing
-              ? (sseConnected ? 'Live' : 'Reconnecting')
-              : undefined,
-            nextUpdateTime: undefined,
-            progressPercentage: undefined,
+            isLoading: isRefreshing || isRealtimeQueueSyncing || isLoadingAllData || enquiriesLiveRefreshInFlight,
+            progressPercentage: Math.round((nextRefreshIn / 60) * 100),
+            countdownLabel: `0:${nextRefreshIn < 10 ? '0' : ''}${nextRefreshIn}`,
           }}
         >
           {selectedPersonInitials && (
@@ -6930,7 +7136,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         />,
       );
     }
-    return () => setContent(null);
   }, [
     setContent,
     isDarkMode,
@@ -6947,15 +7152,23 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     handleSetActiveState,
     handleManualAreaChange,
     isLocalhost,
+    isLoadingAllData,
+    isRealtimeQueueSyncing,
     isRefreshing,
-    nextRefreshIn,
-    formatTimeRemaining,
     handleManualRefresh,
+    nextRefreshIn,
+    manualFilterTransitioning,
     selectedPersonInitials,
+    isActive,
+    enquiriesLiveRefreshInFlight,
   ]);
 
+  useEffect(() => () => {
+    setContent(null);
+  }, [setContent]);
+
   // ─── Prop bundles for <ProspectTableRow /> ──────────────────
-  const rowPipelineHandlers: RowPipelineHandlers = {
+  const rowPipelineHandlers: RowPipelineHandlers = useMemo(() => ({
     showPipelineHover,
     movePipelineHover,
     hidePipelineHover,
@@ -6966,8 +7179,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     renderClaimPromptChip,
     getAreaSpecificChannelUrl,
     getScenarioColor,
-  };
-  const rowActionHandlers: RowActionHandlers = {
+  }), [showPipelineHover, movePipelineHover, hidePipelineHover, openEnquiryWorkbench, advancePipelineScroll, getPipelineScrollOffset, handleReassignClick, renderClaimPromptChip, getAreaSpecificChannelUrl, getScenarioColor]);
+  const rowActionHandlers: RowActionHandlers = useMemo(() => ({
     handleSelectEnquiry,
     handleRate,
     handleDeleteEnquiry,
@@ -6976,8 +7189,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     setEditingEnquiry,
     setShowEditModal,
     setExpandedNotesInTable,
-  };
-  const rowDisplayState: RowDisplayState = {
+  }), [handleSelectEnquiry, handleRate, handleDeleteEnquiry, handleShareEnquiry, handleCopyName, setEditingEnquiry, setShowEditModal, setExpandedNotesInTable]);
+  const rowDisplayState: RowDisplayState = useMemo(() => ({
     isDarkMode,
     activeState,
     viewMode,
@@ -6992,20 +7205,21 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     visiblePipelineChipCount,
     PIPELINE_CHIP_MIN_WIDTH_PX,
     collapsedDays,
-  };
+    currentUserEmail: userEmail,
+  }), [isDarkMode, activeState, viewMode, areActionsEnabled, copiedNameKey, expandedNotesInTable, hoveredRowKey, hoveredDayKey, hoveredRowKeyReady, hoveredDayKeyReady, pipelineNeedsCarousel, visiblePipelineChipCount, PIPELINE_CHIP_MIN_WIDTH_PX, collapsedDays, userEmail]);
   const rowHoverHandlers: RowHoverHandlers = {
     setHoveredRowKey,
     setHoveredDayKey,
     toggleDayCollapse,
   };
-  const rowDataDeps: RowDataDeps = {
+  const rowDataDeps: RowDataDeps = useMemo(() => ({
     claimerMap,
     enrichmentMap,
     getEnquiryWorkbenchItem,
     isUnclaimedPoc,
     getRatingChipMeta,
     combineDateAndTime,
-  };
+  }), [claimerMap, enrichmentMap, getEnquiryWorkbenchItem, isUnclaimedPoc, getRatingChipMeta, combineDateAndTime]);
 
   const shouldShowBlockingProspectsOverlay = enquiries === null;
   const isAwaitingQueueDataset = (
@@ -7021,115 +7235,117 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const prospectsLoadingLabel = enquiries === null
     ? 'Loading prospects…'
     : isRealtimeQueueSyncing
-      ? 'Pulling latest enquiries…'
+      ? 'Applying latest updates…'
       : isAwaitingQueueDataset
-        ? (showMineOnly && activeState !== 'Claimed' ? 'Loading your live queue…' : 'Loading all prospects…')
+        ? (showMineOnly && activeState !== 'Claimed' ? 'Preparing your queue…' : 'Loading all prospects…')
         : isLoadingAllData
           ? 'Loading all prospects…'
           : 'Updating view...';
 
   const renderQueueLoadingSkeleton = (variant: 'blocking' | 'inline') => {
-    const rowCount = variant === 'blocking' ? 6 : 5;
-    const containerWidth = variant === 'blocking' ? 'min(1080px, calc(100vw - 48px))' : '100%';
+    const rowCount = variant === 'blocking' ? 8 : 6;
+    const skeletonBase = isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(6,23,51,0.04)';
+    const skeletonStrong = isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(6,23,51,0.08)';
+    const shimmerTone = isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(6,23,51,0.06)';
+    const lineColor = isDarkMode ? 'rgba(135,243,243,0.25)' : 'rgba(54,144,206,0.18)';
+    const rowBorderColor = isDarkMode ? 'rgba(75, 85, 99, 0.18)' : 'rgba(0, 0, 0, 0.05)';
+    // Match the real grid: Timeline | Date | ID/Value | Contact | Pipeline | Actions
+    const skeletonGridColumns = `clamp(16px, 3vw, 28px) minmax(clamp(28px, 5vw, 64px), 0.5fr) minmax(clamp(56px, 9vw, 112px), 0.95fr) minmax(clamp(50px, 10vw, 160px), 1.3fr) minmax(clamp(60px, 15vw, 260px), 3.1fr) clamp(32px, 4vw, 56px)`;
+
+    const sBlock = (w: number | string, h: number, delay: number, strong?: boolean): React.CSSProperties => ({
+      width: w,
+      height: h,
+      background: `linear-gradient(90deg, ${strong ? skeletonStrong : skeletonBase} 0%, ${shimmerTone} 50%, ${strong ? skeletonStrong : skeletonBase} 100%)`,
+      backgroundSize: '220% 100%',
+      animation: `enq-skeleton-breathe 2.4s ease-in-out infinite`,
+      animationDelay: `${delay}s`,
+    });
+
+    // Vary widths per row so skeletons look organic, not stamped
+    const nameWidths = ['72%', '58%', '65%', '80%', '52%', '70%', '62%', '48%'];
+    const idWidths = [48, 42, 52, 38, 46, 50, 40, 44];
+    const chipCounts = [3, 2, 4, 2, 3, 1, 3, 2];
 
     return (
       <div style={{
-        width: containerWidth,
-        maxWidth: '100%',
+        width: '100%',
         display: 'flex',
         flexDirection: 'column',
-        gap: 10,
-        padding: variant === 'blocking' ? '18px 18px 16px' : '0',
-        border: variant === 'blocking'
-          ? `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.55)' : 'rgba(54, 144, 206, 0.12)'}`
-          : 'none',
-        background: variant === 'blocking'
-          ? (isDarkMode ? 'rgba(8, 28, 48, 0.96)' : 'rgba(255, 255, 255, 0.9)')
-          : 'transparent',
-        boxShadow: variant === 'blocking'
-          ? (isDarkMode ? '0 18px 36px rgba(0, 0, 0, 0.45)' : '0 18px 36px rgba(6, 23, 51, 0.12)')
-          : 'none',
-        backdropFilter: variant === 'blocking' ? 'blur(12px)' : 'none',
+        padding: variant === 'blocking' ? '0 16px' : '0',
       }}>
+        {/* Skeleton header — mirrors the real sticky header */}
         <div style={{
-          display: 'flex',
+          display: 'grid',
+          gridTemplateColumns: skeletonGridColumns,
+          gap: 8,
+          padding: '0 16px',
+          height: 44,
           alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 12,
-          padding: variant === 'blocking' ? '0 2px 4px' : '0 0 6px',
+          background: isDarkMode ? colours.darkBlue : colours.light.cardBackground,
+          borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)'}`,
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{
-              width: 8,
-              height: 8,
-              borderRadius: '50%',
-              background: isDarkMode ? colours.accent : colours.highlight,
-              boxShadow: `0 0 0 4px ${isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(54, 144, 206, 0.12)'}`,
-              animation: 'pipeline-action-pulse 1s ease-in-out infinite',
-            }} />
-            <div style={{
-              fontSize: 11,
-              fontWeight: 700,
-              letterSpacing: '0.08em',
-              textTransform: 'uppercase',
-              color: isDarkMode ? colours.accent : colours.highlight,
-            }}>
-              Live Queue
-            </div>
-          </div>
-          <div style={{
-            fontSize: 11,
-            color: isDarkMode ? '#d1d5db' : '#374151',
-            fontWeight: 500,
-          }}>
-            Rows land as they arrive
-          </div>
+          <div style={sBlock(12, 12, 0)} />
+          <div style={sBlock(32, 8, 0.05)} />
+          <div style={sBlock(28, 8, 0.1)} />
+          <div style={sBlock(44, 8, 0.15)} />
+          <div style={sBlock(48, 8, 0.2)} />
+          <div />
         </div>
 
+        {/* Skeleton rows — same grid, padding, height as real prospect-row */}
         {Array.from({ length: rowCount }, (_, idx) => {
-          const isLeadingRow = idx === 0;
-          const rowOpacity = isLeadingRow ? 1 : 0.72 - (idx * 0.08);
-          const animationDelay = `${idx * 0.07}s`;
-
+          const isLastInGroup = idx === 2 || idx === 5;
+          const rowDelay = idx * 0.06;
           return (
             <div
-              key={`${variant}-queue-skeleton-${idx}`}
+              key={`${variant}-skel-${idx}`}
               style={{
                 display: 'grid',
-                gridTemplateColumns: '84px 88px minmax(0, 1.2fr) minmax(0, 1fr) 110px',
-                gap: 12,
+                gridTemplateColumns: skeletonGridColumns,
+                gap: 'clamp(4px, 0.8vw, 8px)',
+                padding: 'clamp(6px, 0.8vw, 8px) clamp(8px, 1.2vw, 14px)',
                 alignItems: 'center',
-                minHeight: 62,
-                padding: '12px 14px',
-                border: `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.38)' : 'rgba(54, 144, 206, 0.10)'}`,
-                background: isDarkMode ? 'rgba(10, 28, 50, 0.95)' : 'rgba(244, 244, 246, 0.7)',
-                opacity: Math.max(0.28, rowOpacity),
-                animation: 'fadeIn 0.24s ease both',
-                animationDelay,
+                borderBottom: isLastInGroup
+                  ? `1px solid ${isDarkMode ? 'rgba(75,85,99,0.35)' : 'rgba(0,0,0,0.09)'}`
+                  : `0.5px solid ${rowBorderColor}`,
+                opacity: Math.max(0.4, 1 - idx * 0.08),
+                animation: 'fadeIn 0.2s ease both',
+                animationDelay: `${rowDelay}s`,
               }}
             >
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <div style={{ height: 10, width: isLeadingRow ? 60 : 52, background: isDarkMode ? 'rgba(255,255,255,0.14)' : 'rgba(6,23,51,0.08)' }} />
-                <div style={{ height: 8, width: isLeadingRow ? 44 : 36, background: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(6,23,51,0.05)' }} />
+              {/* Col 1: Timeline line */}
+              <div style={{ display: 'flex', justifyContent: 'center', height: '100%', minHeight: 36 }}>
+                <div style={{ width: 1, height: '100%', background: lineColor, opacity: 0.7 + (idx % 3) * 0.1 }} />
               </div>
-              <div style={{ height: 22, width: isLeadingRow ? 72 : 66, background: isDarkMode ? 'rgba(135,243,243,0.12)' : 'rgba(54,144,206,0.10)', border: `1px solid ${isDarkMode ? 'rgba(135,243,243,0.22)' : 'rgba(54,144,206,0.16)'}` }} />
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 7, minWidth: 0 }}>
-                <div style={{ height: 11, width: isLeadingRow ? '62%' : '54%', background: isDarkMode ? 'rgba(255,255,255,0.16)' : 'rgba(6,23,51,0.10)' }} />
-                <div style={{ height: 8, width: isLeadingRow ? '40%' : '32%', background: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(6,23,51,0.05)' }} />
+
+              {/* Col 2: Date (stacked day + time) */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3, justifyContent: 'center' }}>
+                <div style={sBlock(idx % 2 === 0 ? 28 : 24, 11, rowDelay + 0.04, true)} />
+                <div style={sBlock(idx % 2 === 0 ? 32 : 26, 9, rowDelay + 0.08)} />
               </div>
-              <div style={{ display: 'flex', gap: 6, minWidth: 0 }}>
-                {Array.from({ length: 4 }, (_, chipIdx) => (
-                  <div key={chipIdx} style={{
-                    flex: chipIdx === 0 ? '0 0 54px' : '0 0 34px',
-                    height: 18,
-                    background: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(6,23,51,0.05)',
-                    border: `1px solid ${isDarkMode ? 'rgba(160,160,160,0.16)' : 'rgba(160,160,160,0.12)'}`,
-                  }} />
+
+              {/* Col 3: ID + AoW icon */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{ ...sBlock(14, 14, rowDelay + 0.06), borderRadius: '50%' }} />
+                <div style={sBlock(idWidths[idx % idWidths.length], 10, rowDelay + 0.1)} />
+              </div>
+
+              {/* Col 4: Contact name */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
+                <div style={sBlock(nameWidths[idx % nameWidths.length], 13, rowDelay + 0.12, true)} />
+                {idx % 3 === 0 && <div style={sBlock('40%', 9, rowDelay + 0.16)} />}
+              </div>
+
+              {/* Col 5: Pipeline chips */}
+              <div style={{ display: 'flex', gap: 6, minWidth: 0, overflow: 'hidden' }}>
+                {Array.from({ length: chipCounts[idx % chipCounts.length] }, (_, ci) => (
+                  <div key={ci} style={sBlock(ci === 0 ? 52 : 34, 18, rowDelay + 0.14 + ci * 0.04)} />
                 ))}
               </div>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-                <div style={{ width: 56, height: 22, background: isDarkMode ? 'rgba(32,178,108,0.10)' : 'rgba(32,178,108,0.08)', border: `1px solid ${isDarkMode ? 'rgba(32,178,108,0.18)' : 'rgba(32,178,108,0.14)'}` }} />
-                <div style={{ width: 28, height: 22, background: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(6,23,51,0.05)' }} />
+
+              {/* Col 6: Actions placeholder */}
+              <div style={{ display: 'flex', justifyContent: 'center' }}>
+                <div style={sBlock(20, 20, rowDelay + 0.2)} />
               </div>
             </div>
           );
@@ -7142,11 +7358,11 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     <div className={containerStyle(isDarkMode)}>
       {/* Toast Notification - Using OperationStatusToast for real-time feedback */}
       <OperationStatusToast
-        visible={toastVisible}
-        message={toastMessage}
-        details={toastDetails}
-        type={toastType}
-        icon={toastType === 'success' ? 'CheckMark' : undefined}
+        visible={toast?.visible ?? false}
+        message={toast?.message || ''}
+        details={toast?.details || ''}
+        type={toast?.type || 'success'}
+        icon={toast?.type === 'success' ? 'CheckMark' : undefined}
       />
 
       {/* SSE disconnect indicator */}
@@ -7182,7 +7398,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         </div>
       )}
 
-      {demoOverlayVisible && (
+      {demoOverlay?.visible && (
         <div style={{
           position: 'absolute',
           top: 0,
@@ -7214,22 +7430,22 @@ const Enquiries: React.FC<EnquiriesProps> = ({
               color: isDarkMode ? colours.dark.text : colours.darkBlue,
               fontFamily: 'Raleway, sans-serif',
             }}>
-              {demoOverlayMessage}
+              {demoOverlay.message}
             </div>
-            {demoOverlayDetails && (
+            {demoOverlay.details && (
               <div style={{
                 fontSize: 11,
                 color: isDarkMode ? colours.subtleGrey : colours.greyText,
                 fontFamily: 'Raleway, sans-serif',
               }}>
-                {demoOverlayDetails}
+                {demoOverlay.details}
               </div>
             )}
           </div>
         </div>
       )}
 
-      {/* Blocking overlay only for first load; later transitions should stay interactive. */}
+      {/* Blocking overlay for first load — subtle backdrop with in-place skeletons */}
       {shouldShowBlockingProspectsOverlay && (
         <div style={{
           position: 'fixed',
@@ -7237,15 +7453,18 @@ const Enquiries: React.FC<EnquiriesProps> = ({
           left: 0,
           right: 0,
           bottom: 0,
-          backgroundColor: isDarkMode ? 'rgba(0, 3, 25, 0.6)' : 'rgba(255, 255, 255, 0.45)',
-          backdropFilter: 'blur(2px)',
+          backgroundColor: isDarkMode ? 'rgba(0, 3, 25, 0.45)' : 'rgba(255, 255, 255, 0.35)',
+          backdropFilter: 'blur(1px)',
           zIndex: 100,
           display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
+          flexDirection: 'column',
+          justifyContent: 'flex-start',
+          paddingTop: 120,
           pointerEvents: 'none',
         }}>
-          {renderQueueLoadingSkeleton('blocking')}
+          <div style={{ maxWidth: 1200, width: '100%', margin: '0 auto' }}>
+            {renderQueueLoadingSkeleton('blocking')}
+          </div>
         </div>
       )}
 
@@ -7312,6 +7531,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                     />
                   ) : isAwaitingQueueDataset ? (
                     renderQueueLoadingSkeleton('inline')
+                  ) : filteredEnquiries.length === 0 && (enquiriesLiveRefreshInFlight || enquiriesUsingSnapshot) && !hasActiveUserFilters ? (
+                    /* Still awaiting first live data — show skeleton, not empty state */
+                    renderQueueLoadingSkeleton('inline')
                   ) :filteredEnquiries.length === 0 ? (
                     <EmptyState
                       title={
@@ -7349,7 +7571,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               onClick: () => {
                                 setEnquiryPipelineFilters(new Map());
                                 setSelectedPocFilter(null);
-                                setSearchInputValue('');
                                 if (searchTimeoutRef.current) {
                                   clearTimeout(searchTimeoutRef.current);
                                 }
@@ -7367,17 +7588,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
             ) : (
               <>
-                {/* Global pipeline animations - defined once for all rows */}
-                <style>{`
-                  @keyframes pipeline-cascade {
-                    0% { opacity: 0; transform: translateY(-6px) scale(0.9); }
-                    100% { opacity: 1; transform: translateY(0) scale(1); }
-                  }
-                  @keyframes pipeline-action-pulse {
-                    0%, 100% { opacity: 0.45; transform: scale(0.9); }
-                    50% { opacity: 1; transform: scale(1); }
-                  }
-                `}</style>
+                {/* pipeline-cascade + pipeline-action-pulse keyframes moved to pipelineCarouselStyle (globally injected) */}
 
                 {/* Subtle enrichment progress indicator */}
                 {isEnriching && enrichmentProgress && (
@@ -7414,18 +7625,23 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                 {/* Table View */}
                   <div 
                     ref={scrollContainerRef}
+                    className="prospect-table-scroll"
                     style={{
-                        backgroundColor: isDarkMode ? colours.dark.background : colours.light.background,
+                      backgroundColor: isDarkMode ? colours.dark.background : colours.light.background,
                       overflowY: 'auto',
-                      overflowX: 'hidden',
+                      overflowX: 'auto',
                       fontFamily: 'Raleway, "Segoe UI", sans-serif',
                       display: 'flex',
                       flexDirection: 'column',
                       flex: 1,
                       minHeight: 0,
+                      transition: 'opacity 180ms ease, transform 180ms ease',
+                      opacity: manualFilterTransitioning ? 0.88 : 1,
+                      transform: manualFilterTransitioning ? 'translateY(2px)' : 'translateY(0)',
                     }}
                   >
                     <div 
+                      className="prospect-table-header"
                       style={{
                         position: 'sticky',
                         top: 0,
@@ -7433,7 +7649,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                         display: 'grid',
                         gridTemplateColumns: TABLE_GRID_TEMPLATE_COLUMNS,
                         gap: `${TABLE_GRID_GAP_PX}px`,
-                        padding: '0 16px',
+                        padding: '0 14px',
                         height: 44,
                         boxSizing: 'border-box',
                         alignItems: 'center',
@@ -7446,8 +7662,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                         borderBottom: `1px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)'}`,
                         fontFamily: 'Raleway, "Segoe UI", sans-serif',
                         fontSize: '11px',
-                        fontWeight: 600,
-                        color: isDarkMode ? colours.dark.text : colours.highlight,
+                        fontWeight: 500,
+                        color: headerTextColor,
                         textTransform: 'uppercase',
                         letterSpacing: '0.5px',
                         boxShadow: isDarkMode 
@@ -7455,7 +7671,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                           : '0 2px 8px rgba(0, 0, 0, 0.08)',
                       }}
                     >
-                      {/* Timeline header cell */}
+                      {/* Timeline header cell — matches the 1px vertical line in rows */}
                       <div
                         style={{
                           display: 'flex',
@@ -7464,16 +7680,13 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                         }}
                         title="Timeline"
                       >
-                        <Icon
-                          iconName="TimelineProgress"
-                          styles={{
-                            root: {
-                              fontSize: 12,
-                              color: isDarkMode ? colours.accent : colours.highlight,
-                              opacity: 0.7,
-                            },
-                          }}
-                        />
+                        <div style={{
+                          width: 1,
+                          height: 14,
+                          background: isDarkMode ? colours.accent : colours.highlight,
+                          opacity: 0.45,
+                          borderRadius: 0,
+                        }} />
                       </div>
                       <div 
                         onClick={() => {
@@ -7485,11 +7698,11 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                           }
                         }}
                         style={{ 
-                          paddingLeft: '0px', 
                           cursor: 'pointer',
                           display: 'flex',
                           alignItems: 'center',
-                          gap: '4px',
+                          gap: 6,
+                          paddingInline: 2,
                           transition: 'color 0.15s ease',
                           color: sortColumn === 'date' 
                             ? (isDarkMode ? colours.highlight : colours.highlight)
@@ -7503,7 +7716,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                           styles={{ 
                             root: { 
                               fontSize: 8,
-                              marginLeft: 4,
                               opacity: sortColumn === 'date' ? 1 : 0.35,
                               color: sortColumn === 'date' 
                                 ? (isDarkMode ? colours.highlight : colours.highlight)
@@ -7512,29 +7724,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                             },
                           }}
                         />
-                      </div>
-                      <div 
-                        onClick={() => {
-                          if (sortColumn === 'aow') {
-                            setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
-                          } else {
-                            setSortColumn('aow');
-                            setSortDirection('asc');
-                          }
-                        }}
-                        style={{ 
-                          display: 'flex', 
-                          justifyContent: 'center', 
-                          alignItems: 'center',
-                          cursor: 'pointer',
-                          transition: 'color 0.15s ease',
-                          color: sortColumn === 'aow' 
-                            ? (isDarkMode ? colours.highlight : colours.highlight)
-                            : undefined,
-                        }}
-                        title="Sort by area of work"
-                      >
-                        AOW
                       </div>
                       {/* ID header (sortable) */}
                       <div 
@@ -7549,30 +7738,46 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                         style={{ 
                           display: 'flex',
                           alignItems: 'center',
-                          gap: '4px',
+                          gap: 6,
                           cursor: 'pointer',
+                          whiteSpace: 'nowrap',
                           transition: 'color 0.15s ease',
+                          paddingInline: 2,
                           color: sortColumn === 'id' 
                             ? (isDarkMode ? colours.highlight : colours.highlight)
                             : undefined,
                         }}
                         title="Sort by ID"
                       >
-                        ID / VALUE
-                        <Icon 
-                          iconName={sortColumn === 'id' ? (sortDirection === 'asc' ? 'ChevronUpSmall' : 'ChevronDownSmall') : 'ChevronDownSmall'} 
-                          styles={{ 
-                            root: { 
-                              fontSize: 8,
-                              marginLeft: 2,
-                              opacity: sortColumn === 'id' ? 1 : 0.35,
-                              color: sortColumn === 'id' 
-                                ? (isDarkMode ? colours.highlight : colours.highlight)
-                                : (isDarkMode ? `${colours.subtleGrey}80` : `${colours.greyText}80`),
-                              transition: 'opacity 0.15s ease',
-                            },
-                          }}
-                        />
+                        <span style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          width: 17,
+                          minWidth: 17,
+                          flexShrink: 0,
+                          fontSize: 11,
+                          fontWeight: 600,
+                          color: isDarkMode ? colours.accent : colours.highlight,
+                          opacity: 0.5,
+                          lineHeight: 1,
+                        }}>#</span>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          ID
+                          <Icon 
+                            iconName={sortColumn === 'id' ? (sortDirection === 'asc' ? 'ChevronUpSmall' : 'ChevronDownSmall') : 'ChevronDownSmall'} 
+                            styles={{ 
+                              root: { 
+                                fontSize: 8,
+                                opacity: sortColumn === 'id' ? 1 : 0.35,
+                                color: sortColumn === 'id' 
+                                  ? (isDarkMode ? colours.highlight : colours.highlight)
+                                  : (isDarkMode ? `${colours.subtleGrey}80` : `${colours.greyText}80`),
+                                transition: 'opacity 0.15s ease',
+                              },
+                            }}
+                          />
+                        </span>
                       </div>
                       <div 
                         onClick={() => {
@@ -7587,7 +7792,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                           cursor: 'pointer',
                           display: 'flex',
                           alignItems: 'center',
-                          gap: '4px',
+                          gap: 6,
+                          paddingInline: 2,
                           transition: 'color 0.15s ease',
                           color: sortColumn === 'contact' 
                             ? (isDarkMode ? colours.highlight : colours.highlight)
@@ -7603,7 +7809,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                           styles={{ 
                             root: { 
                               fontSize: 8,
-                              marginLeft: 4,
                               opacity: sortColumn === 'contact' ? 1 : 0.35,
                               color: sortColumn === 'contact' 
                                 ? (isDarkMode ? colours.highlight : colours.highlight)
@@ -7614,6 +7819,12 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                         />
                       </div>
                       {/* Pipeline header + filter buttons */}
+                      {(() => {
+                        const headerOffset = getPipelineScrollOffset('__header__');
+                        const headerVisibleEnd = headerOffset + visiblePipelineChipCount;
+                        const headerHasMore = pipelineNeedsCarousel && headerOffset < 7 - visiblePipelineChipCount;
+
+                        return (
                       <div 
                         ref={pipelineGridMeasureRef}
                         style={{ 
@@ -7629,14 +7840,14 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                           <div
                             style={{
                               display: 'grid',
-                              gridTemplateColumns: pipelineNeedsCarousel 
-                                ? `repeat(${visiblePipelineChipCount}, minmax(${PIPELINE_CHIP_MIN_WIDTH_PX}px, 1fr)) 24px`
-                                : `repeat(7, minmax(${PIPELINE_CHIP_MIN_WIDTH_PX}px, 1fr)) 24px`,
+                              gridTemplateColumns: `repeat(${pipelineNeedsCarousel ? visiblePipelineChipCount : 7}, minmax(${PIPELINE_CHIP_MIN_WIDTH_PX}px, 1fr))`,
                               columnGap: 8,
                               width: '100%',
                               height: '100%',
                               minWidth: 0,
                               alignItems: 'center',
+                              paddingRight: pipelineNeedsCarousel || enquiryPipelineFilters.size > 0 || selectedPocFilter ? 32 : 0,
+                              boxSizing: 'border-box',
                             }}
                           >
                             {/* Header carousel state */}
@@ -7652,7 +7863,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                             {/* POC - merged Teams+Claim - chip index 0: POC selector with Teams icon. */}
                             {headerIsVisible(0) && (
                               activeState === 'Claimable' ? (
-                                // In Unclaimed view, show "POC" label with box styling to match other headers
+                                // In Unclaimed view, show "POC" label matching other plain headers
                                 <div style={{
                                   display: 'flex',
                                   alignItems: 'center',
@@ -7662,15 +7873,15 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                   width: '100%',
                                   padding: '0 4px',
                                   background: 'transparent',
-                                  border: `1px solid ${isDarkMode ? `${colours.subtleGrey}2e` : `${colours.greyText}24`}`,
+                                  border: 'none',
                                   borderRadius: 0,
                                   overflow: 'hidden',
                                   minWidth: 0,
                                 }}>
                                         <span style={{ 
                                           fontSize: 10, 
-                                          fontWeight: 600, 
-                                          color: isDarkMode ? colours.accent : colours.highlight, 
+                                          fontWeight: 500, 
+                                          color: headerTextColor, 
                                           textTransform: 'uppercase',
                                           whiteSpace: 'nowrap',
                                           overflow: 'hidden',
@@ -7678,7 +7889,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                         }}>
                                           {pipelineChipLabelMode === 'icon' ? 'POC' : 'CLAIMER'}
                                         </span>
-                                        <Icon iconName="ChevronDown" styles={{ root: { fontSize: 8, color: isDarkMode ? colours.accent : colours.highlight, opacity: 0.5, flexShrink: 0 } }} />
+                                        <Icon iconName="ChevronDown" styles={{ root: { fontSize: 8, color: headerTextColor, opacity: 0.5, flexShrink: 0 } }} />
                                 </div>
                               ) : (
                               (() => {
@@ -7693,7 +7904,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                   return teamMember?.Initials || selectedPocFilter.split('@')[0]?.slice(0, 2).toUpperCase() || 'POC';
                                 };
 
-                                const filterColor = isDarkMode ? colours.accent : colours.highlight;
+                                const filterColor = isFiltered ? colours.highlight : headerTextColor;
 
                                 if (!showMineOnly) {
                                   const pocOptions = pocOptionsMemo.options;
@@ -7720,7 +7931,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                             : 'transparent',
                                           border: isFiltered
                                             ? `1px solid ${colours.highlight}40`
-                                            : `1px solid ${isDarkMode ? `${colours.subtleGrey}2e` : `${colours.greyText}24`}`,
+                                            : 'none',
                                           borderRadius: 0,
                                           cursor: 'pointer',
                                           transition: 'all 150ms ease',
@@ -7729,7 +7940,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                           minWidth: 0,
                                         }}
                                       >
-                                        <span style={{ fontSize: 10, fontWeight: 600, color: filterColor, textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
+                                        <span style={{ fontSize: 10, fontWeight: 500, color: filterColor, textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
                                                 {pipelineChipLabelMode === 'icon' ? 'POC' : 'CLAIMER'}
                                               </span>
                                         <Icon iconName="ChevronDown" styles={{ root: { fontSize: 8, color: filterColor, flexShrink: 0 } }} />
@@ -7831,7 +8042,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                   const mineIsFiltered = isFilteredToMe;
                                   const mineFilterColor = mineIsFiltered
                                     ? colours.highlight
-                                    : (isDarkMode ? colours.accent : colours.highlight);
+                                    : headerTextColor;
 
                                   return (
                                     <button
@@ -7857,7 +8068,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                           : 'transparent',
                                         border: mineIsFiltered
                                           ? `1px solid ${colours.highlight}40`
-                                          : `1px solid ${isDarkMode ? `${colours.subtleGrey}2e` : `${colours.greyText}24`}`,
+                                          : 'none',
                                         borderRadius: 0,
                                         cursor: 'pointer',
                                         transition: 'all 150ms ease',
@@ -7866,7 +8077,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                         minWidth: 0,
                                       }}
                                     >
-                                      <span style={{ fontSize: 10, fontWeight: 600, color: mineFilterColor, textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
+                                      <span style={{ fontSize: 10, fontWeight: 500, color: mineFilterColor, textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
                                         {pipelineChipLabelMode === 'icon' ? 'POC' : 'CLAIMER'}
                                       </span>
                                     </button>
@@ -7882,7 +8093,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               const filterState = getEnquiryStageFilterState('pitched');
                               const hasFilter = filterState !== null;
                               const getFilterColor = () => {
-                                if (!filterState) return isDarkMode ? colours.accent : colours.highlight;
+                                if (!filterState) return headerTextColor;
                                 if (filterState === 'yes') return colours.green;
                                 if (filterState === 'no') return colours.cta;
                                 return colours.highlight;
@@ -7914,7 +8125,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                       : 'transparent',
                                     border: hasFilter
                                       ? `1px solid ${filterColor}40`
-                                      : `1px solid ${isDarkMode ? `${colours.subtleGrey}2e` : `${colours.greyText}24`}`,
+                                      : 'none',
                                     borderRadius: 0,
                                     cursor: 'pointer',
                                     transition: 'all 150ms ease',
@@ -7923,7 +8134,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                     minWidth: 0,
                                   }}
                                 >
-                                    <span style={{ fontSize: 10, fontWeight: 600, color: filterColor, textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>PITCH</span>
+                                    <span style={{ fontSize: 10, fontWeight: 500, color: filterColor, textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>PITCH</span>
                                   {hasFilter && (
                                     <span style={{
                                       width: 6, height: 6, borderRadius: '50%',
@@ -7948,7 +8159,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               const filterState = getEnquiryStageFilterState(stage);
                               const hasFilter = filterState !== null;
                               const filterColor = !filterState
-                                ? (isDarkMode ? colours.accent : colours.highlight)
+                                ? headerTextColor
                                 : (filterState === 'yes' ? colours.green : colours.cta);
                               const stateLabel = filterState === 'yes' ? `Has ${label.toLowerCase()}` : filterState === 'no' ? `No ${label.toLowerCase()}` : null;
                               const nextState = !filterState ? 'has' : filterState === 'yes' ? 'missing' : 'clear filter';
@@ -7979,7 +8190,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                       : 'transparent',
                                     border: hasFilter
                                       ? `1px solid ${filterColor}40`
-                                      : `1px solid ${isDarkMode ? `${colours.subtleGrey}2e` : `${colours.greyText}24`}`,
+                                      : 'none',
                                     borderRadius: 0,
                                     cursor: 'pointer',
                                     transition: 'all 150ms ease',
@@ -7988,7 +8199,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                     minWidth: 0,
                                   }}
                                 >
-                                  <span style={{ fontSize: 10, fontWeight: 600, color: filterColor, textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                  <span style={{ fontSize: 10, fontWeight: 500, color: filterColor, textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                     {headerDisplayLabel}
                                   </span>
                                   {hasFilter && (
@@ -8003,126 +8214,145 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               );
                             })}
 
-                            {/* Navigation chevron / Clear filters (gutter column; keeps header aligned with rows) */}
-                            {pipelineNeedsCarousel ? (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  advancePipelineScroll('__header__', 7, visiblePipelineChipCount);
-                                }}
-                                title={headerHasMore ? `View more stages (${7 - headerVisibleEnd} hidden)` : 'Back to start'}
-                                style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  width: '100%',
-                                  height: 22,
-                                  padding: 0,
-                                  border: `1px solid ${isDarkMode ? `${colours.subtleGrey}40` : `${colours.greyText}33`}`,
-                                  borderRadius: 0,
-                                  background: headerHasMore 
-                                    ? (isDarkMode ? `${colours.highlight}1f` : `${colours.highlight}14`)
-                                    : (isDarkMode ? `${colours.subtleGrey}0f` : `${colours.subtleGrey}0a`),
-                                  cursor: 'pointer',
-                                  transition: 'all 0.15s ease',
-                                  color: headerHasMore 
-                                    ? colours.blue 
-                                    : (isDarkMode ? `${colours.subtleGrey}80` : `${colours.greyText}66`),
-                                }}
-                              >
-                                <Icon 
-                                  iconName={headerHasMore ? 'ChevronRight' : 'Refresh'} 
-                                  styles={{ 
-                                    root: { 
-                                      fontSize: headerHasMore ? 12 : 10, 
-                                      color: 'inherit',
-                                      opacity: headerHasMore ? 1 : 0.7,
-                                    } 
-                                  }} 
-                                />
-                              </button>
-                            ) : (
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                              {(enquiryPipelineFilters.size > 0 || selectedPocFilter) && (
-                                <button
-                                  type="button"
-                                  title="Clear all pipeline filters"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setEnquiryPipelineFilters(new Map());
-                                    setSelectedPocFilter(null);
-                                    setPipelineScrollOffset(0);
-                                    setPipelineRemeasureKey(k => k + 1);
-                                  }}
-                                  style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    width: 18,
-                                    height: 18,
-                                    background: isDarkMode ? `${colours.cta}26` : `${colours.cta}1a`,
-                                    border: `1px solid ${isDarkMode ? `${colours.cta}66` : `${colours.cta}4d`}`,
-                                    borderRadius: '50%',
-                                    cursor: 'pointer',
-                                    transition: 'all 150ms ease',
-                                  }}
-                                  onMouseEnter={(e) => {
-                                    e.currentTarget.style.background = isDarkMode ? `${colours.cta}40` : `${colours.cta}26`;
-                                  }}
-                                  onMouseLeave={(e) => {
-                                    e.currentTarget.style.background = isDarkMode ? `${colours.cta}26` : `${colours.cta}1a`;
-                                  }}
-                                >
-                                  <Icon
-                                    iconName="Cancel"
-                                    styles={{
-                                      root: {
-                                        fontSize: 8,
-                                        color: '#D65541',
-                                      },
-                                    }}
-                                  />
-                                </button>
-                              )}
-                            </div>
-                            )}
                                 </>
                               );
                             })()}
                           </div>
+                          {pipelineNeedsCarousel ? (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                advancePipelineScroll('__header__', 7, visiblePipelineChipCount);
+                              }}
+                              title={headerHasMore ? `View more stages (${7 - headerVisibleEnd} hidden)` : 'Back to start'}
+                              style={{
+                                position: 'absolute',
+                                top: '50%',
+                                right: 0,
+                                transform: 'translateY(-50%)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                width: 24,
+                                height: 22,
+                                padding: 0,
+                                border: `1px solid ${isDarkMode ? `${colours.subtleGrey}40` : `${colours.greyText}33`}`,
+                                borderRadius: 0,
+                                background: headerHasMore
+                                  ? (isDarkMode ? `${colours.highlight}1f` : `${colours.highlight}14`)
+                                  : (isDarkMode ? `${colours.subtleGrey}0f` : `${colours.subtleGrey}0a`),
+                                cursor: 'pointer',
+                                transition: 'all 0.15s ease',
+                                color: headerHasMore
+                                  ? colours.blue
+                                  : (isDarkMode ? `${colours.subtleGrey}80` : `${colours.greyText}66`),
+                              }}
+                            >
+                              <Icon
+                                iconName={headerHasMore ? 'ChevronRight' : 'Refresh'}
+                                styles={{
+                                  root: {
+                                    fontSize: headerHasMore ? 12 : 10,
+                                    color: 'inherit',
+                                    opacity: headerHasMore ? 1 : 0.7,
+                                  }
+                                }}
+                              />
+                            </button>
+                          ) : (enquiryPipelineFilters.size > 0 || selectedPocFilter) ? (
+                            <button
+                              type="button"
+                              title="Clear all pipeline filters"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEnquiryPipelineFilters(new Map());
+                                setSelectedPocFilter(null);
+                                setPipelineScrollOffset(0);
+                                setPipelineRemeasureKey(k => k + 1);
+                              }}
+                              style={{
+                                position: 'absolute',
+                                top: '50%',
+                                right: 0,
+                                transform: 'translateY(-50%)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                width: 18,
+                                height: 18,
+                                background: isDarkMode ? `${colours.cta}26` : `${colours.cta}1a`,
+                                border: `1px solid ${isDarkMode ? `${colours.cta}66` : `${colours.cta}4d`}`,
+                                borderRadius: '50%',
+                                cursor: 'pointer',
+                                transition: 'all 150ms ease',
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.background = isDarkMode ? `${colours.cta}40` : `${colours.cta}26`;
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.background = isDarkMode ? `${colours.cta}26` : `${colours.cta}1a`;
+                              }}
+                            >
+                              <Icon
+                                iconName="Cancel"
+                                styles={{
+                                  root: {
+                                    fontSize: 8,
+                                    color: '#D65541',
+                                  },
+                                }}
+                              />
+                            </button>
+                          ) : null}
                       </div>
+                        );
+                      })()}
                       {/* Actions header - use same structure as row actions */}
                       <div style={{ 
                         display: 'flex', 
                         alignItems: 'center', 
                         justifyContent: 'flex-end', 
-                        gap: '4px',
+                        gap: '3px',
                         minWidth: 0,
                         width: '100%',
                       }}>
-                        <span>Actions</span>
+                        {areActionsEnabled && <span style={{ color: isDarkMode ? 'rgba(209, 213, 219, 0.72)' : 'rgba(55, 65, 81, 0.72)' }}>Actions</span>}
                         <button
                           type="button"
                           onClick={() => setAreActionsEnabled((prev) => !prev)}
                           title={areActionsEnabled ? 'Disable row actions to prevent edits/deletes' : 'Enable row actions to edit or delete enquiries'}
                           style={{
-                            width: 24,
-                                                height: 24,
+                            width: 22,
+                            height: 22,
                             minWidth: 22,
                             minHeight: 22,
-                            borderRadius: '999px',
-                            border: `1px solid ${areActionsEnabled ? `${colours.highlight}80` : (isDarkMode ? `${colours.subtleGrey}66` : `${colours.greyText}59`)}`,
+                            borderRadius: 0,
+                            border: `1px solid ${areActionsEnabled ? (isDarkMode ? 'rgba(135, 243, 243, 0.4)' : 'rgba(54, 144, 206, 0.3)') : (isDarkMode ? 'rgba(75, 85, 99, 0.52)' : 'rgba(160, 160, 160, 0.24)')}`,
                             background: areActionsEnabled
-                              ? (isDarkMode ? `${colours.highlight}26` : `${colours.highlight}14`)
-                              : 'transparent',
-                            color: 'inherit',
+                              ? (isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(214, 232, 255, 0.88)')
+                              : (isDarkMode ? 'rgba(8, 28, 48, 0.42)' : 'rgba(244, 244, 246, 0.74)'),
+                            color: areActionsEnabled
+                              ? (isDarkMode ? colours.accent : colours.highlight)
+                              : (isDarkMode ? 'rgba(209, 213, 219, 0.82)' : colours.greyText),
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
                             cursor: 'pointer',
-                            transition: 'all 0.2s ease',
+                            transition: 'background 0.16s ease, border-color 0.16s ease, color 0.16s ease, transform 0.16s ease',
                             padding: 0,
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.transform = 'translateY(-1px)';
+                            e.currentTarget.style.borderColor = isDarkMode ? 'rgba(135, 243, 243, 0.4)' : 'rgba(54, 144, 206, 0.3)';
+                            e.currentTarget.style.background = isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(214, 232, 255, 0.88)';
+                            e.currentTarget.style.color = isDarkMode ? colours.accent : colours.highlight;
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.transform = 'translateY(0)';
+                            e.currentTarget.style.borderColor = areActionsEnabled ? (isDarkMode ? 'rgba(135, 243, 243, 0.4)' : 'rgba(54, 144, 206, 0.3)') : (isDarkMode ? 'rgba(75, 85, 99, 0.52)' : 'rgba(160, 160, 160, 0.24)');
+                            e.currentTarget.style.background = areActionsEnabled ? (isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(214, 232, 255, 0.88)') : (isDarkMode ? 'rgba(8, 28, 48, 0.42)' : 'rgba(244, 244, 246, 0.74)');
+                            e.currentTarget.style.color = areActionsEnabled ? (isDarkMode ? colours.accent : colours.highlight) : (isDarkMode ? 'rgba(209, 213, 219, 0.82)' : colours.greyText);
                           }}
                           aria-pressed={areActionsEnabled}
                         >
@@ -8131,9 +8361,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                             styles={{
                               root: {
                                 fontSize: '11px',
-                                color: areActionsEnabled
-                                  ? (isDarkMode ? colours.accent : colours.highlight)
-                                  : (isDarkMode ? 'rgba(160, 160, 160, 0.9)' : 'rgba(107, 107, 107, 0.85)'),
+                                color: 'currentColor',
                               },
                             }}
                           />
@@ -8189,7 +8417,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                           .map(([poc, info]) => ({ poc, ...info }))
                           .sort((a, b) => b.count - a.count);
                         
-                        // Add day separator logic for grouped enquiries
                         const groupExtractDateStr = (enq: any): string =>
                           (enq?.Touchpoint_Date || enq?.datetime || enq?.claim || enq?.Date_Created || '') as string;
                         const groupToDayKey = (s: string): string => {
@@ -8199,18 +8426,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                           return d.toISOString().split('T')[0];
                         };
                         const groupThisDateStr = groupExtractDateStr(latestEnquiry as any);
-                        const groupPrevItem: any = idx > 0 ? displayedItems[idx - 1] : null;
-                        let groupPrevDateStr = '';
-                        if (groupPrevItem) {
-                          if (isGroupedEnquiry(groupPrevItem)) {
-                            groupPrevDateStr = groupExtractDateStr(groupPrevItem.enquiries[0] as any);
-                          } else {
-                            groupPrevDateStr = groupExtractDateStr(groupPrevItem as any);
-                          }
-                        }
-                        const groupShowDaySeparator = viewMode === 'table' && (idx === 0 || groupToDayKey(groupThisDateStr) !== groupToDayKey(groupPrevDateStr));
                         const thisDayKey = groupToDayKey(groupThisDateStr);
-                        const isDayCollapsed = collapsedDays.has(thisDayKey);
                         // Last-in-day: check if next displayedItem belongs to a different day
                         const groupNextItem: any = idx < displayedItems.length - 1 ? displayedItems[idx + 1] : null;
                         let groupNextDateStr = '';
@@ -8229,81 +8445,14 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                         });
                         return (
                           <React.Fragment key={item.clientKey}>
-                          {/* Day separator with timeline dot */}
-                          {groupShowDaySeparator && (
-                            <div
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                toggleDayCollapse(thisDayKey);
-                              }}
-                              onMouseEnter={() => {
-                                setHoveredDayKey(thisDayKey);
-                              }}
-                              onMouseLeave={() => {
-                                setHoveredDayKey((prev) => (prev === thisDayKey ? null : prev));
-                              }}
-                              className="prospect-day-sep"
-                              style={{ gridTemplateColumns: `32px 1fr ${ACTIONS_COLUMN_WIDTH_PX}px` }}
-                            >
-                              {/* Timeline cell with line and dot */}
-                              <div className="prospect-day-sep__timeline">
-                                {/* Vertical line - only below the dot */}
-                                <div className="prospect-day-sep__line" />
-                                {/* Timeline dot */}
-                                <div className="prospect-day-sep__dot" />
-                              </div>
-                              {/* Day label and chevron */}
-                              <div className="prospect-day-sep__label">
-                                <span className="prospect-day-sep__text">
-                                  {formatDaySeparatorLabel(thisDayKey, hoveredDayKey === thisDayKey)}
-                                </span>
-                                <span className="prospect-day-sep__count">
-                                  {dayCounts.get(thisDayKey) || 0}
-                                </span>
-                                <div className="prospect-day-sep__fade" />
-                              </div>
-
-                              {/* Chevron and collapsed eye indicator - aligned with actions column */}
-                              <div style={{ 
-                                display: 'flex', 
-                                alignItems: 'center', 
-                                justifyContent: 'flex-end',
-                                gap: 4,
-                              }}>
-                                {isDayCollapsed && (
-                                  <Icon
-                                    iconName="Hide3"
-                                    styles={{
-                                      root: {
-                                        fontSize: 12,
-                                        color: isDarkMode ? 'rgba(160, 160, 160, 0.6)' : 'rgba(107, 107, 107, 0.6)',
-                                      },
-                                    }}
-                                    title={`${dayCounts.get(thisDayKey) || 0} items hidden`}
-                                  />
-                                )}
-                                <Icon 
-                                  iconName={isDayCollapsed ? 'ChevronRight' : 'ChevronDown'} 
-                                  styles={{ 
-                                    root: { 
-                                      fontSize: 10, 
-                                      color: isDarkMode ? 'rgba(255, 255, 255, 0.45)' : 'rgba(0, 0, 0, 0.4)',
-                                    } 
-                                  }} 
-                                />
-                              </div>
-                            </div>
-                          )}
-                          {/* Skip row if day is collapsed */}
-                          {!isDayCollapsed && (
                           <div
                             data-enquiry-id={`group-${item.clientKey}`}
                             data-row-parity={idx % 2 === 0 ? 'even' : 'odd'}
                             style={{
                               gridTemplateColumns: TABLE_GRID_TEMPLATE_COLUMNS,
                               borderBottom: (groupIsLastInDay && !expandedGroupsInTable.has(item.clientKey))
-                                ? `1px solid ${isDarkMode ? 'rgba(55, 65, 81, 0.28)' : 'rgba(0, 0, 0, 0.06)'}`
-                                : 'none',
+                                ? `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.35)' : 'rgba(0, 0, 0, 0.09)'}`
+                                : `0.5px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.10)' : 'rgba(160, 160, 160, 0.08)'}`,
                             }}
                             className={`prospect-row${groupHasConverted ? ' prospect-row--converted' : ''}`}
                             onClick={(e) => {
@@ -8352,18 +8501,15 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               })()}
                             </TooltipHost>
 
-                            {/* Area of Work column - empty for groups */}
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', height: '100%' }}>
-                              {/* Hidden for grouped enquiries */}
-                            </div>
-
-                            {/* ID column - empty for group headers */}
-                            <div style={{ display: 'flex', alignItems: 'center', height: '100%' }}>
-                              {/* Empty for grouped enquiries */}
+                            {/* Merged AOW / ID column for grouped enquiries */}
+                            <div style={{ display: 'flex', alignItems: 'center', height: '100%', paddingInline: 2 }}>
+                              <span className="prospect-aow-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }} title={latestEnquiry.Area_of_Work || ''}>
+                                {renderAreaOfWorkGlyph(latestEnquiry.Area_of_Work || '', getAreaGlyphMeta(latestEnquiry.Area_of_Work || '').color, 'glyph', 17)}
+                              </span>
                             </div>
 
                             {/* Contact & Company */}
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', height: '100%' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', height: '100%', paddingInline: 2 }}>
                               <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                                 <div style={{
                                   fontSize: '9px',
@@ -8374,7 +8520,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                 }}>
                                   Prospect
                                 </div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, fontSize: '13px', color: groupHasConverted ? colours.green : (isDarkMode ? '#f3f4f6' : '#061733') }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontWeight: 600, fontSize: '13px', color: groupHasConverted ? colours.green : (isDarkMode ? '#f3f4f6' : '#061733') }}>
                                   {contactName}
                                   {groupHasConverted && (
                                     <Icon iconName="CompletedSolid" styles={{ root: { fontSize: 9, color: colours.green, opacity: 0.7 } }} />
@@ -8420,10 +8566,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               />
                             </div>
                           </div>
-                          )}
                           
                           {/* Expanded child enquiries - show ALL enquiries when expanded */}
-                          {!isDayCollapsed && expandedGroupsInTable.has(item.clientKey) && item.enquiries.map((childEnquiry: Enquiry, childIdx: number) => {
+                          {expandedGroupsInTable.has(item.clientKey) && item.enquiries.map((childEnquiry: Enquiry, childIdx: number) => {
                             const childAOW = childEnquiry.Area_of_Work || 'Unspecified';
                             const childValue = childEnquiry.Value || '';
                             const childIsV2 = (childEnquiry as any).__sourceType === 'new' || (childEnquiry as any).source === 'instructions';
@@ -8467,7 +8612,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                             const childNameCopyKey = `name-${childRowHoverKey}`;
                             const isChildNameCopied = copiedNameKey === childNameCopyKey;
                             const childRowBaseBackground = isDarkMode ? colours.dark.background : colours.sectionBackground;
-                            const childRowHoverBackground = isDarkMode ? 'rgba(54, 144, 206, 0.16)' : colours.highlightBlue;
+                            const childRowHoverBackground = isDarkMode ? 'rgba(13, 47, 96, 0.38)' : colours.highlightBlue;
                             const childMutedBorder = isDarkMode ? `${colours.dark.borderColor}8c` : 'rgba(160, 160, 160, 0.28)';
                             const childMutedBackground = isDarkMode ? colours.darkBlue : colours.grey;
                             const childMutedBackgroundHover = isDarkMode ? colours.helixBlue : colours.highlightBlue;
@@ -8481,20 +8626,20 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                               <div
                                 key={`item-${childEnquiry.ID}-${childEnquiry.First_Name || ''}-${childEnquiry.Last_Name || ''}-${childEnquiry.Touchpoint_Date || ''}-${childEnquiry.Point_of_Contact || ''}`}
                                 className={[
+                                  'prospect-row',
                                   childIsConverted ? 'prospect-row--converted' : '',
                                   (hoveredRowKey === childRowHoverKey || hoveredDayKey === thisDayKey)
                                     ? `pipeline-row-hover${(hoveredRowKeyReady === childRowHoverKey || hoveredDayKeyReady === thisDayKey) ? ' pipeline-row-hover-ready' : ''}`
                                     : '',
                                 ].filter(Boolean).join(' ') || undefined}
                                 style={{
-                                  display: 'grid',
                                   gridTemplateColumns: TABLE_GRID_TEMPLATE_COLUMNS,
                                   gap: `${TABLE_GRID_GAP_PX}px`,
-                                  padding: '8px 16px',
+                                  padding: '8px 14px',
                                   alignItems: 'center',
                                   borderBottom: (groupIsLastInDay && childIdx === item.enquiries.length - 1)
-                                    ? `1px solid ${isDarkMode ? 'rgba(55, 65, 81, 0.28)' : 'rgba(0, 0, 0, 0.06)'}`
-                                    : 'none',
+                                    ? `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.35)' : 'rgba(0, 0, 0, 0.09)'}`
+                                    : `0.5px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.10)' : 'rgba(160, 160, 160, 0.08)'}`,
                                   position: 'relative',
                                   fontSize: '13px',
                                   color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : 'rgba(6, 23, 51, 0.9)',
@@ -8550,70 +8695,29 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                     const childDateStr = childEnquiry.Touchpoint_Date || (childEnquiry as any).datetime || (childEnquiry as any).claim;
                                     const { top, bottom } = getStackedDateDisplay(childDateStr);
                                     return (
-                                      <div style={{
-                                        display: 'flex',
-                                        flexDirection: 'column',
-                                        gap: '2px',
-                                        lineHeight: 1.1,
-                                        justifyContent: 'center',
-                                        fontVariantNumeric: 'tabular-nums',
-                                      }}>
-                                        <span style={{
-                                          fontSize: '10px',
-                                          color: isDarkMode ? 'rgba(255, 255, 255, 0.72)' : 'rgba(0, 0, 0, 0.62)',
-                                          fontWeight: 600,
-                                          whiteSpace: 'nowrap',
-                                        }}>
-                                          {top}
-                                        </span>
-                                        <span style={{
-                                          fontSize: '9px',
-                                          color: isDarkMode ? 'rgba(255, 255, 255, 0.45)' : 'rgba(0, 0, 0, 0.38)',
-                                          fontWeight: 500,
-                                          whiteSpace: 'nowrap',
-                                        }}>
-                                          {bottom}
-                                        </span>
+                                      <div className="prospect-date">
+                                        <span className="prospect-date__top">{top}</span>
+                                        <span className="prospect-date__bottom">{bottom}</span>
                                       </div>
                                     );
                                   })()}
                                 </TooltipHost>
 
-                                {/* AOW icon */}
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-                                  <span style={{ fontSize: '16px', lineHeight: 1, opacity: 0.85 }} title={childAOW}>
-                                    {getAreaOfWorkIcon(childAOW)}
-                                  </span>
-                                </div>
-
-                                {/* ID / Instruction Ref */}
+                                {/* Merged AOW / ID / Value */}
                                 <div style={{
                                   position: 'relative',
                                   display: 'flex',
-                                  flexDirection: 'column',
-                                  gap: '2px',
+                                  alignItems: 'center',
                                   lineHeight: 1.3,
-                                  justifyContent: 'center'
+                                  paddingInline: 2,
+                                  overflow: 'hidden',
                                 }}>
-                                  <div style={{
-                                    fontFamily: 'Monaco, Consolas, monospace',
-                                    fontSize: '10px',
-                                    fontWeight: 600,
-                                    color: colours.highlight,
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis',
-                                    whiteSpace: 'nowrap',
-                                    transform: childShowDetails ? 'translateY(-4px)' : 'translateY(0)',
-                                    transition: 'transform 160ms ease',
-                                  }}>
-                                    {childDisplayId}
-                                  </div>
                                   {(() => {
                                     const numValue = typeof childValue === 'string' ? parseFloat(childValue.replace(/[^0-9.]/g, '')) : (typeof childValue === 'number' ? childValue : 0);
                                     const displayValue = formatValueForDisplay(childValue);
-                                    if (!displayValue) return null;
+                                    const hasValue = Boolean(displayValue);
 
-                                    let textColor;
+                                    let textColor: string;
                                     if (numValue >= 50000) {
                                       textColor = isDarkMode ? 'rgba(54, 144, 206, 1)' : 'rgba(54, 144, 206, 1)';
                                     } else if (numValue >= 10000) {
@@ -8623,42 +8727,59 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                     }
 
                                     return (
-                                      <div
-                                        style={{
-                                          position: 'absolute',
-                                          left: 0,
-                                          top: '50%',
+                                      <>
+                                        <div style={{
                                           display: 'flex',
                                           alignItems: 'center',
-                                          opacity: childShowDetails ? 1 : 0,
-                                          transform: childShowDetails ? 'translateY(4px)' : 'translateY(2px)',
-                                          transition: 'opacity 140ms ease, transform 160ms ease',
-                                          pointerEvents: 'none',
-                                        }}
-                                      >
-                                        <span style={{
-                                          fontSize: 10,
-                                          fontWeight: 700,
-                                          color: textColor,
-                                          whiteSpace: 'nowrap',
+                                          gap: 6,
+                                          opacity: (childShowDetails && hasValue) ? 0 : 1,
+                                          transition: 'opacity 160ms ease',
                                         }}>
-                                          {displayValue}
-                                        </span>
-                                      </div>
+                                          <span className="prospect-aow-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1, flexShrink: 0 }} title={childAOW}>
+                                            {renderAreaOfWorkGlyph(childAOW, getAreaGlyphMeta(childAOW).color, 'glyph', 17)}
+                                          </span>
+                                          <span style={{
+                                            fontFamily: 'Monaco, Consolas, monospace',
+                                            fontSize: '10px',
+                                            fontWeight: 500,
+                                            color: childIsConverted ? colours.green : (isDarkMode ? colours.dark.text : colours.light.text),
+                                            overflow: 'hidden',
+                                            textOverflow: 'ellipsis',
+                                            whiteSpace: 'nowrap',
+                                            minWidth: 0,
+                                          }}>
+                                            {childDisplayId}
+                                          </span>
+                                        </div>
+                                        {hasValue && (
+                                          <div style={{
+                                            position: 'absolute',
+                                            left: 2,
+                                            top: 0,
+                                            bottom: 0,
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: 6,
+                                            opacity: childShowDetails ? 1 : 0,
+                                            transition: 'opacity 160ms ease',
+                                            pointerEvents: 'none',
+                                          }}>
+                                            <span className="prospect-aow-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1, flexShrink: 0, visibility: 'hidden' }}>
+                                              {renderAreaOfWorkGlyph(childAOW, getAreaGlyphMeta(childAOW).color, 'glyph', 17)}
+                                            </span>
+                                            <span style={{
+                                              fontSize: 10,
+                                              fontWeight: 700,
+                                              color: textColor,
+                                              whiteSpace: 'nowrap',
+                                            }}>
+                                              {displayValue}
+                                            </span>
+                                          </div>
+                                        )}
+                                      </>
                                     );
                                   })()}
-                                  {childEnrichmentData?.pitchData?.displayNumber && (
-                                    <div style={{
-                                      fontFamily: 'Monaco, Consolas, monospace',
-                                      fontSize: '9px',
-                                      color: isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)',
-                                      overflow: 'hidden',
-                                      textOverflow: 'ellipsis',
-                                      whiteSpace: 'nowrap',
-                                    }}>
-                                      {childEnrichmentData.pitchData.displayNumber}
-                                    </div>
-                                  )}
                                 </div>
 
                                 {/* Contact & Company - stacked layout to match main rows */}
@@ -8671,19 +8792,25 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                   justifyContent: 'center' 
                                 }}>
                                   {/* Name row */}
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                                     <span style={{
                                       fontWeight: 500,
                                       fontSize: '13px',
                                       color: childIsConverted ? colours.green : (isDarkMode ? '#f3f4f6' : '#061733'),
+                                      overflow: 'hidden',
+                                      textOverflow: 'ellipsis',
+                                      whiteSpace: 'nowrap',
+                                      minWidth: 0,
+                                      flex: '1 1 auto',
                                     }}>
                                       {childContactName}
                                     </span>
                                     {childIsConverted && (
-                                      <Icon iconName="CompletedSolid" styles={{ root: { fontSize: 9, color: colours.green, opacity: 0.7 } }} />
+                                      <Icon iconName="CompletedSolid" styles={{ root: { fontSize: 9, color: colours.green, opacity: 0.7, flexShrink: 0 } }} />
                                     )}
                                     <button
                                       type="button"
+                                      className="prospect-copy-btn"
                                       onClick={(e) => {
                                         e.stopPropagation();
                                         void handleCopyName(childContactName, childNameCopyKey);
@@ -8694,6 +8821,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                         display: 'inline-flex',
                                         alignItems: 'center',
                                         justifyContent: 'center',
+                                        marginLeft: 'auto',
+                                        flexShrink: 0,
                                         width: 18,
                                         height: 18,
                                         borderRadius: 0,
@@ -8835,14 +8964,14 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                         <div
                                           style={{
                                             display: 'grid',
-                                            gridTemplateColumns: pipelineNeedsCarousel 
-                                              ? `repeat(${visiblePipelineChipCount}, minmax(${PIPELINE_CHIP_MIN_WIDTH_PX}px, 1fr)) 24px`
-                                              : `repeat(7, minmax(${PIPELINE_CHIP_MIN_WIDTH_PX}px, 1fr)) 24px`,
+                                            gridTemplateColumns: `repeat(${pipelineNeedsCarousel ? visiblePipelineChipCount : 7}, minmax(${PIPELINE_CHIP_MIN_WIDTH_PX}px, 1fr))`,
                                             columnGap: 8,
                                             alignItems: 'center',
                                             width: '100%',
                                             minWidth: 0,
                                             height: '100%',
+                                            paddingRight: pipelineNeedsCarousel ? 32 : 0,
+                                            boxSizing: 'border-box',
                                           }}
                                         >
                                           {(() => {
@@ -8882,36 +9011,37 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                               );
                                             });
                                           })()}
-                                          {/* Nav button for carousel mode */}
-                                          {pipelineNeedsCarousel ? (
-                                            <button
-                                              type="button"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                advancePipelineScroll(childEnquiry.ID, 7, visiblePipelineChipCount);
-                                              }}
-                                              title="View more stages"
-                                              style={{
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                width: '100%',
-                                                height: 22,
-                                                padding: 0,
-                                                border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.25)' : 'rgba(107, 107, 107, 0.2)'}`,
-                                                borderRadius: 0,
-                                                background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
-                                                cursor: 'pointer',
-                                                transition: 'all 0.15s ease',
-                                                color: colours.blue,
-                                              }}
-                                            >
-                                              <Icon iconName="ChevronRight" styles={{ root: { fontSize: 12, color: 'inherit' } }} />
-                                            </button>
-                                          ) : (
-                                            <div />
-                                          )}
                                         </div>
+                                        {pipelineNeedsCarousel ? (
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              advancePipelineScroll(childEnquiry.ID, 7, visiblePipelineChipCount);
+                                            }}
+                                            title="View more stages"
+                                            style={{
+                                              position: 'absolute',
+                                              top: '50%',
+                                              right: 0,
+                                              transform: 'translateY(-50%)',
+                                              display: 'flex',
+                                              alignItems: 'center',
+                                              justifyContent: 'center',
+                                              width: 24,
+                                              height: 22,
+                                              padding: 0,
+                                              border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.25)' : 'rgba(107, 107, 107, 0.2)'}`,
+                                              borderRadius: 0,
+                                              background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)',
+                                              cursor: 'pointer',
+                                              transition: 'all 0.15s ease',
+                                              color: colours.blue,
+                                            }}
+                                          >
+                                            <Icon iconName="ChevronRight" styles={{ root: { fontSize: 12, color: 'inherit' } }} />
+                                          </button>
+                                        ) : null}
                                         <style>{`
                                           @keyframes pipeline-pulse {
                                             0%, 100% { opacity: 0.3; }
@@ -8951,13 +9081,12 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                     !pipelineNeedsCarousel || (chipIndex >= childPipelineOffset && chipIndex < childVisibleEnd);
                                   
                                   // Dynamic grid columns based on carousel state
-                                  const childGridCols = pipelineNeedsCarousel 
-                                    ? `repeat(${visiblePipelineChipCount}, minmax(${PIPELINE_CHIP_MIN_WIDTH_PX}px, 1fr)) 24px`
-                                    : `repeat(7, minmax(${PIPELINE_CHIP_MIN_WIDTH_PX}px, 1fr)) 24px`;
+                                  const childGridCols = `repeat(${pipelineNeedsCarousel ? visiblePipelineChipCount : 7}, minmax(${PIPELINE_CHIP_MIN_WIDTH_PX}px, 1fr))`;
+                                  const childPipelineGridPaddingRight = pipelineNeedsCarousel ? 32 : 0;
                                   
                                   // Cascade animation helper
-                                  const getCascadeStyle = (chipIndex: number) => ({
-                                    animation: childEnrichmentWasProcessed ? `pipeline-cascade 0.35s cubic-bezier(0.4, 0, 0.2, 1) ${chipIndex * 0.12}s both` : 'none',
+                                  const getCascadeStyle = (_chipIndex: number) => ({
+                                    animation: 'none',
                                   });
 
                                   return (
@@ -8971,6 +9100,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                           width: '100%',
                                           minWidth: 0,
                                           height: '100%',
+                                          paddingRight: childPipelineGridPaddingRight,
+                                          boxSizing: 'border-box',
                                         }}
                                       >
                                         {/* POC - merged Teams+Claim - chip index 0 */}
@@ -9025,11 +9156,10 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                               });
                                             }
                                             
-                                            // Claimed - show Teams icon + initials (responsive to label mode)
+                                            // Claimed - show initials + Teams icon reveal on hover
                                             return (
-                                              <button
+                                              <div
                                                 className="pipeline-chip pipeline-chip-reveal"
-                                                onClick={(e) => handleReassignClick(String(childEnquiry.ID), e)}
                                                 onMouseEnter={(e) => showPipelineHover(e, {
                                                   title: 'POC',
                                                   status: `${showTeamsStage ? 'Card + ' : ''}Claimed by ${childPocIdentifier}`,
@@ -9049,18 +9179,47 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                                   borderRadius: 0,
                                                   border: 'none',
                                                   background: 'transparent',
-                                                  cursor: 'pointer',
                                                   fontFamily: 'inherit',
                                                   overflow: 'visible',
                                                 }}
                                               >
                                                 <span className="pipeline-chip-box">
-                                                  {renderPipelineIcon('TeamsLogo', teamsIconColor, 14)}
-                                                  <span className="pipeline-chip-label" style={{ color: colours.green, fontWeight: 700 }}>
+                                                  <span
+                                                    role="button"
+                                                    tabIndex={0}
+                                                    onClick={(e) => { e.stopPropagation(); handleReassignClick(String(childEnquiry.ID), e); }}
+                                                    style={{
+                                                      minWidth: 18,
+                                                      textAlign: 'center',
+                                                      fontSize: 10,
+                                                      fontWeight: 700,
+                                                      color: colours.green,
+                                                      textTransform: 'uppercase',
+                                                      letterSpacing: '0.3px',
+                                                      lineHeight: 1,
+                                                      cursor: 'pointer',
+                                                    }}
+                                                    title="Reassign"
+                                                  >
                                                     {childClaimerLabel}
                                                   </span>
+                                                  {childTeamsLink && (
+                                                    <span
+                                                      className="pipeline-chip-label"
+                                                      role="link"
+                                                      tabIndex={0}
+                                                      onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        window.open(childTeamsLink, '_blank', 'noopener,noreferrer');
+                                                      }}
+                                                      style={{ cursor: 'pointer', color: isDarkMode ? colours.accent : colours.highlight }}
+                                                      title="Open Teams card"
+                                                    >
+                                                      {renderPipelineIcon('TeamsLogo', isDarkMode ? colours.accent : colours.highlight, 12)}
+                                                    </span>
+                                                  )}
                                                 </span>
-                                              </button>
+                                              </div>
                                             );
                                           })()}
                                         </>
@@ -9140,7 +9299,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                                 fontFamily: 'inherit',
                                               }}
                                             >
-                                              <Icon iconName="Send" styles={{ root: { fontSize: 14, color: isDarkMode ? 'rgba(160, 160, 160, 0.25)' : 'rgba(107, 107, 107, 0.2)' } }} />
+                                              {renderPipelineIcon('Send', isDarkMode ? 'rgba(160, 160, 160, 0.55)' : 'rgba(107, 107, 107, 0.5)', 14)}
                                             </button>
                                           ) : (
                                             <div
@@ -9164,7 +9323,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                                 background: 'transparent',
                                               }}
                                             >
-                                              <Icon iconName="Send" styles={{ root: { fontSize: 14, color: isDarkMode ? 'rgba(160, 160, 160, 0.25)' : 'rgba(107, 107, 107, 0.2)' } }} />
+                                              {renderPipelineIcon('Send', isDarkMode ? 'rgba(160, 160, 160, 0.55)' : 'rgba(107, 107, 107, 0.5)', 14)}
                                             </div>
                                           )}
                                         </>
@@ -9445,49 +9604,50 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                           );
                                         })()}
 
-                                        {/* Navigation chevron for carousel OR empty gutter */}
-                                        {pipelineNeedsCarousel ? (
-                                          <button
-                                            type="button"
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              advancePipelineScroll(childEnquiry.ID, 7, visiblePipelineChipCount);
-                                            }}
-                                            title={childHasMoreChips ? `View more stages (${7 - childVisibleEnd} hidden)` : 'Back to start'}
-                                            style={{
-                                              display: 'flex',
-                                              alignItems: 'center',
-                                              justifyContent: 'center',
-                                              width: '100%',
-                                              height: 22,
-                                              padding: 0,
-                                              border: `1px solid ${childMutedBorder}`,
-                                              borderRadius: 0,
-                                              background: childHasMoreChips 
-                                                ? (isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(54, 144, 206, 0.08)')
-                                                : childMutedBackground,
-                                              cursor: 'pointer',
-                                              transition: 'all 0.15s ease',
-                                              color: childHasMoreChips 
-                                                ? (isDarkMode ? colours.accent : colours.highlight) 
-                                                : childMutedColor,
-                                            }}
-                                          >
-                                            <Icon 
-                                              iconName={childHasMoreChips ? 'ChevronRight' : 'Refresh'} 
-                                              styles={{ 
-                                                root: { 
-                                                  fontSize: childHasMoreChips ? 12 : 10, 
-                                                  color: 'inherit',
-                                                  opacity: childHasMoreChips ? 1 : 0.7,
-                                                } 
-                                              }} 
-                                            />
-                                          </button>
-                                        ) : (
-                                          <div />
-                                        )}
                                       </div>
+                                      {pipelineNeedsCarousel ? (
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            advancePipelineScroll(childEnquiry.ID, 7, visiblePipelineChipCount);
+                                          }}
+                                          title={childHasMoreChips ? `View more stages (${7 - childVisibleEnd} hidden)` : 'Back to start'}
+                                          style={{
+                                            position: 'absolute',
+                                            top: '50%',
+                                            right: 0,
+                                            transform: 'translateY(-50%)',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            width: 24,
+                                            height: 22,
+                                            padding: 0,
+                                            border: `1px solid ${childMutedBorder}`,
+                                            borderRadius: 0,
+                                            background: childHasMoreChips
+                                              ? (isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(54, 144, 206, 0.08)')
+                                              : childMutedBackground,
+                                            cursor: 'pointer',
+                                            transition: 'all 0.15s ease',
+                                            color: childHasMoreChips
+                                              ? (isDarkMode ? colours.accent : colours.highlight)
+                                              : childMutedColor,
+                                          }}
+                                        >
+                                          <Icon
+                                            iconName={childHasMoreChips ? 'ChevronRight' : 'Refresh'}
+                                            styles={{
+                                              root: {
+                                                fontSize: childHasMoreChips ? 12 : 10,
+                                                color: 'inherit',
+                                                opacity: childHasMoreChips ? 1 : 0.7,
+                                              }
+                                            }}
+                                          />
+                                        </button>
+                                      ) : null}
 
                                     </div>
                                   );
@@ -9495,8 +9655,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
                                 {/* Actions Column for Child Enquiry */}
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px' }}>
-                                {/* Call / Email / Rate actions (no hover) */}
-                                {childShowClaimer && !childIsTeamInboxPoc && (
+                                {/* Call / Email / Rate actions — only in unlocked action mode */}
+                                {areActionsEnabled && childShowClaimer && !childIsTeamInboxPoc && (
                                   <>
                                     <button
                                       type="button"
@@ -9835,15 +9995,18 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                           </React.Fragment>
                         );
                       } else {
+                        const nextDisplayedItem = displayedItems[idx + 1];
+                        const nextDateStr = nextDisplayedItem && !isGroupedEnquiry(nextDisplayedItem)
+                          ? String(nextDisplayedItem.Touchpoint_Date || (nextDisplayedItem as any).datetime || (nextDisplayedItem as any).claim || nextDisplayedItem.Date_Created || '')
+                          : '';
+
                         // Handle individual enquiries — rendered via extracted component
                         return (
                           <ProspectTableRow
                             key={`${item.ID}-${item.First_Name || ''}-${item.Last_Name || ''}-${item.Touchpoint_Date || ''}-${item.Point_of_Contact || ''}`}
                             item={item}
                             idx={idx}
-                            isLast={isLast}
-                            displayedItems={displayedItems}
-                            isGroupedEnquiry={isGroupedEnquiry}
+                            nextDateStr={nextDateStr}
                             pipelineHandlers={rowPipelineHandlers}
                             actionHandlers={rowActionHandlers}
                             displayState={rowDisplayState}
@@ -9920,10 +10083,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         isOpen={isCreateContactModalOpen}
         onDismiss={() => setIsCreateContactModalOpen(false)}
         onSuccess={async (enquiryId) => {
-          setToastMessage('Contact created successfully');
-          setToastDetails(`New enquiry record created (ID: ${enquiryId})`);
-          setToastType('success');
-          setToastVisible(true);
+          showToast('Contact created successfully', 'success', `New enquiry record created (ID: ${enquiryId})`, 4000);
           
           // Immediately trigger refresh to show the new enquiry
           if (onRefreshEnquiries) {
@@ -9933,8 +10093,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
               console.error('[Enquiries] Failed to refresh after contact creation:', err);
             }
           }
-          
-          setTimeout(() => setToastVisible(false), 4000);
         }}
         userEmail={userData?.[0]?.Email}
         teamData={teamData}
@@ -9983,7 +10141,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12, fontFamily: 'Raleway, Segoe UI, sans-serif' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
             <div style={{ fontSize: 14, fontWeight: 700, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-              Share enquiry access
+              Share access
             </div>
             <button
               type="button"
@@ -10010,7 +10168,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
           </div>
 
           <div style={{ fontSize: 11, color: isDarkMode ? colours.subtleGrey : colours.greyText, lineHeight: 1.45 }}>
-            Pick team members to grant access.
+            Give teammates access to view and work on this enquiry.
           </div>
 
           <div style={{

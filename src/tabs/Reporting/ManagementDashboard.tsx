@@ -1,19 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
-import {
-  DatePicker,
-  DayOfWeek,
-  DefaultButton,
-  IButtonStyles,
-  IDatePickerStyles,
-  PrimaryButton,
-  Spinner,
-  Stack,
-  Icon,
-} from '@fluentui/react';
+import { DatePicker } from '@fluentui/react/lib/DatePicker';
+import { DayOfWeek } from '@fluentui/react/lib/Calendar';
+import type { IDatePickerStyles } from '@fluentui/react/lib/DatePicker';
+import type { IButtonStyles } from '@fluentui/react/lib/Button';
+import { DefaultButton, PrimaryButton } from '@fluentui/react/lib/Button';
+import { Spinner } from '@fluentui/react/lib/Spinner';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Icon } from '@fluentui/react/lib/Icon';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';
-import type { Enquiry, Matter, POID, TeamData, UserData } from '../../app/functionality/types';
+import type { Enquiry, Matter, TeamData, UserData } from '../../app/functionality/types';
 import { useToast } from '../../components/feedback/ToastProvider';
 import type { AnnualLeaveRecord } from './AnnualLeaveReport';
 import { debugLog, debugWarn } from '../../utils/debug';
@@ -44,7 +41,6 @@ interface ManagementDashboardProps {
   recoveredFees?: RecoveredFee[] | null;
   teamData?: TeamData[] | null;
   userData?: UserData[] | null;
-  poidData?: POID[] | null;
   annualLeave?: AnnualLeaveRecord[] | null;
   triggerRefresh?: () => void;
   lastRefreshTimestamp?: number;

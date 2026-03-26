@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Text, Stack } from '@fluentui/react';
+import { Text } from '@fluentui/react/lib/Text';
+import { Stack } from '@fluentui/react/lib/Stack';
 import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { Enquiry } from '../../app/functionality/types';
 import { colours } from '../../app/styles/colours';

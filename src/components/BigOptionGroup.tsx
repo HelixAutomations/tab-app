@@ -1,6 +1,8 @@
 import React from 'react';
 // invisible change 2
-import { Stack, DefaultButton, IButtonStyles } from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { DefaultButton } from '@fluentui/react/lib/Button';
+import type { IButtonStyles } from '@fluentui/react/lib/Button';
 import { colours } from '../app/styles/colours';
 
 interface Option {

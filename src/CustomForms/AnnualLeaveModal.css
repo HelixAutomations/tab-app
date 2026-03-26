@@ -1,0 +1,632 @@
+/* AnnualLeaveModal shell and hierarchy */
+
+.annual-leave-modal {
+  position: relative;
+  margin: 0 auto;
+  max-width: 1180px;
+  padding: 14px;
+  background: var(--alm-canvas);
+  border: 1px solid var(--alm-border);
+  box-shadow: var(--alm-shadow);
+  overflow: hidden;
+}
+
+.annual-leave-modal__summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  background: var(--alm-hero-bg);
+  border: 1px solid var(--alm-border);
+  box-shadow: inset 3px 0 0 var(--alm-accent);
+}
+
+.annual-leave-modal__summary-stat {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  align-content: start;
+  padding-left: 0;
+}
+
+.annual-leave-modal__summary-stat--separated {
+  padding-left: 12px;
+  border-left: 1px solid var(--alm-border);
+}
+
+.annual-leave-modal__summary-label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--alm-text-muted);
+}
+
+.annual-leave-modal__summary-value {
+  font-size: 18px;
+  line-height: 1.15;
+  font-weight: 700;
+  color: var(--alm-text-primary);
+}
+
+.annual-leave-modal__summary-note {
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--alm-text-body);
+}
+
+.annual-leave-modal__summary-skeleton {
+  display: block;
+  border-radius: 0;
+}
+
+.annual-leave-modal__summary-skeleton--value {
+  width: 42px;
+  height: 18px;
+}
+
+.annual-leave-modal__summary-skeleton--note {
+  width: 120px;
+  height: 10px;
+}
+
+.annual-leave-modal__admin,
+.annual-leave-modal__panel,
+.annual-leave-modal__history {
+  position: relative;
+  background: var(--alm-panel-bg);
+  border: 1px solid var(--alm-border);
+  box-shadow: var(--alm-panel-shadow);
+}
+
+.annual-leave-modal__admin {
+  margin-bottom: 16px;
+  border-color: var(--helix-orange);
+  box-shadow: inset 3px 0 0 var(--helix-orange), var(--alm-panel-shadow);
+}
+
+.annual-leave-modal__admin-header {
+  flex-wrap: wrap;
+}
+
+.annual-leave-modal__admin-status {
+  flex: 0 1 auto;
+}
+
+.annual-leave-modal__panel-header,
+.annual-leave-modal__history-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px 0;
+}
+
+.annual-leave-modal__panel-heading,
+.annual-leave-modal__history-heading {
+  display: grid;
+  gap: 4px;
+}
+
+.annual-leave-modal__history-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  flex-wrap: wrap;
+}
+
+.annual-leave-modal__history-title-block {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.annual-leave-modal__panel-kicker,
+.annual-leave-modal__history-kicker {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.65px;
+  text-transform: uppercase;
+  color: var(--alm-accent);
+}
+
+.annual-leave-modal__panel-title,
+.annual-leave-modal__history-title {
+  font-size: 14px;
+  line-height: 1.2;
+  font-weight: 700;
+  color: var(--alm-text-primary);
+}
+
+.annual-leave-modal__panel-desc,
+.annual-leave-modal__history-desc {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--alm-text-body);
+}
+
+.annual-leave-modal__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.9fr);
+  gap: 16px;
+  margin-bottom: 16px;
+  align-items: start;
+}
+
+.annual-leave-modal__panel-body,
+.annual-leave-modal__history-body {
+  padding: 12px 16px 16px;
+}
+
+.annual-leave-modal__action-shell {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.annual-leave-modal__divider {
+  height: 1px;
+  margin: 20px 0 16px;
+  background: linear-gradient(90deg, var(--alm-accent) 0%, transparent 100%);
+}
+
+.annual-leave-modal__history {
+  padding-bottom: 16px;
+}
+
+.annual-leave-modal__quick-create {
+  width: 100%;
+}
+
+.annual-leave-modal__quick-field {
+  flex: 1 1 140px;
+  min-width: 0;
+}
+
+.annual-leave-modal__quick-field--reason {
+  flex-basis: 240px;
+}
+
+.annual-leave-modal__quick-action {
+  flex: 0 0 auto;
+}
+
+.annual-leave-modal__calendar-toolbar {
+  gap: 10px;
+}
+
+.annual-leave-modal__calendar-toolbar-center {
+  min-width: 0;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.annual-leave-modal__bank-holidays-trigger {
+  flex-shrink: 0;
+}
+
+.annual-leave-modal__calendar-grid-shell {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.annual-leave-modal__calendar-grid {
+  min-width: 420px;
+  height: clamp(292px, 42vh, 360px) !important;
+}
+
+.annual-leave-modal__action-row {
+  width: 100%;
+}
+
+.annual-leave-modal__action-section {
+  min-width: 0;
+}
+
+.annual-leave-modal__action-section--hearing {
+  flex: 1 1 280px;
+}
+
+.annual-leave-modal__action-section--notes {
+  flex: 1 1 260px;
+}
+
+.annual-leave-modal__hearing-options {
+  flex-wrap: wrap;
+}
+
+.annual-leave-modal__hearing-option {
+  flex: 1 1 150px;
+  min-width: 0;
+}
+
+.annual-leave-modal__actions {
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.annual-leave-modal__history-meta {
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.annual-leave-modal__history-refresh {
+  flex-shrink: 0;
+}
+
+.annual-leave-modal__history-select-all {
+  cursor: pointer;
+}
+
+.annual-leave-modal__history-bulk-bar {
+  flex-wrap: wrap;
+}
+
+.annual-leave-modal__history-bulk-actions {
+  flex-wrap: wrap;
+}
+
+.annual-leave-modal__history-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 4px minmax(140px, 1.05fr) minmax(180px, 1.55fr) 58px 92px;
+  gap: 10px;
+  padding: 8px 14px;
+  align-items: center;
+  background: transparent;
+  border-bottom: 1px solid var(--alm-history-divider);
+  font-family: var(--font-primary);
+  transition: background 0.18s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.annual-leave-modal__history-row--admin {
+  grid-template-columns: 22px 4px minmax(132px, 1fr) minmax(180px, 1.45fr) 58px 92px 56px;
+}
+
+.annual-leave-modal__history-row-main {
+  min-width: 0;
+}
+
+.annual-leave-modal__history-row:hover {
+  background: var(--alm-history-row-hover);
+}
+
+.annual-leave-modal__history-row > :nth-child(4),
+.annual-leave-modal__history-row > :nth-child(5) {
+  border-left: 1px solid var(--alm-history-divider);
+  padding-left: 10px;
+}
+
+.annual-leave-modal__history-row--admin > :nth-child(5),
+.annual-leave-modal__history-row--admin > :nth-child(6),
+.annual-leave-modal__history-row--admin > :nth-child(7) {
+  border-left: 1px solid var(--alm-history-divider);
+  padding-left: 10px;
+}
+
+.annual-leave-modal__history-select-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.annual-leave-modal__history-indicator {
+  width: 3px;
+  min-height: 42px;
+  height: 100%;
+}
+
+.annual-leave-modal__history-table-header {
+  display: grid;
+  grid-template-columns: 4px minmax(140px, 1.05fr) minmax(180px, 1.55fr) 58px 92px;
+  gap: 10px;
+  padding: 0 14px 8px;
+  border-bottom: 1px solid var(--alm-history-divider);
+}
+
+.annual-leave-modal__history-table-header--admin {
+  grid-template-columns: 22px 4px minmax(132px, 1fr) minmax(180px, 1.45fr) 58px 92px 56px;
+}
+
+.annual-leave-modal__history-table-label,
+.annual-leave-modal__history-table-spacer {
+  min-width: 0;
+}
+
+.annual-leave-modal__history-table-label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.55px;
+  text-transform: uppercase;
+  color: var(--alm-text-muted);
+}
+
+.annual-leave-modal__history-table-label--numeric,
+.annual-leave-modal__history-table-label--actions {
+  text-align: center;
+}
+
+.annual-leave-modal__history-date-cell,
+.annual-leave-modal__history-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.annual-leave-modal__history-date-top {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--alm-text-primary);
+  line-height: 1.2;
+}
+
+.annual-leave-modal__history-date-bottom {
+  font-size: 9px;
+  color: var(--alm-text-muted);
+  line-height: 1.25;
+}
+
+.annual-leave-modal__history-context-top {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.35px;
+  text-transform: uppercase;
+}
+
+.annual-leave-modal__history-type-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.annual-leave-modal__history-context-body {
+  font-size: 10px;
+  color: var(--alm-text-body);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.annual-leave-modal__history-context-body--muted {
+  color: var(--alm-text-muted);
+}
+
+.annual-leave-modal__history-stamps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.annual-leave-modal__history-stamp {
+  font-size: 9px;
+  color: var(--alm-text-muted);
+  line-height: 1.2;
+}
+
+.annual-leave-modal__history-chip {
+  flex-shrink: 0;
+  justify-self: center;
+  padding: 3px 8px;
+  border-radius: 0;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  border: 1px solid var(--alm-border);
+}
+
+.annual-leave-modal__history-row-actions {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+@media (max-width: 960px) {
+  .annual-leave-modal__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .annual-leave-modal__summary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .annual-leave-modal__calendar-toolbar {
+    flex-wrap: wrap;
+    justify-content: center !important;
+  }
+
+  .annual-leave-modal__history-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .annual-leave-modal__history-toolbar {
+    align-items: flex-start;
+  }
+
+  .annual-leave-modal__history-meta {
+    margin-left: 0;
+  }
+
+  .annual-leave-modal__history-refresh {
+    width: 100%;
+  }
+}
+
+@media (max-width: 720px) {
+  .annual-leave-modal {
+    padding: 10px;
+  }
+
+  .annual-leave-modal__summary,
+  .annual-leave-modal__panel-body,
+  .annual-leave-modal__history-body {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .annual-leave-modal__panel-header,
+  .annual-leave-modal__history-header {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .annual-leave-modal__summary {
+    grid-template-columns: 1fr;
+    padding: 10px 12px;
+    margin-bottom: 12px;
+  }
+
+  .annual-leave-modal__summary-stat {
+    padding-left: 0;
+  }
+
+  .annual-leave-modal__summary-stat--separated {
+    padding-left: 0;
+    padding-top: 10px;
+    border-left: none;
+    border-top: 1px solid var(--alm-border);
+  }
+
+  .annual-leave-modal__summary-value {
+    font-size: 16px;
+  }
+
+  .annual-leave-modal__summary-note {
+    overflow-wrap: anywhere;
+  }
+
+  .annual-leave-modal__quick-field,
+  .annual-leave-modal__quick-field--reason,
+  .annual-leave-modal__quick-action {
+    flex: 1 1 100%;
+    min-width: 0 !important;
+  }
+
+  .annual-leave-modal__quick-action {
+    width: 100%;
+  }
+
+  .annual-leave-modal__calendar-grid {
+    min-width: 360px;
+    height: clamp(272px, 46vh, 332px) !important;
+  }
+
+  .annual-leave-modal__action-row,
+  .annual-leave-modal__actions,
+  .annual-leave-modal__history-bulk-actions {
+    flex-direction: column;
+    align-items: stretch !important;
+  }
+
+  .annual-leave-modal__action-section,
+  .annual-leave-modal__actions,
+  .annual-leave-modal__primary-action,
+  .annual-leave-modal__secondary-action,
+  .annual-leave-modal__history-refresh,
+  .annual-leave-modal__history-bulk-button,
+  .annual-leave-modal__history-bulk-button--primary {
+    width: 100%;
+  }
+
+  .annual-leave-modal__hearing-options {
+    display: grid !important;
+    grid-template-columns: 1fr;
+  }
+
+  .annual-leave-modal__history-bulk-bar {
+    align-items: stretch !important;
+  }
+
+  .annual-leave-modal__history-row {
+    grid-template-columns: 4px minmax(0, 1fr) auto auto;
+    align-items: start !important;
+    padding: 10px 12px;
+  }
+
+  .annual-leave-modal__history-row--admin {
+    grid-template-columns: 22px 4px minmax(0, 1fr) auto auto;
+  }
+
+  .annual-leave-modal__history-table-header {
+    display: none;
+  }
+
+  .annual-leave-modal__history-row > :nth-child(4),
+  .annual-leave-modal__history-row > :nth-child(5),
+  .annual-leave-modal__history-row--admin > :nth-child(5),
+  .annual-leave-modal__history-row--admin > :nth-child(6),
+  .annual-leave-modal__history-row--admin > :nth-child(7) {
+    border-left: none;
+    padding-left: 0;
+  }
+
+  .annual-leave-modal__history-date-cell,
+  .annual-leave-modal__history-row-main {
+    width: 100%;
+    grid-column: 3 / -1;
+  }
+
+  .annual-leave-modal__history-chip--days {
+    justify-self: start;
+  }
+
+  .annual-leave-modal__history-chip--status {
+    justify-self: start;
+  }
+
+  .annual-leave-modal__history-row-actions {
+    width: 100%;
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+  }
+
+  .annual-leave-modal__admin-status {
+    margin-left: 0 !important;
+    width: 100%;
+  }
+}
+
+@media (max-width: 560px) {
+  .annual-leave-modal {
+    padding: 8px;
+  }
+
+  .annual-leave-modal__summary,
+  .annual-leave-modal__panel-body,
+  .annual-leave-modal__history-body,
+  .annual-leave-modal__panel-header,
+  .annual-leave-modal__history-header {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .annual-leave-modal__calendar-toolbar-center {
+    width: 100%;
+  }
+
+  .annual-leave-modal__bank-holidays-trigger {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .annual-leave-modal__history-row-actions {
+    justify-content: stretch;
+  }
+
+  .annual-leave-modal__history-context-body {
+    white-space: normal;
+  }
+
+}

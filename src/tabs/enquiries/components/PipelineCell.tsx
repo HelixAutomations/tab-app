@@ -5,8 +5,8 @@
  * Handles POC/claim, pitch, instruction, EID, payment, risk, matter chips.
  */
 
-import React, { useState, useEffect } from 'react';
-import { Icon } from '@fluentui/react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Icon } from '@fluentui/react/lib/Icon';
 import { format } from 'date-fns';
 import { colours } from '../../../app/styles/colours';
 import { MiniPipelineChip, renderPipelineIcon } from './pipeline';
@@ -26,16 +26,10 @@ export interface PipelineCellProps {
   contactName: string;
   pocLower: string;
   isFromInstructions: boolean;
+  currentUserEmail: string;
   handlers: RowPipelineHandlers;
   dataDeps: Pick<RowDataDeps, 'claimerMap' | 'isUnclaimedPoc' | 'combineDateAndTime'>;
 }
-
-// Helpers that were closure-scoped in Enquiries.tsx
-const isValidTimestamp = (dateStr: string | null) => {
-  if (!dateStr) return false;
-  const date = new Date(dateStr);
-  return date.getHours() !== 0 || date.getMinutes() !== 0 || date.getSeconds() !== 0;
-};
 
 const getPocInitialsLocal = (
   pocEmail: string | null | undefined,
@@ -64,6 +58,7 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
   contactName,
   pocLower,
   isFromInstructions,
+  currentUserEmail,
   handlers,
   dataDeps,
 }) => {
@@ -76,7 +71,6 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
     getPipelineScrollOffset,
     handleReassignClick,
     renderClaimPromptChip,
-    getAreaSpecificChannelUrl,
     getScenarioColor,
   } = handlers;
   const { claimerMap, isUnclaimedPoc, combineDateAndTime } = dataDeps;
@@ -86,20 +80,26 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
   const teamsTime = isV2Enquiry && teamsData
     ? (teamsData.MessageTimestamp || teamsData.CreatedAt || (teamsData.CreatedAtMs ? new Date(teamsData.CreatedAtMs).toISOString() : null))
     : null;
-  const pocClaimTime = (item as any).claim || null;
   const pitchData = enrichmentData?.pitchData as any;
-  const pitchTime = pitchData ? (pitchData.PitchedDate || pitchData.pitchedDate) : null;
   const pitchedDate = pitchData?.PitchedDate || pitchData?.pitchedDate || pitchData?.pitched_date || '';
   const pitchedTime = pitchData?.PitchedTime || pitchData?.pitchedTime || pitchData?.pitched_time || '';
   const pitchedBy = pitchData?.PitchedBy || pitchData?.pitchedBy || pitchData?.pitched_by || '';
   const pitchScenarioId = pitchData?.scenarioId || pitchData?.scenario_id || '';
   const pitchMatterRef = pitchData?.displayNumber || pitchData?.display_number || '';
   const pitchedDateParsed = combineDateAndTime(pitchedDate, pitchedTime);
+  const inst = inlineWorkbenchItem?.instruction;
+  const deal = inlineWorkbenchItem?.deal;
+  const dealStatus = (deal?.Status ?? deal?.status ?? '').toLowerCase();
+  const inferredPitchFromWorkbench = Boolean(deal || inst);
   const pitchChipLabel = pitchedDateParsed
     ? `${format(pitchedDateParsed, 'd MMM')} ${format(pitchedDateParsed, 'HH:mm')}`
+    : inferredPitchFromWorkbench
+      ? 'Sent'
     : '';
   const pitchedStamp = pitchedDateParsed
     ? `Pitched ${format(pitchedDateParsed, 'dd MMM HH:mm')}`
+    : inferredPitchFromWorkbench
+      ? 'Pitch linked'
     : 'Pitched';
 
   // Legacy detection
@@ -111,11 +111,23 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
   const isDefinitelyLegacy = !hasV2Infrastructure;
   const pocDisplayName = item.Point_of_Contact || (item as any).poc || '';
   const hasClaimerStage = !!pocDisplayName;
+  const hasImmediatePipelineState = Boolean(
+    hasClaimerStage ||
+    deal ||
+    inst ||
+    inlineWorkbenchItem?.eid ||
+    inlineWorkbenchItem?.risk ||
+    (Array.isArray(inlineWorkbenchItem?.payments) && inlineWorkbenchItem.payments.length > 0) ||
+    (Array.isArray(inlineWorkbenchItem?.matters) && inlineWorkbenchItem.matters.length > 0)
+  );
 
   const showTeamsStage = isV2Enquiry && !!teamsData;
   const showLegacyPlaceholder = isDefinitelyLegacy;
   const enrichmentWasProcessed = enrichmentData && enrichmentData.enquiryId;
-  const showLoadingState = isV2Enquiry && !enrichmentWasProcessed && !isDefinitelyLegacy && !teamsTime;
+  const showLoadingState = isV2Enquiry && !enrichmentWasProcessed && !isDefinitelyLegacy && !teamsTime && !hasImmediatePipelineState;
+  const resolveAnimationTimerRef = useRef<number | null>(null);
+  const previousResolvedFlagsRef = useRef<boolean[] | null>(null);
+  const [resolvedChipIndices, setResolvedChipIndices] = useState<number[]>([]);
 
   // Timeout: after 15s of loading, show muted dashes instead of infinite skeleton
   const [loadingTimedOut, setLoadingTimedOut] = useState(false);
@@ -133,10 +145,57 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
   const showClaimer = hasClaimerStage && activeState !== 'Triaged' && !isTeamInboxPoc;
   const claimerInfo = claimerMap[pocLower];
   const claimerLabel = claimerInfo?.Initials || getPocInitialsLocal(pocDisplayName, claimerMap);
-  const showPitch = !!enrichmentData?.pitchData;
+  const showPitch = !!enrichmentData?.pitchData || inferredPitchFromWorkbench;
   const pitchColor = getScenarioColor(enrichmentData?.pitchData?.scenarioId);
   const showPitchCTA = showClaimer && !isTeamInboxPoc && enrichmentWasProcessed && !showPitch;
   const isPitchNextAction = (showTeamsStage || showClaimer) && !showPitch;
+
+  const hasResolvedWorkbench = Boolean(inlineWorkbenchItem);
+  const hasResolvedEid = Boolean(inlineWorkbenchItem?.eid);
+  const hasResolvedPayment = Array.isArray(inlineWorkbenchItem?.payments) && inlineWorkbenchItem.payments.length > 0;
+  const hasResolvedRisk = Boolean(inlineWorkbenchItem?.risk);
+  const hasResolvedMatter = Boolean(
+    inlineWorkbenchItem?.instruction?.MatterId ?? inlineWorkbenchItem?.instruction?.matterId
+  ) || (Array.isArray(inlineWorkbenchItem?.matters) && inlineWorkbenchItem.matters.length > 0);
+
+  useEffect(() => {
+    const resolvedFlags = [
+      showTeamsStage,
+      showPitch,
+      hasResolvedWorkbench,
+      hasResolvedEid,
+      hasResolvedPayment,
+      hasResolvedRisk,
+      hasResolvedMatter,
+    ];
+
+    const previousFlags = previousResolvedFlagsRef.current;
+    if (previousFlags) {
+      const newlyResolved = resolvedFlags
+        .map((flag, index) => (flag && !previousFlags[index] ? index : -1))
+        .filter((index) => index >= 0);
+
+      if (newlyResolved.length > 0) {
+        setResolvedChipIndices(newlyResolved);
+        if (resolveAnimationTimerRef.current !== null) {
+          window.clearTimeout(resolveAnimationTimerRef.current);
+        }
+        resolveAnimationTimerRef.current = window.setTimeout(() => {
+          setResolvedChipIndices([]);
+          resolveAnimationTimerRef.current = null;
+        }, 720);
+      }
+    }
+
+    previousResolvedFlagsRef.current = resolvedFlags;
+
+    return () => {
+      if (resolveAnimationTimerRef.current !== null) {
+        window.clearTimeout(resolveAnimationTimerRef.current);
+        resolveAnimationTimerRef.current = null;
+      }
+    };
+  }, [showTeamsStage, showPitch, hasResolvedWorkbench, hasResolvedEid, hasResolvedPayment, hasResolvedRisk, hasResolvedMatter]);
 
   // Carousel state for this row
   const pipelineOffset = getPipelineScrollOffset(item.ID);
@@ -145,12 +204,12 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
   const isChipVisible = (chipIndex: number) =>
     !pipelineNeedsCarousel || (chipIndex >= pipelineOffset && chipIndex < visibleEnd);
 
-  const gridCols = pipelineNeedsCarousel
-    ? `repeat(${visiblePipelineChipCount}, minmax(${PIPELINE_CHIP_MIN_WIDTH_PX}px, 1fr)) 24px`
-    : `repeat(7, minmax(${PIPELINE_CHIP_MIN_WIDTH_PX}px, 1fr)) 24px`;
+  const gridCols = `repeat(${pipelineNeedsCarousel ? visiblePipelineChipCount : 7}, minmax(${PIPELINE_CHIP_MIN_WIDTH_PX}px, 1fr))`;
 
-  const getCascadeStyle = (chipIndex: number) => ({
-    animation: enrichmentWasProcessed ? `pipeline-cascade 0.35s cubic-bezier(0.4, 0, 0.2, 1) ${chipIndex * 0.12}s both` : 'none',
+  const getCascadeStyle = (chipIndex: number): React.CSSProperties => ({
+    animation: resolvedChipIndices.includes(chipIndex)
+      ? `pipeline-chip-resolve 360ms cubic-bezier(0.16, 1, 0.3, 1) ${Math.min(chipIndex, 6) * 24}ms both`
+      : 'none',
   });
 
   const enquiryTeamsLink = (enrichmentData?.teamsData as any)?.teamsLink as string | undefined;
@@ -160,6 +219,7 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
   const navIdleBackground = isDarkMode ? 'rgba(8, 28, 48, 0.72)' : 'rgba(244, 244, 246, 0.9)';
   const navActiveBackground = isDarkMode ? 'rgba(135, 243, 243, 0.14)' : 'rgba(54, 144, 206, 0.1)';
   const navAccent = isDarkMode ? colours.accent : colours.highlight;
+  const pipelineGridPaddingRight = pipelineNeedsCarousel ? 32 : 0;
 
   // ─── Loading state ──────────────────────────────────────────
   if (showLoadingState) {
@@ -171,14 +231,14 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: pipelineNeedsCarousel
-              ? `repeat(${visiblePipelineChipCount}, minmax(${PIPELINE_CHIP_MIN_WIDTH_PX}px, 1fr)) 24px`
-              : `repeat(7, minmax(${PIPELINE_CHIP_MIN_WIDTH_PX}px, 1fr)) 24px`,
+            gridTemplateColumns: gridCols,
             columnGap: 8,
             alignItems: 'center',
             width: '100%',
             minWidth: 0,
             height: '100%',
+            paddingRight: pipelineGridPaddingRight,
+            boxSizing: 'border-box',
           }}
         >
           {[
@@ -219,35 +279,38 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
               </div>
             );
           })}
-          {pipelineNeedsCarousel ? (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                advancePipelineScroll(item.ID, 7, visiblePipelineChipCount);
-              }}
-              title="View more stages"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: '100%',
-                height: 22,
-                padding: 0,
-                border: `1px solid ${navBorder}`,
-                borderRadius: 0,
-                background: navActiveBackground,
-                cursor: 'pointer',
-                transition: 'all 0.15s ease',
-                color: navAccent,
-              }}
-            >
-              <Icon iconName="ChevronRight" styles={{ root: { fontSize: 12, color: 'inherit' } }} />
-            </button>
-          ) : (
-            <div />
-          )}
         </div>
+        {pipelineNeedsCarousel && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              advancePipelineScroll(item.ID, 7, visiblePipelineChipCount);
+            }}
+            title="View more stages"
+            style={{
+              position: 'absolute',
+              top: '50%',
+              right: 0,
+              transform: 'translateY(-50%)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 24,
+              height: 22,
+              padding: 0,
+              border: `1px solid ${navBorder}`,
+              borderRadius: 0,
+              background: navActiveBackground,
+              cursor: 'pointer',
+              transition: 'all 0.15s ease',
+              color: navAccent,
+              zIndex: 1,
+            }}
+          >
+            <Icon iconName="ChevronRight" styles={{ root: { fontSize: 12, color: 'inherit' } }} />
+          </button>
+        )}
         <style>{`
           @keyframes pipeline-pulse {
             0%, 100% { opacity: 0.3; }
@@ -259,9 +322,6 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
   }
 
   // ─── Post-pitch stage data ──────────────────────────────────
-  const inst = inlineWorkbenchItem?.instruction;
-  const deal = inlineWorkbenchItem?.deal;
-  const dealStatus = (deal?.Status ?? deal?.status ?? '').toLowerCase();
   const dealHasInstruction = dealStatus !== 'pitched' && dealStatus !== '';
   const instructionRef = (inst?.InstructionRef ?? inst?.instructionRef ?? (dealHasInstruction ? (deal?.InstructionRef ?? deal?.instructionRef) : undefined)) as string | undefined;
   const instructionDateRaw =
@@ -382,18 +442,17 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
           width: '100%',
           minWidth: 0,
           height: '100%',
+          paddingRight: pipelineGridPaddingRight,
+          boxSizing: 'border-box',
         }}
       >
         {/* POC — chip index 0 */}
         {isChipVisible(0) && (
           <div style={{ ...getCascadeStyle(0), display: 'flex', justifyContent: 'center', justifySelf: 'center', width: 'fit-content' }}>
             {(() => {
-              const hasPocActivity = showTeamsStage || showClaimer;
-              const pocIconColor = hasPocActivity
-                ? (isDarkMode ? `${colours.highlight}d9` : `${colours.highlight}bf`)
-                : (isDarkMode ? `${colours.subtleGrey}40` : `${colours.greyText}33`);
+              const isCurrentUser = currentUserEmail && pocLower === currentUserEmail.toLowerCase();
               const initialsColor = showClaimer
-                ? colours.green
+                ? (isCurrentUser ? colours.green : (isDarkMode ? `${colours.subtleGrey}99` : `${colours.greyText}99`))
                 : (isDarkMode ? `${colours.subtleGrey}66` : `${colours.greyText}59`);
 
               if (showLegacyPlaceholder && !showClaimer && !showTeamsStage) {
@@ -432,19 +491,14 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
               }
 
               return (
-                <button
-                  className="pipeline-chip"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    const link = teamsData?.teamsLink || getAreaSpecificChannelUrl(item.Area_of_Work);
-                    if (link) window.open(link, '_blank');
-                  }}
+                <div
+                  className="pipeline-chip pipeline-chip-reveal"
                   onMouseEnter={(e) => showPipelineHover(e, {
                     title: 'POC',
                     status: showTeamsStage ? `${pocDisplayName} - Teams activity` : `Claimed by ${pocDisplayName}`,
                     subtitle: contactName,
                     color: colours.blue,
-                    iconName: 'TeamsLogo',
+                    iconName: 'Contact',
                   })}
                   onMouseMove={movePipelineHover}
                   onMouseLeave={hidePipelineHover}
@@ -452,38 +506,55 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
                     display: 'inline-flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    gap: 4,
                     height: 22,
-                    padding: '0 4px',
+                    padding: 0,
                     borderRadius: 0,
                     border: 'none',
                     background: 'transparent',
-                    cursor: 'pointer',
                     fontFamily: 'inherit',
                     flexShrink: 0,
                   }}
                 >
-                  <Icon iconName="TeamsLogo" styles={{ root: { fontSize: 14, color: pocIconColor, flexShrink: 0 } }} />
-                  <span style={{
-                    width: 22,
-                    textAlign: 'center',
-                    fontSize: 10,
-                    fontWeight: 700,
-                    color: initialsColor,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.3px',
-                  }}>
-                    {claimerLabel}
+                  <span className="pipeline-chip-box">
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleReassignClick(String(item.ID), e as any);
+                      }}
+                      style={{
+                        minWidth: 18,
+                        textAlign: 'center',
+                        fontSize: 10,
+                        fontWeight: 700,
+                        color: initialsColor,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.3px',
+                        lineHeight: 1,
+                        cursor: 'pointer',
+                      }}
+                      title="Reassign"
+                    >
+                      {claimerLabel}
+                    </span>
+                    {enquiryTeamsLink && (
+                      <span
+                        className="pipeline-chip-label"
+                        role="link"
+                        tabIndex={0}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          window.open(enquiryTeamsLink, '_blank', 'noopener,noreferrer');
+                        }}
+                        style={{ cursor: 'pointer', color: isDarkMode ? colours.accent : colours.highlight }}
+                        title="Open Teams card"
+                      >
+                        {renderPipelineIcon('TeamsLogo', isDarkMode ? colours.accent : colours.highlight, 12)}
+                      </span>
+                    )}
                   </span>
-                  <Icon
-                    iconName="ChevronDown"
-                    onClick={(e: React.MouseEvent) => {
-                      e.stopPropagation();
-                      handleReassignClick(String(item.ID), e as any);
-                    }}
-                    styles={{ root: { fontSize: 8, color: initialsColor, opacity: 0.6, cursor: 'pointer' } }}
-                  />
-                </button>
+                </div>
               );
             })()}
           </div>
@@ -527,7 +598,7 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
                   title: 'Send Pitch',
                   status: 'Claimed — ready to pitch',
                   subtitle: contactName,
-                  color: isDarkMode ? colours.accent : colours.highlight,
+                  color: isDarkMode ? 'rgba(160, 160, 160, 0.7)' : 'rgba(107, 107, 107, 0.6)',
                   iconName: 'Send',
                 })}
                 onMouseMove={movePipelineHover}
@@ -546,7 +617,7 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
                   fontFamily: 'inherit',
                 }}
               >
-                <Icon iconName="Send" styles={{ root: { fontSize: 14, color: isDarkMode ? colours.accent : colours.highlight } }} />
+                {renderPipelineIcon('Send', isDarkMode ? 'rgba(160, 160, 160, 0.55)' : 'rgba(107, 107, 107, 0.5)', 14)}
               </button>
             ) : (
               <div
@@ -570,7 +641,7 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
                   background: 'transparent',
                 }}
               >
-                <Icon iconName="Send" styles={{ root: { fontSize: 14, color: inactivePipelineColor } }} />
+                {renderPipelineIcon('Send', inactivePipelineColor, 14)}
               </div>
             )}
           </div>
@@ -700,49 +771,51 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
           </div>
         )}
 
-        {/* Carousel nav / empty gutter */}
-        {pipelineNeedsCarousel ? (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              advancePipelineScroll(item.ID, 7, visiblePipelineChipCount);
-            }}
-            title={hasMoreChips ? `View more stages (${7 - visibleEnd} hidden)` : 'Back to start'}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              width: '100%',
-              height: 22,
-              padding: 0,
-              border: `1px solid ${navBorder}`,
-              borderRadius: 0,
-              background: hasMoreChips
-                ? navActiveBackground
-                : navIdleBackground,
-              cursor: 'pointer',
-              transition: 'all 0.15s ease',
-              color: hasMoreChips
-                ? navAccent
-                : mutedTextColor,
-            }}
-          >
-            <Icon
-              iconName={hasMoreChips ? 'ChevronRight' : 'Refresh'}
-              styles={{
-                root: {
-                  fontSize: hasMoreChips ? 12 : 10,
-                  color: 'inherit',
-                  opacity: hasMoreChips ? 1 : 0.7,
-                },
-              }}
-            />
-          </button>
-        ) : (
-          <div />
-        )}
       </div>
+      {pipelineNeedsCarousel && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            advancePipelineScroll(item.ID, 7, visiblePipelineChipCount);
+          }}
+          title={hasMoreChips ? `View more stages (${7 - visibleEnd} hidden)` : 'Back to start'}
+          style={{
+            position: 'absolute',
+            top: '50%',
+            right: 0,
+            transform: 'translateY(-50%)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: 24,
+            height: 22,
+            padding: 0,
+            border: `1px solid ${navBorder}`,
+            borderRadius: 0,
+            background: hasMoreChips
+              ? navActiveBackground
+              : navIdleBackground,
+            cursor: 'pointer',
+            transition: 'all 0.15s ease',
+            color: hasMoreChips
+              ? navAccent
+              : mutedTextColor,
+            zIndex: 1,
+          }}
+        >
+          <Icon
+            iconName={hasMoreChips ? 'ChevronRight' : 'Refresh'}
+            styles={{
+              root: {
+                fontSize: hasMoreChips ? 12 : 10,
+                color: 'inherit',
+                opacity: hasMoreChips ? 1 : 0.7,
+              },
+            }}
+          />
+        </button>
+      )}
     </div>
   );
 };

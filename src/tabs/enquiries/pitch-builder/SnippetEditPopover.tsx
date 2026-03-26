@@ -1,18 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import {
-    TextField,
-    ITextFieldStyles,
-    PrimaryButton,
-    DefaultButton,
-    Stack,
-    Text,
-    Icon,
-    Callout,
-    DirectionalHint,
-    ChoiceGroup,
-    IChoiceGroupOption,
-} from '@fluentui/react';
-
+import { TextField } from '@fluentui/react/lib/TextField';
+import type { ITextFieldStyles } from '@fluentui/react/lib/TextField';
+import { PrimaryButton, DefaultButton } from '@fluentui/react/lib/Button';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Text } from '@fluentui/react/lib/Text';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { Callout, DirectionalHint } from '@fluentui/react/lib/Callout';
+import { ChoiceGroup } from '@fluentui/react/lib/ChoiceGroup';
+import type { IChoiceGroupOption } from '@fluentui/react/lib/ChoiceGroup';
 type SnippetEditPopoverProps = {
     target: HTMLElement;
     onSave: (data: { label: string; sortOrder: number; isNew: boolean }) => void;

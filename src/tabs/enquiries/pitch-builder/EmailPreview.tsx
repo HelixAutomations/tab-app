@@ -1,19 +1,13 @@
 import React from 'react';
-import {
-  Stack,
-  Text,
-  MessageBar,
-  MessageBarType,
-  Separator,
-  Panel,
-  PanelType,
-  PrimaryButton,
-  DefaultButton,
-  Checkbox,
-  IconButton,
-  mergeStyles,
-  Link,
-} from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Text } from '@fluentui/react/lib/Text';
+import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
+import { Separator } from '@fluentui/react/lib/Separator';
+import { Panel, PanelType } from '@fluentui/react/lib/Panel';
+import { PrimaryButton, DefaultButton, IconButton } from '@fluentui/react/lib/Button';
+import { Checkbox } from '@fluentui/react/lib/Checkbox';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
+import { Link } from '@fluentui/react/lib/Link';
 import { colours } from '../../../app/styles/colours';
 import { useTheme } from '../../../app/functionality/ThemeContext';
 import {

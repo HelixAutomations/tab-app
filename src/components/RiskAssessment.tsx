@@ -1,10 +1,8 @@
 import React, { useRef, useState, useMemo } from 'react';
-import {
-    DatePicker,
-    IDatePickerStyles,
-    Checkbox,
-    Icon,
-} from '@fluentui/react';
+import { DatePicker } from '@fluentui/react/lib/DatePicker';
+import type { IDatePickerStyles } from '@fluentui/react/lib/DatePicker';
+import { Checkbox } from '@fluentui/react/lib/Checkbox';
+import { Icon } from '@fluentui/react/lib/Icon';
 import { useTheme } from '../app/functionality/ThemeContext';
 import { colours } from '../app/styles/colours';
 

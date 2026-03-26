@@ -1,6 +1,5 @@
-﻿import React, { useState, useRef, useEffect, useId, useCallback, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useId, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { Icon } from '@fluentui/react/lib/Icon';
 import AdminDashboard from './AdminDashboard';
 import DemoPromptsModal from './DemoPromptsModal';
 import LoadingDebugModal from './debug/LoadingDebugModal';
@@ -8,15 +7,20 @@ import { ErrorTracker } from './ErrorTracker';
 import { UserData } from '../app/functionality/types';
 import '../app/styles/UserBubble.css';
 import '../app/styles/personas.css';
-import { isAdminUser, isPowerUser } from '../app/admin';
+import { isAdminUser } from '../app/admin';
 import { useTheme } from '../app/functionality/ThemeContext';
 import { colours } from '../app/styles/colours';
 import RefreshDataModal from './RefreshDataModal';
 import LegacyMigrationTool from './LegacyMigrationTool';
 import lightAvatarMark from '../assets/dark blue mark.svg';
 import darkAvatarMark from '../assets/markwhite.svg';
-import hlrBlueMark from '../assets/HLRblue72.png';
-import hlrWhiteMark from '../assets/HLRwhite72.png';
+import { CommandCentreTokens, BubbleToastTone } from './command-centre/types';
+import AdminControlsSection from './command-centre/AdminControlsSection';
+import LocalDevSection from './command-centre/LocalDevSection';
+import WorkspaceViewsSection from './command-centre/WorkspaceViewsSection';
+import SessionFiltersSection from './command-centre/SessionFiltersSection';
+import AppearanceSection from './command-centre/AppearanceSection';
+import ProfileSection from './command-centre/ProfileSection';
 
 interface UserBubbleProps {
     user: UserData;
@@ -34,10 +38,8 @@ interface UserBubbleProps {
     demoModeEnabled?: boolean;
     onToggleDemoMode?: (enabled: boolean) => void;
     onOpenReleaseNotesModal?: () => void;
+    hideOpsSections?: boolean;
 }
-
-const AVAILABLE_AREAS = ['Commercial', 'Construction', 'Property', 'Employment', 'Misc/Other'];
-type BubbleToastTone = 'info' | 'success' | 'warning';
 
 const UserBubble: React.FC<UserBubbleProps> = ({
     user,
@@ -51,11 +53,12 @@ const UserBubble: React.FC<UserBubbleProps> = ({
     onRefreshMatters,
     onFeatureToggle,
     featureToggles = {},
-    onShowTestEnquiry,
     demoModeEnabled = false,
     onToggleDemoMode,
     onOpenReleaseNotesModal,
+    hideOpsSections = false,
 }) => {
+    // ── State ──
     const [open, setOpen] = useState(false);
     const [showDevDashboard, setShowDevDashboard] = useState(false);
     const [showRefreshModal, setShowRefreshModal] = useState(false);
@@ -63,113 +66,119 @@ const UserBubble: React.FC<UserBubbleProps> = ({
     const [showLoadingDebug, setShowLoadingDebug] = useState(false);
     const [showErrorTracker, setShowErrorTracker] = useState(false);
     const [showMigrationTool, setShowMigrationTool] = useState(false);
-    const [profileCollapsed, setProfileCollapsed] = useState(true);
-    const [areaFiltersCollapsed, setAreaFiltersCollapsed] = useState(true);
-    const [adminCollapsed, setAdminCollapsed] = useState(true);
-    const [localCollapsed, setLocalCollapsed] = useState(true);
-    const [paletteCollapsed, setPaletteCollapsed] = useState(true);
     const [toast, setToast] = useState<{ message: string; tone: BubbleToastTone } | null>(null);
     const [sessionElapsed, setSessionElapsed] = useState('');
+    const [areasOfWork, setAreasOfWork] = useState<string[]>(() => {
+        const record = user as unknown as Record<string, unknown>;
+        const aow = user.AOW || record.Area_of_Work || record.aow;
+        return aow ? String(aow).split(',').map(s => s.trim()).filter(Boolean) : [];
+    });
+
+    // ── Refs ──
     const bubbleRef = useRef<HTMLButtonElement | null>(null);
     const popoverRef = useRef<HTMLDivElement | null>(null);
     const previouslyFocusedElement = useRef<HTMLElement | null>(null);
     const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const sessionStartRef = useRef<number>(Date.now());
+
+    // ── Theme ──
     const { isDarkMode, toggleTheme } = useTheme();
     const popoverId = useId();
 
-    // Theme tokens â€“ derived strictly from colours.ts brand values
-    // Dark depth: websiteBlue (#000319) â†’ darkBlue (#061733) â†’ sectionBg (#051525) â†’ helixBlue hover (#0D2F60)
+    // ── Tokens — derived from colours.ts brand values ──
     const bg = isDarkMode ? colours.websiteBlue : '#ffffff';
-    const bgSecondary = isDarkMode ? colours.darkBlue : colours.grey;
-    const bgTertiary = isDarkMode ? colours.dark.sectionBackground : colours.grey;
-    const controlRowBg = isDarkMode ? colours.darkBlue : bgTertiary;
+    const controlRowBg = isDarkMode ? colours.darkBlue : colours.grey;
     const bgHover = isDarkMode ? colours.helixBlue : colours.light.cardHover;
     const borderLight = isDarkMode ? colours.dark.border : colours.highlightNeutral;
     const borderMedium = isDarkMode ? colours.dark.borderColor : colours.highlightNeutral;
     const textPrimary = isDarkMode ? colours.dark.text : colours.light.text;
-    const textSecondary = isDarkMode ? colours.dark.subText : colours.greyText;
+    const textBody = isDarkMode ? '#d1d5db' : colours.greyText;
     const textMuted = isDarkMode ? colours.subtleGrey : colours.greyText;
     const accentPrimary = colours.blue;
-
-    const helixSwatches = [
-        { key: 'website-blue', label: 'Website Blue', color: colours.websiteBlue },
-        { key: 'dark-blue', label: 'Dark Blue', color: colours.darkBlue },
-        { key: 'helix-blue', label: 'Helix Blue', color: colours.helixBlue },
-        { key: 'highlight', label: 'Highlight', color: colours.blue },
-        { key: 'accent', label: 'Accent', color: colours.accent },
-        { key: 'cta', label: 'CTA Red', color: colours.cta },
-        { key: 'grey', label: 'Helix Grey', color: colours.grey },
-    ];
-
-    // Colour pairings — how colours work together (local dev only)
-    const colourPairings = [
-        { label: 'Dark surface', desc: 'Dark mode with white labels and accent-ready cues', bg: colours.websiteBlue, fg: '#ffffff', accent: colours.accent, tag: 'DARK' },
-        { label: 'Light surface', desc: 'Light mode with highlight-blue navigation cues', bg: colours.grey, fg: colours.darkBlue, accent: colours.blue, tag: 'LIGHT' },
-    ];
-    const [activePairing, setActivePairing] = useState(0);
-    const [activeIntent, setActiveIntent] = useState<'NAV' | 'ACTION' | 'POSITIVE'>('NAV');
-    const [playgroundBase, setPlaygroundBase] = useState<'websiteBlue' | 'darkBlue' | 'helixBlue' | 'grey'>('darkBlue');
-    const [playgroundLayer, setPlaygroundLayer] = useState<'darkBlue' | 'helixBlue' | 'blue' | 'highlightBlue' | 'grey'>('helixBlue');
-    const [playgroundAccent, setPlaygroundAccent] = useState<'accent' | 'blue' | 'cta' | 'green' | 'orange' | 'yellow'>('accent');
-
-    const playgroundBaseOptions = {
-        websiteBlue: { label: 'Website Blue', color: colours.websiteBlue },
-        darkBlue: { label: 'Dark Blue', color: colours.darkBlue },
-        helixBlue: { label: 'Helix Blue', color: colours.helixBlue },
-        grey: { label: 'Helix Grey', color: colours.grey },
-    };
-
-    const playgroundLayerOptions = {
-        darkBlue: { label: 'Dark Blue', color: colours.darkBlue },
-        helixBlue: { label: 'Helix Blue', color: colours.helixBlue },
-        blue: { label: 'Highlight Blue', color: colours.blue },
-        highlightBlue: { label: 'Light Highlight Blue', color: colours.highlightBlue },
-        grey: { label: 'Helix Grey', color: colours.grey },
-    };
-
-    const playgroundAccentOptions = {
-        accent: { label: 'Accent', color: colours.accent },
-        blue: { label: 'Highlight', color: colours.blue },
-        cta: { label: 'CTA', color: colours.cta },
-        green: { label: 'Green', color: colours.green },
-        orange: { label: 'Orange', color: colours.orange },
-        yellow: { label: 'Yellow', color: colours.yellow },
-    };
-
     const ctaPrimary = colours.cta;
-    const success = colours.green;
-    
-    // Shadows â€“ Helix aligned
     const shadowSm = isDarkMode ? '0 1px 2px rgba(0, 3, 25, 0.3)' : '0 1px 2px rgba(0, 0, 0, 0.04)';
     const shadowMd = isDarkMode ? '0 4px 6px -1px rgba(0, 3, 25, 0.35)' : '0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03)';
 
-    // Avatar treatment â€“ brand tokens
-    const avatarBg = isDarkMode
-        ? colours.darkBlue
-        : colours.light.cardBackground;
+    // Avatar
+    const avatarBg = isDarkMode ? colours.darkBlue : colours.light.cardBackground;
     const avatarBorder = isDarkMode ? colours.dark.borderColor : colours.highlightNeutral;
     const avatarBorderHover = isDarkMode ? colours.blue : colours.subtleGrey;
     const avatarShadow = isDarkMode ? '0 3px 12px rgba(0, 3, 25, 0.4)' : shadowSm;
     const avatarShadowHover = isDarkMode ? '0 4px 16px rgba(0, 3, 25, 0.5)' : shadowMd;
     const avatarIcon = isDarkMode ? darkAvatarMark : lightAvatarMark;
 
+    // Row interaction
+    const rowBaseBackground = isDarkMode
+        ? `linear-gradient(90deg, rgba(54, 144, 206, 0.10) 0%, rgba(54, 144, 206, 0.00) 42%), ${controlRowBg}`
+        : controlRowBg;
+    const rowHoverBackground = isDarkMode
+        ? `linear-gradient(90deg, rgba(54, 144, 206, 0.18) 0%, rgba(54, 144, 206, 0.00) 50%), ${bgHover}`
+        : bgHover;
+    const rowBaseShadow = isDarkMode ? 'inset 0 0 0 1px rgba(54, 144, 206, 0.05)' : 'none';
+    const rowHoverShadow = isDarkMode ? '0 8px 18px rgba(0, 3, 25, 0.42)' : '0 4px 12px rgba(6, 23, 51, 0.08)';
+
+    // Environment
+    const environment = useMemo(() => {
+        if (isLocalDev) return 'Local';
+        const host = typeof window !== 'undefined' ? window.location.hostname : '';
+        if (host.includes('staging') || host.includes('uat')) return 'Staging';
+        return 'Production';
+    }, [isLocalDev]);
+
+    const environmentColour = environment === 'Production'
+        ? colours.green
+        : environment === 'Staging'
+            ? colours.orange
+            : (isDarkMode ? colours.accent : colours.blue);
+
+    const environmentBadgeBg = environment === 'Local' && isDarkMode
+        ? 'rgba(135, 243, 243, 0.10)'
+        : (isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.04)');
+
+    const environmentBadgeBorder = environment === 'Local' && isDarkMode
+        ? 'rgba(135, 243, 243, 0.26)'
+        : (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.10)');
+
+    // ── Computed ──
     const initials = user.Initials || `${user.First?.charAt(0) || ''}${user.Last?.charAt(0) || ''}`.toUpperCase();
     const isAdmin = isAdminUser(user);
     const isAdminEligible = isAdmin || isLocalDev;
+    const canSwitchUser = isAdminUser(user);
+    const hasSessionFilters = !!onAreasChange || !!onFeatureToggle;
 
-    const adminBadge = (
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={textMuted} strokeWidth="1.8" style={{ flexShrink: 0, opacity: 0.7 }}>
-            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-        </svg>
-    );
+    const activeStates = useMemo(() => {
+        const states: string[] = [];
+        if (demoModeEnabled) states.push('Demo mode');
+        if (featureToggles.viewAsProd) states.push('Production view');
+        if (originalAdminUser) states.push(`Viewing as ${user.FullName || user.Initials}`);
+        return states;
+    }, [demoModeEnabled, featureToggles.viewAsProd, originalAdminUser, user.FullName, user.Initials]);
 
-    const localBadge = (
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={textMuted} strokeWidth="1.8" style={{ flexShrink: 0, opacity: 0.7 }}>
-            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
-        </svg>
-    );
+    const regularDetails = useMemo(() => {
+        const detailsMap = new Map<string, { label: string; value: string; isRate?: boolean; isRole?: boolean }>();
+        Object.entries(user as Record<string, unknown>)
+            .filter(([, v]) => v !== undefined && v !== null && v !== '')
+            .forEach(([key, value]) => {
+                const c = key.replace(/[\s_]/g, '').toLowerCase();
+                if (c === 'aow' || c.includes('refreshtoken') || c.includes('refresh_token')) return;
+                if (!detailsMap.has(c)) {
+                    detailsMap.set(c, {
+                        label: key.replace(/_/g, ' '),
+                        value: String(value),
+                        isRate: c === 'rate',
+                        isRole: c === 'role'
+                    });
+                }
+            });
+        return Array.from(detailsMap.values()).filter(d => !d.label.toLowerCase().includes('asana'));
+    }, [user]);
 
+    const detailsRate = regularDetails.find(d => d.isRate)?.value;
+    const headerRateDisplay = (user.Rate !== undefined && user.Rate !== null && String(user.Rate).trim() !== '')
+        ? String(user.Rate)
+        : detailsRate;
+
+    // ── Callbacks ──
     const closePopover = useCallback((restoreFocus = true) => {
         setOpen(false);
         if (restoreFocus && (previouslyFocusedElement.current || bubbleRef.current)) {
@@ -178,6 +187,26 @@ const UserBubble: React.FC<UserBubbleProps> = ({
         previouslyFocusedElement.current = null;
     }, []);
 
+    const showToast = useCallback((message: string, tone: BubbleToastTone = 'info') => {
+        setToast({ message, tone });
+        if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+        toastTimerRef.current = setTimeout(() => {
+            setToast(null);
+            toastTimerRef.current = null;
+        }, 1800);
+    }, []);
+
+    const copy = useCallback(async (text?: string) => {
+        if (!text) return;
+        try {
+            await navigator.clipboard.writeText(text);
+            showToast('Copied to clipboard', 'success');
+        } catch {
+            showToast('Copy failed', 'warning');
+        }
+    }, [showToast]);
+
+    // ── Effects ──
     useEffect(() => {
         localStorage.setItem('__currentUserInitials', (user.Initials || '').toLowerCase());
     }, [user]);
@@ -208,30 +237,37 @@ const UserBubble: React.FC<UserBubbleProps> = ({
         return () => window.removeEventListener('keydown', handleKey);
     }, [open, closePopover]);
 
+    // Focus trap — keep Tab cycling within the dialog
     useEffect(() => {
-        if (open) {
-            setAreaFiltersCollapsed(true);
-        }
-    }, [open]);
-
-    const showToast = useCallback((message: string, tone: BubbleToastTone = 'info') => {
-        setToast({ message, tone });
-        if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-        toastTimerRef.current = setTimeout(() => {
-            setToast(null);
-            toastTimerRef.current = null;
-        }, 1800);
-    }, []);
-
-    useEffect(() => {
-        return () => {
-            if (toastTimerRef.current) {
-                clearTimeout(toastTimerRef.current);
+        if (!open) return;
+        const dialog = popoverRef.current;
+        if (!dialog) return;
+        requestAnimationFrame(() => dialog.focus());
+        const handleTab = (e: KeyboardEvent) => {
+            if (e.key !== 'Tab') return;
+            const focusable = dialog.querySelectorAll<HTMLElement>(
+                'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+            );
+            if (focusable.length === 0) return;
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            if (e.shiftKey && document.activeElement === first) {
+                e.preventDefault();
+                last.focus();
+            } else if (!e.shiftKey && document.activeElement === last) {
+                e.preventDefault();
+                first.focus();
             }
         };
+        dialog.addEventListener('keydown', handleTab);
+        return () => dialog.removeEventListener('keydown', handleTab);
+    }, [open]);
+
+    useEffect(() => {
+        return () => { if (toastTimerRef.current) clearTimeout(toastTimerRef.current); };
     }, []);
 
-    // Session elapsed timer — ticks every 30s while modal is open
+    // Session elapsed timer
     useEffect(() => {
         if (!open) return;
         const tick = () => {
@@ -245,220 +281,86 @@ const UserBubble: React.FC<UserBubbleProps> = ({
         return () => clearInterval(id);
     }, [open]);
 
-    // Environment detection
-    const environment = useMemo(() => {
-        if (isLocalDev) return 'Local';
-        const host = typeof window !== 'undefined' ? window.location.hostname : '';
-        if (host.includes('staging') || host.includes('uat')) return 'Staging';
-        return 'Production';
-    }, [isLocalDev]);
+    // ── Tokens bag for section components ──
+    const tokens = useMemo<CommandCentreTokens>(() => ({
+        isDarkMode,
+        bg,
+        bgHover,
+        controlRowBg,
+        borderLight,
+        borderMedium,
+        textPrimary,
+        textBody,
+        textMuted,
+        accentPrimary,
+        ctaPrimary,
+        shadowSm,
+        toggleRow: {
+            display: 'flex' as const, alignItems: 'center' as const, justifyContent: 'space-between' as const,
+            padding: '10px 12px', background: rowBaseBackground,
+            border: `1px solid ${borderLight}`,
+            borderLeft: '3px solid transparent',
+            borderRadius: '2px',
+            cursor: 'pointer' as const, boxShadow: rowBaseShadow,
+            transform: 'translateY(0)',
+            transition: 'background 0.2s ease, border-color 0.2s ease, border-left-color 0.2s ease, transform 0.18s ease, box-shadow 0.18s ease'
+        },
+        sectionTitle: {
+            fontSize: 10, fontWeight: 600, color: textMuted, textTransform: 'uppercase' as const,
+            letterSpacing: '0.5px', marginBottom: 8, display: 'flex' as const, alignItems: 'center' as const, gap: 6
+        },
+        actionBtn: {
+            width: '100%', padding: '10px 12px', background: rowBaseBackground,
+            color: textBody,
+            border: `1px solid ${borderLight}`, borderRadius: '2px',
+            fontSize: 11, fontWeight: 500, cursor: 'pointer' as const,
+            display: 'flex' as const, alignItems: 'center' as const, gap: 6,
+            boxShadow: rowBaseShadow, transform: 'translateY(0)',
+            transition: 'background 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.18s ease, box-shadow 0.18s ease'
+        },
+        applyRowHover: (el: HTMLElement) => {
+            el.style.borderColor = borderMedium;
+            el.style.borderLeftColor = isDarkMode ? colours.accent : colours.blue;
+            el.style.background = rowHoverBackground;
+            el.style.transform = 'translateX(2px)';
+            el.style.boxShadow = rowHoverShadow;
+        },
+        resetRowHover: (el: HTMLElement) => {
+            el.style.borderColor = borderLight;
+            el.style.borderLeftColor = 'transparent';
+            el.style.background = rowBaseBackground;
+            el.style.transform = 'translateX(0)';
+            el.style.boxShadow = rowBaseShadow;
+        },
+        applyInsetHover: (el: HTMLElement) => {
+            el.style.borderLeftColor = isDarkMode ? colours.accent : colours.blue;
+            el.style.background = isDarkMode ? `${colours.blue}08` : `${colours.blue}05`;
+            el.style.transform = 'translateX(2px)';
+        },
+        resetInsetHover: (el: HTMLElement) => {
+            el.style.borderLeftColor = 'transparent';
+            el.style.background = 'transparent';
+            el.style.transform = 'translateX(0)';
+        },
+        toggleSwitch: (on: boolean) => ({
+            width: 40, height: 20,
+            background: on ? accentPrimary : borderMedium,
+            borderRadius: '2px', position: 'relative' as const,
+            transition: 'all 0.2s ease', flexShrink: 0
+        }),
+        toggleKnob: (on: boolean) => ({
+            width: 16, height: 16,
+            background: '#fff', borderRadius: '1px',
+            position: 'absolute' as const, top: 2, left: on ? 22 : 2,
+            transition: 'all 0.2s ease', boxShadow: shadowSm
+        }),
+        showToast,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }), [isDarkMode, showToast]);
 
-    const environmentColour = environment === 'Production'
-        ? colours.green
-        : environment === 'Staging'
-            ? colours.orange
-            : (isDarkMode ? colours.accent : colours.blue);
+    const actionBtn: React.CSSProperties = tokens.actionBtn;
 
-    const environmentBadgeBg = environment === 'Local' && isDarkMode
-        ? 'rgba(135, 243, 243, 0.10)'
-        : (isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.04)');
-
-    const environmentBadgeBorder = environment === 'Local' && isDarkMode
-        ? 'rgba(135, 243, 243, 0.26)'
-        : (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.10)');
-
-    // Active state flags — surfaces altered-state awareness
-    const activeStates = useMemo(() => {
-        const states: string[] = [];
-        if (demoModeEnabled) states.push('Demo mode');
-        if (featureToggles.viewAsProd) states.push('Production view');
-        if (originalAdminUser) states.push(`Viewing as ${user.FullName || user.Initials}`);
-        return states;
-    }, [demoModeEnabled, featureToggles.viewAsProd, originalAdminUser, user.FullName, user.Initials]);
-
-    const copy = async (text?: string) => {
-        if (!text) return;
-        try {
-            await navigator.clipboard.writeText(text);
-            showToast('Copied to clipboard', 'success');
-        } catch {
-            showToast('Copy failed', 'warning');
-        }
-    };
-
-    // Build user details
-    const detailsMap = new Map<string, { label: string; value: string; isRate?: boolean; isRole?: boolean }>();
-    Object.entries(user as Record<string, unknown>)
-        .filter(([, v]) => v !== undefined && v !== null && v !== '')
-        .forEach(([key, value]) => {
-            const c = key.replace(/[\s_]/g, '').toLowerCase();
-            if (c === 'aow' || c.includes('refreshtoken') || c.includes('refresh_token')) return;
-            if (!detailsMap.has(c)) {
-                detailsMap.set(c, {
-                    label: key.replace(/_/g, ' '),
-                    value: String(value),
-                    isRate: c === 'rate',
-                    isRole: c === 'role'
-                });
-            }
-        });
-    const userDetails = Array.from(detailsMap.values());
-    const regularDetails = userDetails.filter(d => !d.label.toLowerCase().includes('asana'));
-    const detailsRate = regularDetails.find(d => d.isRate)?.value;
-    const headerRateDisplay = (user.Rate !== undefined && user.Rate !== null && String(user.Rate).trim() !== '')
-        ? String(user.Rate)
-        : detailsRate;
-
-    // Areas of work
-    const getInitialAreas = (): string[] => {
-        const aow = user.AOW || (user as any).Area_of_Work || (user as any).aow;
-        return aow ? String(aow).split(',').map(s => s.trim()).filter(Boolean) : [];
-    };
-    const [areasOfWork, setAreasOfWork] = useState<string[]>(getInitialAreas);
-
-    const canSwitchUser = isAdminUser(user);
-    const userInitials = (user.Initials || '').toUpperCase();
-    const canAccessDevTools = isLocalDev || userInitials === 'LZ' || userInitials === 'CB';
-
-    const hasAdminControls =
-        !!(onUserChange && availableUsers) ||
-        !!onToggleDemoMode ||
-        !!onOpenReleaseNotesModal ||
-        !!canAccessDevTools;
-
-    const hasSessionFilters = !!onAreasChange || !!onFeatureToggle;
-
-    // Styles – Brand panel
-    const rowBaseBackground = isDarkMode
-        ? `linear-gradient(90deg, rgba(54, 144, 206, 0.10) 0%, rgba(54, 144, 206, 0.00) 42%), ${controlRowBg}`
-        : controlRowBg;
-    const rowHoverBackground = isDarkMode
-        ? `linear-gradient(90deg, rgba(54, 144, 206, 0.18) 0%, rgba(54, 144, 206, 0.00) 50%), ${bgHover}`
-        : bgHover;
-    const rowBaseShadow = isDarkMode
-        ? 'inset 0 0 0 1px rgba(54, 144, 206, 0.05)'
-        : 'none';
-    const rowHoverShadow = isDarkMode
-        ? '0 8px 18px rgba(0, 3, 25, 0.42)'
-        : '0 4px 12px rgba(6, 23, 51, 0.08)';
-
-    const applyRowHover = (element: HTMLElement) => {
-        element.style.borderColor = borderMedium;
-        element.style.borderLeftColor = isDarkMode ? colours.accent : colours.blue;
-        element.style.background = rowHoverBackground;
-        element.style.transform = 'translateX(2px)';
-        element.style.boxShadow = rowHoverShadow;
-    };
-
-    const resetRowHover = (element: HTMLElement) => {
-        element.style.borderColor = borderLight;
-        element.style.borderLeftColor = 'transparent';
-        element.style.background = rowBaseBackground;
-        element.style.transform = 'translateX(0)';
-        element.style.boxShadow = rowBaseShadow;
-    };
-
-    const applyInsetHover = (element: HTMLElement) => {
-        element.style.borderLeftColor = isDarkMode ? colours.accent : colours.blue;
-        element.style.background = isDarkMode ? `${colours.blue}08` : `${colours.blue}05`;
-        element.style.transform = 'translateX(2px)';
-    };
-
-    const resetInsetHover = (element: HTMLElement) => {
-        element.style.borderLeftColor = 'transparent';
-        element.style.background = 'transparent';
-        element.style.transform = 'translateX(0)';
-    };
-
-    const sectionTitle: React.CSSProperties = {
-        fontSize: 10, 
-        fontWeight: 600, 
-        color: textMuted, 
-        textTransform: 'uppercase',
-        letterSpacing: '0.5px', 
-        marginBottom: 8, 
-        display: 'flex', 
-        alignItems: 'center', 
-        gap: 6
-    };
-
-    // AoW colour mapping for filter indicators
-    const aowColour = (area: string): string => {
-        const a = area.toLowerCase();
-        if (a.includes('commercial')) return isDarkMode ? colours.accent : colours.blue;
-        if (a.includes('construction')) return colours.orange;
-        if (a.includes('property')) return colours.green;
-        if (a.includes('employment')) return colours.yellow;
-        return colours.greyText;
-    };
-
-    // AoW icon mapping (canonical emoji set)
-    const aowIcon = (area: string): string => {
-        const a = area.toLowerCase();
-        if (a.includes('commercial')) return '🏢';
-        if (a.includes('construction')) return '🏗️';
-        if (a.includes('property')) return '🏠';
-        if (a.includes('employment')) return '👩🏻‍💼';
-        return 'ℹ️';
-    };
-    
-    const toggleRow: React.CSSProperties = {
-        display: 'flex', 
-        alignItems: 'center', 
-        justifyContent: 'space-between',
-        padding: '10px 12px', 
-        background: rowBaseBackground,
-        border: `1px solid ${borderLight}`,
-        borderLeft: '3px solid transparent',
-        borderRadius: '2px',
-        cursor: 'pointer', 
-        boxShadow: rowBaseShadow,
-        transform: 'translateY(0)',
-        transition: 'background 0.2s ease, border-color 0.2s ease, border-left-color 0.2s ease, transform 0.18s ease, box-shadow 0.18s ease'
-    };
-    
-    const toggleSwitch = (on: boolean): React.CSSProperties => ({
-        width: 36, 
-        height: 18, 
-        background: on ? accentPrimary : borderMedium,
-        borderRadius: '2px',
-        position: 'relative', 
-        transition: 'all 0.2s ease', 
-        flexShrink: 0
-    });
-    
-    const toggleKnob = (on: boolean): React.CSSProperties => ({
-        width: 14, 
-        height: 14, 
-        background: '#fff', 
-        borderRadius: '1px',
-        position: 'absolute', 
-        top: 2, 
-        left: on ? 20 : 2,
-        transition: 'all 0.2s ease', 
-        boxShadow: shadowSm
-    });
-    
-    const actionBtn: React.CSSProperties = {
-        width: '100%', 
-        padding: '10px 12px', 
-        background: rowBaseBackground,
-        color: textSecondary,
-        border: `1px solid ${borderLight}`, 
-        borderRadius: '2px',
-        fontSize: 11, 
-        fontWeight: 500, 
-        cursor: 'pointer',
-        display: 'flex',
-        alignItems: 'center',
-        gap: 6,
-        boxShadow: rowBaseShadow,
-        transform: 'translateY(0)',
-        transition: 'background 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.18s ease, box-shadow 0.18s ease'
-    };
-    
-
-
+    // ── Render ──
     return (
         <div className="user-bubble-container">
             {showRefreshModal && (
@@ -486,7 +388,7 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                             if (matters && onRefreshMatters) await onRefreshMatters();
                         } finally {
                             setShowRefreshModal(false);
-                            try { window.alert('Refresh complete.'); } catch {}
+                            showToast('Refresh complete', 'success');
                         }
                     }}
                 />
@@ -499,16 +401,10 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                     else { previouslyFocusedElement.current = document.activeElement as HTMLElement; setOpen(true); }
                 }}
                 style={{
-                    display: 'inline-flex', 
-                    alignItems: 'center', 
-                    justifyContent: 'center',
-                    width: 32, 
-                    height: 32, 
-                    background: avatarBg,
-                    border: `1px solid ${avatarBorder}`, 
-                    borderRadius: '2px',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease',
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                    width: 32, height: 32, background: avatarBg,
+                    border: `1px solid ${avatarBorder}`, borderRadius: '2px',
+                    cursor: 'pointer', transition: 'all 0.15s ease',
                     boxShadow: avatarShadow
                 }}
                 onMouseEnter={(e) => {
@@ -530,14 +426,10 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                 <>
                     <div
                         style={{
-                            position: 'fixed', 
-                            inset: 0, 
+                            position: 'fixed', inset: 0,
                             background: isDarkMode ? 'rgba(0, 3, 25, 0.85)' : 'rgba(0,0,0,0.5)',
-                            backdropFilter: 'blur(8px)', 
-                            zIndex: 1998,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
+                            backdropFilter: 'blur(8px)', zIndex: 1998,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
                             animation: 'backdropFadeIn 0.2s ease forwards'
                         }}
                         onClick={() => closePopover()}
@@ -550,54 +442,36 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                         tabIndex={-1}
                         onClick={(e) => e.stopPropagation()}
                         style={{
-                            width: '92vw',
-                            maxWidth: 600,
-                            maxHeight: '80vh', 
-                            background: isDarkMode ? colours.websiteBlue : '#ffffff', 
-                            border: `1px solid ${borderLight}`,
-                            borderRadius: '2px',
+                            width: '92vw', maxWidth: 600, maxHeight: '80vh',
+                            background: bg,
+                            border: `1px solid ${borderLight}`, borderRadius: '2px',
                             boxShadow: isDarkMode
                                 ? '0 24px 48px rgba(0, 3, 25, 0.6), 0 0 0 1px rgba(54, 144, 206, 0.08)'
                                 : '0 24px 48px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.04)',
-                            overflow: 'hidden', 
-                            zIndex: 1999,
-                            cursor: 'default',
+                            overflow: 'hidden', zIndex: 1999, cursor: 'default',
                             animation: 'commandCenterIn 0.25s ease forwards',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            position: 'relative'
+                            display: 'flex', flexDirection: 'column', position: 'relative'
                         }}
                     >
                         {toast && (
-                            <div
-                                className={`user-bubble-toast user-bubble-toast-${toast.tone}`}
-                                role="status"
-                                aria-live="polite"
-                            >
+                            <div className={`user-bubble-toast user-bubble-toast-${toast.tone}`} role="status" aria-live="polite">
                                 {toast.message}
                             </div>
                         )}
 
                         {/* Header — compact identity strip */}
-                        <div 
-                            style={{ 
-                                padding: '12px 20px', 
-                                borderBottom: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : borderLight}`, 
-                                background: isDarkMode ? colours.websiteBlue : colours.grey,
-                                flexShrink: 0
-                            }}
-                        >
+                        <div style={{
+                            padding: '12px 20px',
+                            borderBottom: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : borderLight}`,
+                            background: isDarkMode ? colours.websiteBlue : colours.grey,
+                            flexShrink: 0
+                        }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                                 <div style={{
-                                    width: 32, 
-                                    height: 32, 
-                                    background: avatarBg, 
+                                    width: 32, height: 32, background: avatarBg,
                                     border: `1.5px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : borderLight}`,
                                     borderRadius: '2px',
-                                    display: 'flex', 
-                                    alignItems: 'center', 
-                                    justifyContent: 'center', 
-                                    padding: 5,
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 5,
                                     flexShrink: 0
                                 }}>
                                     <img src={avatarIcon} alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
@@ -623,44 +497,15 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                         )}
                                     </div>
                                 </div>
-                                {/* Clio readiness cluster */}
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-                                    {user.ClioID && (
-                                        <span style={{
-                                            display: 'inline-flex',
-                                            alignItems: 'center',
-                                            gap: 4,
-                                            fontSize: 9,
-                                            fontWeight: 600,
-                                            color: textMuted,
-                                            letterSpacing: '0.2px'
-                                        }}>
-                                            <span style={{
-                                                width: 5, height: 5,
-                                                borderRadius: '50%',
-                                                background: colours.green,
-                                                boxShadow: `0 0 4px ${colours.green}60`,
-                                                flexShrink: 0
-                                            }} />
+                                    {user.ClioID ? (
+                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 9, fontWeight: 600, color: textMuted, letterSpacing: '0.2px' }}>
+                                            <span style={{ width: 5, height: 5, borderRadius: '50%', background: colours.green, boxShadow: `0 0 4px ${colours.green}60`, flexShrink: 0 }} />
                                             Clio {user.ClioID}
                                         </span>
-                                    )}
-                                    {!user.ClioID && (
-                                        <span style={{
-                                            display: 'inline-flex',
-                                            alignItems: 'center',
-                                            gap: 4,
-                                            fontSize: 9,
-                                            fontWeight: 600,
-                                            color: colours.cta,
-                                            letterSpacing: '0.2px'
-                                        }}>
-                                            <span style={{
-                                                width: 5, height: 5,
-                                                borderRadius: '50%',
-                                                background: colours.cta,
-                                                flexShrink: 0
-                                            }} />
+                                    ) : (
+                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 9, fontWeight: 600, color: colours.cta, letterSpacing: '0.2px' }}>
+                                            <span style={{ width: 5, height: 5, borderRadius: '50%', background: colours.cta, flexShrink: 0 }} />
                                             No Clio
                                         </span>
                                     )}
@@ -670,17 +515,10 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                     style={{
                                         background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : colours.grey,
                                         border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.34)' : borderMedium}`,
-                                        borderRadius: '2px',
-                                        color: textPrimary,
-                                        cursor: 'pointer',
-                                        padding: '6px',
-                                        minWidth: 28,
-                                        minHeight: 28,
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        transition: 'all 0.15s ease',
-                                        flexShrink: 0
+                                        borderRadius: '2px', color: textPrimary, cursor: 'pointer',
+                                        padding: '6px', minWidth: 28, minHeight: 28,
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        transition: 'all 0.15s ease', flexShrink: 0
                                     }}
                                     onMouseEnter={(e) => {
                                         e.currentTarget.style.borderColor = isDarkMode ? colours.accent : colours.blue;
@@ -704,36 +542,24 @@ const UserBubble: React.FC<UserBubbleProps> = ({
 
                         {/* Environment ribbon */}
                         <div style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 10,
+                            display: 'flex', alignItems: 'center', gap: 10,
                             padding: '4px 20px',
-                            background: isDarkMode ? colours.websiteBlue : '#fafafa',
+                            background: isDarkMode ? colours.websiteBlue : colours.grey,
                             borderBottom: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.06)' : borderLight}`,
-                            fontSize: 9,
-                            fontWeight: 600,
-                            color: textMuted,
-                            letterSpacing: '0.3px',
+                            fontSize: 9, fontWeight: 600, color: textMuted, letterSpacing: '0.3px',
                             flexShrink: 0
                         }}>
                             <span style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: 4,
+                                display: 'inline-flex', alignItems: 'center', gap: 4,
                                 padding: '1px 6px',
                                 background: environmentBadgeBg,
                                 border: `1px solid ${environmentBadgeBorder}`,
-                                borderRadius: '2px',
-                                color: environmentColour,
-                                fontWeight: 700,
-                                textTransform: 'uppercase' as const,
-                                letterSpacing: '0.5px',
-                                fontSize: 8
+                                borderRadius: '2px', color: environmentColour,
+                                fontWeight: 700, textTransform: 'uppercase' as const,
+                                letterSpacing: '0.5px', fontSize: 8
                             }}>
                                 <span style={{
-                                    width: 4, height: 4,
-                                    borderRadius: '50%',
-                                    background: environmentColour,
+                                    width: 4, height: 4, borderRadius: '50%', background: environmentColour,
                                     ...(environment !== 'Production' ? { animation: 'userBubbleToastPulse 2s ease-in-out infinite alternate' } : {})
                                 }} />
                                 {environment}
@@ -749,24 +575,18 @@ const UserBubble: React.FC<UserBubbleProps> = ({
 
                         {/* Content */}
                         <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
-
                             {/* Active state warnings */}
                             {activeStates.length > 0 && (
                                 <div style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 6,
-                                    padding: '8px 12px',
-                                    marginBottom: 16,
+                                    display: 'flex', alignItems: 'center', gap: 6,
+                                    padding: '8px 12px', marginBottom: 16,
                                     background: demoModeEnabled
                                         ? (isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.08)')
                                         : (isDarkMode ? 'rgba(214, 85, 65, 0.10)' : 'rgba(214, 85, 65, 0.06)'),
                                     border: `1px solid ${demoModeEnabled
                                         ? (isDarkMode ? 'rgba(32, 178, 108, 0.34)' : 'rgba(32, 178, 108, 0.24)')
                                         : (isDarkMode ? 'rgba(214, 85, 65, 0.30)' : 'rgba(214, 85, 65, 0.20)')}`,
-                                    borderRadius: '2px',
-                                    fontSize: 10,
-                                    fontWeight: 600,
+                                    borderRadius: '2px', fontSize: 10, fontWeight: 600,
                                     color: demoModeEnabled ? colours.green : colours.cta
                                 }}>
                                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -777,1188 +597,109 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                 </div>
                             )}
 
-                            {/* Mode selector */}
-                            <div style={{ marginBottom: 20 }}>
-                                <div style={sectionTitle}>
-                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/>
-                                        <line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
-                                        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/>
-                                        <line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
-                                        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-                                    </svg>
-                                    Mode
-                                </div>
-                                <div
-                                    style={{
-                                        ...toggleRow,
-                                        background: 'transparent',
-                                        borderRadius: 0,
-                                        boxShadow: 'none',
-                                        transition: 'all 0.15s ease',
-                                    }}
-                                    onMouseEnter={(e) => {
-                                        applyInsetHover(e.currentTarget);
-                                    }}
-                                    onMouseLeave={(e) => {
-                                        resetInsetHover(e.currentTarget);
-                                    }}
-                                    onClick={() => {
-                                        toggleTheme();
-                                        showToast(`Switched to ${isDarkMode ? 'light' : 'dark'} mode`, 'success');
-                                    }}
-                                >
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                        {isDarkMode ? (
-                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={textPrimary} strokeWidth="2">
-                                                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-                                            </svg>
-                                        ) : (
-                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={textPrimary} strokeWidth="2">
-                                                <circle cx="12" cy="12" r="5"/>
-                                            </svg>
-                                        )}
-                                        <span style={{ fontSize: 12, fontWeight: 500, color: textPrimary }}>{isDarkMode ? 'Dark' : 'Light'} Mode</span>
-                                    </div>
-                                    <div style={toggleSwitch(isDarkMode)}>
-                                        <div style={toggleKnob(isDarkMode)} />
-                                    </div>
-                                </div>
-                            </div>
+                            {/* Section components */}
+                            <AppearanceSection tokens={tokens} isLocalDev={isLocalDev} toggleTheme={toggleTheme} />
 
-                            {/* Admin controls — only shown for admin-eligible users */}
-                            {isAdminEligible && (
-                                <div style={{ marginBottom: 20 }}>
-                                    <div style={sectionTitle}>
-                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
-                                        </svg>
-                                        Admin controls
-                                    </div>
-
-                                    <div style={{
-                                        background: isDarkMode ? colours.darkBlue : colours.grey,
-                                        border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
-                                        borderRadius: 4,
-                                        overflow: 'hidden',
-                                    }}>
-                                        <div
-                                            style={{
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: '8px',
-                                                padding: '10px 14px',
-                                                cursor: 'pointer',
-                                                transition: 'background 0.15s ease',
-                                                background: 'transparent',
-                                            }}
-                                            onMouseEnter={e => { e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.03)'; }}
-                                            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
-                                            onClick={() => setAdminCollapsed(prev => !prev)}
-                                        >
-                                            {adminBadge}
-                                            <span style={{ fontSize: '11px', color: textMuted, flex: 1 }}>
-                                                Admin controls
-                                            </span>
-                                            <svg
-                                                width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={textMuted} strokeWidth="2.5"
-                                                style={{ flexShrink: 0, transition: 'transform 0.2s ease', transform: adminCollapsed ? 'rotate(0deg)' : 'rotate(180deg)' }}
-                                            >
-                                                <path d="M6 9l6 6 6-6"/>
-                                            </svg>
-                                        </div>
-
-                                        <div style={{
-                                            maxHeight: adminCollapsed ? 0 : 600,
-                                            opacity: adminCollapsed ? 0 : 1,
-                                            overflow: 'hidden',
-                                            transition: 'max-height 0.25s ease, opacity 0.2s ease, padding 0.25s ease',
-                                            padding: adminCollapsed ? '0 14px' : '0 14px 12px 14px',
-                                        }}>
-                                            <div style={{
-                                                display: 'flex',
-                                                flexDirection: 'column',
-                                                gap: 8,
-                                            }}>
-                                                {onUserChange && availableUsers && (
-                                                    <div style={{ opacity: canSwitchUser ? 1 : 0.75 }}>
-                                                        <div style={{ ...sectionTitle, color: textMuted, marginBottom: 6 }}>
-                                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
-                                                                <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-                                                            </svg>
-                                                            Switch User
-                                                            {!canSwitchUser && (
-                                                                <span style={{ marginLeft: 'auto', fontSize: 10, color: textMuted }}>Admin only</span>
-                                                            )}
-                                                        </div>
-                                                        <select
-                                                            disabled={!canSwitchUser}
-                                                            onChange={(e) => {
-                                                                const sel = availableUsers.find(u => u.Initials === e.target.value);
-                                                                if (sel) {
-                                                                    onUserChange(sel);
-                                                                    showToast(`Switched to ${sel.FullName || sel.Initials}`, 'success');
-                                                                }
-                                                            }}
-                                                            style={{
-                                                                width: '100%',
-                                                                padding: '10px 12px',
-                                                                background: controlRowBg,
-                                                                color: canSwitchUser ? textPrimary : textMuted,
-                                                                border: `1px solid ${borderLight}`,
-                                                                borderRadius: '2px',
-                                                                fontSize: 11,
-                                                                cursor: canSwitchUser ? 'pointer' : 'not-allowed'
-                                                            }}
-                                                        >
-                                                            <option value="">{canSwitchUser ? 'Select user...' : 'Admin only'}</option>
-                                                            {canSwitchUser && availableUsers
-                                                                .filter(u => !u.status || u.status.toLowerCase() === 'active')
-                                                                .map(u => (
-                                                                    <option key={u.Initials} value={u.Initials}>{u.FullName || `${u.First || ''} ${u.Last || ''}`}</option>
-                                                                ))}
-                                                        </select>
-                                                    </div>
-                                                )}
-
-                                                {onOpenReleaseNotesModal && (
-                                                    <div
-                                                        style={toggleRow}
-                                                        onMouseEnter={(e) => {
-                                                            applyRowHover(e.currentTarget);
-                                                        }}
-                                                        onMouseLeave={(e) => {
-                                                            resetRowHover(e.currentTarget);
-                                                        }}
-                                                        onClick={() => {
-                                                            showToast('Opening release notes', 'info');
-                                                            onOpenReleaseNotesModal();
-                                                            closePopover();
-                                                        }}
-                                                    >
-                                                        <div>
-                                                            <div style={{ fontSize: 12, fontWeight: 500, color: textPrimary }}>Release Notes</div>
-                                                            <div style={{ fontSize: 10, color: textMuted, marginTop: 2 }}>Platform updates and improvements</div>
-                                                        </div>
-                                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={textMuted} strokeWidth="2">
-                                                            <path d="M9 18l6-6-6-6"/>
-                                                        </svg>
-                                                    </div>
-                                                )}
-
-                                                {onToggleDemoMode && (
-                                                    <div
-                                                        style={toggleRow}
-                                                        onMouseEnter={(e) => {
-                                                            applyRowHover(e.currentTarget);
-                                                        }}
-                                                        onMouseLeave={(e) => {
-                                                            resetRowHover(e.currentTarget);
-                                                        }}
-                                                        onClick={() => {
-                                                            const nextDemoMode = !demoModeEnabled;
-                                                            onToggleDemoMode(nextDemoMode);
-                                                            showToast(nextDemoMode ? 'Demo mode enabled' : 'Demo mode disabled', nextDemoMode ? 'success' : 'warning');
-                                                        }}
-                                                    >
-                                                        <div>
-                                                            <div style={{ fontSize: 12, fontWeight: 500, color: textPrimary }}>Demo mode</div>
-                                                            <div style={{ fontSize: 10, color: textMuted, marginTop: 2 }}>Skip live refresh & seed demo prospect cases</div>
-                                                        </div>
-                                                        <div style={toggleSwitch(!!demoModeEnabled)}>
-                                                            <div style={toggleKnob(!!demoModeEnabled)} />
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
+                            {!hideOpsSections && (
+                                <WorkspaceViewsSection
+                                    tokens={tokens}
+                                    onFeatureToggle={onFeatureToggle}
+                                    featureToggles={featureToggles}
+                                    demoModeEnabled={demoModeEnabled}
+                                    onToggleDemoMode={onToggleDemoMode}
+                                    closePopover={closePopover}
+                                />
                             )}
 
-                            {/* Local-only controls — only shown in local dev */}
-                            {isLocalDev && (
-                            <div style={{
-                                marginBottom: 20,
-                                padding: '0',
-                                background: isDarkMode ? colours.darkBlue : colours.grey,
-                                border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
-                                borderRadius: 4,
-                                overflow: 'hidden',
-                            }}>
-                                <div
-                                    style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '8px',
-                                        padding: '10px 14px',
-                                        cursor: 'pointer',
-                                        transition: 'background 0.15s ease',
-                                        background: 'transparent',
-                                    }}
-                                    onMouseEnter={e => { e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.03)'; }}
-                                    onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
-                                    onClick={() => setLocalCollapsed(prev => !prev)}
-                                >
-                                    {localBadge}
-                                    <span style={{ fontSize: '11px', color: textMuted, flex: 1 }}>Local dev</span>
-                                    <svg
-                                        width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={textMuted} strokeWidth="2.5"
-                                        style={{ flexShrink: 0, transition: 'transform 0.2s ease', transform: localCollapsed ? 'rotate(0deg)' : 'rotate(180deg)' }}
-                                    >
-                                        <path d="M6 9l6 6 6-6"/>
-                                    </svg>
-                                </div>
-
-                                {/* Collapsible body */}
-                                <div style={{
-                                    maxHeight: localCollapsed ? 0 : 1200,
-                                    opacity: localCollapsed ? 0 : 1,
-                                    overflow: 'hidden',
-                                    transition: 'max-height 0.3s ease, opacity 0.2s ease, padding 0.3s ease',
-                                    padding: localCollapsed ? '0 14px' : '0 14px 12px 14px',
-                                }}>
-                                    <div style={{
-                                        display: 'flex',
-                                        flexDirection: 'column',
-                                        gap: 8,
-                                    }}>
-                                        {/* Dev Dashboard */}
-                                        <button
-                                            onClick={() => { setShowDevDashboard(true); closePopover(false); }}
-                                            style={{
-                                                ...actionBtn,
-                                                background: accentPrimary,
-                                                color: '#fff',
-                                                border: `1px solid ${accentPrimary}`
-                                            }}
-                                            onMouseEnter={(e) => {
-                                                e.currentTarget.style.filter = 'brightness(0.85)';
-                                            }}
-                                            onMouseLeave={(e) => {
-                                                e.currentTarget.style.filter = 'none';
-                                            }}
-                                        >
-                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                                                <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
-                                                <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
-                                            </svg>
-                                            Dev Dashboard
-                                        </button>
-
-                                        {/* Rate Change Tracker */}
-                                        <div
-                                            style={toggleRow}
-                                            onMouseEnter={(e) => {
-                                                applyRowHover(e.currentTarget);
-                                            }}
-                                            onMouseLeave={(e) => {
-                                                resetRowHover(e.currentTarget);
-                                            }}
-                                            onClick={() => {
-                                                showToast('Opening rate change tracker', 'info');
-                                                window.dispatchEvent(new CustomEvent('openRateChangeModal'));
-                                                closePopover();
-                                            }}
-                                        >
-                                            <div>
-                                                <div style={{ fontSize: 12, fontWeight: 500, color: textPrimary }}>Rate Change Tracker</div>
-                                                <div style={{ fontSize: 10, color: textMuted, marginTop: 2 }}>Jan 2026 rate notifications</div>
-                                            </div>
-                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={textMuted} strokeWidth="2">
-                                                <path d="M9 18l6-6-6-6"/>
-                                            </svg>
-                                        </div>
-
-                                        {/* Debug modals */}
-                                        <div
-                                            style={toggleRow}
-                                            onMouseEnter={(e) => {
-                                                applyRowHover(e.currentTarget);
-                                            }}
-                                            onMouseLeave={(e) => {
-                                                resetRowHover(e.currentTarget);
-                                            }}
-                                            onClick={() => {
-                                                showToast('Opening loading debug', 'info');
-                                                setShowLoadingDebug(true);
-                                            }}
-                                        >
-                                            <div>
-                                                <div style={{ fontSize: 12, fontWeight: 500, color: textPrimary }}>Loading Debug</div>
-                                                <div style={{ fontSize: 10, color: textMuted, marginTop: 2 }}>Test loading screens</div>
-                                            </div>
-                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={textMuted} strokeWidth="2">
-                                                <path d="M9 18l6-6-6-6"/>
-                                            </svg>
-                                        </div>
-                                        <div
-                                            style={toggleRow}
-                                            onMouseEnter={(e) => {
-                                                applyRowHover(e.currentTarget);
-                                            }}
-                                            onMouseLeave={(e) => {
-                                                resetRowHover(e.currentTarget);
-                                            }}
-                                            onClick={() => {
-                                                showToast('Opening error tracker', 'info');
-                                                setShowErrorTracker(true);
-                                            }}
-                                        >
-                                            <div>
-                                                <div style={{ fontSize: 12, fontWeight: 500, color: textPrimary }}>Error Tracker</div>
-                                                <div style={{ fontSize: 10, color: textMuted, marginTop: 2 }}>View runtime errors</div>
-                                            </div>
-                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={textMuted} strokeWidth="2">
-                                                <path d="M9 18l6-6-6-6"/>
-                                            </svg>
-                                        </div>
-
-                                        {/* View as production */}
-                                        {onFeatureToggle && (
-                                            <div
-                                                style={toggleRow}
-                                                onMouseEnter={(e) => {
-                                                    applyRowHover(e.currentTarget);
-                                                }}
-                                                onMouseLeave={(e) => {
-                                                    resetRowHover(e.currentTarget);
-                                                }}
-                                                onClick={() => {
-                                                    const nextViewAsProd = !featureToggles.viewAsProd;
-                                                    onFeatureToggle('viewAsProd', nextViewAsProd);
-                                                    showToast(nextViewAsProd ? 'Production view active' : 'Production view off', nextViewAsProd ? 'success' : 'warning');
-                                                }}
-                                            >
-                                                <div>
-                                                    <div style={{ fontSize: 12, fontWeight: 500, color: textPrimary, display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                        View as Production
-                                                        {featureToggles.viewAsProd && (
-                                                            <span style={{ fontSize: 9, background: textMuted, color: bg, padding: '1px 5px', borderRadius: '2px', fontWeight: 700 }}>ACTIVE</span>
-                                                        )}
-                                                    </div>
-                                                    <div style={{ fontSize: 10, color: textMuted, marginTop: 2 }}>Hide dev features</div>
-                                                </div>
-                                                <div style={toggleSwitch(!!featureToggles.viewAsProd)}>
-                                                    <div style={toggleKnob(!!featureToggles.viewAsProd)} />
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        {/* Show Attendance toggle */}
-                                        {onFeatureToggle && (
-                                            <div
-                                                style={toggleRow}
-                                                onMouseEnter={(e) => {
-                                                    applyRowHover(e.currentTarget);
-                                                }}
-                                                onMouseLeave={(e) => {
-                                                    resetRowHover(e.currentTarget);
-                                                }}
-                                                onClick={() => {
-                                                    const next = !featureToggles.showAttendance;
-                                                    onFeatureToggle('showAttendance', next);
-                                                    showToast(next ? 'Attendance visible' : 'Attendance hidden', next ? 'success' : 'warning');
-                                                }}
-                                            >
-                                                <div>
-                                                    <div style={{ fontSize: 12, fontWeight: 500, color: textPrimary, display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                        Show Attendance
-                                                        {featureToggles.showAttendance && (
-                                                            <span style={{ fontSize: 9, background: textMuted, color: bg, padding: '1px 5px', borderRadius: '2px', fontWeight: 700 }}>ON</span>
-                                                        )}
-                                                    </div>
-                                                    <div style={{ fontSize: 10, color: textMuted, marginTop: 2 }}>Toggle attendance section on Home</div>
-                                                </div>
-                                                <div style={toggleSwitch(!!featureToggles.showAttendance)}>
-                                                    <div style={toggleKnob(!!featureToggles.showAttendance)} />
-                                                </div>
-                                            </div>
-                                        )}
-
-
-
-                                        {/* Replay metric animations */}
-                                        <div
-                                            style={toggleRow}
-                                            onMouseEnter={(e) => {
-                                                applyRowHover(e.currentTarget);
-                                            }}
-                                            onMouseLeave={(e) => {
-                                                resetRowHover(e.currentTarget);
-                                            }}
-                                            onClick={() => {
-                                                showToast('Replaying animations', 'info');
-                                                window.dispatchEvent(new CustomEvent('replayMetricAnimation'));
-                                                closePopover();
-                                            }}
-                                        >
-                                            <div>
-                                                <div style={{ fontSize: 12, fontWeight: 500, color: textPrimary }}>Replay Animations</div>
-                                                <div style={{ fontSize: 10, color: textMuted, marginTop: 2 }}>Re-run metric count-up</div>
-                                            </div>
-                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={textMuted} strokeWidth="2">
-                                                <path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
-                                            </svg>
-                                        </div>
-
-                                        {/* Demo prompts */}
-                                        <div
-                                            style={toggleRow}
-                                            onMouseEnter={(e) => {
-                                                applyRowHover(e.currentTarget);
-                                            }}
-                                            onMouseLeave={(e) => {
-                                                resetRowHover(e.currentTarget);
-                                            }}
-                                            onClick={() => {
-                                                showToast('Opening local todo prompts', 'info');
-                                                setShowDemoPrompts(true);
-                                                closePopover();
-                                            }}
-                                        >
-                                            <div>
-                                                <div style={{ fontSize: 12, fontWeight: 500, color: textPrimary }}>Todo List</div>
-                                                <div style={{ fontSize: 10, color: textMuted, marginTop: 2 }}>Local demo prompts</div>
-                                            </div>
-                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={textMuted} strokeWidth="2">
-                                                <path d="M9 18l6-6-6-6"/>
-                                            </svg>
-                                        </div>
-
-                                        {/* Pipeline Migration */}
-                                        <div
-                                            style={toggleRow}
-                                            onMouseEnter={(e) => {
-                                                applyRowHover(e.currentTarget);
-                                            }}
-                                            onMouseLeave={(e) => {
-                                                resetRowHover(e.currentTarget);
-                                            }}
-                                            onClick={() => {
-                                                showToast('Opening migration tool', 'info');
-                                                setShowMigrationTool(true);
-                                                closePopover(false);
-                                            }}
-                                        >
-                                            <div>
-                                                <div style={{ fontSize: 12, fontWeight: 500, color: textPrimary, display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                    Pipeline Migration
-                                                    <span style={{ fontSize: 8, fontWeight: 700, color: colours.blue, padding: '1px 5px', background: isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.06)', border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.20)' : 'rgba(54, 144, 206, 0.12)'}`, borderRadius: '2px', textTransform: 'uppercase', letterSpacing: '0.3px' }}>v1</span>
-                                                </div>
-                                                <div style={{ fontSize: 10, color: textMuted, marginTop: 2 }}>Migrate legacy Clio matters into the pipeline</div>
-                                            </div>
-                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={textMuted} strokeWidth="2">
-                                                <path d="M9 18l6-6-6-6"/>
-                                            </svg>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
+                            {!hideOpsSections && isAdminEligible && (
+                                <AdminControlsSection
+                                    tokens={tokens}
+                                    user={user}
+                                    canSwitchUser={canSwitchUser}
+                                    onUserChange={onUserChange}
+                                    availableUsers={availableUsers}
+                                    onToggleDemoMode={onToggleDemoMode}
+                                    demoModeEnabled={demoModeEnabled}
+                                    onOpenReleaseNotesModal={onOpenReleaseNotesModal}
+                                    closePopover={closePopover}
+                                />
                             )}
 
-                            {/* Session filters */}
+                            {!hideOpsSections && isLocalDev && (
+                                <LocalDevSection
+                                    tokens={tokens}
+                                    onFeatureToggle={onFeatureToggle}
+                                    featureToggles={featureToggles}
+                                    onDevDashboard={() => { setShowDevDashboard(true); closePopover(false); }}
+                                    onLoadingDebug={() => setShowLoadingDebug(true)}
+                                    onErrorTracker={() => setShowErrorTracker(true)}
+                                    onDemoPrompts={() => { setShowDemoPrompts(true); closePopover(); }}
+                                    onMigrationTool={() => { setShowMigrationTool(true); closePopover(false); }}
+                                    closePopover={closePopover}
+                                />
+                            )}
+
                             {hasSessionFilters && (
-                                <div style={{ marginBottom: 20 }}>
-                                    <div style={sectionTitle}>
-                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                                            <path d="M3 6h18M3 12h18M3 18h18" strokeLinecap="round"/>
-                                        </svg>
-                                        Session Filters
-                                    </div>
-                                    <div style={{ background: isDarkMode ? colours.darkBlue : colours.grey, border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`, borderRadius: '2px', padding: 12 }}>
-                                        {isLocalDev && !featureToggles.viewAsProd && onFeatureToggle && (
-                                            <div
-                                                style={{ ...toggleRow, marginBottom: onAreasChange ? 10 : 0 }}
-                                                onMouseEnter={(e) => {
-                                                    applyRowHover(e.currentTarget);
-                                                }}
-                                                onMouseLeave={(e) => {
-                                                    resetRowHover(e.currentTarget);
-                                                }}
-                                                onClick={() => {
-                                                    const next = !(featureToggles.showPhasedOutCustomTab ?? false);
-                                                    onFeatureToggle('showPhasedOutCustomTab', next);
-                                                    showToast(next ? 'Custom tab visible' : 'Custom tab hidden', next ? 'success' : 'warning');
-                                                }}
-                                            >
-                                                <div>
-                                                    <div style={{ fontSize: 12, fontWeight: 500, color: textPrimary, display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                        Show Custom (phased out) tab
-                                                        {(featureToggles.showPhasedOutCustomTab ?? false) && (
-                                                            <span style={{ fontSize: 9, background: textMuted, color: bg, padding: '1px 5px', borderRadius: '2px', fontWeight: 700 }}>ON</span>
-                                                        )}
-                                                    </div>
-                                                    <div style={{ fontSize: 10, color: textMuted, marginTop: 2 }}>Toggle phased-out Custom tab visibility in navigation</div>
-                                                </div>
-                                                <div style={toggleSwitch(!!(featureToggles.showPhasedOutCustomTab ?? false))}>
-                                                    <div style={toggleKnob(!!(featureToggles.showPhasedOutCustomTab ?? false))} />
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        {onAreasChange && (
-                                            <>
-                                                <div style={{ fontSize: 10, fontWeight: 500, color: textMuted, marginBottom: 8, display: 'flex', justifyContent: 'space-between' }}>
-                                                    <span>Areas of Work</span>
-                                                    <span style={{ opacity: 0.7 }}>{areasOfWork.length > 0 ? `${areasOfWork.length} active` : 'All'}</span>
-                                                </div>
-                                                <div style={{ display: 'grid', gap: 2 }}>
-                                                    {AVAILABLE_AREAS.map(area => {
-                                                        const checked = areasOfWork.includes(area);
-                                                        const areaCol = aowColour(area);
-                                                        return (
-                                                            <label key={area} style={{
-                                                                display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
-                                                                padding: '6px 8px',
-                                                                background: checked
-                                                                    ? (isDarkMode ? `linear-gradient(90deg, ${areaCol}0a 0%, transparent 60%)` : `linear-gradient(90deg, ${areaCol}08 0%, transparent 60%)`)
-                                                                    : 'transparent',
-                                                                borderRadius: 0,
-                                                                borderLeft: `3px solid ${checked ? areaCol : 'transparent'}`,
-                                                                borderTop: `1px solid ${checked ? `${areaCol}20` : 'transparent'}`,
-                                                                borderRight: `1px solid ${checked ? `${areaCol}20` : 'transparent'}`,
-                                                                borderBottom: `1px solid ${checked ? `${areaCol}20` : 'transparent'}`,
-                                                                transition: 'all 0.15s ease'
-                                                            }}>
-                                                                <span style={{
-                                                                    width: 5, height: 5,
-                                                                    borderRadius: '50%',
-                                                                    background: areaCol,
-                                                                    opacity: checked ? 1 : 0.25,
-                                                                    flexShrink: 0,
-                                                                    transition: 'opacity 0.15s ease'
-                                                                }} />
-                                                                <input
-                                                                    type="checkbox"
-                                                                    checked={checked}
-                                                                    onChange={(e) => {
-                                                                        const newAreas = e.target.checked
-                                                                            ? [...areasOfWork, area]
-                                                                            : areasOfWork.filter(a => a !== area);
-                                                                        setAreasOfWork(newAreas);
-                                                                        onAreasChange(newAreas);
-                                                                    }}
-                                                                    style={{ display: 'none' }}
-                                                                />
-                                                                <span style={{ fontSize: 11, fontWeight: 500, color: checked ? textPrimary : textMuted, flex: 1 }}>{aowIcon(area)} {area}</span>
-                                                                {checked && <span style={{ fontSize: 7, fontWeight: 600, color: areaCol, opacity: 0.7 }}>ON</span>}
-                                                            </label>
-                                                        );
-                                                    })}
-                                                </div>
-                                                {areasOfWork.length > 0 && (
-                                                    <button
-                                                        onClick={() => { setAreasOfWork([]); onAreasChange([]); }}
-                                                        style={{
-                                                            width: '100%',
-                                                            marginTop: 8,
-                                                            padding: '6px 8px',
-                                                            background: 'transparent',
-                                                            color: ctaPrimary,
-                                                            border: `1px solid ${ctaPrimary}30`,
-                                                            borderRadius: '2px',
-                                                            fontSize: 10,
-                                                            fontWeight: 500,
-                                                            cursor: 'pointer',
-                                                            transition: 'all 0.15s ease'
-                                                        }}
-                                                        onMouseEnter={(e) => {
-                                                            e.currentTarget.style.background = `${ctaPrimary}10`;
-                                                            e.currentTarget.style.borderColor = ctaPrimary;
-                                                        }}
-                                                        onMouseLeave={(e) => {
-                                                            e.currentTarget.style.background = 'transparent';
-                                                            e.currentTarget.style.borderColor = `${ctaPrimary}30`;
-                                                        }}
-                                                    >
-                                                        Clear All Filters
-                                                    </button>
-                                                )}
-                                            </>
-                                        )}
-                                    </div>
-                                </div>
+                                <SessionFiltersSection
+                                    tokens={tokens}
+                                    isLocalDev={isLocalDev}
+                                    onAreasChange={onAreasChange}
+                                    onFeatureToggle={onFeatureToggle}
+                                    featureToggles={featureToggles}
+                                    areasOfWork={areasOfWork}
+                                    setAreasOfWork={setAreasOfWork}
+                                />
                             )}
-                            
-                            
-                            
 
-                            {/* Appearance */}
-                            <div style={{ marginBottom: 20 }}>
-                                <div style={sectionTitle}>
-                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/>
-                                        <line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
-                                        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/>
-                                        <line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
-                                        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-                                    </svg>
-                                    Appearance
-                                </div>
-                                {/* ── Brand ── */}
-                                <div style={{
-                                    marginTop: 0,
-                                    background: isDarkMode ? colours.darkBlue : colours.grey,
-                                    border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
-                                    borderRadius: 2,
-                                    overflow: 'hidden',
-                                }}>
-                                    {/* Toggle header */}
-                                    <div
-                                        style={{
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'space-between',
-                                            padding: '8px 14px',
-                                            cursor: 'pointer',
-                                            transition: 'background 0.15s ease',
-                                            background: 'transparent',
-                                        }}
-                                        onMouseEnter={e => { e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.03)'; }}
-                                        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
-                                        onClick={() => setPaletteCollapsed(prev => !prev)}
-                                    >
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                            <img src={isDarkMode ? darkAvatarMark : lightAvatarMark} alt="" style={{ width: 8, height: 14, opacity: 0.5 }} />
-                                            <span style={{ fontSize: 8, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8, color: textMuted, opacity: 0.7 }}>Brand</span>
-                                        </div>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                            {paletteCollapsed && (
-                                                <div style={{ display: 'flex', gap: 3 }}>
-                                                    {helixSwatches.map(s => (
-                                                        <span key={s.key} style={{ width: 8, height: 8, borderRadius: 1, background: s.color, display: 'block', border: `1px solid ${isDarkMode ? `${colours.dark.borderColor}44` : `${colours.darkBlue}20`}` }} />
-                                                    ))}
-                                                </div>
-                                            )}
-                                            <svg
-                                                width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={textMuted} strokeWidth="2.5"
-                                                style={{ flexShrink: 0, transition: 'transform 0.2s ease', transform: paletteCollapsed ? 'rotate(0deg)' : 'rotate(180deg)' }}
-                                            >
-                                                <path d="M6 9l6 6 6-6"/>
-                                            </svg>
-                                        </div>
-                                    </div>
-
-                                    {/* Collapsible body */}
-                                    <div style={{
-                                        maxHeight: paletteCollapsed ? 0 : 600,
-                                        opacity: paletteCollapsed ? 0 : 1,
-                                        overflow: 'hidden',
-                                        transition: 'max-height 0.35s ease, opacity 0.2s ease, padding 0.35s ease',
-                                        padding: paletteCollapsed ? '0 14px' : '0 14px 12px 14px',
-                                    }}>
-                                        {/* ── Swatches row ── */}
-                                        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginTop: 8, marginBottom: 12 }}>
-                                            {helixSwatches.map((swatch) => (
-                                                <div
-                                                    key={swatch.key}
-                                                    title={`${swatch.label}\nClick to copy ${swatch.color}`}
-                                                    onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(swatch.color); showToast(`Copied ${swatch.color}`, 'info'); }}
-                                                    style={{
-                                                        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
-                                                        cursor: 'pointer', flex: 1, minWidth: 0,
-                                                    }}
-                                                >
-                                                    <span
-                                                        style={{
-                                                            width: 22, height: 22, background: swatch.color, borderRadius: 2,
-                                                            border: `1px solid ${isDarkMode ? `${colours.dark.borderColor}66` : `${colours.darkBlue}20`}`,
-                                                            display: 'block', boxSizing: 'border-box',
-                                                            transition: 'transform 0.15s ease, box-shadow 0.15s ease',
-                                                        }}
-                                                        onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.25)'; e.currentTarget.style.boxShadow = `0 2px 8px ${swatch.color}44`; e.currentTarget.style.zIndex = '10'; }}
-                                                        onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.zIndex = '0'; }}
-                                                    />
-                                                    <span style={{ fontSize: 7, color: textMuted, fontWeight: 700, letterSpacing: 0.15, whiteSpace: 'nowrap' }}>{swatch.label}</span>
-                                                    <span style={{ fontSize: 6, color: textPrimary, opacity: 0.8, fontWeight: 600, letterSpacing: 0.1, whiteSpace: 'nowrap' }}>{swatch.color}</span>
-                                                </div>
-                                            ))}
-                                        </div>
-
-                                        {/* ── Brand assets — show mark + logo for current theme ── */}
-                                        <div style={{ fontSize: 7, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8, color: textMuted, marginBottom: 6, opacity: 0.6 }}>
-                                            Downloads
-                                        </div>
-                                        <div key={`brand-assets-${colourPairings[activePairing]?.tag || 'none'}`} style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 12 }}>
-                                            {(() => {
-                                                const tag = colourPairings[activePairing]?.tag;
-                                                if (tag === 'DARK') {
-                                                    return [
-                                                        { label: 'Helix Mark', desc: 'SVG · light mark', src: darkAvatarMark, filename: 'helix-mark-white.svg', preview: darkAvatarMark, previewBg: colours.darkBlue, isLogo: false },
-                                                        { label: 'Helix Logo', desc: 'PNG · light logo', src: hlrWhiteMark, filename: 'HLRwhite72.png', preview: hlrWhiteMark, previewBg: colours.helixBlue, isLogo: true },
-                                                    ];
-                                                }
-                                                if (tag === 'LIGHT') {
-                                                    return [
-                                                        { label: 'Helix Mark', desc: 'SVG · dark mark', src: lightAvatarMark, filename: 'helix-mark-dark.svg', preview: lightAvatarMark, previewBg: colours.grey, isLogo: false },
-                                                        { label: 'Helix Logo', desc: 'PNG · dark logo', src: hlrBlueMark, filename: 'HLRblue72.png', preview: hlrBlueMark, previewBg: colours.grey, isLogo: true },
-                                                    ];
-                                                }
-                                                return [];
-                                            })().map(asset => (
-                                                <div
-                                                    key={asset.filename}
-                                                    style={{
-                                                        display: 'flex', alignItems: 'center', gap: 8,
-                                                        padding: '6px 8px',
-                                                        background: 'transparent',
-                                                        borderLeft: `3px solid transparent`,
-                                                        borderTop: `1px solid ${borderLight}`,
-                                                        borderRight: `1px solid ${borderLight}`,
-                                                        borderBottom: `1px solid ${borderLight}`,
-                                                        borderRadius: 0,
-                                                        cursor: 'pointer',
-                                                        transition: 'all 0.15s ease',
-                                                    }}
-                                                    title={`Download ${asset.label}`}
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        const a = document.createElement('a');
-                                                        a.href = asset.src;
-                                                        a.download = asset.filename;
-                                                        document.body.appendChild(a);
-                                                        a.click();
-                                                        document.body.removeChild(a);
-                                                        showToast(`Downloaded ${asset.filename}`, 'info');
-                                                    }}
-                                                    onMouseEnter={(e) => {
-                                                        e.currentTarget.style.borderLeftColor = isDarkMode ? colours.accent : colours.blue;
-                                                        e.currentTarget.style.background = isDarkMode ? `${colours.blue}08` : `${colours.blue}05`;
-                                                        e.currentTarget.style.transform = 'translateX(2px)';
-                                                    }}
-                                                    onMouseLeave={(e) => {
-                                                        e.currentTarget.style.borderLeftColor = 'transparent';
-                                                        e.currentTarget.style.background = 'transparent';
-                                                        e.currentTarget.style.transform = 'translateX(0)';
-                                                    }}
-                                                >
-                                                    {/* Preview thumbnail — wider for logo PNGs */}
-                                                    <div style={{
-                                                        width: asset.isLogo ? 88 : 24, height: asset.isLogo ? 32 : 24, borderRadius: 2,
-                                                        background: asset.previewBg,
-                                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                                        border: `1px solid ${isDarkMode ? `${colours.dark.borderColor}44` : `${colours.darkBlue}12`}`,
-                                                        flexShrink: 0,
-                                                        overflow: 'hidden',
-                                                    }}>
-                                                        <img
-                                                            src={asset.preview}
-                                                            alt=""
-                                                            style={asset.isLogo
-                                                                ? { width: '100%', height: '100%', objectFit: 'contain', display: 'block', padding: '0 6px', boxSizing: 'border-box' }
-                                                                : { width: 8, height: 14 }
-                                                            }
-                                                        />
-                                                    </div>
-                                                    <div style={{ flex: 1, minWidth: 0 }}>
-                                                        <div style={{ fontSize: 9, fontWeight: 600, color: isDarkMode ? '#d1d5db' : colours.darkBlue, lineHeight: 1.2 }}>{asset.label}</div>
-                                                        <div style={{ fontSize: 7, color: textMuted, opacity: 0.7 }}>{asset.desc}</div>
-                                                    </div>
-                                                    {/* Download icon */}
-                                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={textMuted} strokeWidth="2" style={{ flexShrink: 0, opacity: 0.5 }}>
-                                                        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" strokeLinecap="round" strokeLinejoin="round"/>
-                                                        <polyline points="7 10 12 15 17 10" strokeLinecap="round" strokeLinejoin="round"/>
-                                                        <line x1="12" y1="15" x2="12" y2="3" strokeLinecap="round" strokeLinejoin="round"/>
-                                                    </svg>
-                                                </div>
-                                            ))}
-                                        </div>
-
-                                        {/* ── Compositions preview (local only) ── */}
-                                        {isLocalDev && <>
-                                        <div style={{ fontSize: 7, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8, color: textMuted, marginBottom: 6, opacity: 0.6 }}>
-                                            Compositions
-                                        </div>
-
-                                        {/* Pairing selector tabs */}
-                                        <div style={{ display: 'flex', gap: 3, marginBottom: 8 }}>
-                                            {colourPairings.map((p, i) => (
-                                                <button
-                                                    key={p.tag}
-                                                    onClick={(e) => { e.stopPropagation(); setActivePairing(i); }}
-                                                    style={{
-                                                        flex: 1, padding: '4px 0', fontSize: 7, fontWeight: 700,
-                                                        textTransform: 'uppercase', letterSpacing: 0.5,
-                                                        background: activePairing === i
-                                                            ? (isDarkMode ? colours.helixBlue : colours.highlightBlue)
-                                                            : 'transparent',
-                                                        color: activePairing === i ? textPrimary : textMuted,
-                                                        border: `1px solid ${activePairing === i
-                                                            ? (isDarkMode ? `${colours.blue}44` : colours.highlightNeutral)
-                                                            : 'transparent'}`,
-                                                        borderRadius: 2, cursor: 'pointer',
-                                                        transition: 'all 0.15s ease',
-                                                    }}
-                                                >
-                                                    {p.tag}
-                                                </button>
-                                            ))}
-                                        </div>
-
-                                        {/* Intent selector inside base mode */}
-                                        <div style={{ display: 'flex', gap: 3, marginBottom: 8 }}>
-                                            {[
-                                                { key: 'NAV' as const, label: 'NAV' },
-                                                { key: 'ACTION' as const, label: 'ACTION' },
-                                                { key: 'POSITIVE' as const, label: 'POSITIVE' },
-                                            ].map(intent => (
-                                                <button
-                                                    key={intent.key}
-                                                    onClick={(e) => { e.stopPropagation(); setActiveIntent(intent.key); }}
-                                                    style={{
-                                                        flex: 1, padding: '4px 0', fontSize: 7, fontWeight: 700,
-                                                        textTransform: 'uppercase', letterSpacing: 0.5,
-                                                        background: activeIntent === intent.key
-                                                            ? (isDarkMode ? colours.darkBlue : colours.highlightBlue)
-                                                            : 'transparent',
-                                                        color: activeIntent === intent.key ? textPrimary : textMuted,
-                                                        border: `1px solid ${activeIntent === intent.key
-                                                            ? (isDarkMode ? `${colours.blue}33` : colours.highlightNeutral)
-                                                            : 'transparent'}`,
-                                                        borderRadius: 2, cursor: 'pointer',
-                                                        transition: 'all 0.15s ease',
-                                                    }}
-                                                >
-                                                    {intent.label}
-                                                </button>
-                                            ))}
-                                        </div>
-
-                                        {/* Live composition preview */}
-                                        {(() => {
-                                            const p = colourPairings[activePairing];
-                                            const intentAccent = activeIntent === 'ACTION'
-                                                ? colours.cta
-                                                : activeIntent === 'POSITIVE'
-                                                    ? colours.green
-                                                    : p.accent;
-                                            const intentLabel = activeIntent === 'ACTION'
-                                                ? 'CTA'
-                                                : activeIntent === 'POSITIVE'
-                                                    ? 'Positive'
-                                                    : 'Navigation';
-                                            return (
-                                                <div style={{
-                                                    background: p.bg, borderRadius: 2, padding: 10,
-                                                    border: `1px solid ${isDarkMode ? `${colours.dark.borderColor}66` : `${colours.darkBlue}15`}`,
-                                                    transition: 'background 0.25s ease',
-                                                }}>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                                                        <div style={{ width: 6, height: 6, borderRadius: '50%', background: intentAccent, flexShrink: 0 }} />
-                                                        <span style={{ fontSize: 11, fontWeight: 600, color: p.fg, letterSpacing: '-0.2px' }}>{p.label}</span>
-                                                    </div>
-                                                    <div style={{ fontSize: 9, color: p.fg, opacity: 0.7, marginBottom: 10, lineHeight: 1.4 }}>
-                                                        {p.desc}
-                                                    </div>
-
-                                                    {/* Sample interactive row */}
-                                                    <div
-                                                        style={{
-                                                            display: 'flex', alignItems: 'center', gap: 8,
-                                                            padding: '6px 8px',
-                                                            background: `${intentAccent}10`,
-                                                            border: `1px solid ${intentAccent}22`,
-                                                            borderRadius: 2,
-                                                            transition: 'all 0.15s ease',
-                                                            cursor: 'default',
-                                                        }}
-                                                        onMouseEnter={(e) => {
-                                                            e.currentTarget.style.background = `${intentAccent}20`;
-                                                            e.currentTarget.style.borderColor = `${intentAccent}44`;
-                                                            e.currentTarget.style.transform = 'translateY(-1px)';
-                                                            e.currentTarget.style.boxShadow = `0 2px 8px ${p.bg}88`;
-                                                        }}
-                                                        onMouseLeave={(e) => {
-                                                            e.currentTarget.style.background = `${intentAccent}10`;
-                                                            e.currentTarget.style.borderColor = `${intentAccent}22`;
-                                                            e.currentTarget.style.transform = 'translateY(0)';
-                                                            e.currentTarget.style.boxShadow = 'none';
-                                                        }}
-                                                    >
-                                                        <div style={{ width: 4, height: 4, borderRadius: '50%', background: intentAccent }} />
-                                                        <span style={{ fontSize: 9, color: p.fg, opacity: 0.8, flex: 1 }}>Interactive row</span>
-                                                        <span style={{ fontSize: 8, color: intentAccent, fontWeight: 600 }}>{intentLabel}</span>
-                                                    </div>
-
-                                                    {/* Colour stack bar */}
-                                                    <div style={{ display: 'flex', gap: 2, marginTop: 8 }}>
-                                                        <div style={{ flex: 4, height: 3, background: p.bg, borderRadius: 1, border: `1px solid ${p.fg}15` }} />
-                                                        <div style={{ flex: 2, height: 3, background: `${intentAccent}40`, borderRadius: 1 }} />
-                                                        <div style={{ flex: 1, height: 3, background: intentAccent, borderRadius: 1 }} />
-                                                    </div>
-                                                </div>
-                                            );
-                                        })()}
-
-                                        {/* Local-only playground for layering experiments */}
-                                        <div style={{ fontSize: 7, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8, color: textMuted, marginTop: 10, marginBottom: 6, opacity: 0.6 }}>
-                                            Playground
-                                        </div>
-                                        <div style={{ display: 'flex', gap: 3, marginBottom: 6 }}>
-                                            {[
-                                                { label: 'UserBubble', apply: () => { setPlaygroundBase('darkBlue'); setPlaygroundLayer('helixBlue'); setPlaygroundAccent('accent'); } },
-                                                { label: 'Dark Nav', apply: () => { setPlaygroundBase('websiteBlue'); setPlaygroundLayer('darkBlue'); setPlaygroundAccent('accent'); } },
-                                                { label: 'Light Nav', apply: () => { setPlaygroundBase('grey'); setPlaygroundLayer('blue'); setPlaygroundAccent('blue'); } },
-                                            ].map(preset => (
-                                                <button
-                                                    key={preset.label}
-                                                    onClick={(e) => { e.stopPropagation(); preset.apply(); }}
-                                                    style={{
-                                                        flex: 1,
-                                                        padding: '4px 0',
-                                                        fontSize: 7,
-                                                        fontWeight: 700,
-                                                        textTransform: 'uppercase',
-                                                        letterSpacing: 0.4,
-                                                        border: `1px solid ${isDarkMode ? `${colours.dark.borderColor}66` : colours.highlightNeutral}`,
-                                                        background: 'transparent',
-                                                        color: textMuted,
-                                                        borderRadius: 2,
-                                                        cursor: 'pointer',
-                                                    }}
-                                                >
-                                                    {preset.label}
-                                                </button>
-                                            ))}
-                                        </div>
-
-                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 3, marginBottom: 8 }}>
-                                            {[{
-                                                key: 'base',
-                                                label: 'Base',
-                                                value: playgroundBase,
-                                                set: setPlaygroundBase,
-                                                options: playgroundBaseOptions,
-                                            }, {
-                                                key: 'layer',
-                                                label: 'Layer',
-                                                value: playgroundLayer,
-                                                set: setPlaygroundLayer,
-                                                options: playgroundLayerOptions,
-                                            }, {
-                                                key: 'accent',
-                                                label: 'Accent',
-                                                value: playgroundAccent,
-                                                set: setPlaygroundAccent,
-                                                options: playgroundAccentOptions,
-                                            }].map(group => (
-                                                <div key={group.key}>
-                                                    <div style={{ fontSize: 6, color: textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3 }}>{group.label}</div>
-                                                    <select
-                                                        value={group.value}
-                                                        onChange={(e) => group.set(e.target.value as never)}
-                                                        style={{
-                                                            width: '100%',
-                                                            padding: '4px 6px',
-                                                            fontSize: 8,
-                                                            background: isDarkMode ? colours.darkBlue : '#fff',
-                                                            color: textPrimary,
-                                                            border: `1px solid ${borderLight}`,
-                                                            borderRadius: 2,
-                                                        }}
-                                                    >
-                                                        {Object.entries(group.options).map(([key, option]) => (
-                                                            <option key={key} value={key}>{option.label}</option>
-                                                        ))}
-                                                    </select>
-                                                </div>
-                                            ))}
-                                        </div>
-
-                                        {(() => {
-                                            const base = playgroundBaseOptions[playgroundBase];
-                                            const layer = playgroundLayerOptions[playgroundLayer];
-                                            const accent = playgroundAccentOptions[playgroundAccent];
-                                            const text = base.color === colours.grey || base.color === colours.highlightBlue ? colours.darkBlue : '#ffffff';
-
-                                            return (
-                                                <div style={{
-                                                    background: base.color,
-                                                    border: `1px solid ${isDarkMode ? `${colours.dark.borderColor}66` : `${colours.darkBlue}15`}`,
-                                                    borderRadius: 2,
-                                                    padding: 8,
-                                                }}>
-                                                    <div style={{
-                                                        background: layer.color,
-                                                        border: `1px solid ${accent.color}33`,
-                                                        borderRadius: 2,
-                                                        padding: '6px 8px',
-                                                        marginBottom: 6,
-                                                        color: text,
-                                                        fontSize: 9,
-                                                        fontWeight: 600,
-                                                    }}>
-                                                        Layer preview
-                                                    </div>
-                                                    <div style={{
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        gap: 6,
-                                                        padding: '6px 8px',
-                                                        background: `${accent.color}14`,
-                                                        border: `1px solid ${accent.color}33`,
-                                                        borderLeft: `3px solid ${accent.color}`,
-                                                        borderRadius: 0,
-                                                        color: text,
-                                                        fontSize: 8,
-                                                    }}>
-                                                        <span style={{ width: 4, height: 4, borderRadius: '50%', background: accent.color }} />
-                                                        <span style={{ flex: 1 }}>Interactive cue</span>
-                                                        <span style={{ color: accent.color, fontWeight: 700 }}>{accent.label}</span>
-                                                    </div>
-                                                    <div style={{ display: 'flex', gap: 4, marginTop: 6, fontSize: 6, color: textMuted }}>
-                                                        <span>{base.color}</span>
-                                                        <span>{layer.color}</span>
-                                                        <span>{accent.color}</span>
-                                                    </div>
-                                                </div>
-                                            );
-                                        })()}
-                                        </>}
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Profile — curated key fields only */}
                             {regularDetails.filter(d => !d.isRate && !d.isRole).length > 0 && (
-                                <div style={{
-                                    marginBottom: 20,
-                                    padding: '0',
-                                    background: isDarkMode ? colours.darkBlue : colours.grey,
-                                    border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
-                                    borderRadius: 2,
-                                    overflow: 'hidden',
-                                }}>
-                                    <div
-                                        style={{
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'space-between',
-                                            padding: '8px 12px',
-                                            cursor: 'pointer',
-                                            transition: 'background 0.15s ease',
-                                        }}
-                                        onMouseEnter={(e) => { e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.03)'; }}
-                                        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-                                        onClick={() => setProfileCollapsed(prev => !prev)}
-                                    >
-                                        <div style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8, color: textMuted, opacity: 0.8 }}>Profile</div>
-                                        <svg
-                                            width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={textMuted} strokeWidth="2.5"
-                                            style={{ flexShrink: 0, transition: 'transform 0.2s ease', transform: profileCollapsed ? 'rotate(0deg)' : 'rotate(180deg)' }}
-                                        >
-                                            <path d="M6 9l6 6 6-6"/>
-                                        </svg>
-                                    </div>
-
-                                    <div style={{
-                                        maxHeight: profileCollapsed ? 0 : 500,
-                                        opacity: profileCollapsed ? 0 : 1,
-                                        overflow: 'hidden',
-                                        transition: 'max-height 0.25s ease, opacity 0.2s ease, padding 0.25s ease',
-                                        padding: profileCollapsed ? '0 12px' : '0 12px 12px 12px',
-                                    }}>
-                                    <div style={{ display: 'grid', gap: 2 }}>
-                                        {regularDetails.filter(d => !d.isRate && !d.isRole).map(d => (
-                                            <div key={d.label} style={{ 
-                                                display: 'flex', 
-                                                alignItems: 'center', 
-                                                padding: '7px 10px', 
-                                                background: 'transparent',
-                                                borderTop: `1px solid ${borderLight}`,
-                                                borderRight: `1px solid ${borderLight}`,
-                                                borderBottom: `1px solid ${borderLight}`,
-                                                borderLeft: '3px solid transparent',
-                                                borderRadius: 0,
-                                                gap: 8,
-                                                transition: 'all 0.15s ease'
-                                            }}
-                                            onMouseEnter={(e) => {
-                                                applyInsetHover(e.currentTarget);
-                                            }}
-                                            onMouseLeave={(e) => {
-                                                resetInsetHover(e.currentTarget);
-                                            }}
-                                            >
-                                                <span style={{ fontSize: 9, fontWeight: 600, color: textMuted, minWidth: 65, textTransform: 'uppercase', letterSpacing: 0.3 }}>{d.label}</span>
-                                                <span style={{ fontSize: 11, color: textPrimary, flex: 1, wordBreak: 'break-word' }}>{d.value}</span>
-                                                <button 
-                                                    onClick={() => copy(d.value)} 
-                                                    style={{ 
-                                                        background: 'transparent', 
-                                                        border: 'none', 
-                                                        color: textMuted, 
-                                                        fontSize: 9, 
-                                                        cursor: 'pointer', 
-                                                        padding: '2px 4px',
-                                                        opacity: 0.5,
-                                                        transition: 'opacity 0.15s ease'
-                                                    }}
-                                                    onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; }}
-                                                    onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.5'; }}
-                                                >
-                                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                                                    </svg>
-                                                </button>
-                                            </div>
-                                        ))}
-                                    </div>
-                                    </div>
-                                </div>
+                                <ProfileSection
+                                    tokens={tokens}
+                                    regularDetails={regularDetails}
+                                    copy={copy}
+                                />
                             )}
 
                             {/* Quick actions footer */}
-                            <div style={{ display: 'flex', gap: 8 }}>
-                                <button 
-                                    onClick={() => setShowRefreshModal(true)} 
-                                    style={{
-                                        ...actionBtn,
-                                        flex: 1,
-                                        justifyContent: 'center'
-                                    }}
-                                    onMouseEnter={(e) => {
-                                        applyRowHover(e.currentTarget);
-                                        e.currentTarget.style.color = textPrimary;
-                                    }}
-                                    onMouseLeave={(e) => {
-                                        resetRowHover(e.currentTarget);
-                                        e.currentTarget.style.color = textSecondary;
-                                    }}
-                                >
-                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
-                                    </svg>
-                                    Refresh Data
-                                </button>
-
-                                {originalAdminUser && onReturnToAdmin && (
-                                    <button 
-                                        onClick={() => { onReturnToAdmin(); closePopover(); }} 
-                                        style={{ 
-                                            ...actionBtn, 
-                                            flex: 1,
-                                            justifyContent: 'center',
-                                            background: ctaPrimary, 
-                                            color: '#fff', 
-                                            border: `1px solid ${ctaPrimary}`
-                                        }}
+                            {!hideOpsSections && (
+                                <div style={{ display: 'flex', gap: 8 }}>
+                                    <button
+                                        onClick={() => setShowRefreshModal(true)}
+                                        style={{ ...actionBtn, flex: 1, justifyContent: 'center' }}
                                         onMouseEnter={(e) => {
-                                            e.currentTarget.style.filter = 'brightness(0.85)';
+                                            tokens.applyRowHover(e.currentTarget);
+                                            e.currentTarget.style.color = textPrimary;
                                         }}
                                         onMouseLeave={(e) => {
-                                            e.currentTarget.style.filter = 'none';
+                                            tokens.resetRowHover(e.currentTarget);
+                                            e.currentTarget.style.color = textBody;
                                         }}
                                     >
-                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                                            <path d="M19 12H5M12 19l-7-7 7-7"/>
+                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                            <path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
                                         </svg>
-                                        Return to Admin
+                                        Refresh Data
                                     </button>
-                                )}
-                            </div>
+
+                                    {originalAdminUser && onReturnToAdmin && (
+                                        <button
+                                            onClick={() => { onReturnToAdmin(); closePopover(); }}
+                                            style={{
+                                                ...actionBtn,
+                                                flex: 1, justifyContent: 'center',
+                                                background: ctaPrimary, color: '#fff',
+                                                border: `1px solid ${ctaPrimary}`
+                                            }}
+                                            onMouseEnter={(e) => { e.currentTarget.style.filter = 'brightness(0.85)'; }}
+                                            onMouseLeave={(e) => { e.currentTarget.style.filter = 'none'; }}
+                                        >
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                                <path d="M19 12H5M12 19l-7-7 7-7"/>
+                                            </svg>
+                                            Return to Admin
+                                        </button>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     </div>
                     </div>

@@ -1,6 +1,10 @@
 import React, { useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Stack, Text, Icon, Pivot, PivotItem, TextField } from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Text } from '@fluentui/react/lib/Text';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { Pivot, PivotItem } from '@fluentui/react/lib/Pivot';
+import { TextField } from '@fluentui/react/lib/TextField';
 import { FaBolt, FaEdit, FaFileAlt, FaEraser, FaInfoCircle, FaThumbtack, FaCalculator, FaExclamationTriangle, FaEnvelope, FaPaperPlane, FaChevronDown, FaChevronUp, FaCopy, FaEye, FaCheck, FaTimes, FaUsers, FaArrowLeft, FaPoundSign, FaUndo, FaRedo } from 'react-icons/fa';
 import DealCapture from './DealCapture';
 import { colours } from '../../../app/styles/colours';

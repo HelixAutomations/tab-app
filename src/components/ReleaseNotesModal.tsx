@@ -1,6 +1,7 @@
 ﻿import React, { useEffect, useMemo, useState } from 'react';
-import { Modal, IconButton, Spinner } from '@fluentui/react';
-
+import { Modal } from '@fluentui/react/lib/Modal';
+import { IconButton } from '@fluentui/react/lib/Button';
+import { Spinner } from '@fluentui/react/lib/Spinner';
 interface ReleaseNotesModalProps {
   isOpen: boolean;
   onClose: () => void;

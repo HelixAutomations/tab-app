@@ -1,21 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import {
-  Modal,
-  Stack,
-  TextField,
-  IconButton,
-  DefaultButton,
-  PrimaryButton,
-  Dropdown,
-  IDropdownOption,
-  ChoiceGroup,
-  IChoiceGroupOption,
-  ComboBox,
-  IComboBoxOption,
-  IComboBox,
-  Text,
-  mergeStyles,
-} from '@fluentui/react';
+import { Modal } from '@fluentui/react/lib/Modal';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { TextField } from '@fluentui/react/lib/TextField';
+import { IconButton, DefaultButton, PrimaryButton } from '@fluentui/react/lib/Button';
+import { Dropdown } from '@fluentui/react/lib/Dropdown';
+import type { IDropdownOption } from '@fluentui/react/lib/Dropdown';
+import { ChoiceGroup } from '@fluentui/react/lib/ChoiceGroup';
+import type { IChoiceGroupOption } from '@fluentui/react/lib/ChoiceGroup';
+import { ComboBox } from '@fluentui/react/lib/ComboBox';
+import type { IComboBoxOption, IComboBox } from '@fluentui/react/lib/ComboBox';
+import { Text } from '@fluentui/react/lib/Text';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { colours } from '../../../app/styles/colours';
 import {
 // invisible change

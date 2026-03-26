@@ -1,13 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  DefaultButton, 
-  PrimaryButton, 
-  Stack, 
-  Text, 
-  MessageBar, 
-  MessageBarType,
-  ProgressIndicator 
-} from '@fluentui/react';
+import { DefaultButton, PrimaryButton } from '@fluentui/react/lib/Button';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Text } from '@fluentui/react/lib/Text';
+import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
+import { ProgressIndicator } from '@fluentui/react/lib/ProgressIndicator';
 import { getStorageQuota, cleanupLocalStorage, logStorageUsage, StorageQuotaInfo } from '../utils/storageUtils';
 
 interface StorageManagerProps {

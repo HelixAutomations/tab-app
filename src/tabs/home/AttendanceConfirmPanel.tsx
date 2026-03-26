@@ -1,5 +1,8 @@
 import React, { useState, useMemo, forwardRef, useImperativeHandle } from 'react';
-import { DefaultButton, mergeStyles, Icon, TooltipHost } from '@fluentui/react';
+import { DefaultButton } from '@fluentui/react/lib/Button';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { TooltipHost } from '@fluentui/react/lib/Tooltip';
 import { colours } from '../../app/styles/colours';
 import { componentTokens } from '../../app/styles/componentTokens';
 import { cardStyles } from '../instructions/componentTokens';

@@ -18,15 +18,21 @@ const { DefaultAzureCredential } = require('@azure/identity');
 const { SecretClient } = require('@azure/keyvault-secrets');
 
 const router = express.Router();
+const { annotate } = require('../utils/devConsole');
 
-// Cache TTL: 60s fresh, but we keep stale data for fallback
+// Cache TTL: 60s fresh for individual, 120s for team aggregate
 const CACHE_TTL_SECONDS = 60;
+const TEAM_CACHE_TTL_SECONDS = 120;
 // Keep stale data for longer so transient Key Vault / Clio blips don't zero the UI.
 // Freshness is still governed by CACHE_TTL_SECONDS; this just controls fallback retention.
 const STALE_TTL_SECONDS = 6 * 60 * 60; // 6 hours
 
 // In-memory fallback when Redis unavailable
 const memoryCache = new Map();
+
+// De-dup concurrent fetches for the same cache key.
+// Prevents duplicate Clio API calls when multiple requests hit the same cache miss.
+const inflightRequests = new Map();
 
 /**
  * GET /api/home-wip?entraId=<uuid>
@@ -54,17 +60,27 @@ router.get('/', async (req, res) => {
   try {
     const cached = await getCached(cacheKey);
     if (cached && !cached.stale) {
+      annotate(res, { source: 'redis', note: `TTL ${CACHE_TTL_SECONDS}s` });
       return res.json({ ...cached.data, cached: true, stale: false });
     }
 
-    // Fetch fresh data
-    const freshData = await fetchUserWipTwoWeeks(connectionString, entraId);
+    // Fetch fresh data (de-dup concurrent requests for same user)
+    let freshData;
+    if (inflightRequests.has(cacheKey)) {
+      freshData = await inflightRequests.get(cacheKey);
+    } else {
+      const inFlight = fetchUserWipTwoWeeks(connectionString, entraId)
+        .finally(() => inflightRequests.delete(cacheKey));
+      inflightRequests.set(cacheKey, inFlight);
+      freshData = await inFlight;
+    }
 
     // Store in cache (don't await – fire and forget)
     setCached(cacheKey, freshData).catch((err) => {
       console.warn('[home-wip] Cache set failed:', err.message);
     });
 
+    annotate(res, { source: 'clio', note: 'fresh from Clio API' });
     return res.json({ ...freshData, cached: false, stale: false });
   } catch (err) {
     console.error('[home-wip] Fetch failed:', err && err.stack ? err.stack : err.message);
@@ -73,6 +89,7 @@ router.get('/', async (req, res) => {
     try {
       const stale = await getCached(cacheKey, true);
       if (stale) {
+        annotate(res, { source: 'stale', note: 'error fallback — stale redis' });
         console.log('[home-wip] Returning stale cache after error');
         return res.json({ ...stale.data, cached: true, stale: true });
       }
@@ -102,7 +119,14 @@ async function fetchUserWipTwoWeeks(connectionString, entraId) {
     console.warn('[home-wip] No Clio ID found for', entraId);
     return { current_week: { daily_data: {} }, last_week: { daily_data: {} } };
   }
+  return fetchUserWipTwoWeeksWithClioId(clioId);
+}
 
+/**
+ * Fetch two weeks of WIP data when Clio ID is already known.
+ * Skips the resolveClioId SQL query.
+ */
+async function fetchUserWipTwoWeeksWithClioId(clioId) {
   // Calculate date ranges
   const { currentStart, currentEnd, lastStart, lastEnd } = getTwoWeekBounds();
 
@@ -118,8 +142,7 @@ async function fetchUserWipTwoWeeks(connectionString, entraId) {
       const is401 = status === 401 || String(err?.message || '').includes('401');
       if (!is401) throw err;
 
-      console.warn('[home-wip] Clio 401; clearing token cache and retrying once');
-      await clearClioAccessTokenCache();
+      // Token refresh is de-duped — all concurrent 401s share one OAuth call
       accessToken = await getClioAccessToken(true);
       return await fetchClioActivities(accessToken, clioId, start, end);
     }
@@ -219,7 +242,6 @@ async function getClioCredentialsCached() {
     try {
       const cached = await redis.get('homeWip:' + cacheKey);
       if (cached) {
-        console.log('[home-wip] Using Redis-cached credentials');
         return JSON.parse(cached);
       }
     } catch { /* ignore */ }
@@ -228,7 +250,6 @@ async function getClioCredentialsCached() {
   // Fallback to memory cache
   const memCached = cache.get(cacheKey);
   if (memCached && memCached.expires > Date.now()) {
-    console.log('[home-wip] Using memory-cached credentials');
     return memCached.data;
   }
   
@@ -265,8 +286,20 @@ async function getClioCredentialsCached() {
   return credentials;
 }
 
-async function getClioAccessToken() {
-  return getClioAccessTokenInternal(false);
+// De-dup forced token refresh: only one Clio OAuth call at a time.
+let inflightTokenRefresh = null;
+
+async function getClioAccessToken(forceRefresh = false) {
+  if (!forceRefresh) {
+    return getClioAccessTokenInternal(false);
+  }
+  // Piggyback on an existing refresh if one is already in-flight
+  if (inflightTokenRefresh) {
+    return inflightTokenRefresh;
+  }
+  inflightTokenRefresh = getClioAccessTokenInternal(true)
+    .finally(() => { inflightTokenRefresh = null; });
+  return inflightTokenRefresh;
 }
 
 async function clearClioAccessTokenCache() {
@@ -302,6 +335,7 @@ async function getClioAccessTokenInternal(forceRefresh = false) {
     }
   } else {
     // Force refresh: clear any cached token before requesting a new one
+    console.warn('[home-wip] Clio 401 detected; refreshing access token...');
     try { cache.delete(tokenCacheKey); } catch { /* ignore */ }
     if (redis) {
       try { await redis.del('homeWip:' + tokenCacheKey); } catch { /* ignore */ }
@@ -486,7 +520,8 @@ function formatDayKey(date) {
 // Caching
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function getCached(key, allowStale = false) {
+async function getCached(key, allowStale = false, ttlOverride) {
+  const ttl = ttlOverride || CACHE_TTL_SECONDS;
   const redis = await getRedisClient();
 
   if (redis) {
@@ -495,7 +530,7 @@ async function getCached(key, allowStale = false) {
       if (raw) {
         const parsed = JSON.parse(raw);
         const age = Date.now() - (parsed.timestamp || 0);
-        const stale = age > CACHE_TTL_SECONDS * 1000;
+        const stale = age > ttl * 1000;
 
         if (!stale || allowStale) {
           return { data: parsed.data, stale };
@@ -508,7 +543,7 @@ async function getCached(key, allowStale = false) {
   const mem = memoryCache.get(key);
   if (mem) {
     const age = Date.now() - mem.timestamp;
-    const stale = age > CACHE_TTL_SECONDS * 1000;
+    const stale = age > ttl * 1000;
     if (!stale || allowStale) {
       return { data: mem.data, stale };
     }
@@ -517,7 +552,7 @@ async function getCached(key, allowStale = false) {
   return null;
 }
 
-async function setCached(key, data) {
+async function setCached(key, data, ttlOverride) {
   const entry = { data, timestamp: Date.now() };
 
   // Memory cache (always)
@@ -529,5 +564,160 @@ async function setCached(key, data) {
     await redis.setEx(key, STALE_TTL_SECONDS, JSON.stringify(entry));
   }
 }
+
+// Export warmup function so server can pre-warm Key Vault credentials at startup
+router.warmupClioCredentials = () => getClioCredentialsCached();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Team aggregation mode
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * GET /api/home-wip/team
+ *
+ * Returns aggregated WIP data for ALL team members.
+ * Same response shape as the individual endpoint so the client
+ * can swap seamlessly.
+ */
+router.get('/team', async (req, res) => {
+  const connectionString = process.env.SQL_CONNECTION_STRING;
+  const cacheKey = generateCacheKey('homeWip', 'team-aggregate');
+
+  try {
+    // Check cache first (team aggregate uses longer TTL)
+    const cached = await getCached(cacheKey, false, TEAM_CACHE_TTL_SECONDS);
+    if (cached && !cached.stale) {
+      annotate(res, { source: 'redis', note: `team aggregate, TTL ${TEAM_CACHE_TTL_SECONDS}s` });
+      return res.json({ ...cached.data, cached: true, stale: false });
+    }
+
+    // Fetch all team members' Entra IDs
+    const teamMembers = await withRequest(connectionString, async (request) => {
+      const result = await request.query(`
+        SELECT [Entra ID], [Clio ID], [First], [Initials]
+        FROM [dbo].[team]
+        WHERE [Entra ID] IS NOT NULL AND [Entra ID] <> ''
+          AND [Clio ID] IS NOT NULL AND [Clio ID] <> ''
+      `);
+      return result.recordset || [];
+    });
+
+    if (!teamMembers || teamMembers.length === 0) {
+      return res.json({
+        current_week: { daily_data: {} },
+        last_week: { daily_data: {} },
+        cached: false,
+        stale: false,
+        memberCount: 0,
+      });
+    }
+
+    // Fetch WIP for each team member in parallel.
+    // Use the already-known Clio ID to skip 32 redundant resolveClioId SQL queries.
+    // Check per-user cache first to skip Clio API for recently-fetched users.
+    const results = await Promise.allSettled(
+      teamMembers.map(member => {
+        const entraId = member['Entra ID'];
+        const clioId = member['Clio ID'];
+        const userCacheKey = generateCacheKey('homeWip', entraId);
+        return getCached(userCacheKey).then(userCached => {
+          if (userCached && !userCached.stale) return userCached.data;
+          // De-dup: if another request is already fetching this user, await it
+          if (inflightRequests.has(userCacheKey)) return inflightRequests.get(userCacheKey);
+          const inFlight = fetchUserWipTwoWeeksWithClioId(clioId).then(freshData => {
+            setCached(userCacheKey, freshData).catch(() => {});
+            return freshData;
+          }).finally(() => inflightRequests.delete(userCacheKey));
+          inflightRequests.set(userCacheKey, inFlight);
+          return inFlight;
+        });
+      })
+    );
+
+    // Aggregate daily data across all members
+    const { currentStart, currentEnd, lastStart, lastEnd } = getTwoWeekBounds();
+    const aggregatedCurrent = {};
+    const aggregatedLast = {};
+
+    // Initialize day keys
+    const initDays = (store, start, end) => {
+      const cursor = new Date(start);
+      while (cursor <= end) {
+        const key = formatDayKey(cursor);
+        store[key] = { total_hours: 0, total_amount: 0, entries: [] };
+        cursor.setDate(cursor.getDate() + 1);
+      }
+    };
+    initDays(aggregatedCurrent, currentStart, currentEnd);
+    initDays(aggregatedLast, lastStart, lastEnd);
+
+    let successCount = 0;
+    for (const result of results) {
+      if (result.status !== 'fulfilled') continue;
+      successCount++;
+      const data = result.value;
+
+      // Merge current week
+      const cDaily = data.current_week?.daily_data || {};
+      for (const [day, vals] of Object.entries(cDaily)) {
+        if (!aggregatedCurrent[day]) aggregatedCurrent[day] = { total_hours: 0, total_amount: 0, entries: [] };
+        aggregatedCurrent[day].total_hours += vals.total_hours || 0;
+        aggregatedCurrent[day].total_amount += vals.total_amount || 0;
+        if (vals.entries) aggregatedCurrent[day].entries.push(...vals.entries);
+      }
+
+      // Merge last week
+      const lDaily = data.last_week?.daily_data || {};
+      for (const [day, vals] of Object.entries(lDaily)) {
+        if (!aggregatedLast[day]) aggregatedLast[day] = { total_hours: 0, total_amount: 0, entries: [] };
+        aggregatedLast[day].total_hours += vals.total_hours || 0;
+        aggregatedLast[day].total_amount += vals.total_amount || 0;
+        if (vals.entries) aggregatedLast[day].entries.push(...vals.entries);
+      }
+    }
+
+    // Round final values
+    for (const day of Object.keys(aggregatedCurrent)) {
+      aggregatedCurrent[day].total_hours = Math.round(aggregatedCurrent[day].total_hours * 10) / 10;
+      aggregatedCurrent[day].total_amount = Math.round(aggregatedCurrent[day].total_amount * 100) / 100;
+    }
+    for (const day of Object.keys(aggregatedLast)) {
+      aggregatedLast[day].total_hours = Math.round(aggregatedLast[day].total_hours * 10) / 10;
+      aggregatedLast[day].total_amount = Math.round(aggregatedLast[day].total_amount * 100) / 100;
+    }
+
+    const freshData = {
+      current_week: { daily_data: aggregatedCurrent },
+      last_week: { daily_data: aggregatedLast },
+      memberCount: successCount,
+    };
+
+    // Cache team aggregate with longer TTL (fire-and-forget)
+    setCached(cacheKey, freshData, TEAM_CACHE_TTL_SECONDS).catch(err => {
+      console.warn('[home-wip/team] Cache set failed:', err.message);
+    });
+
+    annotate(res, { source: 'clio', note: `team aggregate: ${successCount}/${teamMembers.length} members` });
+    return res.json({ ...freshData, cached: false, stale: false });
+  } catch (err) {
+    console.error('[home-wip/team] Error:', err?.stack || err?.message);
+
+    // Try stale cache
+    try {
+      const stale = await getCached(cacheKey, true);
+      if (stale) {
+        return res.json({ ...stale.data, cached: true, stale: true });
+      }
+    } catch { /* ignore */ }
+
+    return res.status(200).json({
+      current_week: { daily_data: {} },
+      last_week: { daily_data: {} },
+      cached: false,
+      stale: false,
+      error: 'Failed to fetch team WIP data',
+    });
+  }
+});
 
 module.exports = router;

@@ -99,7 +99,7 @@ const buildMetaForTitle = (title: string): ImmediateActionMeta => {
       persistence: 'database',
       realtime: 'manual-refresh',
       writeTarget: 'CclContent / CclDrafts',
-      notes: 'Navigates to matter view with CCL editor open. Approval persisted via CCL endpoints.',
+      notes: 'Prompt-only to-do card. Clicking expands the CCL row in the matters box; the typeform review modal is invoked from there.',
     };
   }
 

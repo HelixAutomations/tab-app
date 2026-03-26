@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { useTheme } from '../app/functionality/ThemeContext';
+import { colours } from '../app/styles/colours';
 
 interface RefreshDataModalProps {
   isOpen: boolean;
@@ -11,21 +13,28 @@ interface RefreshDataModalProps {
   }) => Promise<void> | void;
 }
 
+const categories = [
+  { key: 'clientCaches' as const, label: 'Client caches', desc: 'localStorage' },
+  { key: 'enquiries' as const, label: 'Enquiries', desc: 'server + fetch' },
+  { key: 'matters' as const, label: 'Matters', desc: 'server + fetch' },
+  { key: 'reporting' as const, label: 'Reporting datasets', desc: 'server only' },
+] as const;
+
 const RefreshDataModal: React.FC<RefreshDataModalProps> = ({ isOpen, onClose, onConfirm }) => {
-  const [clientCaches, setClientCaches] = useState(true);
-  const [enquiries, setEnquiries] = useState(true);
-  const [matters, setMatters] = useState(false);
-  const [reporting, setReporting] = useState(false);
+  const { isDarkMode } = useTheme();
+  const [selected, setSelected] = useState({ clientCaches: true, enquiries: true, matters: false, reporting: false });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
+  const toggle = (key: keyof typeof selected) => setSelected(prev => ({ ...prev, [key]: !prev[key] }));
+
   const handleConfirm = async () => {
     setBusy(true);
     setError(null);
     try {
-      await onConfirm({ clientCaches, enquiries, matters, reporting });
+      await onConfirm(selected);
       onClose();
     } catch (e: any) {
       setError(e?.message || 'Failed to refresh.');
@@ -33,6 +42,11 @@ const RefreshDataModal: React.FC<RefreshDataModalProps> = ({ isOpen, onClose, on
       setBusy(false);
     }
   };
+
+  const bg = isDarkMode ? colours.dark.cardBackground : '#fff';
+  const borderCol = isDarkMode ? colours.dark.borderColor : 'rgba(0,0,0,0.08)';
+  const textPrimary = isDarkMode ? colours.dark.text : colours.light.text;
+  const textSecondary = isDarkMode ? colours.subtleGrey : colours.greyText;
 
   return (
     <div
@@ -43,10 +57,12 @@ const RefreshDataModal: React.FC<RefreshDataModalProps> = ({ isOpen, onClose, on
         position: 'fixed',
         inset: 0,
         zIndex: 3000,
-        background: 'rgba(0,0,0,0.35)',
+        background: 'rgba(0, 3, 25, 0.6)',
+        backdropFilter: 'blur(4px)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
+        animation: 'helix-fade-in 150ms ease-out',
       }}
       onClick={onClose}
     >
@@ -55,41 +71,95 @@ const RefreshDataModal: React.FC<RefreshDataModalProps> = ({ isOpen, onClose, on
         style={{
           width: '360px',
           maxWidth: '90vw',
-          background: '#fff',
-          borderRadius: 12,
-          border: '1px solid rgba(0,0,0,0.08)',
-          boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
+          background: bg,
+          borderRadius: 0,
+          border: `1px solid ${borderCol}`,
+          boxShadow: '0 20px 60px rgba(0,0,0,0.4)',
           overflow: 'hidden',
+          animation: 'helix-slide-in-up 250ms cubic-bezier(0, 0, 0.2, 1)',
         }}
       >
-        <div style={{ padding: '14px 16px', borderBottom: '1px solid rgba(0,0,0,0.08)' }}>
-          <div style={{ fontWeight: 700 }}>Refresh data</div>
-          <div style={{ fontSize: 12, opacity: 0.7 }}>Choose what to clear and refresh</div>
+        {/* Header */}
+        <div style={{ padding: '14px 16px', borderBottom: `1px solid ${borderCol}` }}>
+          <div style={{ fontWeight: 700, fontSize: 13, color: textPrimary }}>Refresh data</div>
+          <div style={{ fontSize: 11, color: textSecondary, marginTop: 2 }}>Choose what to clear and refresh</div>
         </div>
-        <div style={{ padding: 16, display: 'grid', gap: 10 }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <input type="checkbox" checked={clientCaches} onChange={(e) => setClientCaches(e.target.checked)} />
-            <span>Client caches (localStorage)</span>
-          </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <input type="checkbox" checked={enquiries} onChange={(e) => setEnquiries(e.target.checked)} />
-            <span>Enquiries (server + fetch)</span>
-          </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <input type="checkbox" checked={matters} onChange={(e) => setMatters(e.target.checked)} />
-            <span>Matters (server + fetch)</span>
-          </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <input type="checkbox" checked={reporting} onChange={(e) => setReporting(e.target.checked)} />
-            <span>Reporting datasets (server only)</span>
-          </label>
+
+        {/* Options */}
+        <div style={{ padding: 16, display: 'grid', gap: 6 }}>
+          {categories.map(({ key, label, desc }) => {
+            const checked = selected[key];
+            return (
+              <label
+                key={key}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  padding: '8px 10px',
+                  borderRadius: 2,
+                  cursor: 'pointer',
+                  background: checked
+                    ? (isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.04)')
+                    : 'transparent',
+                  border: `1px solid ${checked
+                    ? (isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)')
+                    : 'transparent'}`,
+                  transition: 'background 150ms ease, border-color 150ms ease',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => toggle(key)}
+                  style={{ width: 14, height: 14, cursor: 'pointer', accentColor: colours.blue }}
+                />
+                <span style={{ fontSize: 12, fontWeight: 600, color: textPrimary }}>{label}</span>
+                <span style={{ fontSize: 10, color: textSecondary, marginLeft: 'auto' }}>{desc}</span>
+              </label>
+            );
+          })}
           {error && (
-            <div style={{ color: '#b91c1c', fontSize: 12 }}>{error}</div>
+            <div style={{ color: colours.cta, fontSize: 11, fontWeight: 600, padding: '4px 0' }}>{error}</div>
           )}
         </div>
-        <div style={{ padding: 16, borderTop: '1px solid rgba(0,0,0,0.08)', display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} disabled={busy} style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff' }}>Cancel</button>
-          <button onClick={handleConfirm} disabled={busy} style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid #0ea5e9', background: '#0ea5e9', color: '#fff', fontWeight: 600 }}>{busy ? 'Refreshing…' : 'Refresh'}</button>
+
+        {/* Footer */}
+        <div style={{ padding: '12px 16px', borderTop: `1px solid ${borderCol}`, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button
+            onClick={onClose}
+            disabled={busy}
+            style={{
+              padding: '7px 14px',
+              borderRadius: 0,
+              border: `1px solid ${borderCol}`,
+              background: 'transparent',
+              color: textSecondary,
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: busy ? 'not-allowed' : 'pointer',
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleConfirm}
+            disabled={busy}
+            style={{
+              padding: '7px 14px',
+              borderRadius: 0,
+              border: 'none',
+              background: colours.blue,
+              color: '#fff',
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: busy ? 'not-allowed' : 'pointer',
+              opacity: busy ? 0.7 : 1,
+              transition: 'opacity 150ms ease',
+            }}
+          >
+            {busy ? 'Refreshing…' : 'Refresh'}
+          </button>
         </div>
       </div>
     </div>

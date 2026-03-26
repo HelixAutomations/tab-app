@@ -6,8 +6,7 @@
   "ignore": [
     "build",
     "node_modules",
-    "api",
-    "decoupled-functions"
+    "api"
   ],
   "exec": "node server/index.js",
   "delay": "200ms"

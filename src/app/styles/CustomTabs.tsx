@@ -18,7 +18,7 @@ import { UserData } from '../../app/functionality/types';
 import UserBubble from '../../components/UserBubble';
 import AnimatedPulsingDot from '../../components/AnimatedPulsingDot';
 import ReleaseNotesModal from '../../components/ReleaseNotesModal';
-import { isAdminUser } from '../../app/admin';
+import { canSeePrivateHubControls, isAdminUser } from '../../app/admin';
 
 interface CustomTabsProps {
   selectedKey: string;
@@ -81,6 +81,14 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
   const { isDarkMode } = useTheme();
   const [showReleaseNotesModal, setShowReleaseNotesModal] = React.useState(false);
   const canSeeReleaseNotes = Boolean(isLocalDev) || isAdminUser(user || null);
+  const canSeePrivateControls = Boolean(isLocalDev) || canSeePrivateHubControls(user || null);
+  const bubbleUser = user || {
+    First: 'Local',
+    Last: 'Dev',
+    Initials: 'LD',
+    AOW: 'Commercial, Construction, Property, Employment, Misc/Other',
+    Email: 'local@dev.com',
+  };
 
   // ── Responsive icon-only collapse ───────────────────────────
   const tabsWrapRef = React.useRef<HTMLDivElement | null>(null);
@@ -118,12 +126,13 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
   }, [tabs.length, selectedKey]); // iconOnly intentionally excluded — prevents infinite loop
 
   // ── Derived tokens ──────────────────────────────────────────
-  const textResting = isDarkMode ? colours.subtleGrey : colours.greyText;
+  const textResting = isDarkMode ? 'rgba(160, 160, 160, 0.55)' : 'rgba(107, 107, 107, 0.6)';
   const textHover = isDarkMode ? colours.dark.text : colours.darkBlue;
   const activeColour = isDarkMode ? colours.accent : colours.blue;
+  const activeTextColour = isDarkMode ? '#d1d5db' : colours.darkBlue;
   const homeColour = selectedKey === 'home'
-    ? activeColour
-    : (isDarkMode ? colours.dark.text : colours.darkBlue);
+    ? activeTextColour
+    : textResting;
 
   const handleTabClick = (tab: Tab) => {
     if (tab.disabled) {
@@ -151,7 +160,7 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
 
   return (
     <div
-      className="customTabsContainer"
+      className={`customTabsContainer${iconOnly ? ' tabs-icon-only' : ''}`}
       role="navigation"
       aria-label={ariaLabel || 'Main Navigation'}
       style={{
@@ -176,22 +185,13 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
         onClick={onHomeClick}
         aria-label="Home"
         aria-current={selectedKey === 'home' ? 'page' : undefined}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.background = isDarkMode ? 'rgba(135, 243, 243, 0.10)' : 'rgba(54, 144, 206, 0.06)';
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.background = selectedKey === 'home'
-            ? (isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.05)')
-            : 'transparent';
-        }}
         style={{
           color: homeColour,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          background: selectedKey === 'home'
-            ? (isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.05)')
-            : 'transparent',
+          '--home-resting-bg': 'transparent',
+          '--home-hover-bg': isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)',
           border: 'none',
           borderRadius: 2,
           cursor: 'pointer',
@@ -201,8 +201,7 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
           minWidth: 36,
           position: 'relative',
           flexShrink: 0,
-          transition: 'background 0.2s ease',
-        }}
+        } as React.CSSProperties}
       >
         <div style={{
           position: 'relative',
@@ -235,6 +234,7 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
       </button>
 
       <span
+        className="tab-separator"
         aria-hidden="true"
         title="Home separator"
         style={{
@@ -283,49 +283,28 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
                   gap: 7,
                   padding: '0 16px',
                   height: 48,
-                  background: 'transparent',
                   border: 'none',
                   position: 'relative' as const,
-                  color: active ? activeColour : textResting,
                   fontSize: 13,
-                  fontWeight: active ? 600 : 500,
+                  fontWeight: 500,
                   fontFamily: 'inherit',
                   letterSpacing: '0.01em',
                   cursor: 'pointer',
                   whiteSpace: 'nowrap',
                   flexShrink: 0,
-                  transition: 'color 0.2s ease, background 0.2s ease, transform 0.1s ease, opacity 0.1s ease',
                   animationDelay: `${index * 0.06}s`,
-                  // CSS custom properties for ::after underline colour
+                  // CSS custom properties for theme-aware colours
                   '--tab-underline-colour': activeColour,
-                  '--tab-hover-fill': isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.05)',
-                  '--tab-active-fill': active
-                    ? (isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(54, 144, 206, 0.08)')
-                    : 'transparent',
+                  '--tab-text-color': active ? activeTextColour : textResting,
+                  '--tab-text-hover': active ? activeTextColour : textHover,
+                  '--tab-hover-fill': isDarkMode ? 'rgba(135, 243, 243, 0.06)' : 'rgba(54, 144, 206, 0.04)',
+                  '--tab-active-fill': 'transparent',
                 } as React.CSSProperties}
-                onMouseEnter={(e) => {
-                  if (!active) {
-                    e.currentTarget.style.color = textHover;
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!active) {
-                    e.currentTarget.style.color = textResting;
-                  }
-                }}
-                onMouseDown={(e) => {
-                  e.currentTarget.style.transform = 'scale(0.96)';
-                  e.currentTarget.style.opacity = '0.75';
-                }}
-                onMouseUp={(e) => {
-                  e.currentTarget.style.transform = 'scale(1)';
-                  e.currentTarget.style.opacity = '1';
-                }}
               >
                 <span style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
                   {getTabIcon(tab.key)}
                 </span>
-                {!iconOnly && <span>{tab.text}</span>}
+                <span className="tab-label">{tab.text}</span>
                 {tab.key === 'instructions' && hasActiveMatter && selectedKey !== 'instructions' && (
                   <span style={{ flexShrink: 0, display: 'flex', alignItems: 'center' }}>
                     <AnimatedPulsingDot show size={6} animationDuration={400} />
@@ -335,6 +314,7 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
 
               {showSeparatorAfter && (
                 <span
+                  className="tab-section-separator"
                   aria-hidden="true"
                   style={{
                     color: isDarkMode ? 'rgba(135, 243, 243, 0.40)' : 'rgba(54, 144, 206, 0.35)',
@@ -361,15 +341,7 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
       {/* ── User Bubble ──────────────────────────────────────── */}
       {(isLocalDev || user) && (
         <UserBubble
-          user={
-            user || {
-              First: 'Local',
-              Last: 'Dev',
-              Initials: 'LD',
-              AOW: 'Commercial, Construction, Property, Employment, Misc/Other',
-              Email: 'local@dev.com',
-            }
-          }
+          user={bubbleUser}
           isLocalDev={isLocalDev}
           onAreasChange={onAreaChange}
           availableUsers={teamData || undefined}
@@ -384,6 +356,7 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
           demoModeEnabled={demoModeEnabled}
           onToggleDemoMode={onToggleDemoMode}
           onOpenReleaseNotesModal={canSeeReleaseNotes ? () => setShowReleaseNotesModal(true) : undefined}
+          hideOpsSections={canSeePrivateControls}
         />
       )}
 

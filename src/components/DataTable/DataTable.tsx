@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { Icon } from '@fluentui/react';
+import { Icon } from '@fluentui/react/lib/Icon';
 import { useTheme } from '../../app/functionality/ThemeContext';
 
 export interface TableColumn<T> {

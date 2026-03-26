@@ -1,10 +1,8 @@
 import React from 'react';
-import {
-  Text,
-  Icon,
-  TooltipHost,
-  Stack,
-} from '@fluentui/react';
+import { Text } from '@fluentui/react/lib/Text';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { TooltipHost } from '@fluentui/react/lib/Tooltip';
+import { Stack } from '@fluentui/react/lib/Stack';
 import ActionIconButton from '../../components/ActionIconButton';
 import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { colours } from '../../app/styles/colours';

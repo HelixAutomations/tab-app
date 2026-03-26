@@ -10,10 +10,6 @@ const Navigator: React.FC = () => {
     const { content } = useNavigatorContent();
     const { isDarkMode } = useTheme();
 
-    if (!content) {
-        return null;
-    }
-
     return (
         <div
             className="navigator-card"
@@ -26,8 +22,9 @@ const Navigator: React.FC = () => {
                 boxShadow: 'none',
                 padding: '0',
                 margin: '0',
-                transition: 'all 0.15s ease',
+                transition: 'opacity 0.15s ease',
                 minHeight: 'auto',
+                opacity: content ? 1 : 0,
             }}
         >
             {content}

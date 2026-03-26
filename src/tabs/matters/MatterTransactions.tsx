@@ -2,14 +2,11 @@
 // invisible change
 
 import React, { useMemo } from 'react';
-import {
-  mergeStyles,
-  Text,
-  Stack,
-  Spinner,
-  SpinnerSize,
-  Separator,
-} from '@fluentui/react';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
+import { Text } from '@fluentui/react/lib/Text';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Spinner, SpinnerSize } from '@fluentui/react/lib/Spinner';
+import { Separator } from '@fluentui/react/lib/Separator';
 import {
   BarChart,
   Bar,

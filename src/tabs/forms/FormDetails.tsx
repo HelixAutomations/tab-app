@@ -1,18 +1,14 @@
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import {
-  Stack,
-  Text,
-  Link,
-  PrimaryButton,
-  DefaultButton,
-  MessageBar,
-  MessageBarType,
-  TooltipHost,
-} from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Text } from '@fluentui/react/lib/Text';
+import { Link } from '@fluentui/react/lib/Link';
+import { PrimaryButton, DefaultButton } from '@fluentui/react/lib/Button';
+import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
+import { TooltipHost } from '@fluentui/react/lib/Tooltip';
 import { colours } from '../../app/styles/colours';
 import { FormItem, UserData, NormalizedMatter } from '../../app/functionality/types';
-import { mergeStyles } from '@fluentui/react';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
 import loaderIcon from '../../assets/grey helix mark.png';
 import BespokeForm from '../../CustomForms/BespokeForms';
 import BespokePanel from '../../app/functionality/BespokePanel';

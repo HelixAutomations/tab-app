@@ -118,6 +118,10 @@ initConsoleInterception();
  * GET /api/logs/stream
  */
 router.get('/stream', (req, res) => {
+  // Prevent Node/IIS request timeout on long-lived SSE connections
+  req.setTimeout(0);
+  if (req.socket) req.socket.setTimeout(0);
+
   // SSE headers
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
@@ -130,6 +134,9 @@ router.get('/stream', (req, res) => {
   if (typeof res.flushHeaders === 'function') {
     res.flushHeaders();
   }
+
+  // Immediate SSE comment to trigger proxy flush and confirm stream is alive
+  res.write(`: ok\n\n`);
 
   // Connection message
   res.write(`data: ${JSON.stringify({ type: 'connected' })}\n\n`);
@@ -149,13 +156,18 @@ router.get('/stream', (req, res) => {
 
   clients.add(res);
 
-  // Heartbeat
+  // Heartbeat — 15s keeps Azure ARR/proxies from timing out the connection
   const heartbeat = setInterval(() => {
-    res.write(`: heartbeat\n\n`);
-    if (typeof res.flush === 'function') {
-      res.flush();
+    try {
+      res.write(`: heartbeat\n\n`);
+      if (typeof res.flush === 'function') {
+        res.flush();
+      }
+    } catch {
+      clearInterval(heartbeat);
+      clients.delete(res);
     }
-  }, 30000);
+  }, 15000);
 
   // Cleanup on disconnect
   req.on('close', () => {

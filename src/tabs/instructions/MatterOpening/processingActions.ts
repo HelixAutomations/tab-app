@@ -573,7 +573,7 @@ export const processingActions: ProcessingAction[] = [
         }
     },
     {
-        label: 'Draft CCL Generated',
+        label: 'CCL Service Generated',
         icon: cclIcon,
         run: async (formData, _initials) => {
             // Non-blocking — CCL failures must never abort matter opening
@@ -600,20 +600,62 @@ export const processingActions: ProcessingAction[] = [
                     handlerName: formData.team_assignments?.fee_earner || '',
                     stage: 'matter-opening',
                 };
-                const resp = await instrumentedFetch('Draft CCL Generated', '/api/ccl/service/run', {
+                const resp = await instrumentedFetch('CCL Service Generated', '/api/ccl/service/run', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 }, payload);
 
-                if (!resp.ok) return 'Draft CCL skipped (service unavailable)';
+                if (!resp.ok) return 'CCL service skipped (service unavailable)';
                 const { url, preview, unresolvedCount } = await resp.json();
                 const sourceCount = Array.isArray(preview?.dataSources) ? preview.dataSources.length : 0;
                 const suffix = typeof unresolvedCount === 'number' ? ` · ${unresolvedCount} unresolved` : '';
-                return { message: `Draft CCL created · ${sourceCount} sources${suffix}`, url };
+                return { message: `CCL service generated · ${sourceCount} sources${suffix}`, url };
             } catch (err) {
-                console.warn('[CCL] Draft generation failed (non-blocking):', err instanceof Error ? err.message : err);
-                return `Draft CCL skipped — ${err instanceof Error ? err.message : 'error'}`;
+                console.warn('[CCL] Service generation failed (non-blocking):', err instanceof Error ? err.message : err);
+                return `CCL service skipped — ${err instanceof Error ? err.message : 'error'}`;
+            }
+        }
+    },
+    {
+        label: 'CCL Uploaded to NetDocuments',
+        icon: netdocsIcon,
+        run: async (formData, _initials) => {
+            // Non-blocking — ND upload failures must never abort matter opening
+            try {
+                const id = matterId || formData.matter_details?.matter_ref;
+                if (!id) return 'Skipped — no matter ID available';
+
+                const displayNum = matterDisplayNumber || formData.matter_details?.display_number || id;
+                const clientName = (() => {
+                    const c = formData.client_information?.[0];
+                    return c ? [c.first_name, c.last_name].filter(Boolean).join(' ') : '';
+                })();
+                const fileName = clientName
+                    ? `CCL - ${clientName} - ${displayNum}.docx`
+                    : `CCL-${displayNum}.docx`;
+
+                const resp = await instrumentedFetch('CCL Uploaded to NetDocuments', '/api/ccl-ops/upload-nd', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        matterId: id,
+                        matterDisplayNumber: displayNum,
+                        fileName,
+                    })
+                }, { matterId: id, matterDisplayNumber: displayNum, fileName });
+
+                if (!resp.ok) {
+                    const errBody = await resp.json().catch(() => ({}));
+                    const detail = (errBody as any)?.error || `HTTP ${resp.status}`;
+                    return `ND upload skipped — ${detail}`;
+                }
+                const data = await resp.json();
+                const ndId = (data as any)?.ndDocumentId || '';
+                return `Uploaded to ${(data as any)?.workspaceName || 'NetDocuments'}${ndId ? ` · doc ${ndId}` : ''}`;
+            } catch (err) {
+                console.warn('[CCL] ND upload failed (non-blocking):', err instanceof Error ? err.message : err);
+                return `ND upload skipped — ${err instanceof Error ? err.message : 'error'}`;
             }
         }
     }

@@ -1,6 +1,10 @@
 import React from 'react';
 // invisible change 2
-import { Text, mergeStyles, TooltipHost, DirectionalHint, Icon } from '@fluentui/react';
+import { Text } from '@fluentui/react/lib/Text';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
+import { TooltipHost } from '@fluentui/react/lib/Tooltip';
+import { DirectionalHint } from '@fluentui/react/lib/Callout';
+import { Icon } from '@fluentui/react/lib/Icon';
 import { colours } from '../../app/styles/colours';
 import '../../app/styles/MetricCard.css'; // Import the CSS file
 

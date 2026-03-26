@@ -1,5 +1,5 @@
 import React from 'react';
-import { Spinner, SpinnerSize } from '@fluentui/react';
+import { Spinner, SpinnerSize } from '@fluentui/react/lib/Spinner';
 import '../../../app/styles/ProcessingSection.css';
 // invisible change 2.2
 

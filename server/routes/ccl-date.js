@@ -268,3 +268,7 @@ router.post('/stream', requireAdminInitials, async (req, res) => {
 });
 
 module.exports = router;
+module.exports.getClioAccessToken = getClioAccessToken;
+module.exports.updateSingleMatterDateField = updateSingleMatterDateField;
+module.exports.updateLegacySqlCclDate = updateLegacySqlCclDate;
+module.exports.CCL_DATE_FIELD_ID = CCL_DATE_FIELD_ID;

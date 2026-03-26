@@ -1,5 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Modal, IconButton, Spinner, Text, MessageBar, MessageBarType, PrimaryButton } from '@fluentui/react';
+import { Modal } from '@fluentui/react/lib/Modal';
+import { IconButton, PrimaryButton } from '@fluentui/react/lib/Button';
+import { Spinner } from '@fluentui/react/lib/Spinner';
+import { Text } from '@fluentui/react/lib/Text';
+import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
 import { FaTimes, FaDownload, FaExternalLinkAlt } from 'react-icons/fa';
 import { colours } from '../app/styles/colours';
 

@@ -6,7 +6,8 @@
  */
 
 import React from 'react';
-import { DefaultButton, type IButtonStyles } from '@fluentui/react';
+import { DefaultButton } from '@fluentui/react/lib/Button';
+import type { IButtonStyles } from '@fluentui/react/lib/Button';
 import { useTheme } from '../../../app/functionality/ThemeContext';
 
 // ============================================================================

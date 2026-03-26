@@ -1,23 +1,16 @@
 /**
  * ProspectTableHeader — sticky header row for the prospects table.
  *
- * Contains sortable column headers (Date, AOW, ID/Value, Prospect)
+ * Contains sortable column headers (Date, ID, Prospect)
  * and tri-state pipeline filter chips (POC, Pitch, Inst, EID, Pay, Risk, Matter).
- *
- * Migrated from Enquiries.tsx lines ~6920-7616.
  */
 import React, { useCallback } from 'react';
-import { Icon } from '@fluentui/react';
+import { Icon } from '@fluentui/react/lib/Icon';
 import { colours } from '../../../app/styles/colours';
 import type {
   EnquiryPipelineStage,
   EnquiryPipelineStatus,
-  PipelineChipLabelMode,
 } from './pipeline/types';
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 export type SortColumn = 'date' | 'aow' | 'id' | 'value' | 'contact' | 'pipeline' | null;
 export type SortDirection = 'asc' | 'desc';
@@ -29,22 +22,14 @@ interface PocOption {
 
 export interface ProspectTableHeaderProps {
   isDarkMode: boolean;
-
-  // Grid layout
   gridTemplateColumns: string;
   gridGapPx: number;
-
-  // Sort state
   sortColumn: SortColumn;
   sortDirection: SortDirection;
   onSortClick: (column: SortColumn) => void;
-
-  // Pipeline filters
   enquiryPipelineFilters: Map<EnquiryPipelineStage, EnquiryPipelineStatus>;
   onCyclePipelineFilter: (stage: EnquiryPipelineStage) => void;
   onClearAllFilters: () => void;
-
-  // POC filter
   selectedPocFilter: string | null;
   onSelectPocFilter: (email: string | null) => void;
   isPocDropdownOpen: boolean;
@@ -53,26 +38,16 @@ export interface ProspectTableHeaderProps {
   currentUserEmail: string;
   currentUserInitials: string;
   showMineOnly: boolean;
-  activeState: string; // 'Claimed' | 'Claimable' | 'Triaged' | ''
-
-  // Pipeline carousel
+  activeState: string;
   pipelineNeedsCarousel: boolean;
   visiblePipelineChipCount: number;
   pipelineChipMinWidthPx: number;
   pipelineScrollOffset: number;
   onAdvancePipelineScroll: () => void;
-
-  // Actions
   areActionsEnabled: boolean;
   onToggleActions: () => void;
-
-  // Measurement
   pipelineGridMeasureRef: React.RefObject<HTMLDivElement>;
 }
-
-// ---------------------------------------------------------------------------
-// Sub-component: Sortable column header label
-// ---------------------------------------------------------------------------
 
 const SortableLabel: React.FC<{
   label: string;
@@ -85,6 +60,7 @@ const SortableLabel: React.FC<{
 }> = ({ label, column, currentSort, currentDirection, isDarkMode, onClick, style }) => {
   const isActive = currentSort === column;
   const activeColor = isDarkMode ? colours.accent : colours.highlight;
+  const neutralColor = isDarkMode ? colours.dark.text : colours.light.text;
 
   return (
     <div
@@ -95,7 +71,7 @@ const SortableLabel: React.FC<{
         alignItems: 'center',
         gap: '4px',
         transition: 'color 0.15s ease',
-        color: isActive ? activeColor : undefined,
+        color: isActive ? activeColor : neutralColor,
         ...style,
       }}
       title={`Sort by ${label.toLowerCase()}`}
@@ -127,10 +103,6 @@ const SortableLabel: React.FC<{
   );
 };
 
-// ---------------------------------------------------------------------------
-// Sub-component: Pipeline filter button (tri-state)
-// ---------------------------------------------------------------------------
-
 const PipelineFilterButton: React.FC<{
   stage: EnquiryPipelineStage;
   label: string;
@@ -140,11 +112,10 @@ const PipelineFilterButton: React.FC<{
 }> = ({ stage, label, filterState, isDarkMode, onCycle }) => {
   const hasFilter = filterState !== null;
   const filterColor = !filterState
-    ? (isDarkMode ? colours.accent : colours.highlight)
+    ? (isDarkMode ? colours.dark.text : colours.light.text)
     : filterState === 'yes'
       ? colours.green
       : colours.cta;
-
   const stateLabel =
     filterState === 'yes'
       ? `Has ${label.toLowerCase()}`
@@ -188,7 +159,7 @@ const PipelineFilterButton: React.FC<{
       <span
         style={{
           fontSize: 11,
-          fontWeight: 600,
+          fontWeight: 500,
           color: filterColor,
           textTransform: 'uppercase',
         }}
@@ -210,10 +181,6 @@ const PipelineFilterButton: React.FC<{
     </button>
   );
 };
-
-// ---------------------------------------------------------------------------
-// Main component
-// ---------------------------------------------------------------------------
 
 const ProspectTableHeader: React.FC<ProspectTableHeaderProps> = ({
   isDarkMode,
@@ -245,14 +212,11 @@ const ProspectTableHeader: React.FC<ProspectTableHeaderProps> = ({
 }) => {
   const headerOffset = pipelineScrollOffset;
   const headerVisibleEnd = headerOffset + visiblePipelineChipCount;
-  const headerHasMore =
-    pipelineNeedsCarousel && headerOffset < 7 - visiblePipelineChipCount;
+  const headerHasMore = pipelineNeedsCarousel && headerOffset < 7 - visiblePipelineChipCount;
   const headerIsVisible = useCallback(
-    (idx: number) =>
-      !pipelineNeedsCarousel || (idx >= headerOffset && idx < headerVisibleEnd),
+    (idx: number) => !pipelineNeedsCarousel || (idx >= headerOffset && idx < headerVisibleEnd),
     [pipelineNeedsCarousel, headerOffset, headerVisibleEnd],
   );
-
   const getFilterState = useCallback(
     (stage: EnquiryPipelineStage) => enquiryPipelineFilters.get(stage) ?? null,
     [enquiryPipelineFilters],
@@ -260,6 +224,7 @@ const ProspectTableHeader: React.FC<ProspectTableHeaderProps> = ({
 
   const hasAnyFilter = enquiryPipelineFilters.size > 0 || !!selectedPocFilter;
   const activeColor = isDarkMode ? colours.accent : colours.highlight;
+  const neutralTextColor = isDarkMode ? colours.dark.text : colours.light.text;
   const neutralBorder = isDarkMode ? 'rgba(75, 85, 99, 0.32)' : 'rgba(160, 160, 160, 0.22)';
   const softSurface = isDarkMode ? 'rgba(8, 28, 48, 0.95)' : 'rgba(244, 244, 246, 0.98)';
   const elevatedSurface = isDarkMode ? 'rgba(12, 36, 62, 0.98)' : 'rgba(255, 255, 255, 0.98)';
@@ -267,25 +232,17 @@ const ProspectTableHeader: React.FC<ProspectTableHeaderProps> = ({
   const headerNavIdleBg = isDarkMode ? 'rgba(8, 28, 48, 0.72)' : 'rgba(244, 244, 246, 0.9)';
   const headerNavActiveBg = isDarkMode ? 'rgba(135, 243, 243, 0.14)' : 'rgba(54, 144, 206, 0.1)';
   const headerMutedText = isDarkMode ? `${colours.subtleGrey}b3` : `${colours.greyText}99`;
+  const pipelineGridPaddingRight = pipelineNeedsCarousel || hasAnyFilter ? 32 : 0;
 
-  // POC column helpers
   const isFiltered = !!selectedPocFilter;
   const isFilteredToMe = selectedPocFilter?.toLowerCase() === currentUserEmail;
   const getFilteredInitials = () => {
     if (!selectedPocFilter) return 'POC';
-    if (selectedPocFilter.toLowerCase() === currentUserEmail)
-      return currentUserInitials;
-    return (
-      selectedPocFilter.split('@')[0]?.slice(0, 2).toUpperCase() || 'POC'
-    );
+    if (selectedPocFilter.toLowerCase() === currentUserEmail) return currentUserInitials;
+    return selectedPocFilter.split('@')[0]?.slice(0, 2).toUpperCase() || 'POC';
   };
 
-  // Pipeline stage definitions for the loop
-  const filterStages: {
-    stage: EnquiryPipelineStage;
-    label: string;
-    chipIndex: number;
-  }[] = [
+  const filterStages: { stage: EnquiryPipelineStage; label: string; chipIndex: number }[] = [
     { stage: 'pitched', label: 'PITCH', chipIndex: 1 },
     { stage: 'instructed', label: 'INSTRUCTION', chipIndex: 2 },
     { stage: 'idcheck', label: 'EID CHECK', chipIndex: 3 },
@@ -314,8 +271,8 @@ const ProspectTableHeader: React.FC<ProspectTableHeaderProps> = ({
         borderBottom: `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.38)' : 'rgba(160, 160, 160, 0.22)'}`,
         fontFamily: 'Raleway, "Segoe UI", sans-serif',
         fontSize: '11px',
-        fontWeight: 600,
-        color: activeColor,
+        fontWeight: 500,
+        color: neutralTextColor,
         textTransform: 'uppercase',
         letterSpacing: '0.5px',
         boxShadow: isDarkMode
@@ -323,28 +280,13 @@ const ProspectTableHeader: React.FC<ProspectTableHeaderProps> = ({
           : '0 2px 8px rgba(0, 0, 0, 0.08)',
       }}
     >
-      {/* Timeline icon */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-        title="Timeline"
-      >
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Timeline">
         <Icon
           iconName="TimelineProgress"
-          styles={{
-            root: {
-              fontSize: 12,
-              color: activeColor,
-              opacity: 0.7,
-            },
-          }}
+          styles={{ root: { fontSize: 12, color: activeColor, opacity: 0.7 } }}
         />
       </div>
 
-      {/* Date */}
       <SortableLabel
         label="DATE"
         column="date"
@@ -355,28 +297,30 @@ const ProspectTableHeader: React.FC<ProspectTableHeaderProps> = ({
         style={{ paddingLeft: 0 }}
       />
 
-      {/* AOW */}
-      <SortableLabel
-        label="AOW"
-        column="aow"
-        currentSort={sortColumn}
-        currentDirection={sortDirection}
-        isDarkMode={isDarkMode}
-        onClick={onSortClick}
-        style={{ justifyContent: 'center' }}
-      />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingInline: 2 }}>
+        <span style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: 17,
+          minWidth: 17,
+          flexShrink: 0,
+          fontSize: 11,
+          fontWeight: 600,
+          color: activeColor,
+          opacity: 0.5,
+          lineHeight: 1,
+        }}>#</span>
+        <SortableLabel
+          label="ID"
+          column="id"
+          currentSort={sortColumn}
+          currentDirection={sortDirection}
+          isDarkMode={isDarkMode}
+          onClick={onSortClick}
+        />
+      </div>
 
-      {/* ID / Value */}
-      <SortableLabel
-        label="ID / VALUE"
-        column="id"
-        currentSort={sortColumn}
-        currentDirection={sortDirection}
-        isDarkMode={isDarkMode}
-        onClick={onSortClick}
-      />
-
-      {/* Prospect */}
       <SortableLabel
         label="PROSPECT"
         column="contact"
@@ -387,32 +331,24 @@ const ProspectTableHeader: React.FC<ProspectTableHeaderProps> = ({
         style={{ minWidth: 0, overflow: 'hidden' }}
       />
 
-      {/* ─── Pipeline header + filter buttons ─── */}
       <div
         ref={pipelineGridMeasureRef as any}
-        style={{
-          position: 'relative',
-          height: '100%',
-          width: '100%',
-          minWidth: 0,
-          overflow: 'hidden',
-        }}
+        style={{ position: 'relative', height: '100%', width: '100%', minWidth: 0, overflow: 'hidden' }}
         onClick={(e) => e.stopPropagation()}
       >
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: pipelineNeedsCarousel
-              ? `repeat(${visiblePipelineChipCount}, minmax(${pipelineChipMinWidthPx}px, 1fr)) 24px`
-              : `repeat(7, minmax(${pipelineChipMinWidthPx}px, 1fr)) 24px`,
+            gridTemplateColumns: `repeat(${pipelineNeedsCarousel ? visiblePipelineChipCount : 7}, minmax(${pipelineChipMinWidthPx}px, 1fr))`,
             columnGap: 8,
             width: '100%',
             height: '100%',
             minWidth: 0,
             alignItems: 'center',
+            paddingRight: pipelineGridPaddingRight,
+            boxSizing: 'border-box',
           }}
         >
-          {/* ── POC / Claimer (chip 0) ── */}
           {headerIsVisible(0) && (
             activeState === 'Claimable' ? (
               <div
@@ -429,27 +365,15 @@ const ProspectTableHeader: React.FC<ProspectTableHeaderProps> = ({
                   borderRadius: 0,
                 }}
               >
-                <span
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 600,
-                    color: activeColor,
-                    textTransform: 'uppercase',
-                  }}
-                >
+                <span style={{ fontSize: 11, fontWeight: 500, color: neutralTextColor, textTransform: 'uppercase' }}>
                   CLAIMER
                 </span>
               </div>
             ) : !showMineOnly ? (
-              /* Full team POC dropdown */
               <div style={{ position: 'relative', width: '100%' }}>
                 <button
                   type="button"
-                  title={
-                    isFiltered
-                      ? `Filtering by ${getFilteredInitials()} – Click to change`
-                      : 'Filter by POC (click to select)'
-                  }
+                  title={isFiltered ? `Filtering by ${getFilteredInitials()} - Click to change` : 'Filter by POC (click to select)'}
                   onClick={(e) => {
                     e.stopPropagation();
                     onTogglePocDropdown();
@@ -462,32 +386,18 @@ const ProspectTableHeader: React.FC<ProspectTableHeaderProps> = ({
                     height: 22,
                     width: '100%',
                     padding: '0 8px',
-                    background: isFiltered
-                      ? (isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(54, 144, 206, 0.1)')
-                      : 'transparent',
-                    border: isFiltered
-                      ? `1px solid ${colours.highlight}40`
-                      : `1px solid ${neutralBorder}`,
+                    background: isFiltered ? (isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(54, 144, 206, 0.1)') : 'transparent',
+                    border: isFiltered ? `1px solid ${colours.highlight}40` : `1px solid ${neutralBorder}`,
                     borderRadius: 0,
                     cursor: 'pointer',
                     transition: 'all 150ms ease',
                     opacity: isFiltered ? 1 : 0.85,
                   }}
                 >
-                  <span
-                    style={{
-                      fontSize: 11,
-                      fontWeight: 600,
-                      color: activeColor,
-                      textTransform: 'uppercase',
-                    }}
-                  >
+                  <span style={{ fontSize: 11, fontWeight: 500, color: isFiltered ? activeColor : neutralTextColor, textTransform: 'uppercase' }}>
                     CLAIMER
                   </span>
-                  <Icon
-                    iconName="ChevronDown"
-                    styles={{ root: { fontSize: 8, color: activeColor, marginLeft: 1 } }}
-                  />
+                  <Icon iconName="ChevronDown" styles={{ root: { fontSize: 8, color: isFiltered ? activeColor : neutralTextColor, marginLeft: 1 } }} />
                 </button>
 
                 {isPocDropdownOpen && (
@@ -502,16 +412,13 @@ const ProspectTableHeader: React.FC<ProspectTableHeaderProps> = ({
                       background: elevatedSurface,
                       border: `1px solid ${neutralBorder}`,
                       borderRadius: 4,
-                      boxShadow: isDarkMode
-                        ? '0 4px 12px rgba(0, 0, 0, 0.4)'
-                        : '0 4px 12px rgba(0, 0, 0, 0.15)',
+                      boxShadow: isDarkMode ? '0 4px 12px rgba(0, 0, 0, 0.4)' : '0 4px 12px rgba(0, 0, 0, 0.15)',
                       zIndex: 1000,
                       maxHeight: 260,
                       overflowY: 'auto',
                     }}
                     onClick={(e) => e.stopPropagation()}
                   >
-                    {/* Clear option */}
                     <button
                       type="button"
                       onClick={() => onSelectPocFilter(null)}
@@ -521,17 +428,13 @@ const ProspectTableHeader: React.FC<ProspectTableHeaderProps> = ({
                         gap: 8,
                         width: '100%',
                         padding: '8px 12px',
-                        background: !selectedPocFilter
-                          ? (isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(54, 144, 206, 0.1)')
-                          : 'transparent',
+                        background: !selectedPocFilter ? (isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(54, 144, 206, 0.1)') : 'transparent',
                         border: 'none',
                         borderBottom: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(160, 160, 160, 0.15)'}`,
                         cursor: 'pointer',
                         textAlign: 'left',
                         fontSize: 11,
-                        color: isDarkMode
-                          ? 'rgba(255, 255, 255, 0.7)'
-                          : 'rgba(0, 0, 0, 0.6)',
+                        color: isDarkMode ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.6)',
                       }}
                     >
                       <Icon iconName="Clear" styles={{ root: { fontSize: 10 } }} />
@@ -539,8 +442,7 @@ const ProspectTableHeader: React.FC<ProspectTableHeaderProps> = ({
                     </button>
 
                     {pocOptions.map((opt) => {
-                      const isSelected =
-                        selectedPocFilter?.toLowerCase() === opt.email;
+                      const isSelected = selectedPocFilter?.toLowerCase() === opt.email;
                       return (
                         <button
                           key={opt.email}
@@ -552,38 +454,19 @@ const ProspectTableHeader: React.FC<ProspectTableHeaderProps> = ({
                             gap: 8,
                             width: '100%',
                             padding: '8px 12px',
-                            background: isSelected
-                              ? (isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(54, 144, 206, 0.1)')
-                              : 'transparent',
+                            background: isSelected ? (isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(54, 144, 206, 0.1)') : 'transparent',
                             border: 'none',
                             cursor: 'pointer',
                             textAlign: 'left',
                             fontSize: 11,
-                            color: isSelected
-                              ? (isDarkMode ? colours.accent : colours.highlight)
-                              : isDarkMode
-                                ? 'rgba(255, 255, 255, 0.8)'
-                                : 'rgba(0, 0, 0, 0.7)',
+                            color: isSelected ? (isDarkMode ? colours.accent : colours.highlight) : (isDarkMode ? 'rgba(255, 255, 255, 0.8)' : 'rgba(0, 0, 0, 0.7)'),
                             fontWeight: isSelected ? 600 : 400,
                           }}
                         >
-                          <span
-                            style={{
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap',
-                            }}
-                          >
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {opt.label || opt.email}
                           </span>
-                          {isSelected && (
-                            <Icon
-                              iconName="Accept"
-                              styles={{
-                                root: { fontSize: 10, marginLeft: 'auto' },
-                              }}
-                            />
-                          )}
+                          {isSelected && <Icon iconName="Accept" styles={{ root: { fontSize: 10, marginLeft: 'auto' } }} />}
                         </button>
                       );
                     })}
@@ -591,14 +474,9 @@ const ProspectTableHeader: React.FC<ProspectTableHeaderProps> = ({
                 )}
               </div>
             ) : (
-              /* Mine-only toggle */
               <button
                 type="button"
-                title={
-                  isFilteredToMe
-                    ? `Filtering by your POC (${currentUserInitials}) – Click to clear`
-                    : `Filter by your POC (${currentUserInitials})`
-                }
+                title={isFilteredToMe ? `Filtering by your POC (${currentUserInitials}) - Click to clear` : `Filter by your POC (${currentUserInitials})`}
                 onClick={(e) => {
                   e.stopPropagation();
                   onSelectPocFilter(isFilteredToMe ? null : currentUserEmail);
@@ -611,35 +489,21 @@ const ProspectTableHeader: React.FC<ProspectTableHeaderProps> = ({
                   height: 22,
                   width: '100%',
                   padding: '0 8px',
-                  background: isFilteredToMe
-                    ? (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)')
-                    : 'transparent',
-                  border: isFilteredToMe
-                    ? `1px solid ${colours.highlight}40`
-                    : `1px solid ${isDarkMode ? 'rgba(160,160,160,0.18)' : 'rgba(100,116,139,0.14)'}`,
+                  background: isFilteredToMe ? (isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)') : 'transparent',
+                  border: isFilteredToMe ? `1px solid ${colours.highlight}40` : `1px solid ${isDarkMode ? 'rgba(160,160,160,0.18)' : 'rgba(100,116,139,0.14)'}`,
                   borderRadius: 0,
                   cursor: 'pointer',
                   transition: 'all 150ms ease',
                   opacity: isFilteredToMe ? 1 : 0.85,
                 }}
               >
-                <span
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 600,
-                    color: isFilteredToMe
-                      ? colours.highlight
-                      : activeColor,
-                    textTransform: 'uppercase',
-                  }}
-                >
+                <span style={{ fontSize: 11, fontWeight: 500, color: isFilteredToMe ? colours.highlight : neutralTextColor, textTransform: 'uppercase' }}>
                   CLAIMER
                 </span>
               </button>
             )
           )}
 
-          {/* ── Pipeline filter stages (1-6) ── */}
           {filterStages
             .filter(({ chipIndex }) => headerIsVisible(chipIndex))
             .map(({ stage, label }) => (
@@ -652,138 +516,88 @@ const ProspectTableHeader: React.FC<ProspectTableHeaderProps> = ({
                 onCycle={onCyclePipelineFilter}
               />
             ))}
-
-          {/* ── Carousel nav or clear filters gutter ── */}
-          {pipelineNeedsCarousel ? (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onAdvancePipelineScroll();
-              }}
-              title={
-                headerHasMore
-                  ? `View more stages (${7 - headerVisibleEnd} hidden)`
-                  : 'Back to start'
-              }
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: '100%',
-                height: 22,
-                padding: 0,
-                border: `1px solid ${headerNavBorder}`,
-                borderRadius: 0,
-                background: headerHasMore
-                  ? headerNavActiveBg
-                  : headerNavIdleBg,
-                cursor: 'pointer',
-                transition: 'all 0.15s ease',
-                color: headerHasMore
-                  ? activeColor
-                  : headerMutedText,
-              }}
-            >
-              <Icon
-                iconName={headerHasMore ? 'ChevronRight' : 'Refresh'}
-                styles={{
-                  root: {
-                    fontSize: headerHasMore ? 12 : 10,
-                    color: 'inherit',
-                    opacity: headerHasMore ? 1 : 0.7,
-                  },
-                }}
-              />
-            </button>
-          ) : (
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              {hasAnyFilter && (
-                <button
-                  type="button"
-                  title="Clear all pipeline filters"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onClearAllFilters();
-                  }}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    width: 18,
-                    height: 18,
-                    background: isDarkMode
-                      ? 'rgba(214, 85, 65, 0.15)'
-                      : 'rgba(214, 85, 65, 0.1)',
-                    border: `1px solid ${isDarkMode ? 'rgba(214, 85, 65, 0.4)' : 'rgba(214, 85, 65, 0.3)'}`,
-                    borderRadius: '50%',
-                    cursor: 'pointer',
-                    transition: 'all 150ms ease',
-                  }}
-                  onMouseEnter={(e) => {
-                    (e.currentTarget as HTMLButtonElement).style.background =
-                      isDarkMode
-                        ? 'rgba(214, 85, 65, 0.25)'
-                        : 'rgba(214, 85, 65, 0.15)';
-                  }}
-                  onMouseLeave={(e) => {
-                    (e.currentTarget as HTMLButtonElement).style.background =
-                      isDarkMode
-                        ? 'rgba(214, 85, 65, 0.15)'
-                        : 'rgba(214, 85, 65, 0.1)';
-                  }}
-                >
-                  <Icon
-                    iconName="Cancel"
-                    styles={{ root: { fontSize: 8, color: colours.cta } }}
-                  />
-                </button>
-              )}
-            </div>
-          )}
         </div>
+
+        {pipelineNeedsCarousel ? (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onAdvancePipelineScroll();
+            }}
+            title={headerHasMore ? `View more stages (${7 - headerVisibleEnd} hidden)` : 'Back to start'}
+            style={{
+              position: 'absolute',
+              top: '50%',
+              right: 0,
+              transform: 'translateY(-50%)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 24,
+              height: 22,
+              padding: 0,
+              border: `1px solid ${headerNavBorder}`,
+              borderRadius: 0,
+              background: headerHasMore ? headerNavActiveBg : headerNavIdleBg,
+              cursor: 'pointer',
+              transition: 'all 0.15s ease',
+              color: headerHasMore ? activeColor : headerMutedText,
+              zIndex: 1,
+            }}
+          >
+            <Icon iconName={headerHasMore ? 'ChevronRight' : 'Refresh'} styles={{ root: { fontSize: headerHasMore ? 12 : 10, color: 'inherit', opacity: headerHasMore ? 1 : 0.7 } }} />
+          </button>
+        ) : hasAnyFilter ? (
+          <button
+            type="button"
+            title="Clear all pipeline filters"
+            onClick={(e) => {
+              e.stopPropagation();
+              onClearAllFilters();
+            }}
+            style={{
+              position: 'absolute',
+              top: '50%',
+              right: 0,
+              transform: 'translateY(-50%)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 18,
+              height: 18,
+              background: isDarkMode ? 'rgba(214, 85, 65, 0.15)' : 'rgba(214, 85, 65, 0.1)',
+              border: `1px solid ${isDarkMode ? 'rgba(214, 85, 65, 0.4)' : 'rgba(214, 85, 65, 0.3)'}`,
+              borderRadius: '50%',
+              cursor: 'pointer',
+              transition: 'all 150ms ease',
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.background = isDarkMode ? 'rgba(214, 85, 65, 0.25)' : 'rgba(214, 85, 65, 0.15)';
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.background = isDarkMode ? 'rgba(214, 85, 65, 0.15)' : 'rgba(214, 85, 65, 0.1)';
+            }}
+          >
+            <Icon iconName="Cancel" styles={{ root: { fontSize: 8, color: colours.cta } }} />
+          </button>
+        ) : null}
       </div>
 
-      {/* ─── Actions header ─── */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'flex-end',
-          gap: '4px',
-          minWidth: 0,
-          width: '100%',
-        }}
-      >
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px', minWidth: 0, width: '100%' }}>
         <span>Actions</span>
         <button
           type="button"
           onClick={onToggleActions}
-          title={
-            areActionsEnabled
-              ? 'Disable row actions to prevent edits/deletes'
-              : 'Enable row actions to edit or delete enquiries'
-          }
+          title={areActionsEnabled ? 'Disable row actions to prevent edits/deletes' : 'Enable row actions to edit or delete enquiries'}
           style={{
             width: 24,
             height: 24,
             minWidth: 22,
             minHeight: 22,
             borderRadius: '999px',
-            border: `1px solid ${
-              areActionsEnabled
-                ? `${activeColor}66`
-                : (isDarkMode ? 'rgba(75, 85, 99, 0.6)' : 'rgba(160, 160, 160, 0.35)')
-            }`,
-            background: areActionsEnabled
-              ? (isDarkMode ? 'rgba(135, 243, 243, 0.14)' : 'rgba(54, 144, 206, 0.1)')
-              : (isDarkMode ? 'rgba(8, 28, 48, 0.72)' : 'rgba(244, 244, 246, 0.9)'),
+            border: `1px solid ${areActionsEnabled ? `${activeColor}66` : (isDarkMode ? 'rgba(75, 85, 99, 0.6)' : 'rgba(160, 160, 160, 0.35)')}`,
+            background: areActionsEnabled ? (isDarkMode ? 'rgba(135, 243, 243, 0.14)' : 'rgba(54, 144, 206, 0.1)') : (isDarkMode ? 'rgba(8, 28, 48, 0.72)' : 'rgba(244, 244, 246, 0.9)'),
             color: 'inherit',
             display: 'flex',
             alignItems: 'center',
@@ -796,16 +610,7 @@ const ProspectTableHeader: React.FC<ProspectTableHeaderProps> = ({
         >
           <Icon
             iconName={areActionsEnabled ? 'UnlockSolid' : 'LockSolid'}
-            styles={{
-              root: {
-                fontSize: '11px',
-                color: areActionsEnabled
-                  ? activeColor
-                  : isDarkMode
-                    ? `${colours.subtleGrey}d9`
-                    : `${colours.greyText}d9`,
-              },
-            }}
+            styles={{ root: { fontSize: '11px', color: areActionsEnabled ? activeColor : isDarkMode ? `${colours.subtleGrey}d9` : `${colours.greyText}d9` } }}
           />
         </button>
       </div>

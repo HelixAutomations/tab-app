@@ -5,7 +5,8 @@ import { buildEnquiryMutationPayload } from '../../app/functionality/enquiryProc
 import { colours } from '../../app/styles/colours';
 import SectionCard from '../home/SectionCard';
 import { useTheme } from '../../app/functionality/ThemeContext';
-import { FaEnvelope, FaPhone, FaFileAlt, FaCheck, FaCheckCircle, FaCircle, FaArrowRight, FaUser, FaCalendar, FaInfoCircle, FaChevronDown, FaChevronUp, FaPoundSign, FaClipboard, FaExternalLinkAlt, FaLink, FaIdCard, FaShieldAlt, FaFolderOpen, FaExclamationTriangle, FaBuilding, FaHome, FaHardHat, FaBriefcase, FaUsers, FaUserClock, FaKey, FaGavel, FaQuestionCircle, FaCopy, FaCreditCard, FaFolder } from 'react-icons/fa';
+import { BiLogoMicrosoftTeams } from 'react-icons/bi';
+import { FaEnvelope, FaPhone, FaFileAlt, FaCheck, FaCheckCircle, FaCircle, FaArrowRight, FaUser, FaCalendar, FaInfoCircle, FaChevronDown, FaChevronUp, FaPoundSign, FaClipboard, FaExternalLinkAlt, FaLink, FaIdCard, FaShieldAlt, FaFolderOpen, FaExclamationTriangle, FaBuilding, FaHome, FaHardHat, FaBriefcase, FaUsers, FaUserClock, FaKey, FaGavel, FaQuestionCircle, FaCopy, FaCreditCard, FaFolder, FaUserPlus } from 'react-icons/fa';
 import { FaRegEnvelope, FaRegFileAlt, FaRegClipboard, FaRegAddressCard, FaRegFolderOpen, FaRegCheckCircle, FaRegCircle, FaRegUser, FaRegCommentDots } from 'react-icons/fa';
 import { parseISO, format, differenceInDays } from 'date-fns';
 import { useToast } from '../../components/feedback/ToastProvider';
@@ -69,30 +70,26 @@ if (existingSpinnerStyle) {
   document.head.appendChild(spinnerStyle);
 }
 
-// Retained interactive styles (only classes actually referenced in JSX)
 const actionButtonStyle = document.createElement('style');
 actionButtonStyle.textContent = `
-  /* Timeline card hover */
   .helix-timeline-card {
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
-  /* Hide inline workbench inside timeline items */
   .helix-timeline-card .inline-workbench {
     display: none !important;
   }
 
-  /* Timeline item focus state for keyboard navigation */
   .helix-timeline-focus {
     outline: 2px solid rgba(54, 144, 206, 0.5);
     outline-offset: 2px;
   }
 
-  /* Attention indicator pulse */
   @keyframes attentionPulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.5; }
   }
+
   .helix-attention-pulse {
     animation: attentionPulse 2s ease-in-out infinite;
   }
@@ -106,7 +103,6 @@ if (existingActionButtonStyle) {
   document.head.appendChild(actionButtonStyle);
 }
 
-// Email HTML: prevent embedded styles/scripts from breaking the UI, and keep rendering consistent.
 const emailHtmlStyle = document.createElement('style');
 emailHtmlStyle.textContent = `
   .helix-email-html {
@@ -115,39 +111,48 @@ emailHtmlStyle.textContent = `
     line-height: inherit;
     max-width: 100%;
   }
+
   .helix-email-html, .helix-email-html * {
     box-sizing: border-box;
     max-width: 100% !important;
   }
+
   .helix-email-html * {
     background: transparent !important;
     font-family: inherit !important;
     color: inherit !important;
   }
+
   .helix-email-html img {
     max-width: 100% !important;
     height: auto !important;
   }
+
   .helix-email-html table {
     width: 100% !important;
     max-width: 100% !important;
     border-collapse: collapse;
   }
+
   .helix-email-html pre {
     white-space: pre-wrap !important;
   }
+
   .helix-email-html a {
     color: var(--helix-highlight, #3690ce) !important;
     text-decoration: underline;
   }
+
   .helix-email-html p { margin: 0 0 10px 0; }
   .helix-email-html ul, .helix-email-html ol { margin: 0 0 10px 18px; padding: 0; }
+
   .helix-email-html blockquote {
     margin: 0 0 10px 0;
     padding-left: 12px;
     border-left: 3px solid rgba(54, 144, 206, 0.35);
   }
 `;
+
 if (!document.head.querySelector('style[data-email-html]')) {
   emailHtmlStyle.setAttribute('data-email-html', 'true');
   document.head.appendChild(emailHtmlStyle);
@@ -159,49 +164,42 @@ function sanitizeEmailHtml(html: string): string {
   try {
     const doc = new DOMParser().parseFromString(html, 'text/html');
 
-    // Remove anything that can leak styles/scripts into the host page.
-    doc.querySelectorAll('script, style, link, meta, base, iframe, object, embed').forEach((n) => n.remove());
-
-    // Strip any embedded workbench markup if it appears in pitch/email HTML.
-    doc.body.querySelectorAll('.inline-workbench, [data-action-button]').forEach((n) => n.remove());
-
-    // Drop embedded-content images (common in signatures) which render as broken placeholders in the UI.
+    doc.querySelectorAll('script, style, link, meta, base, iframe, object, embed').forEach((node) => node.remove());
+    doc.body.querySelectorAll('.inline-workbench, [data-action-button]').forEach((node) => node.remove());
     doc.body.querySelectorAll('img[src]').forEach((img) => {
       const src = img.getAttribute('src') || '';
-      if (src.trim().toLowerCase().startsWith('cid:')) img.remove();
+      if (src.trim().toLowerCase().startsWith('cid:')) {
+        img.remove();
+      }
     });
 
     const allowedAttributes = new Set(['href', 'src', 'alt', 'title', 'colspan', 'rowspan']);
-    doc.body.querySelectorAll('*').forEach((el) => {
-      // Drop common styling/layout attributes from email HTML.
-      el.removeAttribute('style');
-      el.removeAttribute('class');
-      el.removeAttribute('id');
-      el.removeAttribute('bgcolor');
-      el.removeAttribute('color');
+    doc.body.querySelectorAll('*').forEach((element) => {
+      element.removeAttribute('style');
+      element.removeAttribute('class');
+      element.removeAttribute('id');
+      element.removeAttribute('bgcolor');
+      element.removeAttribute('color');
 
-      // Remove inline event handlers and unknown attributes.
-      Array.from(el.attributes).forEach((attr) => {
+      Array.from(element.attributes).forEach((attr) => {
         const name = attr.name.toLowerCase();
         if (name.startsWith('on')) {
-          el.removeAttribute(attr.name);
+          element.removeAttribute(attr.name);
           return;
         }
         if (!allowedAttributes.has(name)) {
-          el.removeAttribute(attr.name);
+          element.removeAttribute(attr.name);
         }
       });
     });
 
-    // Ensure external links are safe when clicked.
-    doc.body.querySelectorAll('a[href]').forEach((a) => {
-      a.setAttribute('target', '_blank');
-      a.setAttribute('rel', 'noopener noreferrer');
+    doc.body.querySelectorAll('a[href]').forEach((link) => {
+      link.setAttribute('target', '_blank');
+      link.setAttribute('rel', 'noopener noreferrer');
     });
 
     return doc.body.innerHTML || '';
   } catch {
-    // Fallback: remove obvious unsafe blocks.
     return String(html)
       .replace(/<\s*script[^>]*>[\s\S]*?<\s*\/\s*script\s*>/gi, '')
       .replace(/<\s*style[^>]*>[\s\S]*?<\s*\/\s*style\s*>/gi, '')
@@ -209,11 +207,8 @@ function sanitizeEmailHtml(html: string): string {
   }
 }
 
-// Stage types for the prospect/case journey
 type StageType = 'enquiry' | 'pitch' | 'instruction' | 'payment' | 'identity' | 'risk' | 'matter';
-// Communication/activity types
 type ActivityType = 'email' | 'call' | 'document' | 'note' | 'link-enabled';
-// Combined type for all timeline items
 type CommunicationType = StageType | ActivityType;
 
 interface TimelineItem {
@@ -224,41 +219,38 @@ interface TimelineItem {
   content?: string;
   contentHtml?: string;
   createdBy: string;
-  actionRequired?: boolean | string; // true/string = action needed, false/undefined = complete
-  // Stage-specific status for quick visual
+  actionRequired?: boolean | string;
   stageStatus?: 'complete' | 'pending' | 'review' | 'failed';
   metadata?: {
     duration?: number;
     direction?: 'inbound' | 'outbound';
     amount?: number;
     status?: string;
+    workspaceWorktype?: string;
+    workspaceDealId?: number;
+    workspacePasscode?: string;
+    workspaceUrlPath?: string;
+    workspaceExpiresAt?: string;
+    workspaceError?: string;
+    isDocWorkspace?: boolean;
     scenarioId?: string;
     answered?: boolean;
     source?: string;
     recordingUrl?: string | null;
-    messageId?: string; // Graph message ID for true forwarding
-    feeEarnerEmail?: string; // Owner mailbox for forwarding
-    internetMessageId?: string; // Internet Message ID to resolve Graph id and mailbox
-    // Document-specific fields
-    documentType?: string;        // 'engagement_letter', 'id_document', etc.
-    filename?: string;            // Original filename
-    fileSize?: number;            // In bytes
-    contentType?: string;         // MIME type
-    blobUrl?: string;             // Azure blob URL for download
-    blobName?: string;            // Storage blob name (path within container)
-    stageUploaded?: 'enquiry' | 'pitch' | 'instruction';
-    documentId?: number | string; // Database ID for preview URL fetch (or blob id when listed from storage)
-
-    // Document workspace shell (created via Request Docs)
-    isDocWorkspace?: boolean;
-    workspacePasscode?: string;
-    workspaceUrlPath?: string;
-    workspaceExpiresAt?: string;
-    workspaceDealId?: number;
-    workspaceWorktype?: string;
-    workspaceError?: string;
+    messageId?: string;
+    internetMessageId?: string;
+    feeEarnerEmail?: string;
+    mailboxEmail?: string;
     workspaceFolders?: string[];
     hidden?: boolean;
+    documentType?: string;
+    filename?: string;
+    fileSize?: number;
+    contentType?: string;
+    blobUrl?: string;
+    blobName?: string;
+    stageUploaded?: string;
+    documentId?: number;
     dealOrigin?: 'email' | 'link';
     dealOriginLabel?: string;
     dealEmailSubject?: string | null;
@@ -978,6 +970,12 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
     merged.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     return filterTimelineToWindow(merged);
   }, [timeline, stageItemsState, activeEnquiryWindow]);
+
+  const visibleTimeline = useMemo(() => {
+    return scopedTimeline
+      .filter((item) => !hiddenItemIds.has(item.id))
+      .filter((item) => activeFilters.length === 0 || activeFilters.includes(item.type));
+  }, [scopedTimeline, hiddenItemIds, activeFilters]);
 
   useEffect(() => {
     hasAppliedInitialCollapseRef.current = false;
@@ -4151,6 +4149,53 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
     }
   };
 
+  const getTypeSummaryLabel = (type: CommunicationType, count: number) => {
+    switch (type) {
+      case 'email':
+        return `${count} email${count === 1 ? '' : 's'}`;
+      case 'call':
+        return `${count} call${count === 1 ? '' : 's'}`;
+      case 'pitch':
+        return `${count} pitch${count === 1 ? '' : 'es'}`;
+      case 'document':
+        return `${count} document${count === 1 ? '' : 's'}`;
+      case 'identity':
+        return `${count} ID step${count === 1 ? '' : 's'}`;
+      case 'payment':
+        return `${count} payment${count === 1 ? '' : 's'}`;
+      case 'instruction':
+        return `${count} instruction${count === 1 ? '' : 's'}`;
+      case 'risk':
+        return `${count} risk step${count === 1 ? '' : 's'}`;
+      case 'matter':
+        return `${count} matter step${count === 1 ? '' : 's'}`;
+      case 'enquiry':
+        return `${count} enquiry step${count === 1 ? '' : 's'}`;
+      case 'note':
+        return `${count} note${count === 1 ? '' : 's'}`;
+      case 'link-enabled':
+        return `${count} deal${count === 1 ? '' : 's'}`;
+      default:
+        return `${count} item${count === 1 ? '' : 's'}`;
+    }
+  };
+
+  const getDayTypeSnapshot = (dayItems: TimelineItem[]) => {
+    const dayTypeCounts = new Map<CommunicationType, number>();
+    for (const dayItem of dayItems) {
+      dayTypeCounts.set(dayItem.type, (dayTypeCounts.get(dayItem.type) || 0) + 1);
+    }
+
+    const topTypes = Array.from(dayTypeCounts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 4);
+
+    return {
+      topTypes,
+      remainingTypes: Math.max(0, dayTypeCounts.size - topTypes.length),
+    };
+  };
+
   const isDocRequestPitch = (item: TimelineItem) => item.type === 'document' && item.metadata?.isDocWorkspace;
   const getItemTypeLabel = (item: TimelineItem) => (isDocRequestPitch(item) ? 'Doc Request' : getTypeLabel(item.type));
   const getItemTypeIcon = (item: TimelineItem) => (isDocRequestPitch(item) ? <FaLink /> : getTypeIcon(item.type));
@@ -4300,6 +4345,85 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         ))}
       </div>
     );
+  };
+
+  const getTimelineNextAction = (
+    item: TimelineItem,
+    itemActionRequired: boolean | string | undefined,
+    holdingDocsCount: number
+  ): string | null => {
+    if (typeof itemActionRequired === 'string' && itemActionRequired.trim()) {
+      return itemActionRequired.trim();
+    }
+
+    switch (item.type) {
+      case 'email':
+        if (item.metadata?.direction === 'inbound') {
+          return item.actionRequired ? 'Reply or move this forward' : 'Review the client update';
+        }
+        return 'Confirm the client has what they need';
+      case 'call':
+        if (item.metadata?.direction === 'inbound') {
+          return item.actionRequired ? 'Log the outcome and take the next step' : 'Review what the client told us';
+        }
+        return 'Use this call outcome to move the matter on';
+      case 'document':
+        if (item.metadata?.isDocWorkspace) {
+          if (holdingDocsCount > 0) {
+            return `Allocate ${holdingDocsCount} uploaded file${holdingDocsCount === 1 ? '' : 's'}`;
+          }
+          return item.metadata?.workspacePasscode && item.metadata?.workspaceUrlPath
+            ? 'Open the workspace and continue the request'
+            : 'Request documents from the client';
+        }
+        return 'Review the uploaded file';
+      case 'identity':
+        return itemActionRequired ? 'Review the ID result and decide next action' : 'ID checks are ready to review';
+      case 'payment':
+        return itemActionRequired ? 'Confirm funds and continue file opening' : 'Use payment status to progress the file';
+      case 'risk':
+        return itemActionRequired ? 'Review the risk result before proceeding' : 'Risk position recorded';
+      case 'instruction':
+        return 'Check the instruction details and continue opening';
+      case 'matter':
+        return 'Open the matter record and continue operational work';
+      case 'pitch':
+        return item.metadata?.dealOrigin === 'link' ? 'Share or follow up on the client link' : 'Follow up on the pitch';
+      case 'enquiry':
+        return 'Confirm the next conversion step';
+      default:
+        return null;
+    }
+  };
+
+  const getTimelineOutcomeCopy = (item: TimelineItem, holdingDocsCount: number): string | null => {
+    switch (item.type) {
+      case 'document':
+        if (item.metadata?.isDocWorkspace) {
+          if (holdingDocsCount > 0) {
+            return `${holdingDocsCount} file${holdingDocsCount === 1 ? '' : 's'} sitting in Holding`;
+          }
+          return item.metadata?.workspacePasscode && item.metadata?.workspaceUrlPath ? 'Client workspace is live' : 'Document request prepared';
+        }
+        return 'Client document received';
+      case 'identity':
+        return item.metadata?.identityResult ? `ID result: ${item.metadata.identityResult}` : null;
+      case 'payment':
+        return item.metadata?.paymentAmount
+          ? `Payment of £${Number(item.metadata.paymentAmount).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+          : null;
+      case 'risk':
+        return item.metadata?.riskResult ? `Risk result: ${item.metadata.riskResult}` : null;
+      case 'pitch':
+        if (item.metadata?.pitchAmount) {
+          return `Pitch value £${Number(item.metadata.pitchAmount).toLocaleString('en-GB')}`;
+        }
+        return null;
+      case 'matter':
+        return item.metadata?.matterDisplayNumber ? `Matter ${item.metadata.matterDisplayNumber}` : null;
+      default:
+        return null;
+    }
   };
 
 
@@ -4766,114 +4890,30 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
     return null;
   };
 
-  const selectedWorkbenchHeader = useMemo(() => {
-    const getPitchScenarioIcon = (scenarioId?: string) => {
-      switch (scenarioId) {
-        case 'before-call-call':
-          return <FaPhone size={10} />;
-        case 'before-call-no-call':
-          return <FaEnvelope size={10} />;
-        case 'after-call-probably-cant-assist':
-          return <FaExclamationTriangle size={10} />;
-        case 'after-call-want-instruction':
-          return <FaArrowRight size={10} />;
-        case 'cfa':
-          return <FaGavel size={10} />;
-        default:
-          return <FaFileAlt size={10} />;
-      }
-    };
-
-    if (selectedContextStage === 'enquiry') {
-      return { label: 'Enquiry', icon: <FaUser size={10} /> };
-    }
-
-    if (selectedContextStage === 'pitch') {
-      const pitchItems = scopedTimeline
-        .filter((item) => item.type === 'pitch')
-        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-      const latestPitch = pitchItems[pitchItems.length - 1];
-      const scenarioId = typeof latestPitch?.metadata?.scenarioId === 'string'
-        ? latestPitch.metadata.scenarioId
-        : undefined;
-      return { label: 'Pitched', icon: getPitchScenarioIcon(scenarioId) };
-    }
-
-    if (selectedContextStage === 'instructed') {
-      return { label: 'Instructed', icon: <FaClipboard size={10} /> };
-    }
-
-    switch (selectedWorkbenchTab) {
-      case 'identity':
-        return { label: 'ID Check', icon: <FaIdCard size={10} /> };
-      case 'payment':
-        return { label: 'Payment', icon: <FaPoundSign size={10} /> };
-      case 'risk':
-        return { label: 'Risk', icon: <FaShieldAlt size={10} /> };
-      case 'matter':
-        return { label: 'Matter', icon: <FaFolderOpen size={10} /> };
-      case 'documents':
-        return { label: 'Docs', icon: <FaFileAlt size={10} /> };
-      default:
-        return { label: 'Instruction', icon: <FaClipboard size={10} /> };
-    }
-  }, [selectedContextStage, selectedWorkbenchTab, scopedTimeline]);
-
-  const [displayWorkbenchHeader, setDisplayWorkbenchHeader] = useState(selectedWorkbenchHeader);
-  const [isWorkbenchHeaderVisible, setIsWorkbenchHeaderVisible] = useState(true);
-  const workbenchHeaderMotionKey = `${selectedContextStage ?? 'none'}:${selectedWorkbenchTab}`;
-  const previousWorkbenchHeaderMotionKeyRef = React.useRef(workbenchHeaderMotionKey);
-
-  useEffect(() => {
-    const previousKey = previousWorkbenchHeaderMotionKeyRef.current;
-    const shouldAnimate = previousKey !== workbenchHeaderMotionKey;
-    previousWorkbenchHeaderMotionKeyRef.current = workbenchHeaderMotionKey;
-
-    if (!shouldAnimate) {
-      setDisplayWorkbenchHeader(selectedWorkbenchHeader);
-      setIsWorkbenchHeaderVisible(true);
-      return;
-    }
-
-    setIsWorkbenchHeaderVisible(false);
-    const transitionTimer = window.setTimeout(() => {
-      setDisplayWorkbenchHeader(selectedWorkbenchHeader);
-      setIsWorkbenchHeaderVisible(true);
-    }, 90);
-
-    return () => window.clearTimeout(transitionTimer);
-  }, [selectedWorkbenchHeader, workbenchHeaderMotionKey]);
+  const existingWorkspace = scopedTimeline.find(
+    (item) => item.type === 'document' && Boolean(item.metadata?.isDocWorkspace)
+  );
+  const isWorkspaceLive = Boolean(
+    existingWorkspace?.metadata?.workspacePasscode &&
+      existingWorkspace?.metadata?.workspaceUrlPath
+  );
+  const isDocsDisabled = docRequestLoading || !requestDocsEnabled;
 
   return (
-    <div style={{
-      display: 'flex',
-      flexDirection: 'column',
-      minHeight: '100vh',
-      fontFamily: "'Raleway', 'Segoe UI', sans-serif",
-      padding: '0 16px',
-      gap: '0',
-    }}>
+    <div className="prospect-detail-shell">
       {/* ═══════════════════════════════════════════════════════════════════════
           PROSPECT OVERVIEW — MatterPortal-style layout
           Banner card → Case selector → Pipeline tabs → Workbench
       ═══════════════════════════════════════════════════════════════════════ */}
-      <div style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 0,
-        marginTop: 12,
-      }}>
+      <div className="prospect-detail-stack">
         {/* ─── TIER 1: Prospect Hero Banner (MatterPortal-style card) ─── */}
         <div className="prospect-entrance-hero">
         <ProspectHeroHeader
           enquiry={enquiry}
           isDarkMode={isDarkMode}
           copiedField={copiedField}
-          pitchCount={pitchCount}
           inlineWorkbenchItem={inlineWorkbenchItem}
-          scopedTimeline={scopedTimeline}
-          docRequestLoading={docRequestLoading}
-          requestDocsEnabled={requestDocsEnabled}
+          currentRating={String((enquiry as any)?.Rating ?? (inlineWorkbenchItem as any)?.enquiry?.Rating ?? '').trim() || null}
           displayAreaOfWork={displayAreaOfWork}
           pocDisplayName={(() => {
             const raw = resolvePocRaw(enquiry);
@@ -4899,33 +4939,25 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
           onOpenMailto={openMailto}
           onOpenTel={openTel}
           onCopyToClipboard={copyToClipboard}
-          onOpenPitchBuilder={openPitchBuilder}
-          onOpenExistingWorkspace={() => {
-            setSelectedPortalLaunchModel(null);
-            setIsPortalLaunchOpen(true);
+          onOpenEnquiryRating={() => {
+            const enquiryId = String(enquiry?.ID || '').trim();
+            if (!enquiryId) return;
+            if (workbenchHandlers?.onOpenEnquiryRating) {
+              workbenchHandlers.onOpenEnquiryRating(enquiryId);
+              return;
+            }
+            window.dispatchEvent(new CustomEvent('helix:rate-enquiry', { detail: { enquiryId } }));
           }}
-          onRequestDocs={() => setDocRequestConfirmOpen(true)}
-          onShareEnquiry={handleShareEnquiry}
+          onShareEnquiry={() => {
+            void handleShareEnquiry();
+          }}
         />
         </div>
 
-        {/* ─── TIER 2: Pipeline + Signal Strip ─── */}
-        <div className="prospect-entrance-pipeline" style={{
-          background: isDarkMode ? colours.websiteBlue : colours.grey,
-          padding: '0',
-          borderLeft: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.light.border}`,
-          borderRight: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.light.border}`,
-          borderBottom: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.light.border}`,
-        }}>
-        <div className="prospect-pipeline-rail" style={{
-          padding: isCompactPipelineMode ? '6px 8px' : '8px 16px 8px',
-          justifyContent: 'flex-start',
-          alignItems: 'center',
-          gap: isCompactPipelineMode ? 4 : 8,
-          overflowX: 'auto',
-          overflowY: 'hidden',
-          WebkitOverflowScrolling: 'touch',
-        }}>
+        {/* ─── TIER 2: Integrated stage rail + workbench ─── */}
+        <div className="prospect-entrance-workbench prospect-detail-workbench-shell">
+        <div className="prospect-detail-stage-bar">
+        <div className={`prospect-pipeline-rail prospect-detail-rail prospect-detail-stage-bar-tabs ${isCompactPipelineMode ? 'is-compact' : ''}`}>
           {(() => {
               // Determine stage statuses from inlineWorkbenchItem
               const hasPitch = pitchCount > 0 || stageItemsState.some((item) => item.type === 'pitch') || !!enrichmentPitchData;
@@ -5053,14 +5085,14 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   key: 'enquiry', 
                   label: isEnquiryClaimed ? 'Enquiry Claimed' : 'Enquiry', 
                   shortLabel: isEnquiryClaimed ? 'Claimed' : 'Enquiry',
-                  icon: <FaUser size={10} />, 
+                  icon: isEnquiryClaimed ? <BiLogoMicrosoftTeams size={10} /> : <FaUser size={10} />, 
                   status: 'complete',
                   date: enquiryDate,
                 },
                 { 
                   key: 'pitch', 
-                  label: 'Pitched', 
-                  shortLabel: 'Pitched',
+                  label: 'Pitch Sent', 
+                  shortLabel: 'Pitch sent',
                   icon: getPitchScenarioIcon(latestPitchScenarioId),
                   status: hasPitch ? 'complete' : 'current',
                   date: firstPitchDate,
@@ -5068,8 +5100,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 },
                 { 
                   key: 'instructed', 
-                  label: hasInstructionActivity ? 'Instructed' : 'Instruction', 
-                  shortLabel: hasInstructionActivity ? 'Instructed' : 'Instruction',
+                  label: hasInstructionActivity ? 'Instruction Received' : 'Instruction', 
+                  shortLabel: hasInstructionActivity ? 'Instruction received' : 'Instruction',
                   icon: <FaClipboard size={10} />, 
                   status: hasInstruction ? 'complete' : (hasInstructionActivity ? 'current' : 'disabled'),
                   date: instructionDate,
@@ -5085,7 +5117,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 { 
                   key: 'id', 
                   label: eidDisplayResult ? `ID: ${eidDisplayResult}` : 'ID Check', 
-                  shortLabel: eidDisplayResult ? `ID: ${eidDisplayResult}` : 'ID Check',
+                  shortLabel: 'ID',
                   icon: <FaIdCard size={10} />, 
                   status: !hasInstruction ? 'disabled' : identityStatus,
                   date: null,
@@ -5093,7 +5125,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 { 
                   key: 'risk', 
                   label: riskLevel ? `Risk: ${riskLevel}` : 'Risk',
-                  shortLabel: riskLevel ? `Risk: ${riskLevel}` : 'Risk',
+                  shortLabel: 'Risk',
                   icon: <FaShieldAlt size={10} />, 
                   status: !hasInstruction ? 'disabled' : riskStatus,
                   date: null,
@@ -5101,7 +5133,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 { 
                   key: 'matter', 
                   label: matterDisplayId ? matterDisplayId : 'Matter',
-                  shortLabel: matterDisplayId ? matterDisplayId : 'Matter',
+                  shortLabel: 'Matter',
                   icon: <FaFolderOpen size={10} />, 
                   status: !hasInstruction ? 'disabled' : matterStageStatus,
                   date: null,
@@ -5226,61 +5258,14 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   }))}
                   isDarkMode={isDarkMode}
                   compact={isCompactPipelineMode}
-                  showLeadingArrow={!isCompactPipelineMode}
+                  showLeadingArrow={false}
+                  railStyle={{ flex: 1, minWidth: 0 }}
                 />
               );
             })()}
         </div>
-
-        </div>
-
-        {/* ─── TIER 3: Integrated Workbench shell (drops from journey tray) ─── */}
-        <div className="prospect-entrance-workbench" style={{
-          background: isDarkMode ? colours.websiteBlue : colours.light.cardBackground,
-          borderLeft: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.light.border}`,
-          borderRight: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.light.border}`,
-          borderBottom: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.light.border}`,
-          borderTop: 'none',
-        }}>
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            padding: '6px 16px',
-            borderBottom: `1px solid ${isDarkMode ? colours.dark.border : colours.highlightNeutral}`,
-            background: isDarkMode ? 'rgba(6, 23, 51, 0.65)' : colours.light.sectionBackground,
-            fontFamily: "'Raleway', sans-serif",
-          }}>
-            <div style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              transition: 'opacity 170ms ease, transform 170ms ease',
-              opacity: isWorkbenchHeaderVisible ? 1 : 0,
-              transform: isWorkbenchHeaderVisible ? 'translateY(0)' : 'translateY(2px)',
-            }}>
-              <span style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: isDarkMode ? '#dbe4ff' : colours.greyText,
-                opacity: 0.95,
-                flexShrink: 0,
-              }}>
-                {displayWorkbenchHeader.icon}
-              </span>
-              <span style={{
-                fontSize: 10,
-                fontWeight: 600,
-                color: isDarkMode ? '#dbe4ff' : colours.greyText,
-                letterSpacing: '0.3px',
-                textTransform: 'uppercase',
-              }}>
-                {displayWorkbenchHeader.label}
-              </span>
-            </div>
           </div>
-          <div style={{ padding: '8px 16px 10px' }}>
+          <div className="prospect-detail-workbench-body">
             <InlineWorkbench
               item={{ ...(inlineWorkbenchItem ?? {}), enquiry, enrichmentTeamsData, pitchData: enrichmentPitchData }}
               isDarkMode={isDarkMode}
@@ -5292,12 +5277,22 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               enableTabStages={false}
               flatEmbedMode={true}
               contextStageKeys={['enquiry', 'pitch', 'instructed']}
+              onOpenDocumentWorkspace={() => {
+                if (existingWorkspace) {
+                  setSelectedPortalLaunchModel(null);
+                  setIsPortalLaunchOpen(true);
+                  return;
+                }
+                setDocRequestConfirmOpen(true);
+              }}
+              documentWorkspaceLabel={isWorkspaceLive ? 'Open workspace' : 'Request docs'}
+              documentWorkspaceDisabled={isDocsDisabled}
+              documentWorkspaceLive={isWorkspaceLive}
               onDocumentPreview={workbenchHandlers?.onDocumentPreview}
               onTriggerEID={workbenchHandlers?.onTriggerEID}
               onOpenIdReview={workbenchHandlers?.onOpenIdReview}
               onOpenMatter={workbenchHandlers?.onOpenMatter}
               onOpenRiskAssessment={workbenchHandlers?.onOpenRiskAssessment}
-              onOpenEnquiryRating={workbenchHandlers?.onOpenEnquiryRating}
               onRefreshData={workbenchHandlers?.onRefreshData ? () => workbenchHandlers.onRefreshData!(inlineWorkbenchItem?.instruction?.InstructionRef || inlineWorkbenchItem?.instruction?.instructionRef) : undefined}
               onRiskAssessmentSave={workbenchHandlers?.onRiskAssessmentSave ? (risk) => workbenchHandlers.onRiskAssessmentSave!(inlineWorkbenchItem?.instruction?.InstructionRef || inlineWorkbenchItem?.instruction?.instructionRef, risk) : undefined}
               demoModeEnabled={demoModeEnabled}
@@ -5309,39 +5304,22 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
       {/* ═══════════════════════════════════════════════════════════════════════
           MAIN CONTENT AREA
       ═══════════════════════════════════════════════════════════════════════ */}
-      <div style={{
-        flex: 1,
-        padding: '0',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '0',
-      }}>
+      <div className="prospect-detail-main">
 
 
 
         {/* Journey Timeline */}
         <div 
           id="timeline-section"
-          className="prospect-timeline-section prospect-entrance-timeline"
+          className="prospect-timeline-section prospect-entrance-timeline prospect-detail-timeline-shell"
           >
-        {/* Timeline Header (label + count on first row, filters below) */}
+        {/* Timeline controls */}
         <div className="prospect-timeline-controls">
           <div className="prospect-timeline-topbar">
-            <div className="prospect-timeline-header">
-              <div className="prospect-timeline-title">
-                <span>Timeline</span>
-                <span className="prospect-timeline-count">
-                  {activeFilters.length > 0
-                    ? `${scopedTimeline.filter(item => activeFilters.includes(item.type)).length} items`
-                    : `${scopedTimeline.length} items`}
-                </span>
-              </div>
-            </div>
-
             <div className="prospect-timeline-tools">
             <div className="prospect-filter-bar">
             <div className="prospect-filter-main">
-              <span className="prospect-filter-label">Filters</span>
+              <span className="prospect-filter-label">Show</span>
               <button
                 className="prospect-filter-chip"
                 data-active={activeFilters.length === 0 ? 'true' : undefined}
@@ -5349,10 +5327,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 onMouseEnter={() => setHoveredFilter(null)}
                 onMouseLeave={() => setHoveredFilter(null)}
               >
-                All
-                <span className="prospect-filter-chip-count">
-                  {scopedTimeline.length}
-                </span>
+                Everything
               </button>
 
               {[
@@ -5379,24 +5354,18 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   >
                     <span className="prospect-filter-chip-icon">{icon}</span>
                     <span>{label}</span>
-                    <span className="prospect-filter-chip-count">{count}</span>
                   </button>
                 );
               })}
             </div>
 
             <div className="prospect-filter-summary">
-              {activityMetrics.daysSinceActivity > 0 && (
-                <span className="prospect-filter-summary-text">
-                  Last activity {activityMetrics.daysSinceActivity}d ago
-                </span>
-              )}
               {activeFilters.length > 0 && (
                 <button
                   className="prospect-filter-action"
                   onClick={() => setActiveFilters([])}
                 >
-                  Clear
+                  Reset
                 </button>
               )}
               <button
@@ -5418,7 +5387,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   }
                 }}
               >
-                <span>{collapsedDays.size > 0 ? 'Expand' : 'Collapse'}</span>
+                <span>{collapsedDays.size > 0 ? 'Open dates' : 'Fold dates'}</span>
                 <FaChevronDown 
                   size={9} 
                   style={{ 
@@ -5434,168 +5403,6 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
           </div>
         </div>
 
-        {showDataLoadingStatus && (loading || Object.values(loadingStates).some(Boolean)) ? (
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '6px',
-              padding: '10px 12px',
-              borderRadius: 0,
-              border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(160, 160, 160, 0.22)'}`,
-              background: isDarkMode ? 'rgba(7, 16, 32, 0.28)' : 'rgba(255, 255, 255, 0.55)',
-              marginBottom: '12px',
-            }}
-          >
-            <div style={{ minWidth: 0 }}>
-              <div
-                style={{
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  color: isDarkMode ? 'rgba(160, 160, 160, 0.75)' : 'rgba(6, 23, 51, 0.55)',
-                  marginBottom: '8px',
-                }}
-              >
-                {loading && scopedTimeline.length === 0 ? 'Loading timeline…' : 'Updating timeline…'}
-              </div>
-              {(() => {
-                const completed = TIMELINE_SOURCES.filter(({ key }) => sourceProgress[key].status !== 'loading').length;
-                const total = TIMELINE_SOURCES.length;
-
-                const iconBase: React.CSSProperties = {
-                  width: 16,
-                  height: 16,
-                  borderRadius: 999,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flex: '0 0 auto',
-                  fontSize: 10,
-                  fontWeight: 900,
-                  lineHeight: 1,
-                };
-
-                const renderStatusIcon = (status: TimelineSourceStatus) => {
-                  if (status === 'done') {
-                    return (
-                      <span
-                        style={{
-                          ...iconBase,
-                          background: isDarkMode ? 'rgba(32, 178, 108, 0.18)' : 'rgba(32, 178, 108, 0.12)',
-                          border: `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.35)' : 'rgba(32, 178, 108, 0.25)'}`,
-                          color: isDarkMode ? 'rgba(32, 178, 108, 0.95)' : 'rgb(32, 178, 108)',
-                        }}
-                      >
-                        ✓
-                      </span>
-                    );
-                  }
-                  if (status === 'error') {
-                    return (
-                      <span
-                        style={{
-                          ...iconBase,
-                          background: isDarkMode ? 'rgba(255, 140, 0, 0.14)' : 'rgba(255, 140, 0, 0.22)',
-                          border: `1px solid ${isDarkMode ? 'rgba(255, 140, 0, 0.25)' : 'rgba(255, 140, 0, 0.22)'}`,
-                          color: isDarkMode ? 'rgba(255, 140, 0, 0.95)' : 'rgb(255, 140, 0)',
-                        }}
-                      >
-                        !
-                      </span>
-                    );
-                  }
-
-                  return (
-                    <span
-                      style={{
-                        ...iconBase,
-                        border: `2px solid ${colours.highlight}`,
-                        borderTopColor: 'transparent',
-                        animation: 'spin 1s linear infinite',
-                      }}
-                    />
-                  );
-                };
-
-                return (
-                  <div>
-                    <div style={{ display: 'flex', flexWrap: 'nowrap', gap: 10, width: '100%' }}>
-                      {TIMELINE_SOURCES.map(({ key, label }) => {
-                        const entry = sourceProgress[key];
-                        const suffix = entry.status === 'done' ? `(${entry.count})` : '';
-                        const statusText = entry.status === 'loading' ? 'Working…' : entry.status === 'error' ? 'Unavailable' : `Done ${suffix}`;
-
-                        return (
-                          <div
-                            key={key}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 8,
-                              fontSize: '10px',
-                              color: isDarkMode ? 'rgba(243, 244, 246, 0.78)' : 'rgba(6, 23, 51, 0.6)',
-                              flex: '1 1 0',
-                              minWidth: 0,
-                              padding: '6px 8px',
-                              borderRadius: 0,
-                              border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.12)' : 'rgba(160, 160, 160, 0.16)'}`,
-                              background: isDarkMode ? 'rgba(2, 6, 23, 0.18)' : 'rgba(255, 255, 255, 0.6)',
-                            }}
-                          >
-                            {entry.status === 'loading' ? (
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
-                                <div
-                                  className="skeleton-shimmer"
-                                  style={{
-                                    width: 16,
-                                    height: 16,
-                                    borderRadius: 999,
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.14)' : 'rgba(160, 160, 160, 0.2)',
-                                  }}
-                                />
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0, flex: 1 }}>
-                                  <div
-                                    className="skeleton-shimmer"
-                                    style={{
-                                      width: '70%',
-                                      height: 8,
-                                      borderRadius: 999,
-                                      background: isDarkMode ? 'rgba(54, 144, 206, 0.14)' : 'rgba(160, 160, 160, 0.2)',
-                                    }}
-                                  />
-                                  <div
-                                    className="skeleton-shimmer"
-                                    style={{
-                                      width: '45%',
-                                      height: 7,
-                                      borderRadius: 999,
-                                      background: isDarkMode ? 'rgba(54, 144, 206, 0.14)' : 'rgba(160, 160, 160, 0.2)',
-                                    }}
-                                  />
-                                </div>
-                              </div>
-                            ) : (
-                              <>
-                                {renderStatusIcon(entry.status)}
-                                <div style={{ minWidth: 0, display: 'flex', gap: 8, alignItems: 'baseline' }}>
-                                  <span style={{ fontWeight: 700 }}>{label}</span>
-                                  <span style={{ color: isDarkMode ? 'rgba(160, 160, 160, 0.8)' : 'rgba(6, 23, 51, 0.5)' }}>
-                                    {statusText}
-                                  </span>
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })()}
-            </div>
-          </div>
-        ) : null}
-
         {showDataLoadingStatus && loading && scopedTimeline.length === 0 ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '12px' }}>
             {[0, 1, 2].map((idx) => (
@@ -5605,8 +5412,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 style={{
                   height: 68,
                   borderRadius: 0,
-                  border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.08)' : 'rgba(160, 160, 160, 0.12)'}`,
-                  background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(160, 160, 160, 0.14)',
+                  border: `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.22)' : 'rgba(160, 160, 160, 0.12)'}`,
+                  background: isDarkMode ? 'rgba(6, 23, 51, 0.76)' : 'rgba(160, 160, 160, 0.14)',
                 }}
               />
             ))}
@@ -5614,25 +5421,10 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         ) : null}
 
         {/* Timeline view */}
-        {scopedTimeline.length > 0 ? (
-          <div style={{ position: 'relative', paddingLeft: '96px', marginTop: '8px' }}>
-            {/* Vertical line */}
-            <div style={{
-              position: 'absolute',
-              left: '76px',
-              top: '0',
-              bottom: '0',
-              width: '1px',
-              background: isDarkMode ? colours.dark.border : 'rgba(160, 160, 160, 0.12)',
-            }} />
-
-            {/* Timeline items */}
+        {visibleTimeline.length > 0 ? (
+          <div className="prospect-timeline-feed">
             {(() => {
-              const sortedItems = scopedTimeline
-                .slice()
-                .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-                .filter((item) => !hiddenItemIds.has(item.id))
-                .filter((item) => activeFilters.length === 0 || activeFilters.includes(item.type));
+              const sortedItems = visibleTimeline;
 
               // Group items by day for collapse tracking
               const itemsByDay = new Map<string, typeof sortedItems>();
@@ -5659,49 +5451,54 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 // Compute action required status for this item
                 const isDocWorkspace = item.type === 'document' && item.metadata?.isDocWorkspace;
                 const itemActionRequired = isDocWorkspace ? holdingDocsCount > 0 : item.actionRequired;
-                
-                // Dot color logic:
-                // - Portal uploads: subtle grey
-                // - Action required: amber
-                // - Email inbound: green (they reached out)
-                // - Email outbound: blue (we reached out)
-                // - Other items: green (complete)
-                const dotColor = (() => {
-                  if (isDocWorkspace) {
-                    return getItemTypeColor(item);
-                  }
-                  if (isPortalUpload) {
-                    return isDarkMode ? 'rgba(160, 160, 160, 0.4)' : 'rgba(160, 160, 160, 0.5)';
-                  }
-                  if (itemActionRequired) {
-                    return statusColors.actionRequired;
-                  }
-                  if (item.type === 'email') {
-                    if (item.metadata?.direction === 'inbound') {
-                      return isDarkMode ? '#20b26c' : '#20b26c'; // Green - they contacted us
-                    }
-                    if (item.metadata?.direction === 'outbound') {
-                      return isDarkMode ? '#3690CE' : '#3690CE'; // Blue - we contacted them
-                    }
-                  }
-                  return statusColors.complete;
-                })();
+                const nextActionLabel = getTimelineNextAction(item, itemActionRequired, holdingDocsCount);
+                const outcomeCopy = getTimelineOutcomeCopy(item, holdingDocsCount);
+                const narrativeCopy = nextActionLabel || outcomeCopy;
+                const itemTypeLabel = getItemTypeLabel(item);
+                const datasetStatus = instructionStatuses[item.id]?.cclStatus;
+                const datasetUsageLabel = datasetStatus
+                  ? (datasetStatus === 'complete' ? 'Used in CCL dataset' : 'Feeds CCL dataset')
+                  : null;
+                const scenarioLabel = item.metadata?.scenarioId ? getScenarioName(item.metadata.scenarioId) : null;
 
                 const itemDate = (() => {
                   const d = parseISO(item.date);
                   return Number.isFinite(d.getTime()) ? d : new Date();
                 })();
-                const prevDateKey = (() => {
-                  if (index <= 0) return null;
-                  const prev = parseISO(allItems[index - 1].date);
-                  return Number.isFinite(prev.getTime()) ? format(prev, 'yyyy-MM-dd') : null;
-                })();
                 const dateKey = format(itemDate, 'yyyy-MM-dd');
-                const isSameDayAsPrev = Boolean(prevDateKey && prevDateKey === dateKey);
                 const dayName = format(itemDate, 'EEE');
                 const dayMonth = format(itemDate, 'd MMM');
                 const time = format(itemDate, 'HH:mm');
                 const hasValidTime = time !== '00:00' && (item.date.includes('T') || item.date.includes(':'));
+                const dayItems = itemsByDay.get(dateKey) || [];
+                const dayHasHoveredMatch = Boolean(hoveredFilter && dayItems.some((dayItem) => dayItem.type === hoveredFilter));
+                const daySnapshot = getDayTypeSnapshot(dayItems);
+                const rowAccentBorder = isPortalUpload
+                  ? `1px dashed ${isDarkMode ? 'rgba(75, 85, 99, 0.34)' : 'rgba(160, 160, 160, 0.18)'}`
+                  : item.type === 'email' && item.metadata?.direction === 'inbound'
+                    ? isDarkMode ? '3px solid rgba(32, 178, 108, 0.68)' : '3px solid rgba(32, 178, 108, 0.56)'
+                    : item.type === 'email' && item.metadata?.direction === 'outbound'
+                      ? isDarkMode ? '3px solid rgba(54, 144, 206, 0.72)' : '3px solid rgba(54, 144, 206, 0.56)'
+                      : item.type === 'call' && item.metadata?.direction === 'inbound'
+                        ? isDarkMode ? '3px solid rgba(32, 178, 108, 0.68)' : '3px solid rgba(32, 178, 108, 0.56)'
+                        : item.type === 'call' && item.metadata?.direction === 'outbound'
+                          ? isDarkMode ? '3px solid rgba(54, 144, 206, 0.72)' : '3px solid rgba(54, 144, 206, 0.56)'
+                          : `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.42)' : 'rgba(160, 160, 160, 0.14)'}`;
+                const isGroupRelated = dayHasHoveredMatch;
+                const cardBaseBackground = isExpanded
+                  ? (isDarkMode ? 'rgba(8, 28, 48, 0.96)' : 'rgba(255, 255, 255, 0.98)')
+                  : isHoveredMatch
+                    ? (isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.06)')
+                    : isGroupRelated
+                      ? (isDarkMode ? 'rgba(13, 47, 96, 0.18)' : 'rgba(214, 232, 255, 0.48)')
+                    : (isDarkMode ? 'rgba(8, 28, 48, 0.42)' : 'rgba(255, 255, 255, 0.72)');
+                const cardBorderColor = isExpanded
+                  ? (isDarkMode ? 'rgba(75, 85, 99, 0.62)' : 'rgba(54, 144, 206, 0.24)')
+                  : isHoveredMatch
+                    ? (isDarkMode ? 'rgba(75, 85, 99, 0.54)' : 'rgba(54, 144, 206, 0.28)')
+                    : isGroupRelated
+                      ? (isDarkMode ? 'rgba(54, 144, 206, 0.26)' : 'rgba(54, 144, 206, 0.18)')
+                    : (isPortalUpload ? (isDarkMode ? 'rgba(75, 85, 99, 0.34)' : 'rgba(160, 160, 160, 0.18)') : (isDarkMode ? 'rgba(75, 85, 99, 0.34)' : 'rgba(160, 160, 160, 0.14)'));
 
                 const isDayCollapsed = collapsedDays.has(dateKey);
                 const isFirstOfDay = !renderedDays.has(dateKey);
@@ -5709,71 +5506,13 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
 
                 // If this day is collapsed, render a summary row for the first item only
                 if (isDayCollapsed && isFirstOfDay) {
-                  const dayItems = itemsByDay.get(dateKey) || [];
-                  const typeCounts = new Map<string, number>();
-                  for (const di of dayItems) {
-                    typeCounts.set(di.type, (typeCounts.get(di.type) || 0) + 1);
-                  }
-
                   return (
                     <div
                       key={`day-${dateKey}`}
-                      style={{
-                        position: 'relative',
-                        marginBottom: '12px',
-                      }}
+                      className="prospect-timeline-day-block is-collapsed"
                     >
-                      {/* Date badge (left column) */}
-                      <div
-                        style={{
-                          position: 'absolute',
-                          left: '-90px',
-                          top: '0px',
-                          width: '64px',
-                          textAlign: 'right',
-                          lineHeight: 1.1,
-                        }}
-                      >
-                        <div
-                          style={{
-                            fontSize: '10px',
-                            fontWeight: 700,
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.4px',
-                            color: isDarkMode ? 'rgba(243, 244, 246, 0.65)' : 'rgba(6, 23, 51, 0.55)',
-                          }}
-                        >
-                          {dayName}
-                        </div>
-                        <div
-                          style={{
-                            fontSize: '12px',
-                            fontWeight: 700,
-                            color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : 'rgba(6, 23, 51, 0.8)',
-                            marginTop: '2px',
-                          }}
-                        >
-                          {dayMonth}
-                        </div>
-                      </div>
-
-                      {/* Collapsed day indicator */}
-                      <div style={{
-                        position: 'absolute',
-                        left: '-24px',
-                        top: '4px',
-                        width: '8px',
-                        height: '8px',
-                        boxSizing: 'border-box',
-                        borderRadius: 0,
-                        background: isDarkMode ? 'rgba(160, 160, 160, 0.35)' : 'rgba(160, 160, 160, 0.45)',
-                        boxShadow: `0 0 0 2px ${isDarkMode ? 'rgba(6, 23, 51, 0.9)' : 'rgba(255, 255, 255, 0.9)'}`,
-                        zIndex: 1,
-                      }} />
-
-                      {/* Collapsed day summary */}
                       <button
-                        className="prospect-collapsed-day"
+                        className={`prospect-timeline-day-header prospect-timeline-day-header--collapsed${dayHasHoveredMatch ? ' is-filter-match' : ''}`}
                         onClick={() => {
                           setCollapsedDays((prev) => {
                             const next = new Set(prev);
@@ -5782,34 +5521,28 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                           });
                         }}
                       >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                          <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>▶</span>
-                          <span className="prospect-collapsed-day-label">
-                            {dayItems.length} item{dayItems.length === 1 ? '' : 's'}
-                          </span>
-                          <div style={{ display: 'flex', gap: '8px' }}>
-                            {Array.from(typeCounts.entries()).map(([type, count]) => (
+                        <div className="prospect-timeline-day-header-main">
+                          <div className="prospect-timeline-day-labels">
+                            <span className="prospect-timeline-day-kicker">{dayName}</span>
+                            <span className="prospect-timeline-day-title">{dayMonth}</span>
+                            <span className="prospect-timeline-day-summary">Source snapshot</span>
+                          </div>
+                          <div className="prospect-timeline-day-snapshot" aria-hidden="true">
+                            {daySnapshot.topTypes.map(([type, count]) => (
                               <span
-                                key={type}
-                                style={{
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: '5px',
-                                  fontSize: '10px',
-                                  color: getTypeColor(type as CommunicationType),
-                                }}
+                                key={`${dateKey}-${type}`}
+                                className={`prospect-timeline-day-source-chip${hoveredFilter === type ? ' is-filter-match' : ''}`}
                               >
-                                <span style={getTypeCategoryStyle(type as CommunicationType)}>
-                                  <span style={{ fontSize: 9, lineHeight: 1, display: 'flex' }}>
-                                    {getTypeIcon(type as CommunicationType)}
-                                  </span>
-                                </span>
-                                <span style={{ opacity: 0.8 }}>{count}</span>
+                                <span className="prospect-timeline-day-source-icon">{getTypeIcon(type)}</span>
+                                <span className="prospect-timeline-day-source-count">{count}</span>
                               </span>
                             ))}
+                            {daySnapshot.remainingTypes > 0 && (
+                              <span className="prospect-timeline-day-source-more">+{daySnapshot.remainingTypes}</span>
+                            )}
                           </div>
                         </div>
-                        <span className="prospect-collapsed-day-expand">Expand</span>
+                        <span className="prospect-timeline-day-toggle-copy">Show</span>
                       </button>
                     </div>
                   );
@@ -5827,6 +5560,9 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 const needsAttention = item.type === 'email' && item.metadata?.direction === 'inbound' && item.actionRequired;
                 const dayPrefix = isFirstOfDay ? (
                   <div
+                    className="prospect-timeline-day-block"
+                  >
+                  <button
                     onClick={() => {
                       setCollapsedDays((prev) => {
                         const next = new Set(prev);
@@ -5835,68 +5571,31 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                       });
                     }}
                     title="Click to fold this day"
-                    style={{
-                      position: 'relative',
-                      display: 'flex',
-                      alignItems: 'center',
-                      height: '24px',
-                      marginBottom: '6px',
-                      marginTop: index > 0 ? '8px' : '0',
-                      cursor: 'pointer',
-                    }}
+                    className={`prospect-timeline-day-header prospect-timeline-day-header--open${dayHasHoveredMatch ? ' is-filter-match' : ''}`}
                   >
-                    {/* Day chip — positioned left of the rail */}
-                    <div
-                      style={{
-                        position: 'absolute',
-                        right: 'calc(100% + 24px)',
-                        top: '50%',
-                        transform: 'translateY(-50%)',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '5px',
-                        fontSize: '10px',
-                        fontWeight: 700,
-                        letterSpacing: '0.3px',
-                        whiteSpace: 'nowrap',
-                        color: isDarkMode ? 'rgba(54, 144, 206, 0.82)' : 'rgba(54, 144, 206, 0.9)',
-                        padding: '2px 8px',
-                        background: isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.04)',
-                        border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.15)'}`,
-                      }}
-                    >
-                      <span style={{ textTransform: 'uppercase', opacity: 0.9 }}>{dayName}</span>
-                      <span style={{ opacity: 0.4 }}>•</span>
-                      <span>{dayMonth}</span>
+                    <div className="prospect-timeline-day-header-main">
+                      <div className="prospect-timeline-day-labels">
+                        <span className="prospect-timeline-day-kicker">{dayName}</span>
+                        <span className="prospect-timeline-day-title">{dayMonth}</span>
+                        <span className="prospect-timeline-day-summary">Source snapshot</span>
+                      </div>
+                      <div className="prospect-timeline-day-snapshot" aria-hidden="true">
+                        {daySnapshot.topTypes.map(([type, count]) => (
+                          <span
+                            key={`${dateKey}-${type}`}
+                            className={`prospect-timeline-day-source-chip${hoveredFilter === type ? ' is-filter-match' : ''}`}
+                          >
+                            <span className="prospect-timeline-day-source-icon">{getTypeIcon(type)}</span>
+                            <span className="prospect-timeline-day-source-count">{count}</span>
+                          </span>
+                        ))}
+                        {daySnapshot.remainingTypes > 0 && (
+                          <span className="prospect-timeline-day-source-more">+{daySnapshot.remainingTypes}</span>
+                        )}
+                      </div>
                     </div>
-                    {/* Junction dot on the rail */}
-                    <div
-                      style={{
-                        position: 'absolute',
-                        left: '-22.5px',
-                        top: '50%',
-                        transform: 'translateY(-50%)',
-                        width: '6px',
-                        height: '6px',
-                        borderRadius: '50%',
-                        background: isDarkMode ? 'rgba(54, 144, 206, 0.52)' : 'rgba(54, 144, 206, 0.4)',
-                        boxShadow: `0 0 0 2px ${isDarkMode ? 'rgba(2, 6, 23, 0.95)' : 'rgba(255, 255, 255, 0.95)'}`,
-                        zIndex: 2,
-                      }}
-                    />
-                    {/* Separator line — from rail rightward across full width */}
-                    <div
-                      style={{
-                        position: 'absolute',
-                        left: '-18px',
-                        right: '0',
-                        top: '50%',
-                        height: '1px',
-                        background: isDarkMode
-                          ? 'linear-gradient(to right, rgba(54, 144, 206, 0.28), rgba(54, 144, 206, 0.08))'
-                          : 'linear-gradient(to right, rgba(54, 144, 206, 0.22), rgba(54, 144, 206, 0.04))',
-                      }}
-                    />
+                    <span className="prospect-timeline-day-toggle-copy">Hide</span>
+                  </button>
                   </div>
                 ) : null;
               
@@ -5904,7 +5603,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 <React.Fragment key={item.id}>
                 {dayPrefix}
                 <div
-                  className={`helix-timeline-item-in ${focusedTimelineIndex === index ? 'helix-timeline-focus' : ''} ${needsAttention ? 'helix-attention-pulse' : ''}`}
+                  className={`helix-timeline-item-in prospect-timeline-day-member${isFirstOfDay ? ' is-day-start' : ''}${isGroupRelated ? ' is-group-related' : ''}${isHoveredMatch ? ' is-filter-match' : ''} ${focusedTimelineIndex === index ? 'helix-timeline-focus' : ''} ${needsAttention ? 'helix-attention-pulse' : ''}`}
                   id={isFirstPitch ? 'first-pitch-item' : `timeline-item-${item.id}`}
                   tabIndex={0}
                   onKeyDown={(e) => {
@@ -5928,209 +5627,98 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   onBlur={() => setFocusedTimelineIndex(-1)}
                   style={{
                     position: 'relative',
-                    marginBottom: index < allItems.length - 1 ? '16px' : '0',
+                    marginBottom: index < allItems.length - 1 ? '10px' : '0',
                     outline: 'none',
                     transition: 'margin 0.2s ease',
                   }}
                 >
-                  {/* Date badge (left column) - clickable to fold this day */}
-                  <div
-                    style={{
-                      position: 'absolute',
-                      left: '-90px',
-                      top: '0px',
-                      width: '64px',
-                      textAlign: 'right',
-                      lineHeight: 1.1,
-                      cursor: 'default',
-                    }}
-                  >
-                    {hasValidTime ? (
-                      <div
-                        style={{
-                          fontSize: '9px',
-                          fontWeight: 600,
-                          color: isDarkMode ? 'rgba(243, 244, 246, 0.5)' : 'rgba(6, 23, 51, 0.5)',
-                          marginTop: '14px',
-                        }}
-                      >
-                        {time}
-                      </div>
-                    ) : null}
-                  </div>
-
-                  {/* Dot - status-based coloring: green=complete, amber=action required */}
                   <div 
-                    title={itemActionRequired ? (typeof itemActionRequired === 'string' ? itemActionRequired : 'Action required') : 'Complete'}
+                    className={`helix-timeline-card prospect-timeline-card${isExpanded ? ' is-expanded' : ''}${needsAttention ? ' is-attention' : ''}${isPortalUpload ? ' is-upload' : ''}`}
                     style={{
-                    position: 'absolute',
-                    left: '-22.5px',
-                    top: '12px',
-                    width: '6px',
-                    height: '6px',
-                    boxSizing: 'border-box',
-                    borderRadius: '50%',
-                    background: dotColor,
-                    boxShadow: `0 0 0 2px ${isDarkMode ? 'rgba(2, 6, 23, 0.95)' : 'rgba(255, 255, 255, 0.95)'}`,
-                    zIndex: 2,
-                  }} />
-
-                  {/* Expandable item with hover effect */}
-                  <div 
-                    className="helix-timeline-card"
-                    style={{
-                    background: isExpanded
-                      ? isDarkMode ? colours.dark.cardHover : 'rgba(54, 144, 206, 0.04)'
-                      : isHoveredMatch
-                        ? (isDarkMode ? colours.dark.cardBackground : 'rgba(54, 144, 206, 0.04)')
-                        : (isDarkMode ? colours.dark.cardBackground : 'transparent'),
-                    border: isExpanded
-                      ? `1px solid ${isDarkMode ? colours.dark.borderColor : 'rgba(54, 144, 206, 0.2)'}`
-                      : isHoveredMatch
-                        ? `1px solid ${isDarkMode ? colours.dark.borderColor : 'rgba(54, 144, 206, 0.3)'}`
-                        : isPortalUpload
-                          ? `1px dashed ${isDarkMode ? 'rgba(160, 160, 160, 0.12)' : 'rgba(160, 160, 160, 0.15)'}`
-                          : `1px solid ${isDarkMode ? colours.dark.border : 'rgba(160, 160, 160, 0.1)'}`,
-                    borderLeft: isExpanded
-                      ? `1px solid ${isDarkMode ? colours.dark.borderColor : 'rgba(54, 144, 206, 0.2)'}`
-                      : isPortalUpload
-                        ? `1px dashed ${isDarkMode ? 'rgba(160, 160, 160, 0.12)' : 'rgba(160, 160, 160, 0.15)'}`
-                        : item.type === 'email' && item.metadata?.direction === 'inbound'
-                          ? isDarkMode ? '3px solid rgba(32, 178, 108, 0.6)' : '3px solid rgba(32, 178, 108, 0.5)'
-                          : item.type === 'email' && item.metadata?.direction === 'outbound'
-                            ? isDarkMode ? '3px solid rgba(54, 144, 206, 0.6)' : '3px solid rgba(54, 144, 206, 0.5)'
-                            : item.type === 'call' && item.metadata?.direction === 'inbound'
-                              ? isDarkMode ? '3px solid rgba(32, 178, 108, 0.6)' : '3px solid rgba(32, 178, 108, 0.5)'
-                              : item.type === 'call' && item.metadata?.direction === 'outbound'
-                                ? isDarkMode ? '3px solid rgba(54, 144, 206, 0.6)' : '3px solid rgba(54, 144, 206, 0.5)'
-                                : `1px solid ${isDarkMode ? colours.dark.border : 'rgba(160, 160, 160, 0.1)'}`,
+                    background: cardBaseBackground,
+                    border: `1px solid ${cardBorderColor}`,
+                    borderLeft: rowAccentBorder,
                     borderRadius: 0,
-                    padding: isPortalUpload ? '6px 10px' : '10px 12px',
-                    marginLeft: '-8px',
+                    padding: isPortalUpload ? '8px 10px' : '12px 14px',
                     transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                     opacity: isPortalUpload && !isExpanded ? 0.65 : 1,
                     transform: 'translateX(0)',
+                    boxShadow: 'none',
                   }}
                   onMouseEnter={(e) => {
                     if (!isExpanded) {
-                      e.currentTarget.style.transform = 'translateX(4px)';
-                      e.currentTarget.style.background = isDarkMode ? colours.dark.cardHover : 'rgba(160, 160, 160, 0.03)';
-                      e.currentTarget.style.borderColor = isDarkMode ? colours.dark.borderColor : 'rgba(160, 160, 160, 0.18)';
-                      e.currentTarget.style.boxShadow = isDarkMode ? '0 2px 8px rgba(0, 0, 0, 0.2)' : '0 2px 8px rgba(0, 0, 0, 0.06)';
+                      e.currentTarget.style.transform = 'translateX(0)';
+                      e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.1)' : 'rgba(54, 144, 206, 0.05)';
+                      e.currentTarget.style.borderColor = isDarkMode ? 'rgba(75, 85, 99, 0.52)' : 'rgba(160, 160, 160, 0.18)';
+                      e.currentTarget.style.boxShadow = 'none';
                     }
                   }}
                   onMouseLeave={(e) => {
                     if (!isExpanded) {
                       e.currentTarget.style.transform = 'translateX(0)';
-                      e.currentTarget.style.background = isHoveredMatch
-                        ? (isDarkMode ? colours.dark.cardBackground : 'rgba(54, 144, 206, 0.04)')
-                        : (isDarkMode ? colours.dark.cardBackground : 'transparent');
-                      e.currentTarget.style.borderColor = isPortalUpload 
-                        ? (isDarkMode ? 'rgba(160, 160, 160, 0.12)' : 'rgba(160, 160, 160, 0.15)')
-                        : (isDarkMode ? colours.dark.border : 'rgba(160, 160, 160, 0.1)');
+                      e.currentTarget.style.background = cardBaseBackground;
+                      e.currentTarget.style.borderColor = cardBorderColor;
                       e.currentTarget.style.boxShadow = 'none';
                     }
                   }}
                   >
                     {/* Header - clickable */}
                     <div
+                      className="prospect-timeline-card-head"
                       onClick={() => setSelectedItem(isExpanded ? null : item)}
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'flex-start',
-                        gap: '8px',
-                        cursor: 'pointer',
-                      }}
                     >
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        {/* Type and Subject on same line */}
-                        <div style={{
-                          fontSize: isPortalUpload ? '11px' : '12px',
-                          fontWeight: isPortalUpload ? 500 : 600,
-                          color: isPortalUpload
-                            ? (isDarkMode ? 'rgba(243, 244, 246, 0.6)' : 'rgba(6, 23, 51, 0.55)')
-                            : isExpanded
-                              ? (isDarkMode ? colours.accent : colours.highlight)
-                              : (isDarkMode ? colours.dark.text : colours.light.text),
-                          marginBottom: isPortalUpload ? '2px' : '4px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '8px',
-                        }}>
+                      <div className="prospect-timeline-card-main">
+                        <div className="prospect-timeline-card-type-row">
                           {!isPortalUpload && (
-                            <span style={{ ...getTypeCategoryStyle(item.type, isExpanded), color: isExpanded ? (isDarkMode ? colours.accent : colours.highlight) : typeColor }}>
-                              <span style={{ fontSize: 10, lineHeight: 1, display: 'flex' }}>
+                            <span
+                              className="prospect-timeline-card-icon-shell"
+                              style={{
+                                ...getTypeCategoryStyle(item.type, isExpanded),
+                                color: isExpanded ? (isDarkMode ? colours.accent : colours.highlight) : typeColor,
+                              }}
+                            >
+                              <span className="prospect-timeline-card-icon-glyph">
                                 {getItemTypeIcon(item)}
                               </span>
                             </span>
                           )}
                           {isPortalUpload && (
-                            <span style={{ 
-                              fontSize: '10px', 
-                              color: isDarkMode ? 'rgba(160, 160, 160, 0.5)' : 'rgba(6, 23, 51, 0.4)',
-                            }}>
-                              📎
-                            </span>
+                            <span className="prospect-timeline-card-upload-glyph">📎</span>
                           )}
-                          {(item.type === 'email' || item.type === 'call') && item.metadata?.direction && (
-                            <span style={{
-                              fontSize: '9px',
-                              padding: '2px 6px',
-                              borderRadius: 0,
-                              border: `1px solid ${isDarkMode ? colours.dark.border : colours.grey}`,
-                              background: item.metadata.direction === 'inbound'
-                                ? isDarkMode ? 'rgba(32, 178, 108, 0.15)' : 'rgba(32, 178, 108, 0.12)'
-                                : isDarkMode ? 'rgba(54, 144, 206, 0.15)' : 'rgba(54, 144, 206, 0.12)',
-                              color: item.metadata.direction === 'inbound'
-                                ? isDarkMode ? '#20b26c' : '#20b26c'
-                                : isDarkMode ? '#3690CE' : '#3690CE',
-                            }}>
-                              {item.metadata.direction === 'inbound' ? 'In' : 'Out'}
-                            </span>
-                          )}
-                          {item.type === 'document' && item.metadata?.isDocWorkspace && (
-                            <span style={{
-                              fontSize: '9px',
-                              padding: '2px 6px',
-                              borderRadius: 0,
-                              fontWeight: 600,
-                              background: isDarkMode ? 'rgba(168, 85, 247, 0.12)' : 'rgba(168, 85, 247, 0.1)',
-                              color: isDarkMode ? '#87F3F3' : '#3690CE',
-                            }}>
-                              Doc request
-                            </span>
-                          )}
-                          {item.type === 'pitch' && item.metadata?.dealOriginLabel && (
-                            <span style={{
-                              fontSize: '9px',
-                              padding: '2px 6px',
-                              borderRadius: 0,
-                              fontWeight: 600,
-                              background: isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.1)',
-                              color: isDarkMode ? '#20b26c' : '#20b26c',
-                            }}>
-                              {item.metadata.dealOriginLabel}
-                            </span>
-                          )}
-                          <span>
-                            {(() => {
-                              if (item.metadata?.isDocWorkspace) {
-                                return item.subject;
-                              }
-                              return item.subject;
-                            })()}
-                          </span>
+                          <div className="prospect-timeline-card-title-block">
+                            <div className="prospect-timeline-card-eyebrow-row">
+                              <span className="prospect-timeline-card-type-label">{itemTypeLabel}</span>
+                              {(item.type === 'email' || item.type === 'call') && item.metadata?.direction && (
+                                <span
+                                  className={`prospect-timeline-card-pill ${item.metadata.direction === 'inbound' ? 'is-success' : 'is-info'}`}
+                                >
+                                  {item.metadata.direction === 'inbound' ? 'Inbound' : 'Outbound'}
+                                </span>
+                              )}
+                              {item.type === 'document' && item.metadata?.isDocWorkspace && (
+                                <span className="prospect-timeline-card-pill is-info">Doc request</span>
+                              )}
+                              {datasetUsageLabel && (
+                                <span className="prospect-timeline-card-pill">{datasetUsageLabel}</span>
+                              )}
+                            </div>
+                            <div
+                              className="prospect-timeline-card-title"
+                              style={{
+                                color: isPortalUpload
+                                  ? (isDarkMode ? 'rgba(243, 244, 246, 0.62)' : 'rgba(6, 23, 51, 0.55)')
+                                  : isExpanded
+                                    ? (isDarkMode ? colours.accent : colours.highlight)
+                                    : (isDarkMode ? colours.dark.text : colours.light.text),
+                              }}
+                            >
+                              {item.subject}
+                            </div>
+                          </div>
                         </div>
                         
                         {/* Time and Author - smaller, subtle */}
-                        <div style={{
-                          fontSize: isPortalUpload ? '9px' : '10px',
-                          color: isDarkMode ? 'rgba(243, 244, 246, 0.5)' : 'rgba(6, 23, 51, 0.5)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '8px',
-                        }}>
+                        <div className="prospect-timeline-card-meta">
                           {isPortalUpload ? (
                             <>
                               <span>{format(itemDate, 'd MMM')}</span>
@@ -6161,15 +5749,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                             </>
                           ) : (
                             <>
-                              <span style={{
-                                fontSize: '9px',
-                                padding: '2px 6px',
-                                borderRadius: 0,
-                                background: isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(160, 160, 160, 0.08)',
-                                color: isDarkMode ? 'rgba(243, 244, 246, 0.75)' : 'rgba(6, 23, 51, 0.7)',
-                                fontWeight: 600,
-                                letterSpacing: '0.1px',
-                              }}>
+                              <span className="prospect-timeline-card-time-pill">
                                 {format(itemDate, 'EEE d MMM')}{hasValidTime ? ` • ${time}` : ''}
                               </span>
                               {item.createdBy && (
@@ -6178,42 +5758,27 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                   <span>{item.createdBy}</span>
                                 </>
                               )}
-                            </>
-                          )}
-                          {!isPortalUpload && (() => {
-                            if (item.type === 'pitch' && item.metadata?.dealEmailSubject) {
-                              return (
+                              {item.type === 'pitch' && scenarioLabel && (
                                 <>
                                   <span>•</span>
-                                  <span style={{
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis',
-                                    whiteSpace: 'nowrap',
-                                    minWidth: 0,
-                                  }}>
-                                    Email: {item.metadata.dealEmailSubject}
-                                  </span>
+                                  <span className="prospect-timeline-card-scenario-chip">{scenarioLabel}</span>
                                 </>
-                              );
-                            }
-
-                            return item.metadata?.scenarioId ? (
-                              <>
-                                <span>•</span>
-                                <span style={{
-                                  fontSize: '9px',
-                                  padding: '2px 6px',
-                                  borderRadius: 0,
-                                  background: isDarkMode ? 'rgba(160, 160, 160, 0.08)' : 'rgba(160, 160, 160, 0.06)',
-                                  color: isDarkMode ? 'rgba(160, 160, 160, 0.8)' : 'rgba(107, 107, 107, 0.8)',
-                                  fontWeight: 500,
-                                }}>
-                                  {getScenarioName(item.metadata.scenarioId)}
-                                </span>
-                              </>
-                            ) : null;
-                          })()}
+                              )}
+                            </>
+                          )}
                         </div>
+                        {!isPortalUpload && narrativeCopy && (
+                          <div style={{
+                            marginTop: '7px',
+                            fontSize: '11px',
+                            lineHeight: 1.45,
+                            color: itemActionRequired
+                              ? (isDarkMode ? 'rgba(255, 140, 0, 0.95)' : 'rgb(255, 140, 0)')
+                              : (isDarkMode ? 'rgba(209, 213, 219, 0.88)' : 'rgba(55, 65, 81, 0.88)'),
+                          }}>
+                            {narrativeCopy}
+                          </div>
+                        )}
                       </div>
                       <div style={{
                         display: 'flex',
@@ -6242,8 +5807,10 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          width: '20px',
-                          height: '20px',
+                          width: '24px',
+                          height: '24px',
+                          border: `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.3)' : 'rgba(160, 160, 160, 0.14)'}`,
+                          background: isDarkMode ? 'rgba(2, 6, 23, 0.42)' : 'rgba(255, 255, 255, 0.72)',
                         }}>
                           <svg
                             width="16"
@@ -6264,7 +5831,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                       <div style={{
                         marginTop: '12px',
                         paddingTop: '12px',
-                        borderTop: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.15)' : 'rgba(160, 160, 160, 0.1)'}`,
+                        borderTop: `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.32)' : 'rgba(160, 160, 160, 0.12)'}`,
                         fontSize: '12px',
                         lineHeight: '1.7',
                         color: isDarkMode ? 'rgba(243, 244, 246, 0.9)' : 'rgba(6, 23, 51, 0.9)',
@@ -6958,16 +6525,16 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         ) : null}
 
         {/* Empty state when no timeline items */}
-        {scopedTimeline.length === 0 && (
-          <div style={{
-            padding: '24px 20px',
-            textAlign: 'center',
-            color: isDarkMode ? colours.subtleGrey : 'rgba(6, 23, 51, 0.5)',
-            fontSize: '13px',
-            borderTop: `1px solid ${isDarkMode ? colours.dark.border : 'rgba(160, 160, 160, 0.16)'}`,
-            background: isDarkMode ? colours.dark.background : 'transparent',
-          }}>
-            No activity yet
+        {visibleTimeline.length === 0 && (
+          <div className="prospect-timeline-empty">
+            <div className="prospect-timeline-empty-title">
+              {activeFilters.length > 0 ? 'No matching timeline items' : 'No activity yet'}
+            </div>
+            <div className="prospect-timeline-empty-copy">
+              {activeFilters.length > 0
+                ? 'Try clearing or changing the active filters to bring the full case history back into view.'
+                : 'Emails, calls, pitches, document activity and downstream milestones will appear here as this prospect progresses.'}
+            </div>
           </div>
         )}
       </div>

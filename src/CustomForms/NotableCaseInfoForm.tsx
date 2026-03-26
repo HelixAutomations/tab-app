@@ -1,17 +1,13 @@
 // src/CustomForms/NotableCaseInfoForm.tsx
 
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import {
-  Stack,
-  Text,
-  TextField,
-  PrimaryButton,
-  DefaultButton,
-  MessageBar,
-  MessageBarType,
-  Toggle,
-  Icon,
-} from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Text } from '@fluentui/react/lib/Text';
+import { TextField } from '@fluentui/react/lib/TextField';
+import { PrimaryButton, DefaultButton } from '@fluentui/react/lib/Button';
+import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
+import { Toggle } from '@fluentui/react/lib/Toggle';
+import { Icon } from '@fluentui/react/lib/Icon';
 import { getProxyBaseUrl } from '../utils/getProxyBaseUrl';
 import { NormalizedMatter, UserData } from '../app/functionality/types';
 import { useTheme } from '../app/functionality/ThemeContext';

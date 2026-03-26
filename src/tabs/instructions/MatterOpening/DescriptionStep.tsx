@@ -1,7 +1,8 @@
 //
 import React from "react"; // invisible change
 // invisible change 2.2
-import { Stack, PrimaryButton } from "@fluentui/react";
+import { Stack } from '@fluentui/react/lib/Stack';
+import { PrimaryButton } from '@fluentui/react/lib/Button';
 import { sharedPrimaryButtonStyles } from "../../../app/styles/ButtonStyles";
 import BubbleTextField from "../../../app/styles/BubbleTextField";
 import { useTheme } from "../../../app/functionality/ThemeContext";

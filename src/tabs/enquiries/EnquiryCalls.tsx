@@ -1,6 +1,8 @@
 import React from 'react';
 import { Enquiry } from '../../app/functionality/types';
-import { Stack, Text, MessageBar, MessageBarType } from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Text } from '@fluentui/react/lib/Text';
+import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
 import { FaPhone, FaInfoCircle } from 'react-icons/fa';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';

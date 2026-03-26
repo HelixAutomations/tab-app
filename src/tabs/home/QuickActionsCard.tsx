@@ -34,7 +34,7 @@ import {
   MdOutlineLocationOn,
   MdLocationOn,
 } from 'react-icons/md';
-import { Icon } from '@fluentui/react';
+import { Icon } from '@fluentui/react/lib/Icon';
 import { colours } from '../../app/styles/colours';
 import '../../app/styles/QuickActionsCard.css';
 import AnimatedPulsingDot from '../../components/AnimatedPulsingDot';

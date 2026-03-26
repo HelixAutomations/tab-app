@@ -1,14 +1,11 @@
 
 import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
-import {
-  Stack,
-  Text,
-  mergeStyles,
-  MessageBar,
-  MessageBarType,
-  SearchBox,
-  Link,
-} from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Text } from '@fluentui/react/lib/Text';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
+import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
+import { SearchBox } from '@fluentui/react/lib/SearchBox';
+import { Link } from '@fluentui/react/lib/Link';
 import { colours } from '../../app/styles/colours';
 import FormCard from './FormCard';
 import FormDetails from './FormDetails';

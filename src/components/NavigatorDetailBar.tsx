@@ -22,8 +22,8 @@
  *   />
  */
 import React, { useEffect, useRef, useCallback } from 'react';
-import { ActionButton } from '@fluentui/react';
-import type { IButtonStyles } from '@fluentui/react';
+import { ActionButton } from '@fluentui/react/lib/Button';
+import type { IButtonStyles } from '@fluentui/react/lib/Button';
 import { useTheme } from '../app/functionality/ThemeContext';
 import { colours } from '../app/styles/colours';
 

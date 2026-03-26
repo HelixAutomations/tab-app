@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { TextField, PrimaryButton, DefaultButton, Stack } from '@fluentui/react';
+import { TextField } from '@fluentui/react/lib/TextField';
+import { PrimaryButton, DefaultButton } from '@fluentui/react/lib/Button';
+import { Stack } from '@fluentui/react/lib/Stack';
 import PopoverContainer from '../../../components/PopoverContainer';
 import '../../../app/styles/PlaceholderEditorPopover.css';
 

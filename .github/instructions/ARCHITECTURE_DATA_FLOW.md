@@ -409,6 +409,123 @@ LEFT JOIN Matters m ON i.InstructionRef = m.InstructionRef
 
 ---
 
+## Asana Integration
+
+### Overview
+
+Hub integrates with Asana for operations task tracking, primarily through the Accounts project which tracks financial transactions (transfers, write-offs, unclaimed funds).
+
+### Auth Flow
+
+```
+server/utils/asana.js — resolveAsanaAccessToken()
+    ↓
+1. Check env ASANA_ACCESS_TOKEN (shared PAT — fastest)
+    ↓ (if not set)
+2. Query Core Data `team` table for per-user Asana OAuth credentials
+   (asana_client_id, asana_client_secret, asana_refresh_token)
+    ↓
+3. POST https://app.asana.com/-/oauth_token (refresh_token grant)
+    ↓
+4. Return access_token (refresh tokens are single-use — rotated on each exchange)
+```
+
+### Key Constants
+
+| Constant | Value | Purpose |
+|----------|-------|---------|
+| `ASANA_BASE_URL` | `https://app.asana.com/api/1.0` | API base |
+| `ASANA_WORKSPACE_ID` | `1203336123398249` | Helix Asana workspace |
+| `ASANA_ACCOUNTS_PROJECT_ID` | `1203336124217593` | Accounts project (financial ops) |
+
+### Accounts Project Structure (7 sections)
+
+| Section | Purpose | Colour in UI |
+|---------|---------|------|
+| Requested | New transfer/payment requests | orange |
+| Set up on IPortal | Awaiting portal setup | blue |
+| Unclaimed Client funds | Funds needing allocation | yellow |
+| Write offs | Approved write-offs | red |
+| Paid by AC/JW | Actioned by ops team | green |
+| Added to Clio/Xero | Recorded in accounting | teal |
+| Rejected | Rejected requests | grey |
+
+### Matter Ref Extraction
+
+Task names follow patterns like `AMIN11036-00001 - Transfer Request` or `HLX-12345-67890 - Description`.
+Regex: `/^([A-Z]+\d*-\d+-\d+)/i` — captures the matter reference prefix.
+This is used to match Asana tasks to transaction rows in the Operations Queue.
+
+### Files
+
+| File | Purpose |
+|------|---------|
+| `server/utils/asana.js` | Shared auth utilities (credential resolution, token refresh) |
+| `server/routes/opsQueue.js` | `/asana-account-tasks` endpoint (live API fetch, 5-min cache) |
+| `server/routes/techTickets.js` | Tech ticket Asana integration (separate project, PAT-based) |
+| `server/routes/resources-core.js` | Imports from shared asana.js |
+
+---
+
+## Operations Queue Data Flow
+
+### Overview
+
+The Operations Queue (`src/components/modern/OperationsQueue.tsx`) is the unified ops action surface on Home. It aggregates pending items from multiple data sources and provides one-click approval/confirmation actions.
+
+### Data Sources
+
+```
+OperationsQueue.tsx
+    ├── GET /api/ops-queue/pending          → Core Data DB (bank transfers)
+    ├── GET /api/ops-queue/recent           → Core Data DB (recent approvals)
+    ├── GET /api/ops-queue/ccl-dates-pending → Core Data DB (CCL dates)
+    ├── GET /api/ops-queue/transactions-pending → Core Data DB (V1 transactions)
+    ├── GET /api/ops-queue/stripe-recent    → Instructions DB (Stripe payments)
+    ├── GET /api/ops-queue/payment-lookup   → Instructions DB (Payments + Deals + Instructions join)
+    └── GET /api/ops-queue/asana-account-tasks → Asana API (live, 5-min cache)
+```
+
+### Transaction Approval Flow
+
+```
+User clicks "Approve" on transaction row
+    ↓
+Confirmation step: "Yes, approve" button appears
+    ↓
+POST /api/ops-queue/transaction-approve { transactionId, action, approvedBy }
+    ↓
+UPDATE transactions SET status = @action WHERE transaction_id = @id
+    ↓
+Cache invalidated (transactions + recent)
+    ↓
+Frontend refetches pending list
+```
+
+### Asana Cross-Reference
+
+```
+Transactions list loaded
+    ↓
+Asana account tasks fetched (parallel)
+    ↓
+Client-side matching: task.matterRef === transaction.matter_ref
+    ↓
+Matching transactions show Asana section label + clickable link to Asana task
+    ↓
+Transactions with status='transfer' but no Asana match show "no task" badge
+```
+
+### V1/V2 Transaction Fork
+
+Two parallel transaction systems exist:
+- **V1** (`transactions` table, Core Data DB): Legacy, managed via `/api/ops-queue/transactions-pending`
+- **V2** (`transactions_v2` table, Instructions DB): New bespoke system, managed via `/api/transactions-v2`
+
+V2 is default for LZ+AC (dev preview). Toggle in OperationsQueue header switches between them.
+
+---
+
 ## Data Operations & Sync Architecture
 
 ### Overview
@@ -705,6 +822,90 @@ customMetrics | where name startswith "MatterOpening" | summarize avg(value) by 
 - Actor precedence is strict: `req.user.initials` → body/query/header initials (`initials` / `x-helix-initials`) → trusted email headers.
 - Frontend CCL calls that persist versions or traces must include `initials` in payloads when available.
 - Never fall back to matter handler/fee-earner fields for audit identity.
+
+---
+
+## Redis & Caching Layer
+
+### Overview
+
+Azure Redis (`helix-cache-redis.redis.cache.windows.net:6380`, TLS, Entra ID auth) provides warm snapshots for frequently-read data. Locally (no Redis), all cache calls are no-ops — the app falls through to SQL/Clio directly.
+
+### Connection (`server/utils/redisClient.js`)
+
+- **Auth precedence**: `REDIS_PASSWORD` env var (access key) → Entra ID token via `AzureCliCredential` → `DefaultAzureCredential`. Token refreshed if expiring within 5 minutes.
+- **Reconnect**: Exponential backoff, max 10 retries, 30s cooldown between connection attempts.
+- **Timeouts**: connect 10s, command 5s, keepAlive 30s.
+- **Inflight de-dup**: Concurrent fetches for the same key share one in-flight promise (prevents thundering herd).
+
+### Key Format
+
+`generateCacheKey(prefix, type, ...params)` → `{prefix}:{type}:{cleanParams.join(':')}`
+
+- Sensitive params (contains `@` or `,`) → hashed: `h-{sha256[:16]}`
+- Other params → lowercase, non-alphanumeric → `'-'`
+- No-param keys get a trailing colon: e.g. `ops:pending:`
+
+**Prefixes in use**: `hc` (helix core), `inst` (instructions), `clio`, `unified`, `ops`, `stream`, `rpt`
+
+### Cache Wrapper Shape
+
+`setCache(key, data, ttl)` stores:
+```json
+{ "data": <original>, "cached_at": "ISO-8601", "ttl": <seconds> }
+```
+`getCache(key)` returns that wrapper (or `null` on miss/error). Both race against a 3s timeout.
+
+### Dynamic TTL (`server/utils/smartCache.js`)
+
+`calculateOptimalTTL(datasetName, dataCount)` applies time-of-day multipliers:
+
+| Dataset | Base TTL | Business hours (9–17) | Off-hours |
+|---------|----------|----------------------|-----------|
+| wip | 300s | shorter | longer |
+| enquiries | 600s | shorter | longer |
+| allMatters | 900s | shorter | longer |
+| teamData | 1800s | — | — |
+| recoveredFees | 120s | — | — |
+| metaMetrics | 3600s | shorter | longer |
+| annualLeave | 1800s | — | — |
+
+### Convenience Wrappers
+
+```javascript
+cacheEnquiries(params, queryFn)    // key: hc:enquiries:...
+cacheMatters(params, queryFn)      // key: inst:matters:...
+cacheClioContacts(params, queryFn) // key: clio:contacts:...
+cacheUnified(params, queryFn)      // key: unified:data:...
+cacheWrapper(key, queryFn, ttl)    // generic — checks cache, de-dupes, falls back to query
+```
+
+### Cache Preheater Routes (`server/routes/cache-preheater.js`)
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/cache-preheater/preheat` | POST | Warms datasets (default: enquiries, allMatters, wip, teamData) |
+| `/api/cache-preheater/warm` | POST | Finds keys with TTL < 60s, flags as expiring soon |
+| `/api/cache-preheater/analytics` | GET | Returns `totalKeys`, `hitRate`, `memoryUsage`, `topKeys`, `expirationDistribution` |
+| `/api/cache-preheater/diagnostics` | GET | Probes 4 ops-queue keys + auto-discovers `stream:*` keys. Per-key: status/TTL/age/size |
+
+### Periodic Warming
+
+`schedulePeriodicCacheWarming()` (called from `server/index.js`) runs every 4 minutes. Monitors `teamData:team`, `userData:team`, `enquiries:team` and refreshes any key with TTL < 300s.
+
+### Populate-on-Demand vs Pre-Warmed
+
+- **Pre-warmed** (populated at startup or by periodic warming): `teamData`, `userData`, `enquiries`, `allMatters`, `wip`
+- **Populate-on-demand** (miss until first request): `ops:pending`, `ops:recent`, `ops:ccl-dates-pending`, `ops:transactions:mtd`
+- **Reporting streams** (populated when Reports tab is visited): `stream:*` keys
+
+This distinction matters for diagnostics: ops-queue keys showing "miss" is normal if no one has visited the ops queue yet.
+
+### node-redis v4 Gotchas
+
+- `redisClient.memory('usage', key)` does **not** exist in node-redis v4. Use `redisClient.sendCommand(['MEMORY', 'USAGE', key])` for per-key memory, or `sendCommand(['INFO', 'MEMORY'])` for server-wide stats.
+- `sendCommand(['INFO', 'STATS'])` provides `keyspace_hits` / `keyspace_misses` for hit-rate calculation.
+- All `sendCommand` calls return strings — parse accordingly.
 
 ---
 

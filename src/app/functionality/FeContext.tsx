@@ -9,7 +9,6 @@ import React, {
   ReactNode,
 } from 'react';
 import { TeamsContext } from './TeamsContext'; // Ensure this path is correct
-import { getProxyBaseUrl } from '../../utils/getProxyBaseUrl';
 import { appendDefaultEnquiryProcessingParams } from './enquiryProcessingModel';
 
 // Define the structure of an Enquiry
@@ -142,19 +141,6 @@ export const FeProvider: React.FC<FeProviderProps> = ({ children }) => {
   const [fetchMattersError, setFetchMattersError] = useState<string | null>(null);
   const [fetchUserDataError, setFetchUserDataError] = useState<string | null>(null); // Added error state for fetchUserData
 
-  // Environment Variables
-  const proxyBaseUrl = getProxyBaseUrl();
-  // NOTE: getUserData now uses Express route /api/user-data instead of direct function call
-  // Keeping these variables for now in case other parts of the file still reference them
-  const getUserDataCode = process.env.REACT_APP_GET_USER_DATA_CODE;
-  const getUserDataPath = process.env.REACT_APP_GET_USER_DATA_PATH;
-  const getEnquiriesCode = process.env.REACT_APP_GET_ENQUIRIES_CODE;
-  const getEnquiriesPath = process.env.REACT_APP_GET_ENQUIRIES_PATH;
-  // Remove client dependency on function codes for matters
-
-  // Construct URLs
-  const getUserDataUrl = `${proxyBaseUrl}/${getUserDataPath}?code=${getUserDataCode}`; // Legacy - no longer used
-  const getEnquiriesUrl = `${proxyBaseUrl}/${getEnquiriesPath}?code=${getEnquiriesCode}`;
   const getMattersUrl = '/api/getMatters';
 
   // Fetch User Data on Context Change
@@ -183,7 +169,7 @@ export const FeProvider: React.FC<FeProviderProps> = ({ children }) => {
       setFetchUserDataError('Failed to fetch user data.');
       return {};
     }
-  }, []); // Removed getUserDataUrl dependency since we use static route now
+  }, []);
 
   // Function to fetch Enquiries with cross-reference data
   const fetchEnquiries = useCallback(
@@ -247,7 +233,7 @@ export const FeProvider: React.FC<FeProviderProps> = ({ children }) => {
         return [];
       }
     },
-    [] // Remove getEnquiriesUrl dependency since we use static route now
+    []
   );
 
   // Function to fetch Matters

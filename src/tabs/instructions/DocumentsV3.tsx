@@ -1,5 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Stack, TextField, Toggle, Dropdown, MessageBar, MessageBarType } from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { TextField } from '@fluentui/react/lib/TextField';
+import { Toggle } from '@fluentui/react/lib/Toggle';
+import { Dropdown } from '@fluentui/react/lib/Dropdown';
+import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
 import { Panel } from '@fluentui/react/lib/Panel';
 import { InstructionData } from '../../app/functionality/types';
 import { useTheme } from '../../app/functionality/ThemeContext';

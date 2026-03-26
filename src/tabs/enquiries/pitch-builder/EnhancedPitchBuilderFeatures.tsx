@@ -1,17 +1,13 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import {
-  Stack,
-  DefaultButton,
-  IconButton,
-  Callout,
-  TooltipHost,
-  Text,
-  Separator,
-  MessageBar,
-  MessageBarType,
-  ProgressIndicator,
-  IButtonStyles,
-} from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { DefaultButton, IconButton } from '@fluentui/react/lib/Button';
+import { Callout } from '@fluentui/react/lib/Callout';
+import { TooltipHost } from '@fluentui/react/lib/Tooltip';
+import { Text } from '@fluentui/react/lib/Text';
+import { Separator } from '@fluentui/react/lib/Separator';
+import type { IButtonStyles } from '@fluentui/react/lib/Button';
+import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
+import { ProgressIndicator } from '@fluentui/react/lib/ProgressIndicator';
 import { colours } from '../../../app/styles/colours';
 import { useAutoSave, useContentValidation, useUndoRedo } from './editorHooks';
 

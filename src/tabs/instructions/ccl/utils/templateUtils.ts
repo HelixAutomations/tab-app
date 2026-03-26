@@ -7,6 +7,29 @@ export interface GenerationOptions {
     chargesChoice: ChargesChoice;
     disbursementsChoice: DisbursementsChoice;
     showEstimateExamples: boolean;
+    instructionPaymentReceived?: boolean;
+}
+
+function applyInstructionPaymentWording(content: string): string {
+    const paymentSection = `6 Payment on account of costs
+
+We have already received £{{figure}} on account of costs as part of your instruction.
+
+We do not require any further payment on account at this stage. If any further money on account is needed later in the matter, we will let you know before requesting it.
+
+7 Costs updates`;
+
+    const paymentActionRow = '☐ No further payment on account is required at this stage | We have already received £{{state_amount}} on account of costs and disbursements as part of your instruction.';
+
+    return content
+        .replace(
+            /6 Payment on account of costs\s+Please provide us with £\{\{figure\}\} on account of costs\. Our account is:\s+[\s\S]*?7 Costs updates/,
+            paymentSection
+        )
+        .replace(
+            '☐ Provide a payment on account of costs and disbursements of £{{state_amount}} | If we do not receive a payment on account of costs and disbursements, {{insert_consequence}}',
+            paymentActionRow
+        );
 }
 
 export function generateTemplateContent(
@@ -19,7 +42,7 @@ export function generateTemplateContent(
     if (!documentContent) return documentContent;
     let content = documentContent;
 
-    const { costsChoice, chargesChoice, disbursementsChoice, showEstimateExamples } = options;
+    const { costsChoice, chargesChoice, disbursementsChoice, showEstimateExamples, instructionPaymentReceived = false } = options;
 
     // When keepPlaceholders, always emit {{field}} so it renders as an inline-editable span.
     // When not, substitute the value or fall back to {{field}} for later cleanup.
@@ -44,13 +67,9 @@ We will review our hourly rates on a periodic basis. This is usually done annual
     content = content.replace(/\{\{charges_section_choice\}\}/g, chargesText);
 
     const disbursementsText = disbursementsChoice === 'table'
-        ? `Based on the information you have provided, we expect to incur the following disbursements:
-
-Disbursement | Amount | VAT chargeable
-[Describe disbursement] | £[Insert estimated amount] | [Yes OR No]
-[Describe disbursement] | £[Insert estimated amount] | [Yes OR No]`
+        ? `Based on the information you have provided, we do not expect disbursements to be a major feature at the outset of your matter. If third-party expenses become necessary, such as court fees, counsel's fees, expert fees, search fees or similar external costs, we will discuss them with you in advance and, where possible, give you an estimate before we incur them on your behalf.`
         : !showEstimateExamples
-            ? `We cannot give an exact figure for your disbursements, but this is likely to be in the region of £${fv('simple_disbursements_estimate')} in total including VAT.`
+            ? `At this stage we cannot give an exact figure for your disbursements, but these are likely to be in the region of £${fv('simple_disbursements_estimate')} in total including VAT. We will discuss any significant disbursement with you before it is incurred on your behalf.`
             : (() => {
                 const rawExamples = keepPlaceholders
                     ? `{{give_examples_of_what_your_estimate_includes_eg_accountants_report_and_court_fees}}`
@@ -68,9 +87,13 @@ Disbursement | Amount | VAT chargeable
                         formattedExamples = selected.slice(0, -1).join(', ') + ' and ' + selected[selected.length - 1];
                     }
                 }
-                return `We cannot give an exact figure for your disbursements, but this is likely to be in the region of £${fv('simple_disbursements_estimate')} for the next steps in your matter including ${formattedExamples}.`;
+                return `At this stage we cannot give an exact figure for your disbursements, but these are likely to be in the region of £${fv('simple_disbursements_estimate')} for the next steps in your matter, including ${formattedExamples}. We will discuss any significant disbursement with you before it is incurred on your behalf.`;
             })();
     content = content.replace(/\{\{disbursements_section_choice\}\}/g, disbursementsText);
+
+    if (instructionPaymentReceived) {
+        content = applyInstructionPaymentWording(content);
+    }
 
     if (!keepPlaceholders) {
         Object.keys(templateFields).forEach(key => {

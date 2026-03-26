@@ -1,5 +1,9 @@
 import React, { useMemo, useState, useEffect, useDeferredValue, useRef } from 'react';
-import { SpinnerSize, MessageBar, MessageBarType, ActionButton, mergeStyles, Icon } from '@fluentui/react';
+import { SpinnerSize } from '@fluentui/react/lib/Spinner';
+import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
+import { ActionButton } from '@fluentui/react/lib/Button';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
 import NavigatorDetailBar from '../../components/NavigatorDetailBar';
 import ThemedSpinner from '../../components/ThemedSpinner';
 import SegmentedControl from '../../components/filter/SegmentedControl';
@@ -13,15 +17,40 @@ import {
   applyAdminFilter,
   getUniquePracticeAreas
 } from '../../utils/matterNormalization';
-import { isAdminUser } from '../../app/admin';
+import { isAdminUser, isCclUser } from '../../app/admin';
 import MatterOverview from './MatterOverview';
 import MatterTableView from './MatterTableView';
 import { colours } from '../../app/styles/colours';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { useNavigatorActions } from '../../app/functionality/NavigatorContext';
 import { useToast } from '../../components/feedback/ToastProvider';
-import { checkIsLocalDev } from '../../utils/useIsLocalDev';
 // Debugger removed: MatterApiDebugger was deleted
+
+type MatterSourceFilter = 'new' | 'all' | 'legacy';
+
+function getAllowedMatterSources(filter: MatterSourceFilter): Set<string> {
+  if (filter === 'new') {
+    return new Set(['vnet_direct']);
+  }
+
+  if (filter === 'all') {
+    return new Set(['legacy_all', 'legacy_user', 'vnet_direct']);
+  }
+
+  return new Set(['legacy_all', 'legacy_user']);
+}
+
+function getNextMatterSourceFilter(filter: MatterSourceFilter): MatterSourceFilter {
+  if (filter === 'new') {
+    return 'all';
+  }
+
+  if (filter === 'all') {
+    return 'legacy';
+  }
+
+  return 'new';
+}
 
 // Synthetic demo matter — shared between list injection and pending-matter auto-select
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -56,6 +85,7 @@ interface MattersProps {
   isLoading: boolean;
   error: string | null;
   userData: UserData[] | null;
+  isActive?: boolean;
   teamData?: TeamData[] | null;
   enquiries?: Enquiry[] | null;
   workbenchByInstructionRef?: Map<string, any> | null;
@@ -67,7 +97,25 @@ interface MattersProps {
 
 type MatterDetailTabKey = 'overview' | 'activities' | 'documents' | 'communications' | 'billing';
 
-const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, teamData, enquiries, workbenchByInstructionRef, pendingMatterId, pendingShowCcl = false, onPendingMatterHandled, demoModeEnabled = false }) => {
+type MatterCclStatusSummary = {
+  stage: string;
+  label: string;
+};
+
+function getCanonicalCclLabel(stage: string): string {
+  switch (stage.toLowerCase()) {
+    case 'generated':
+      return 'Generated';
+    case 'reviewed':
+      return 'Reviewed';
+    case 'sent':
+      return 'Sent';
+    default:
+      return 'Pending';
+  }
+}
+
+const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, isActive = true, teamData, enquiries, workbenchByInstructionRef, pendingMatterId, pendingShowCcl = false, onPendingMatterHandled, demoModeEnabled = false }) => {
   const { isDarkMode } = useTheme();
   const { setContent } = useNavigatorActions();
   const { showToast, updateToast, hideToast } = useToast();
@@ -119,8 +167,8 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
   // Debug inspector removed with MatterApiDebugger
   // Scope & dataset selection
   const [scope, setScope] = useState<'mine' | 'all'>('mine');
-  // Data source toggle: legacy only (default), include new, or new only (vnet_direct)
-  const [dataSourceFilter, setDataSourceFilter] = useState<'legacy' | 'all' | 'new'>('legacy');
+  // Default to new-space matters, with explicit access to all or legacy-only data.
+  const [dataSourceFilter, setDataSourceFilter] = useState<MatterSourceFilter>('new');
   
   // Use deferred values for smoother scope/filter changes
   const deferredScope = useDeferredValue(scope);
@@ -172,9 +220,18 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
   const userRoleRaw = (userRec.Role || userRecAny.role || '').toString().toLowerCase();
   const isAdmin = isAdminUser(userRec || null);
   const userRole = isAdmin ? 'admin' : userRoleRaw;
-  const isLocalhost = (typeof window !== 'undefined') && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-  const isProduction = typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'production';
-  const isLocalDev = checkIsLocalDev();
+  const showCclColumns = useMemo(() => {
+    if (!isCclUser(userInitials) || typeof window === 'undefined') {
+      return false;
+    }
+
+    const hostname = window.location.hostname.toLowerCase();
+    const isLocalHost = hostname === 'localhost' || hostname === '127.0.0.1';
+    const isNonProductionHost = ['staging', 'uat', 'dev', 'preview'].some((segment) => hostname.includes(segment));
+
+    return isLocalHost || !isNonProductionHost;
+  }, [userInitials]);
+  const [cclStatusByMatterId, setCclStatusByMatterId] = useState<Map<string, MatterCclStatusSummary>>(new Map());
   const disableFutureTabs = false; // Tabs enabled — content wired in MatterOverview
   const disabledTabMessage = 'Coming soon — this area is being prepared.';
 
@@ -278,17 +335,94 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
     });
   }, [effectiveMatters, workbenchByInstructionRef]);
 
+  const fallbackCclStatusByMatterId = useMemo(() => {
+    const next = new Map<string, MatterCclStatusSummary>();
+
+    mattersWithClient.forEach((matter) => {
+      if (!matter.matterId) {
+        return;
+      }
+
+      const stage = matter.cclDate ? 'sent' : 'pending';
+      next.set(matter.matterId, {
+        stage,
+        label: getCanonicalCclLabel(stage),
+      });
+    });
+
+    return next;
+  }, [mattersWithClient]);
+
+  useEffect(() => {
+    if (!showCclColumns) {
+      setCclStatusByMatterId(new Map());
+      return;
+    }
+
+    const matterIds = mattersWithClient
+      .map((matter) => matter.matterId)
+      .filter((matterId): matterId is string => Boolean(matterId));
+
+    if (matterIds.length === 0) {
+      setCclStatusByMatterId(new Map());
+      return;
+    }
+
+    let cancelled = false;
+
+    fetch('/api/ccl/batch-status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ matterIds }),
+    })
+      .then((response) => (response.ok ? response.json() : Promise.reject(new Error(`Failed to load CCL status (${response.status})`))))
+      .then((data) => {
+        if (cancelled) {
+          return;
+        }
+
+        const next = new Map<string, MatterCclStatusSummary>();
+        const results = data?.results && typeof data.results === 'object'
+          ? data.results as Record<string, Record<string, unknown>>
+          : {};
+
+        Object.entries(results).forEach(([matterId, value]) => {
+          const stage = typeof value?.stage === 'string' && value.stage.trim()
+            ? value.stage.trim().toLowerCase()
+            : 'pending';
+          const label = typeof value?.label === 'string' && value.label.trim()
+            ? value.label.trim()
+            : getCanonicalCclLabel(stage);
+
+          next.set(matterId, { stage, label });
+        });
+
+        setCclStatusByMatterId(next);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCclStatusByMatterId(new Map());
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [showCclColumns, mattersWithClient]);
+
+  const effectiveCclStatusByMatterId = useMemo(() => {
+    const next = new Map(fallbackCclStatusByMatterId);
+    cclStatusByMatterId.forEach((value, matterId) => {
+      next.set(matterId, value);
+    });
+    return next;
+  }, [fallbackCclStatusByMatterId, cclStatusByMatterId]);
+
   const filtered = useMemo(() => {
     let result = mattersWithClient;
 
     // Decide dataset and scope to construct allowed sources
-    const allowedSources = new Set<string>(
-      deferredDataSourceFilter === 'new'
-        ? ['vnet_direct']
-        : deferredDataSourceFilter === 'all'
-          ? ['legacy_all', 'legacy_user', 'vnet_direct']
-          : ['legacy_all', 'legacy_user']
-    );
+    const allowedSources = getAllowedMatterSources(deferredDataSourceFilter);
     if (allowedSources.size > 0) {
       result = result.filter((m) => m.matterId === DEMO_MATTER.matterId || m.displayNumber === DEMO_MATTER.displayNumber || allowedSources.has(m.dataSource));
     } else {
@@ -350,26 +484,34 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
   ]);
 
   // Dataset count (post-source selection only, before other filters)
+  const sourceCounts = useMemo(() => {
+    const next = {
+      new: 0,
+      all: mattersWithClient.length,
+      legacy: 0,
+    };
+
+    mattersWithClient.forEach((matter) => {
+      if (matter.dataSource === 'vnet_direct') {
+        next.new += 1;
+        return;
+      }
+
+      if (matter.dataSource === 'legacy_all' || matter.dataSource === 'legacy_user') {
+        next.legacy += 1;
+      }
+    });
+
+    return next;
+  }, [mattersWithClient]);
+
   const datasetCount = useMemo(() => {
-    const allowedSources = new Set<string>(
-      dataSourceFilter === 'new'
-        ? ['vnet_direct']
-        : dataSourceFilter === 'all'
-          ? ['legacy_all', 'legacy_user', 'vnet_direct']
-          : ['legacy_all', 'legacy_user']
-    );
-    return mattersWithClient.filter((m) => allowedSources.has(m.dataSource)).length;
-  }, [mattersWithClient, dataSourceFilter]);
+    return sourceCounts[dataSourceFilter];
+  }, [dataSourceFilter, sourceCounts]);
 
   // Pre-compute scope counts for a compact scope control with badges
   const scopeCounts = useMemo(() => {
-    const allowedSources = new Set<string>(
-      dataSourceFilter === 'new'
-        ? ['vnet_direct']
-        : dataSourceFilter === 'all'
-          ? ['legacy_all', 'legacy_user', 'vnet_direct']
-          : ['legacy_all', 'legacy_user']
-    );
+    const allowedSources = getAllowedMatterSources(dataSourceFilter);
 
     // Base after sources
     let base = mattersWithClient.filter(m => allowedSources.has(m.dataSource));
@@ -434,11 +576,13 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
 
   // Set up navigation content with filter bar
   useEffect(() => {
+    if (!isActive) {
+      return;
+    }
+
     if (!selected) {
       const StatusFilter = () => {
-        const height = 32;
-        const isOpen = activeFilter === 'Active' || activeFilter === 'All';
-        const isArchived = activeFilter === 'Closed';
+        const statusValue = activeFilter === 'Closed' ? 'archived' : 'open';
 
         const iconOpen = (
           <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
@@ -455,76 +599,21 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
         );
 
         return (
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 4,
-              padding: 0,
-              fontFamily: 'Raleway, sans-serif',
-              userSelect: 'none',
-            }}
-          >
-            <button
-              type="button"
-              aria-pressed={isOpen}
-              onClick={() => setActiveFilter('Active')}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 5,
-                background: isOpen ? (isDarkMode ? colours.dark.cardHover : colours.light.cardBackground) : 'transparent',
-                border: `1px solid ${isOpen ? (isDarkMode ? colours.accent : colours.highlight) : (isDarkMode ? 'rgba(55,65,81,0.4)' : 'rgba(0,0,0,0.10)')}`,
-                cursor: 'pointer',
-                padding: '0 12px',
-                height: height - 8,
-                fontSize: 12,
-                fontWeight: 500,
-                color: isOpen ? (isDarkMode ? colours.dark.text : colours.darkBlue) : (isDarkMode ? 'rgba(160,160,160,0.8)' : colours.greyText),
-                transition: 'all 200ms ease',
-                whiteSpace: 'nowrap',
-                outline: 'none',
-                borderRadius: 0,
-              }}
-            >
-              <span style={{ display: 'flex', alignItems: 'center', color: 'inherit' }}>{iconOpen}</span>
-              <span>Open</span>
-            </button>
-            <button
-              type="button"
-              aria-pressed={isArchived}
-              onClick={() => setActiveFilter('Closed')}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 5,
-                background: isArchived ? (isDarkMode ? colours.dark.cardHover : colours.light.cardBackground) : 'transparent',
-                border: `1px solid ${isArchived ? (isDarkMode ? colours.accent : colours.highlight) : (isDarkMode ? 'rgba(55,65,81,0.4)' : 'rgba(0,0,0,0.10)')}`,
-                cursor: 'pointer',
-                padding: '0 12px',
-                height: height - 8,
-                fontSize: 12,
-                fontWeight: 500,
-                color: isArchived ? (isDarkMode ? colours.dark.text : colours.darkBlue) : (isDarkMode ? 'rgba(160,160,160,0.8)' : colours.greyText),
-                transition: 'all 200ms ease',
-                whiteSpace: 'nowrap',
-                outline: 'none',
-                borderRadius: 0,
-              }}
-            >
-              <span style={{ display: 'flex', alignItems: 'center', color: 'inherit' }}>{iconArchived}</span>
-              <span>Archived</span>
-            </button>
-          </div>
+          <SegmentedControl
+            id="matters-status-seg"
+            ariaLabel="Matter status"
+            value={statusValue}
+            onChange={(key) => setActiveFilter(key === 'archived' ? 'Closed' : 'Active')}
+            options={[
+              { key: 'open', label: 'Open', icon: iconOpen },
+              { key: 'archived', label: 'Archived', icon: iconArchived },
+            ]}
+          />
         );
       };
 
       const RoleFilter = () => {
-        const height = 32;
-        const isResponsible = activeRoleFilter === 'Responsible' || activeRoleFilter === 'All';
-        const isOriginating = activeRoleFilter === 'Originating';
+        const roleValue = activeRoleFilter === 'Originating' ? 'originating' : 'responsible';
 
         const iconResponsible = (
           <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
@@ -542,69 +631,16 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
         );
 
         return (
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 4,
-              padding: 0,
-              fontFamily: 'Raleway, sans-serif',
-              userSelect: 'none',
-            }}
-          >
-            <button
-              type="button"
-              aria-pressed={isResponsible}
-              onClick={() => setActiveRoleFilter('Responsible')}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 5,
-                background: isResponsible ? (isDarkMode ? colours.dark.cardHover : colours.light.cardBackground) : 'transparent',
-                border: `1px solid ${isResponsible ? (isDarkMode ? colours.accent : colours.highlight) : (isDarkMode ? 'rgba(55,65,81,0.4)' : 'rgba(0,0,0,0.10)')}`,
-                cursor: 'pointer',
-                padding: '0 12px',
-                height: height - 8,
-                fontSize: 12,
-                fontWeight: 500,
-                color: isResponsible ? (isDarkMode ? colours.dark.text : colours.darkBlue) : (isDarkMode ? 'rgba(160,160,160,0.8)' : colours.greyText),
-                transition: 'all 200ms ease',
-                whiteSpace: 'nowrap',
-                outline: 'none',
-                borderRadius: 0,
-              }}
-            >
-              <span style={{ display: 'flex', alignItems: 'center', color: 'inherit' }}>{iconResponsible}</span>
-              <span>Responsible</span>
-            </button>
-            <button
-              type="button"
-              aria-pressed={isOriginating}
-              onClick={() => setActiveRoleFilter('Originating')}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 5,
-                background: isOriginating ? (isDarkMode ? colours.dark.cardHover : colours.light.cardBackground) : 'transparent',
-                border: `1px solid ${isOriginating ? (isDarkMode ? colours.accent : colours.highlight) : (isDarkMode ? 'rgba(55,65,81,0.4)' : 'rgba(0,0,0,0.10)')}`,
-                cursor: 'pointer',
-                padding: '0 12px',
-                height: height - 8,
-                fontSize: 12,
-                fontWeight: 500,
-                color: isOriginating ? (isDarkMode ? colours.dark.text : colours.darkBlue) : (isDarkMode ? 'rgba(160,160,160,0.8)' : colours.greyText),
-                transition: 'all 200ms ease',
-                whiteSpace: 'nowrap',
-                outline: 'none',
-                borderRadius: 0,
-              }}
-            >
-              <span style={{ display: 'flex', alignItems: 'center', color: 'inherit' }}>{iconOriginating}</span>
-              <span>Originating</span>
-            </button>
-          </div>
+          <SegmentedControl
+            id="matters-role-seg"
+            ariaLabel="Matter role"
+            value={roleValue}
+            onChange={(key) => setActiveRoleFilter(key === 'originating' ? 'Originating' : 'Responsible')}
+            options={[
+              { key: 'responsible', label: 'Responsible', icon: iconResponsible },
+              { key: 'originating', label: 'Originating', icon: iconOriginating },
+            ]}
+          />
         );
       };
 
@@ -624,12 +660,12 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
                       { key: 'all', label: 'All', badge: scopeCounts.all }
                 ]}
               />
+              <StatusFilter />
             </div>
           )}
           secondaryFilter={(
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <RoleFilter />
-              <StatusFilter />
               {availableAreas.length > 1 && (
                 areaExpanded || activeAreaFilter !== 'All' ? (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -700,28 +736,28 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
             onChange: setSearchTerm,
             placeholder: "Search…"
           }}
-          middleActions={(isAdmin || isLocalhost) && (
+          middleActions={(
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <button
                 type="button"
-                onClick={() => setDataSourceFilter(prev => (prev === 'legacy' ? 'all' : prev === 'all' ? 'new' : 'legacy'))}
+                onClick={() => setDataSourceFilter((previous) => getNextMatterSourceFilter(previous))}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
                   gap: 8,
                   padding: '4px 10px',
                   height: 28,
-                  borderRadius: 0,
+                  borderRadius: 14,
                   background: dataSourceFilter === 'all'
-                    ? (isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.15)')
+                    ? (isDarkMode ? 'rgba(54, 144, 206, 0.2)' : 'rgba(54, 144, 206, 0.12)')
                     : dataSourceFilter === 'new'
-                      ? (isDarkMode ? 'rgba(32, 178, 108, 0.2)' : 'rgba(32, 178, 108, 0.15)')
+                      ? (isDarkMode ? 'rgba(32, 178, 108, 0.2)' : 'rgba(32, 178, 108, 0.12)')
                       : 'transparent',
                   border: `1px solid ${dataSourceFilter === 'all'
-                    ? (isDarkMode ? 'rgba(54, 144, 206, 0.5)' : 'rgba(54, 144, 206, 0.4)')
+                    ? (isDarkMode ? 'rgba(54, 144, 206, 0.5)' : 'rgba(54, 144, 206, 0.32)')
                     : dataSourceFilter === 'new'
-                      ? (isDarkMode ? 'rgba(32, 178, 108, 0.5)' : 'rgba(32, 178, 108, 0.4)')
-                      : (isDarkMode ? 'rgba(255,140,0,0.35)' : 'rgba(255,140,0,0.3)')}`,
+                      ? (isDarkMode ? 'rgba(32, 178, 108, 0.5)' : 'rgba(32, 178, 108, 0.3)')
+                      : (isDarkMode ? 'rgba(255,140,0,0.35)' : 'rgba(255,140,0,0.28)')}`,
                   fontSize: 10,
                   fontWeight: 600,
                   color: dataSourceFilter === 'all'
@@ -733,26 +769,26 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
                   transition: 'all 0.15s ease',
                 }}
                 title={
-                  dataSourceFilter === 'legacy'
-                    ? 'Showing legacy only (click to include new)'
+                  dataSourceFilter === 'new'
+                    ? 'Showing new-space matters only (click to show all)'
                     : dataSourceFilter === 'all'
-                      ? 'Showing legacy + new (click for new only)'
-                      : 'Showing new only (click for legacy only)'
+                      ? 'Showing new + legacy matters (click for legacy only)'
+                      : 'Showing legacy matters only (click for new only)'
                 }
                 aria-label={
-                  dataSourceFilter === 'legacy'
-                    ? 'Legacy data only'
+                  dataSourceFilter === 'new'
+                    ? 'New matters only'
                     : dataSourceFilter === 'all'
-                      ? 'Legacy + new data'
-                      : 'New data only'
+                      ? 'All matters'
+                      : 'Legacy matters only'
                 }
               >
                 <Icon
-                  iconName={dataSourceFilter === 'all' ? 'Database' : dataSourceFilter === 'new' ? 'Favorites' : 'Shield'}
-                  style={{ fontSize: 10, opacity: 0.7 }}
+                  iconName={dataSourceFilter === 'all' ? 'Database' : dataSourceFilter === 'new' ? 'FabricOpenFolderHorizontal' : 'Archive'}
+                  style={{ fontSize: 10, opacity: 0.75 }}
                 />
                 <span style={{ fontSize: 10, whiteSpace: 'nowrap' }}>
-                  {dataSourceFilter === 'legacy' ? 'Legacy' : dataSourceFilter === 'all' ? 'All' : 'New'}: {filtered.length}/{datasetCount}
+                  {dataSourceFilter === 'new' ? 'New' : dataSourceFilter === 'all' ? 'All' : 'Legacy'}: {filtered.length}/{datasetCount}
                 </span>
               </button>
             </div>
@@ -788,9 +824,9 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
         />,
       );
     }
-    return () => setContent(null);
   }, [
     setContent,
+    isActive,
     selected,
     isDarkMode,
     activeFilter,
@@ -802,22 +838,22 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
     activeRoleFilter,
     filtered.length,
     datasetCount,
-    isAdmin,
-    isLocalhost,
     dataSourceFilter,
     activeDetailTab,
     disableFutureTabs,
     scopeCounts,
+    sourceCounts,
   ]);
 
   useEffect(() => {
     return () => {
+      setContent(null);
       if (detailEnterTimerRef.current) {
         window.clearTimeout(detailEnterTimerRef.current);
         detailEnterTimerRef.current = null;
       }
     };
-  }, []);
+  }, [setContent]);
 
   function beginDetailEntryTransition() {
     setIsEnteringDetail(true);
@@ -1320,7 +1356,8 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
       activeFilter !== 'Active' ||
       activeAreaFilter !== 'All' ||
       activeRoleFilter !== 'Responsible' ||
-      scope === 'all'
+      scope === 'all' ||
+      dataSourceFilter !== 'new'
     );
 
     return (
@@ -1344,6 +1381,7 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
                     setActiveAreaFilter('All');
                     setActiveRoleFilter('Responsible');
                     setScope('mine');
+                    setDataSourceFilter('new');
                   },
                   variant: 'primary'
                 }
@@ -1419,6 +1457,8 @@ const Matters: React.FC<MattersProps> = ({ matters, isLoading, error, userData, 
       <MatterTableView
         matters={filtered}
         isDarkMode={isDarkMode}
+        showCclColumns={showCclColumns}
+        cclStatusByMatterId={effectiveCclStatusByMatterId}
         onRowClick={(matter) => {
           setSelected(matter);
           setActiveDetailTab('overview');

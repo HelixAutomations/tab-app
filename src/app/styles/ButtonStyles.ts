@@ -1,6 +1,6 @@
 // invisible change 3
 // src/app/styles/ButtonStyles.ts
-import { IButtonStyles } from '@fluentui/react';
+import type { IButtonStyles } from '@fluentui/react/lib/Button';
 import { colours } from './colours';
 
 // Helper function for creating a consistent radial gradient overlay

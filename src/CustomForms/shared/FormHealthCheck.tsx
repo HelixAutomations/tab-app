@@ -3,13 +3,10 @@
 // Non-destructive: only performs read-only GET/OPTIONS checks
 
 import React, { useState, useCallback } from 'react';
-import {
-  Icon,
-  Spinner,
-  SpinnerSize,
-  Text,
-  TooltipHost,
-} from '@fluentui/react';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { Spinner, SpinnerSize } from '@fluentui/react/lib/Spinner';
+import { Text } from '@fluentui/react/lib/Text';
+import { TooltipHost } from '@fluentui/react/lib/Tooltip';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { getProxyBaseUrl } from '../../utils/getProxyBaseUrl';
 

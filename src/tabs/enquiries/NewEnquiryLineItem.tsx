@@ -1,9 +1,7 @@
-import {
-    Text,
-    Stack,
-    Icon,
-    Separator,
-} from '@fluentui/react';
+import { Text } from '@fluentui/react/lib/Text';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { Separator } from '@fluentui/react/lib/Separator';
 import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { NewEnquiry } from '../../app/functionality/newEnquiryTypes';
 import { colours } from '../../app/styles/colours';

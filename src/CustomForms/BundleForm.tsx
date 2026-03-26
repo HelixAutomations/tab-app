@@ -1,17 +1,14 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import {
-    TextField,
-    PrimaryButton,
-    DefaultButton,
-    Stack,
-    Text,
-    Dropdown,
-    IDropdownOption,
-    DatePicker,
-    Label,
-    Icon,
-    IButtonStyles
-} from '@fluentui/react';
+import { TextField } from '@fluentui/react/lib/TextField';
+import { PrimaryButton, DefaultButton } from '@fluentui/react/lib/Button';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Text } from '@fluentui/react/lib/Text';
+import { Dropdown } from '@fluentui/react/lib/Dropdown';
+import type { IDropdownOption } from '@fluentui/react/lib/Dropdown';
+import { DatePicker } from '@fluentui/react/lib/DatePicker';
+import type { IButtonStyles } from '@fluentui/react/lib/Button';
+import { Label } from '@fluentui/react/lib/Label';
+import { Icon } from '@fluentui/react/lib/Icon';
 import { UserData, NormalizedMatter } from '../app/functionality/types';
 import { useTheme } from '../app/functionality/ThemeContext';
 import {

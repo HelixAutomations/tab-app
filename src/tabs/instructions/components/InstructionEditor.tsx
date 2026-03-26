@@ -4,14 +4,10 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 // invisible change 2.1
-import {
-    Stack,
-    IconButton,
-    PrimaryButton,
-    DefaultButton,
-    mergeStyles,
-    Callout,
-} from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { IconButton, PrimaryButton, DefaultButton } from '@fluentui/react/lib/Button';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
+import { Callout } from '@fluentui/react/lib/Callout';
 import { colours } from '../../../app/styles/colours';
 import { useTheme } from '../../../app/functionality/ThemeContext';
 import InstructionTemplates from './InstructionTemplates';

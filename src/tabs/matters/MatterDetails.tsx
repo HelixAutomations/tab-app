@@ -2,7 +2,11 @@
 // invisible change
 
 import React from 'react';
-import { Stack, Text, IconButton, mergeStyles, TextField, PrimaryButton } from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Text } from '@fluentui/react/lib/Text';
+import { IconButton, PrimaryButton } from '@fluentui/react/lib/Button';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
+import { TextField } from '@fluentui/react/lib/TextField';
 import { Matter } from '../../app/functionality/types';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';

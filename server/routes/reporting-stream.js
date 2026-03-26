@@ -24,13 +24,12 @@ const DATASET_TTL = {
   teamData: 3600,     // 1 hour - team data is very static
   enquiries: 1800,    // 30 min - enquiries don't need constant updates
   allMatters: 1800,   // 30 min - matters update moderately
-  wip: 14400,         // 4 hours - WIP data doesn't change rapidly, heavy query
-  recoveredFees: 28800, // 8 hours - Collected time data is historical, very heavy query (OPTIMIZED)
-  recoveredFeesSummary: 7200, // 2 hours - Summary data for fee reporting
-  poidData: 21600,    // 6 hours - ID submission data is static once created (OPTIMIZED)
-  wipClioCurrentWeek: 1800,   // 30 min - Current week can be less frequent
-  wipDbLastWeek: 7200, // 2 hours - Last week data is very stable
-  wipDbCurrentWeek: 1800, // 30 min - current week DB fallback
+  wip: 300,         // 5 min - aligned with smartCache; SSE broadcast triggers immediate refresh
+  recoveredFees: 120, // 2 min - near-realtime parity with Home card
+  recoveredFeesSummary: 120, // 2 min - per-user summary, near-realtime
+  wipClioCurrentWeek: 300,   // 5 min - aligned with smartCache
+  wipDbLastWeek: 600, // 10 min - last week data stabilises quickly
+  wipDbCurrentWeek: 300, // 5 min - aligned with smartCache
   googleAnalytics: 3600, // 1 hour - Google Analytics data updates hourly
   googleAds: 3600,    // 1 hour - Google Ads data updates regularly  
   metaMetrics: 3600,  // 1 hour - Meta metrics don't need frequent updates
@@ -103,7 +102,7 @@ router.get('/stream-datasets', async (req, res) => {
 
   const datasetsParam = typeof req.query.datasets === 'string'
     ? req.query.datasets.split(',').map((name) => name.trim()).filter(Boolean)
-    : ['userData', 'teamData', 'enquiries', 'allMatters', 'wip', 'recoveredFees', 'poidData', 'wipClioCurrentWeek'];
+    : ['userData', 'teamData', 'enquiries', 'allMatters', 'wip', 'recoveredFees', 'wipClioCurrentWeek'];
 
   const entraId = typeof req.query.entraId === 'string' && req.query.entraId.trim().length > 0
     ? req.query.entraId.trim()
@@ -211,8 +210,8 @@ router.get('/stream-datasets', async (req, res) => {
         }
 
         const fetchStartTime = Date.now();
-        const isHeavyDataset = ['wip', 'recoveredFees', 'poidData'].includes(datasetName);
-        const isCollectedTimeOrPoid = ['recoveredFees', 'poidData'].includes(datasetName);
+        const isHeavyDataset = ['wip', 'recoveredFees'].includes(datasetName);
+        const isCollectedTimeOrPoid = ['recoveredFees'].includes(datasetName);
         
         // Extended timeouts for collected time and ID submission datasets
         let timeoutMs = 120000; // 2min default
@@ -339,8 +338,8 @@ router.get('/stream-datasets', async (req, res) => {
 
   try {
     // Process light datasets in parallel (fast ones)
-    const lightDatasets = datasetsParam.filter(d => !['wip', 'recoveredFees', 'poidData'].includes(d));
-    const heavyDatasets = datasetsParam.filter(d => ['wip', 'recoveredFees', 'poidData'].includes(d));
+    const lightDatasets = datasetsParam.filter(d => !['wip', 'recoveredFees'].includes(d));
+    const heavyDatasets = datasetsParam.filter(d => ['wip', 'recoveredFees'].includes(d));
 
     log.debug(`🚀 Processing light datasets: [${lightDatasets.join(', ')}]`);
     
@@ -392,8 +391,6 @@ async function fetchDatasetByName(datasetName, { connectionString, instructionsC
       return fetchRecoveredFees({ connectionString, range: rangeOverrides.recoveredFees });
     case 'recoveredFeesSummary':
       return fetchRecoveredFeesSummary({ connectionString, entraId, clioId });
-    case 'poidData':
-      return fetchPoidData({ connectionString });
     case 'wipClioCurrentWeek':
       return fetchWipClioCurrentWeek({ connectionString, entraId });
     case 'wipDbLastWeek':
@@ -706,42 +703,6 @@ async function fetchRecoveredFees({ connectionString, range }) {
 async function fetchRecoveredFeesSummary({ connectionString, entraId, clioId }) {
   // Implementation similar to reporting.js
   return { currentMonthTotal: 0, previousMonthTotal: 0 };
-}
-
-async function fetchPoidData({ connectionString }) {
-  const { from, to } = getLast24MonthsRange();
-  log.debug(`🔍 POID Query (optimized): Fetching data from ${formatDateOnly(from)} to ${formatDateOnly(to)}`);
-  
-  const queryStart = Date.now();
-  
-  return withRequest(connectionString, async (request, sqlClient) => {
-    // Configure request for heavy dataset handling
-    request.timeout = 180000; // 3 minute timeout for POID queries
-    request.input('dateFrom', sqlClient.Date, formatDateOnly(from));
-    request.input('dateTo', sqlClient.Date, formatDateOnly(to));
-    
-    // Highly optimized query with essential fields only and better indexing strategy
-    const result = await request.query(`
-      SELECT TOP 15000 poid_id, type, 
-             CONVERT(VARCHAR(10), submission_date, 120) AS submission_date,
-             poc, nationality, gender, first, last, email, 
-             passport_number, drivers_license_number, 
-             city, county, post_code, country,
-             company_name, stage, check_result, check_id,
-             client_id, related_client_id, matter_id,
-             risk_assessor, risk_assessment_date
-      FROM [dbo].[poid] WITH (NOLOCK)
-      WHERE submission_date BETWEEN @dateFrom AND @dateTo
-        AND submission_date IS NOT NULL
-      ORDER BY submission_date DESC, poid_id DESC
-    `);
-    
-    const queryTime = Date.now() - queryStart;
-    const recordCount = result.recordset?.length || 0;
-    log.debug(`✅ POID Query: Retrieved ${recordCount} ID submission records in ${queryTime}ms (avg: ${recordCount > 0 ? Math.round(queryTime/recordCount) : 0}ms/record)`);
-    
-    return Array.isArray(result.recordset) ? result.recordset : [];
-  });
 }
 
 async function fetchWipClioCurrentWeek({ connectionString, entraId }) {

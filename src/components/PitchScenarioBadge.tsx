@@ -1,5 +1,5 @@
 import React from 'react';
-import { Icon } from '@fluentui/react';
+import { Icon } from '@fluentui/react/lib/Icon';
 import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { useTheme } from '../app/functionality/ThemeContext';
 import { SCENARIOS } from '../tabs/enquiries/pitch-builder/scenarios';

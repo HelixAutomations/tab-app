@@ -180,9 +180,8 @@ Action required by you | Additional information
 ☐ If you would like us to start work during the 14-day cancellation period, sign and return the attached 'Request to start work during the cancellation period' form | This form is attached to this Engagement Letter
 ☐ Alternatively, if you wish to cancel your contract with us, tell us within 14 days | You can simply inform us of your decision to cancel by letter, telephone or e-mail
 ☐ Provide the following documents (and information) to allow me to take the next steps in your matter: | Without these documents there may be a delay in your matter
-
-{{describe_first_document_or_information_you_need_from_your_client}}
-{{describe_second_document_or_information_you_need_from_your_client}}
-{{describe_third_document_or_information_you_need_from_your_client}}
+— {{describe_first_document_or_information_you_need_from_your_client}}
+— {{describe_second_document_or_information_you_need_from_your_client}}
+— {{describe_third_document_or_information_you_need_from_your_client}}
 
 Please contact me if you have any queries or concerns about your matter, this Engagement Letter or the attached Terms of Business.`;

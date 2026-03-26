@@ -1,22 +1,15 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import {
-  Stack,
-  Text,
-  DefaultButton,
-  PrimaryButton,
-  TextField,
-  Dropdown,
-  IDropdownOption,
-  DetailsList,
-  IColumn,
-  DetailsListLayoutMode,
-  IconButton,
-  MessageBar,
-  MessageBarType,
-  Toggle,
-  Spinner,
-  SpinnerSize,
-} from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Text } from '@fluentui/react/lib/Text';
+import { DefaultButton, PrimaryButton, IconButton } from '@fluentui/react/lib/Button';
+import { TextField } from '@fluentui/react/lib/TextField';
+import { Dropdown } from '@fluentui/react/lib/Dropdown';
+import type { IDropdownOption } from '@fluentui/react/lib/Dropdown';
+import { DetailsList, DetailsListLayoutMode } from '@fluentui/react/lib/DetailsList';
+import type { IColumn } from '@fluentui/react/lib/DetailsList';
+import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
+import { Toggle } from '@fluentui/react/lib/Toggle';
+import { Spinner, SpinnerSize } from '@fluentui/react/lib/Spinner';
 import { useTheme } from '../app/functionality/ThemeContext';
 import { colours } from '../app/styles/colours';
 import { Enquiry } from '../app/functionality/types';

@@ -7,7 +7,8 @@
  */
 
 import type { CSSProperties } from 'react';
-import type { IButtonStyles, IDatePickerStyles } from '@fluentui/react';
+import type { IButtonStyles } from '@fluentui/react/lib/Button';
+import type { IDatePickerStyles } from '@fluentui/react/lib/DatePicker';
 import { colours } from '../../../app/styles/colours';
 
 // ─── Container / surface helpers ───────────────────────────────────────────

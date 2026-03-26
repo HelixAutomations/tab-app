@@ -8,6 +8,7 @@ import ExpertRecommendationForm from '../../CustomForms/ExpertRecommendationForm
 import CounselRecommendationForm from '../../CustomForms/CounselRecommendationForm';
 import ExpertDirectory from '../../CustomForms/ExpertDirectory';
 import CounselDirectory from '../../CustomForms/CounselDirectory';
+import TransactionIntake from '../../CustomForms/TransactionIntake';
 
 // invisible change
 // Forms grouped by section (excluding Favorites which is dynamic)
@@ -75,7 +76,7 @@ export const formSections: { [key in Exclude<SectionName, 'Favorites'>]: FormIte
             title: 'Transaction Intake',
             url: 'https://www.cognitoforms.com/Helix1/TransactionsIntakeV2',
             icon: 'Bank',
-            embedScript: { key: 'QzaAr_2Q7kesClKq8g229g', formId: '58' },
+            component: TransactionIntake,
             requires: 'Property address, client, transaction type',
             description: 'Process and record property transaction details and requirements',
         },

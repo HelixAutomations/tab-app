@@ -1,8 +1,9 @@
 // src/tabs/enquiries/TemplateBlocks.ts
 // invisible change 2
 
-import { IStyleFunctionOrObject, IDropdownStyles, IDropdownStyleProps } from '@fluentui/react';
-
+import type { IStyleFunctionOrObject } from '@fluentui/react/lib/Utilities';
+import type { IDropdownStyleProps } from '@fluentui/react/lib/Dropdown';
+import type { IDropdownStyles } from '@fluentui/react/lib/Dropdown';
 export interface TemplateBlock {
   title: string;
   description: string;

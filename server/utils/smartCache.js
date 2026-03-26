@@ -43,12 +43,7 @@ const DYNAMIC_CACHE_STRATEGY = {
   },
   
   recoveredFees: {
-    baseTTL: 1200,    // 20 minutes
-    conditions: []
-  },
-  
-  poidData: {
-    baseTTL: 1800,    // 30 minutes
+    baseTTL: 120,     // 2 minutes - near-realtime parity with Home card
     conditions: []
   },
   
@@ -94,14 +89,30 @@ async function getCacheAnalytics() {
     const redisClient = await getRedisClient();
     if (!redisClient) return null;
     
-    const patterns = ['stream:*', 'rpt:*', 'hc:*'];
+    const patterns = ['stream:*', 'rpt:*', 'hc:*', 'ops:*'];
     const analytics = {
       totalKeys: 0,
       hitRate: 0,
-      memoryUsage: 0,
+      memoryUsage: '—',
       topKeys: [],
       expirationDistribution: {},
     };
+
+    // Try to get memory info via sendCommand
+    try {
+      const info = await redisClient.sendCommand(['INFO', 'MEMORY']);
+      const memMatch = String(info).match(/used_memory_human:(\S+)/);
+      if (memMatch) analytics.memoryUsage = memMatch[1];
+    } catch { /* not available */ }
+
+    // Try to get hit rate from INFO stats
+    try {
+      const info = await redisClient.sendCommand(['INFO', 'STATS']);
+      const infoStr = String(info);
+      const hits = parseInt(infoStr.match(/keyspace_hits:(\d+)/)?.[1] || '0', 10);
+      const misses = parseInt(infoStr.match(/keyspace_misses:(\d+)/)?.[1] || '0', 10);
+      if (hits + misses > 0) analytics.hitRate = hits / (hits + misses);
+    } catch { /* not available */ }
     
     for (const pattern of patterns) {
       const keys = await redisClient.keys(pattern);
@@ -109,9 +120,8 @@ async function getCacheAnalytics() {
       
       for (const key of keys.slice(0, 20)) { // Sample top 20 keys
         const ttl = await redisClient.ttl(key);
-        const size = await redisClient.memory('usage', key).catch(() => 0);
         
-        analytics.topKeys.push({ key, ttl, size });
+        analytics.topKeys.push({ key, ttl, size: 0 });
         
         // Group by TTL ranges
         const ttlRange = ttl > 3600 ? '1h+' : ttl > 1800 ? '30m-1h' : ttl > 600 ? '10m-30m' : '<10m';

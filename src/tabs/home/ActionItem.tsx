@@ -2,7 +2,9 @@
 // invisible change 2
 
 import React from 'react';
-import { mergeStyles, Text, Icon } from '@fluentui/react';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
+import { Text } from '@fluentui/react/lib/Text';
+import { Icon } from '@fluentui/react/lib/Icon';
 import { colours } from '../../app/styles/colours';
 
 interface ActionItemProps {

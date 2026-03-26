@@ -1,11 +1,8 @@
 import React from 'react';
-import {
-    DetailsList,
-    DetailsListLayoutMode,
-    IColumn,
-    Stack,
-    mergeStyles,
-} from '@fluentui/react';
+import { DetailsList, DetailsListLayoutMode } from '@fluentui/react/lib/DetailsList';
+import type { IColumn } from '@fluentui/react/lib/DetailsList';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { Enquiry } from '../../app/functionality/types';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';

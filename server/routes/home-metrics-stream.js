@@ -40,14 +40,13 @@ async function fetchJson(pathname) {
 }
 
 // Default metric set for Home
-const DEFAULT_METRICS = ['transactions', 'futureBookings', 'outstandingBalances', 'poid6Years'];
+const DEFAULT_METRICS = ['transactions', 'futureBookings', 'outstandingBalances'];
 
 // TTLs (seconds)
 const METRIC_TTL = {
   transactions: 1800,         // 30m
   futureBookings: 900,         // 15m
   outstandingBalances: 1800,   // 30m
-  poid6Years: 3600,            // 1h
 };
 
 router.get('/stream', async (req, res) => {
@@ -124,9 +123,6 @@ router.get('/stream', async (req, res) => {
             break;
           case 'outstandingBalances':
             payload = await fetchJson('/api/outstanding-balances');
-            break;
-          case 'poid6Years':
-            payload = await fetchJson('/api/poid/6years');
             break;
           default:
             throw new Error(`Unknown metric: ${name}`);

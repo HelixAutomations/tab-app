@@ -6,8 +6,9 @@
  */
 
 import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
-import { mergeStyles } from '@fluentui/react';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { FaCheck, FaTimes, FaInfoCircle, FaExclamationTriangle, FaSpinner } from 'react-icons/fa';
+import { colours } from '../../app/styles/colours';
 import { ANIMATION_DURATION, EASING } from '../../app/styles/animations';
 
 // Toast types
@@ -369,6 +370,40 @@ const ToastItem: React.FC<ToastItemProps> = ({ toast, onDismiss, isDarkMode }) =
     whiteSpace: 'normal',
   });
 
+  const progressListClass = mergeStyles({
+    display: 'grid',
+    gap: 6,
+    marginTop: 10,
+  });
+
+  const progressStepClass = mergeStyles({
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    fontSize: 11,
+    lineHeight: '14px',
+    color: 'rgba(229, 231, 235, 0.76)',
+  });
+
+  const progressStepDotClass = (status: 'pending' | 'active' | 'done' | 'error') => mergeStyles({
+    width: 7,
+    height: 7,
+    borderRadius: '50%',
+    flexShrink: 0,
+    backgroundColor:
+      status === 'done'
+        ? colours.green
+        : status === 'active'
+          ? scheme.accent
+          : status === 'error'
+            ? colours.cta
+            : 'rgba(255, 255, 255, 0.18)',
+    boxShadow:
+      status === 'active'
+        ? `0 0 0 4px ${scheme.bg}`
+        : 'none',
+  });
+
   // Action button
   const actionClass = mergeStyles({
     marginTop: 8,
@@ -434,6 +469,16 @@ const ToastItem: React.FC<ToastItemProps> = ({ toast, onDismiss, isDarkMode }) =
       {toast.message && (
         <div className={contentClass}>
           {toast.message}
+          {toast.progress?.length ? (
+            <div className={progressListClass}>
+              {toast.progress.map((step, idx) => (
+                <div key={`${step.label}-${idx}`} className={progressStepClass}>
+                  <span className={progressStepDotClass(step.status)} />
+                  <span>{step.label}</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
           {toast.action && (
             <button className={actionClass} onClick={toast.action.onClick}>
               {toast.action.label} →

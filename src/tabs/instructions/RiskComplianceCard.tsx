@@ -1,6 +1,6 @@
 import React from 'react';
 import { format } from 'date-fns';
-import { mergeStyles } from '@fluentui/react';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { 
   FaShieldAlt, 

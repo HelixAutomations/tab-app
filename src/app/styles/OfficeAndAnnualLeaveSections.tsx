@@ -2,14 +2,11 @@
 // src/components/OfficeAndAnnualLeaveSections.tsx
 
 import React, { useMemo } from 'react';
-import {
-  Stack,
-  Text,
-  Icon,
-  TooltipHost,
-  mergeStyles,
-} from '@fluentui/react';
-
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Text } from '@fluentui/react/lib/Text';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { TooltipHost } from '@fluentui/react/lib/Tooltip';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
 interface AttendanceRecord {
   name: string;
   confirmed: boolean;

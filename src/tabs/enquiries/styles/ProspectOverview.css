@@ -7,12 +7,21 @@
 
 .prospect-pipeline-rail {
   display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 20px 12px 8px;
+  align-items: stretch;
+  justify-content: flex-start;
+  padding: 0;
   gap: 0;
   overflow-x: auto;
+  border: none;
+  background: transparent;
+  box-shadow: none;
   -ms-overflow-style: none;
+  min-height: 48px;
+}
+
+[data-theme="light"] .prospect-pipeline-rail {
+  background: transparent;
+  box-shadow: none;
 }
 
 .prospect-pipeline-rail::-webkit-scrollbar {
@@ -21,7 +30,7 @@
 
 .prospect-pipeline-node {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
   gap: 6px;
   padding: 0;
@@ -29,10 +38,16 @@
   background: transparent;
   cursor: pointer;
   font-family: var(--font-primary);
-  min-width: 64px;
+  min-width: 0;
+  flex: 1 1 0;
   flex-shrink: 0;
-  transition: opacity 0.15s ease, transform 0.15s ease;
+  transition: opacity 0.15s ease, transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
   position: relative;
+  overflow: hidden;
+}
+
+[data-theme="light"] .prospect-pipeline-node {
+  background: transparent;
 }
 
 .prospect-pipeline-node:disabled {
@@ -40,15 +55,58 @@
 }
 
 .prospect-pipeline-node[data-disabled="true"] {
-  opacity: 0.3;
+  opacity: 0.46;
+}
+
+.prospect-pipeline-node[data-active="true"] {
+  background: transparent;
+}
+
+[data-theme="light"] .prospect-pipeline-node[data-active="true"] {
+  background: transparent;
 }
 
 .prospect-pipeline-node:not([data-disabled="true"]):hover {
-  transform: translateY(-2px);
+  transform: none;
+  background: rgba(var(--highlight-rgb), 0.06);
+}
+
+[data-theme="light"] .prospect-pipeline-node:not([data-disabled="true"]):hover {
+  background: rgba(var(--highlight-rgb), 0.06);
 }
 
 .prospect-pipeline-node:not([data-disabled="true"]):active {
   transform: translateY(0);
+}
+
+.prospect-pipeline-node::after {
+  content: '';
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 0;
+  height: 2px;
+  background-color: var(--pipeline-node-underline, var(--helix-highlight));
+  transform: scaleX(0);
+  transform-origin: center;
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.prospect-pipeline-node:not([data-disabled="true"]):hover::after {
+  transform: scaleX(0.35);
+  opacity: 0.4;
+}
+
+.prospect-pipeline-node[data-active="true"]::after {
+  transform: scaleX(0.62);
+  opacity: 0.82;
+}
+
+.prospect-pipeline-node[data-active="true"]:hover::after {
+  transform: scaleX(0.84);
+  opacity: 0.92;
 }
 
 /* The circle indicator */
@@ -123,12 +181,16 @@
 /* Pipeline label */
 .prospect-pipeline-label {
   font-size: 10px;
-  font-weight: 600;
-  color: var(--text-muted);
+  font-weight: 700;
+  color: var(--text-secondary);
   line-height: 1.2;
-  text-align: center;
+  text-align: left;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   transition: color 0.15s ease;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
 }
 
 .prospect-pipeline-label[data-active="true"] {
@@ -147,19 +209,11 @@
 
 /* Pipeline connector */
 .prospect-pipeline-connector {
-  flex: 1;
-  min-width: 16px;
-  max-width: 48px;
-  height: 2px;
-  align-self: flex-start;
-  margin-top: 15px;
-  border-radius: 1px;
-  transition: background 0.25s ease;
-  position: relative;
+  display: none;
 }
 
 .prospect-pipeline-connector[data-active="true"][data-filled="true"] {
-  margin-top: 17px;
+  display: none;
 }
 
 /* (Status bar removed — v2 uses two-column hero instead) */
@@ -181,7 +235,7 @@
 /* ─── Timeline Section ───────────────────────────────────── */
 
 .prospect-timeline-section {
-  background: var(--surface-section);
+  background: var(--helix-website-blue);
   border-left: 1px solid var(--border-base);
   border-right: 1px solid var(--border-base);
   border-bottom: 1px solid var(--border-base);
@@ -198,6 +252,11 @@
   border-left-color: var(--border-strong);
   border-right-color: var(--border-strong);
   border-bottom-color: var(--border-strong);
+  box-shadow: none;
+}
+
+[data-theme="light"] .prospect-timeline-section {
+  background: linear-gradient(180deg, rgba(244, 244, 246, 0.96) 0%, rgba(255, 255, 255, 0.98) 100%);
 }
 
 .prospect-timeline-controls {
@@ -209,34 +268,51 @@
   display: flex;
   align-items: stretch;
   flex-direction: column;
-  gap: 8px;
-  padding: 6px 10px;
-  border: 1px solid rgba(var(--subtle-grey-rgb), 0.16);
-  background: rgba(var(--subtle-grey-rgb), 0.04);
+  gap: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(var(--highlight-rgb), 0.18);
+  border-top: 1px solid rgba(var(--highlight-rgb), 0.18);
+  background: var(--helix-dark-blue);
+  box-shadow: none;
 }
 
 [data-theme="dark"] .prospect-timeline-topbar {
-  background: rgba(6, 23, 51, 0.62);
-  border-color: rgba(var(--subtle-grey-rgb), 0.24);
+  background: var(--helix-dark-blue);
+  border-color: rgba(var(--highlight-rgb), 0.22);
 }
 
 .prospect-timeline-header {
   display: flex;
-  justify-content: flex-start;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: nowrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
   margin-bottom: 0;
   width: 100%;
+}
+
+.prospect-timeline-title-block {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.prospect-timeline-kicker {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.32px;
+  text-transform: uppercase;
+  color: var(--text-muted);
 }
 
 .prospect-timeline-heading {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding-right: 8px;
-  margin-right: 2px;
-  border-right: 1px solid rgba(var(--subtle-grey-rgb), 0.18);
+  padding-right: 10px;
+  margin-right: 4px;
+  border-right: 1px solid rgba(var(--subtle-grey-rgb), 0.26);
 }
 
 .prospect-timeline-heading-icon {
@@ -262,25 +338,69 @@
   align-items: center;
   gap: 0;
   width: 100%;
+  padding-top: 0;
+  border-top: none;
 }
 
 .prospect-timeline-title {
-  font-size: 13px;
+  font-size: 16px;
   font-weight: 700;
   color: var(--text-primary);
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
+  letter-spacing: -0.02em;
+}
+
+.prospect-timeline-caption {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  max-width: 720px;
+}
+
+.prospect-timeline-meta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.prospect-timeline-meta-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 10px;
+  border: 1px solid rgba(var(--subtle-grey-rgb), 0.22);
+  background: rgba(0, 3, 25, 0.28);
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.prospect-timeline-meta-pill.is-accent {
+  border-color: rgba(var(--accent-rgb), 0.34);
+  background: rgba(var(--accent-rgb), 0.12);
+  color: var(--text-accent);
 }
 
 .prospect-timeline-count {
-  font-size: 10px;
-  padding: 1px 6px;
-  border-radius: 0;
-  background: rgba(var(--subtle-grey-rgb), 0.06);
-  border: 1px solid rgba(var(--subtle-grey-rgb), 0.18);
-  color: var(--text-muted);
-  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  font-size: 11px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(var(--accent-rgb), 0.12);
+  border: 1px solid rgba(var(--accent-rgb), 0.24);
+  color: var(--text-accent);
+  font-weight: 700;
 }
 
 /* ─── Animations ─────────────────────────────────────────── */
@@ -328,7 +448,7 @@
 }
 
 .prospect-view-toggle-btn[data-active="true"] {
-  background: rgba(var(--highlight-rgb), 0.12);
+  background: rgba(var(--accent-rgb), 0.14);
   color: var(--text-primary);
 }
 
@@ -407,7 +527,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 10px;
   flex-wrap: nowrap;
   padding: 0;
   background: transparent;
@@ -421,7 +541,7 @@
 .prospect-filter-main {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   flex-wrap: wrap;
   flex: 1 1 auto;
   min-width: 0;
@@ -433,42 +553,46 @@
   letter-spacing: 0.25px;
   text-transform: uppercase;
   color: var(--text-muted);
-  opacity: 0.78;
+  opacity: 0.72;
   margin-right: 3px;
 }
 
 .prospect-filter-chip {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  height: 24px;
-  padding: 0 8px;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
   border-radius: 0;
-  border: 1px solid rgba(var(--subtle-grey-rgb), 0.12);
-  background: rgba(var(--subtle-grey-rgb), 0.03);
+  border: 1px solid rgba(var(--highlight-rgb), 0.16);
+  background: rgba(13, 47, 96, 0.22);
   font-family: var(--font-primary);
   font-size: 10px;
-  font-weight: 500;
+  font-weight: 600;
   cursor: pointer;
   transition: all 0.15s ease;
   color: var(--text-secondary);
   white-space: nowrap;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
 }
 
 .prospect-filter-chip:hover {
-  background: rgba(var(--highlight-rgb), 0.08);
-  border-color: rgba(var(--highlight-rgb), 0.22);
+  background: rgba(var(--highlight-rgb), 0.12);
+  border-color: rgba(var(--highlight-rgb), 0.34);
   color: var(--text-primary);
+  transform: none;
 }
 
 .prospect-filter-chip[data-active="true"] {
-  border-color: rgba(var(--accent-rgb), 0.34);
-  color: var(--text-accent);
-  background: rgba(var(--accent-rgb), 0.1);
+  border-color: rgba(var(--highlight-rgb), 0.4);
+  color: var(--text-primary);
+  background: rgba(var(--highlight-rgb), 0.16);
+  box-shadow: none;
 }
 
 .prospect-filter-chip[data-active="true"]:hover {
-  background: rgba(var(--accent-rgb), 0.13);
+  background: rgba(var(--highlight-rgb), 0.2);
 }
 
 .prospect-filter-chip:disabled {
@@ -481,12 +605,12 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   border-radius: 0;
   border: none;
   background: transparent;
-  font-size: 8px;
+  font-size: 9px;
   line-height: 1;
   flex-shrink: 0;
   opacity: 0.78;
@@ -494,11 +618,12 @@
 
 .prospect-filter-chip[data-active="true"] .prospect-filter-chip-icon {
   opacity: 1;
+  color: var(--text-primary);
 }
 
 .prospect-filter-chip-count {
   font-size: 9px;
-  font-weight: 600;
+  font-weight: 700;
   padding: 0;
   border-radius: 0;
   background: transparent;
@@ -753,6 +878,7 @@
   gap: 6px;
   margin-left: 0;
   flex-shrink: 0;
+  flex-wrap: wrap;
 }
 
 .prospect-filter-summary-text {
@@ -765,23 +891,460 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 24px;
+  height: 28px;
   padding: 0 10px;
   font-size: 10px;
   font-weight: 600;
-  background: transparent;
-  border: 1px solid rgba(var(--subtle-grey-rgb), 0.16);
+  background: rgba(13, 47, 96, 0.18);
+  border: 1px solid rgba(var(--highlight-rgb), 0.16);
   border-radius: 0;
   color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.15s ease;
   font-family: var(--font-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .prospect-filter-action:hover {
-  border-color: var(--text-accent);
+  border-color: rgba(var(--highlight-rgb), 0.34);
+  color: var(--text-primary);
+  background: rgba(var(--highlight-rgb), 0.12);
+  transform: none;
+}
+
+.prospect-timeline-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.prospect-timeline-day-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.prospect-timeline-day-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid rgba(var(--subtle-grey-rgb), 0.16);
+  background: rgba(8, 28, 48, 0.34);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  font-family: var(--font-primary);
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.prospect-timeline-day-header--collapsed {
+  background: rgba(8, 28, 48, 0.26);
+}
+
+.prospect-timeline-day-header--open {
+  background: rgba(6, 23, 51, 0.68);
+  border-color: rgba(var(--highlight-rgb), 0.14);
+}
+
+.prospect-timeline-day-header.is-filter-match {
+  border-color: rgba(var(--highlight-rgb), 0.3);
+  background: rgba(13, 47, 96, 0.28);
+  box-shadow: inset 0 0 0 1px rgba(var(--highlight-rgb), 0.08);
+}
+
+[data-theme="light"] .prospect-timeline-day-header,
+[data-theme="light"] .prospect-timeline-day-header--collapsed {
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.prospect-timeline-day-header-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.prospect-timeline-day-labels {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.prospect-timeline-day-kicker {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.prospect-timeline-day-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.prospect-timeline-day-summary {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.prospect-timeline-day-snapshot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.prospect-timeline-day-source-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+  padding: 0 7px;
+  border: 1px solid rgba(var(--subtle-grey-rgb), 0.18);
+  background: rgba(0, 3, 25, 0.14);
+  color: var(--text-secondary);
+}
+
+.prospect-timeline-day-source-chip.is-filter-match {
+  border-color: rgba(var(--highlight-rgb), 0.34);
+  background: rgba(var(--highlight-rgb), 0.14);
+  color: var(--text-primary);
+}
+
+.prospect-timeline-day-source-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.prospect-timeline-day-source-count {
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.prospect-timeline-day-source-more {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.prospect-timeline-day-toggle-copy {
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.prospect-timeline-day-member {
+  position: relative;
+  margin-left: 18px;
+  padding-left: 14px;
+}
+
+.prospect-timeline-day-member::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: -10px;
+  bottom: -10px;
+  width: 1px;
+  background: rgba(var(--subtle-grey-rgb), 0.2);
+}
+
+.prospect-timeline-day-member::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 28px;
+  width: 12px;
+  height: 1px;
+  background: rgba(var(--subtle-grey-rgb), 0.2);
+}
+
+.prospect-timeline-day-member.is-day-start {
+  padding-top: 2px;
+}
+
+.prospect-timeline-day-member.is-group-related::before,
+.prospect-timeline-day-member.is-group-related::after {
+  background: rgba(var(--highlight-rgb), 0.22);
+}
+
+.prospect-timeline-day-member.is-filter-match::before,
+.prospect-timeline-day-member.is-filter-match::after {
+  background: rgba(var(--highlight-rgb), 0.4);
+}
+
+.prospect-timeline-card {
+  width: 100%;
+}
+
+.prospect-timeline-card.is-attention {
+  box-shadow: inset 0 0 0 1px rgba(255, 140, 0, 0.12);
+}
+
+.prospect-timeline-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.prospect-timeline-card-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.prospect-timeline-card-type-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  flex-wrap: nowrap;
+}
+
+.prospect-timeline-card-upload-glyph {
+  font-size: 14px;
+  color: var(--text-muted);
+  width: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.prospect-timeline-card-icon-shell {
+  width: 30px;
+  height: 30px;
+}
+
+.prospect-timeline-card-icon-glyph {
+  font-size: 14px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.prospect-timeline-card-title-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.prospect-timeline-card-eyebrow-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.prospect-timeline-card-type-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.prospect-timeline-card-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 0 7px;
+  border: 1px solid rgba(var(--subtle-grey-rgb), 0.22);
+  background: rgba(0, 3, 25, 0.2);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.prospect-timeline-card-pill.is-info {
+  border-color: rgba(var(--highlight-rgb), 0.2);
+  background: rgba(var(--highlight-rgb), 0.08);
   color: var(--text-accent);
-  background: rgba(var(--accent-rgb), 0.06);
+}
+
+.prospect-timeline-card-pill.is-success {
+  border-color: rgba(var(--green-rgb), 0.22);
+  background: rgba(var(--green-rgb), 0.1);
+  color: var(--helix-green);
+}
+
+.prospect-timeline-card-pill.is-warn {
+  border-color: rgba(255, 140, 0, 0.22);
+  background: rgba(255, 140, 0, 0.1);
+  color: #FF8C00;
+}
+
+.prospect-timeline-card-title {
+  font-size: 15px;
+  line-height: 1.3;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
+.prospect-timeline-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 10px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.prospect-timeline-card-time-pill,
+.prospect-timeline-card-scenario-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 0 7px;
+  border: 1px solid rgba(var(--subtle-grey-rgb), 0.18);
+  background: rgba(0, 3, 25, 0.18);
+}
+
+[data-theme="light"] .prospect-timeline-card-time-pill,
+[data-theme="light"] .prospect-timeline-card-scenario-chip {
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.prospect-timeline-card-meta-truncate {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prospect-timeline-card-decision-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.prospect-timeline-card-next,
+.prospect-timeline-card-outcome {
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.prospect-timeline-card-next {
+  font-weight: 700;
+  color: var(--text-accent);
+}
+
+.prospect-timeline-card-next.is-urgent {
+  color: #FF8C00;
+}
+
+.prospect-timeline-card-outcome {
+  color: var(--text-secondary);
+}
+
+.prospect-timeline-card-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+.prospect-timeline-sync {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border: 1px solid rgba(var(--subtle-grey-rgb), 0.18);
+  background: rgba(8, 28, 48, 0.38);
+}
+
+[data-theme="light"] .prospect-timeline-sync {
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.prospect-timeline-sync-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.prospect-timeline-sync-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.prospect-timeline-sync-summary {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.prospect-timeline-sync-note {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.prospect-timeline-sync-note.is-warning {
+  color: #FF8C00;
+}
+
+.prospect-timeline-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 26px 20px;
+  text-align: center;
+  border-top: 1px solid rgba(var(--subtle-grey-rgb), 0.16);
+  background: rgba(8, 28, 48, 0.38);
+}
+
+[data-theme="light"] .prospect-timeline-empty {
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.prospect-timeline-empty-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.prospect-timeline-empty-copy {
+  max-width: 520px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
 }
 
 /* ─── Card Timeline: Collapsed Day Summary ──────────────── */
@@ -793,8 +1356,8 @@
   width: 100%;
   padding: 8px 12px;
   margin-left: -8px;
-  background: transparent;
-  border: 1px dashed var(--border-base);
+  background: rgba(8, 28, 48, 0.58);
+  border: 1px dashed rgba(75, 85, 99, 0.3);
   border-radius: 0;
   cursor: pointer;
   text-align: left;
@@ -803,7 +1366,19 @@
 }
 
 .prospect-collapsed-day:hover {
-  background: rgba(var(--highlight-rgb), 0.04);
+  background: rgba(var(--highlight-rgb), 0.08);
+}
+
+[data-theme="dark"] .prospect-ledger tbody tr {
+  border-bottom-color: rgba(var(--subtle-grey-rgb), 0.16);
+}
+
+[data-theme="dark"] .prospect-ledger tbody tr:not(.prospect-ledger-day):hover {
+  background: rgba(var(--highlight-rgb), 0.08);
+}
+
+[data-theme="dark"] .prospect-ledger tbody tr[data-parity="even"]:not(:hover):not([data-expanded="true"]) {
+  background: rgba(54, 144, 206, 0.03);
 }
 
 .prospect-collapsed-day-label {
@@ -861,6 +1436,748 @@
 .prospect-hide-btn:hover {
   color: var(--text-primary);
   background: rgba(var(--highlight-rgb), 0.08);
+}
+
+/* ─── Live Prospect Detail Shell ─────────────────────────── */
+
+.prospect-detail-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  font-family: var(--font-primary);
+  padding: 0 16px 18px;
+  gap: 0;
+}
+
+.prospect-detail-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin-top: 12px;
+  position: relative;
+}
+
+.prospect-detail-rail-shell,
+.prospect-detail-workbench-shell {
+  background: var(--helix-website-blue);
+  border-top: 1px solid var(--border-strong);
+  border-left: 1px solid var(--border-strong);
+  border-right: 1px solid var(--border-strong);
+  border-bottom: 1px solid var(--border-strong);
+}
+
+[data-theme="light"] .prospect-detail-rail-shell,
+[data-theme="light"] .prospect-detail-workbench-shell {
+  background: #f4f4f6;
+}
+
+.prospect-detail-rail {
+  padding: 0;
+  justify-content: flex-start;
+  align-items: stretch;
+  gap: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.prospect-detail-rail.is-compact {
+  padding: 0;
+  gap: 0;
+}
+
+.prospect-detail-rail-shell {
+  border-bottom: none;
+  background: var(--helix-website-blue);
+  overflow: hidden;
+}
+
+[data-theme="light"] .prospect-detail-rail-shell {
+  background: #f4f4f6;
+}
+
+.prospect-detail-stage-bar {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--helix-website-blue);
+  border-bottom: 1px solid rgba(var(--subtle-grey-rgb), 0.18);
+}
+
+[data-theme="light"] .prospect-detail-stage-bar {
+  background: #f4f4f6;
+}
+
+.prospect-detail-stage-bar-tabs {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.prospect-detail-stage-bar .prospect-pipeline-node {
+  border-bottom: 1px solid transparent;
+}
+
+.prospect-detail-stage-bar .prospect-pipeline-node[data-active="true"] {
+  background: var(--helix-dark-blue);
+  margin-bottom: -1px;
+  border-bottom-color: var(--helix-dark-blue);
+}
+
+[data-theme="light"] .prospect-detail-stage-bar .prospect-pipeline-node[data-active="true"] {
+  background: #ffffff;
+  border-bottom-color: #ffffff;
+}
+
+.prospect-detail-stage-bar .prospect-pipeline-node[data-active="true"]::after {
+  opacity: 0;
+  transform: scaleX(0);
+}
+
+.prospect-detail-stage-current {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid rgba(var(--subtle-grey-rgb), 0.2);
+  background: rgba(8, 28, 48, 0.78);
+  color: #dbe4ff;
+  font-family: var(--font-primary);
+  flex: 0 0 auto;
+}
+
+[data-theme="light"] .prospect-detail-stage-current {
+  background: #ffffff;
+  color: var(--text-secondary);
+}
+
+.prospect-detail-stage-current-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--helix-accent);
+}
+
+[data-theme="light"] .prospect-detail-stage-current-icon {
+  color: var(--helix-highlight);
+}
+
+.prospect-detail-stage-current-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.35px;
+  text-transform: uppercase;
+}
+
+.prospect-detail-stage-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border: 1px solid rgba(var(--highlight-rgb), 0.18);
+  background: rgba(var(--highlight-rgb), 0.08);
+  color: var(--helix-highlight);
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--font-primary);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.prospect-detail-stage-action:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.prospect-detail-stage-action:not(:disabled):hover {
+  background: rgba(var(--highlight-rgb), 0.12);
+}
+
+.prospect-detail-stage-action.is-live {
+  border-color: rgba(var(--green-rgb), 0.28);
+  background: rgba(var(--green-rgb), 0.1);
+  color: var(--helix-green);
+}
+
+.prospect-detail-stage-action.is-live:not(:disabled):hover {
+  background: rgba(var(--green-rgb), 0.14);
+}
+
+.prospect-detail-stage-action.is-muted {
+  border-color: rgba(var(--subtle-grey-rgb), 0.3);
+  background: rgba(0, 3, 25, 0.22);
+  color: var(--text-muted);
+}
+
+[data-theme="light"] .prospect-detail-stage-action.is-muted {
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.prospect-detail-workbench-overlay {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.prospect-detail-workbench-float {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+  max-width: min(calc(100vw - 64px), 640px);
+  pointer-events: auto;
+}
+
+.prospect-detail-workbench-live {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 8px;
+  background: rgba(255,255,255,0.02);
+  box-shadow: inset 0 0 0 1px rgba(75,85,99,0.24);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 500;
+  font-family: var(--font-primary);
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+[data-theme="light"] .prospect-detail-workbench-live {
+  background: rgba(255,255,255,0.72);
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,0.08);
+}
+
+.prospect-detail-workbench-live-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  background: rgba(54, 144, 206, 0.08);
+  pointer-events: none;
+}
+
+.prospect-detail-workbench-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.prospect-detail-workbench-live-dot.is-live {
+  background: var(--helix-highlight);
+}
+
+.prospect-detail-workbench-live-dot.is-idle {
+  background: var(--helix-highlight);
+}
+
+.prospect-detail-workbench-live-label {
+  white-space: nowrap;
+  position: relative;
+  font-size: 9px;
+  font-weight: 600;
+  opacity: 0.6;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+}
+
+.prospect-detail-workbench-body {
+  position: relative;
+}
+
+.prospect-detail-workbench-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px 8px;
+  border-top: 1px solid rgba(var(--subtle-grey-rgb), 0.18);
+  border-bottom: 1px solid rgba(var(--subtle-grey-rgb), 0.18);
+  background: #061733;
+}
+
+[data-theme="light"] .prospect-detail-workbench-header {
+  background: #ffffff;
+}
+
+.prospect-detail-workbench-header-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: opacity 170ms ease, transform 170ms ease;
+}
+
+
+[data-theme="dark"] .prospect-detail-timeline-shell {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+}
+
+/* ─── Enquiry Overview Shell ─────────────────────────────── */
+
+.prospect-overview-shell {
+  display: grid;
+  gap: 16px;
+  width: 100%;
+  min-width: 0;
+}
+
+.prospect-overview-enter {
+  animation: overviewFadeUp 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(var(--tier, 0) * 60ms);
+}
+
+.prospect-overview-enter[data-tier="0"] { --tier: 0; }
+.prospect-overview-enter[data-tier="1"] { --tier: 1; }
+.prospect-overview-enter[data-tier="2"] { --tier: 2; }
+
+.prospect-overview-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(220px, 0.9fr);
+  gap: 20px;
+  padding: 18px 20px;
+  background:
+    radial-gradient(circle at top right, rgba(var(--highlight-rgb), 0.16), transparent 34%),
+    linear-gradient(135deg, rgba(var(--highlight-rgb), 0.06), transparent 60%),
+    var(--surface-card);
+  border-color: rgba(var(--highlight-rgb), 0.18);
+}
+
+.prospect-overview-kicker,
+.prospect-overview-panel-kicker {
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--text-accent);
+}
+
+.prospect-overview-identity-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.prospect-overview-avatar {
+  width: 48px;
+  height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(var(--highlight-rgb), 0.22);
+  background: rgba(var(--highlight-rgb), 0.1);
+  color: var(--text-accent);
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.prospect-overview-identity-block {
+  min-width: 0;
+}
+
+.prospect-overview-name {
+  margin: 0;
+  font-size: clamp(20px, 2.4vw, 28px);
+  line-height: 1.1;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.04em;
+}
+
+.prospect-overview-subline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-body);
+}
+
+.prospect-overview-subline-sep {
+  color: var(--text-muted);
+}
+
+.prospect-overview-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.prospect-overview-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid rgba(var(--subtle-grey-rgb), 0.2);
+  background: rgba(var(--subtle-grey-rgb), 0.05);
+  color: var(--text-body);
+  min-width: 0;
+}
+
+.prospect-overview-chip-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-accent);
+  font-size: 11px;
+}
+
+.prospect-overview-chip-label {
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.prospect-overview-chip-value {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.prospect-overview-hero-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.prospect-overview-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.prospect-overview-action,
+.prospect-overview-inline-action,
+.prospect-overview-history-item,
+.prospect-overview-rating {
+  font-family: var(--font-primary);
+}
+
+.prospect-overview-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid rgba(var(--subtle-grey-rgb), 0.2);
+  background: rgba(var(--subtle-grey-rgb), 0.04);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform var(--transition-fast), background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+}
+
+.prospect-overview-action:hover:not(:disabled),
+.prospect-overview-inline-action:hover,
+.prospect-overview-history-item:hover:not(:disabled),
+.prospect-overview-rating:hover {
+  transform: translateY(-1px);
+}
+
+.prospect-overview-action:disabled {
+  opacity: 0.42;
+  cursor: default;
+}
+
+.prospect-overview-action--accent {
+  border-color: rgba(var(--highlight-rgb), 0.26);
+  background: rgba(var(--highlight-rgb), 0.12);
+  color: var(--text-accent);
+}
+
+.prospect-overview-rating {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  cursor: pointer;
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast), border-color var(--transition-fast);
+}
+
+.prospect-overview-rating:hover {
+  box-shadow: var(--shadow-md);
+}
+
+.prospect-overview-rating-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: inherit;
+  background: inherit;
+  color: inherit;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.prospect-overview-rating-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+}
+
+.prospect-overview-rating-label {
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.45px;
+  opacity: 0.8;
+}
+
+.prospect-overview-rating-value {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.prospect-overview-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.95fr);
+  gap: 16px;
+}
+
+.prospect-overview-panel {
+  padding: 18px 20px;
+  min-width: 0;
+}
+
+.prospect-overview-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.prospect-overview-panel-title {
+  margin: 4px 0 0;
+  font-size: 18px;
+  line-height: 1.15;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.prospect-overview-inline-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid rgba(var(--subtle-grey-rgb), 0.2);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.prospect-overview-inline-action:hover {
+  border-color: rgba(var(--highlight-rgb), 0.22);
+  background: rgba(var(--highlight-rgb), 0.07);
+  color: var(--text-accent);
+}
+
+.prospect-overview-notes {
+  min-height: 180px;
+  padding: 16px;
+  background: rgba(var(--subtle-grey-rgb), 0.04);
+  border: 1px solid rgba(var(--subtle-grey-rgb), 0.16);
+  color: var(--text-body);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.prospect-overview-notes.is-empty {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.prospect-overview-detail-list {
+  display: grid;
+  gap: 10px;
+}
+
+.prospect-overview-detail-item {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.8fr) minmax(0, 1.2fr);
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid rgba(var(--subtle-grey-rgb), 0.12);
+}
+
+.prospect-overview-detail-item:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.prospect-overview-detail-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: 0.45px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.prospect-overview-detail-value {
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+.prospect-overview-history {
+  padding: 18px 20px;
+}
+
+.prospect-overview-history-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.prospect-overview-history-list {
+  display: grid;
+  gap: 10px;
+}
+
+.prospect-overview-history-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid rgba(var(--subtle-grey-rgb), 0.16);
+  background: rgba(var(--subtle-grey-rgb), 0.03);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.prospect-overview-history-item:disabled {
+  cursor: default;
+}
+
+.prospect-overview-history-item:hover:not(:disabled) {
+  background: rgba(var(--highlight-rgb), 0.07);
+  border-color: rgba(var(--highlight-rgb), 0.24);
+  box-shadow: var(--shadow-sm);
+}
+
+.prospect-overview-history-main {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.prospect-overview-history-title-row,
+.prospect-overview-history-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.prospect-overview-history-area {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.prospect-overview-history-type,
+.prospect-overview-history-meta {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.prospect-overview-history-meta {
+  margin-top: 6px;
+}
+
+.prospect-overview-history-chevron {
+  color: var(--text-muted);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+@keyframes overviewFadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 1100px) {
+  .prospect-overview-hero,
+  .prospect-overview-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .prospect-overview-actions {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .prospect-overview-shell {
+    gap: 12px;
+  }
+
+  .prospect-overview-hero,
+  .prospect-overview-panel,
+  .prospect-overview-history {
+    padding: 14px;
+  }
+
+  .prospect-overview-identity-row {
+    align-items: flex-start;
+  }
+
+  .prospect-overview-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .prospect-overview-detail-item {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .prospect-overview-history-item {
+    padding: 12px 14px;
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -924,6 +2241,8 @@
 
 /* Reduced motion — disable all entrance animations */
 @media (prefers-reduced-motion: reduce) {
+  .prospect-detail-workbench-header-copy,
+  .prospect-overview-enter,
   .prospect-entrance-hero,
   .prospect-entrance-pipeline,
   .prospect-entrance-workbench,
@@ -931,5 +2250,162 @@
   .prospect-pipeline-node,
   .prospect-pipeline-connector {
     animation: none !important;
+  }
+}
+
+@media (max-width: 900px) {
+  .prospect-detail-shell {
+    padding: 0 10px 14px;
+  }
+
+  .prospect-timeline-topbar {
+    padding: 12px;
+  }
+
+  .prospect-timeline-meta {
+    justify-content: flex-start;
+  }
+
+  .prospect-timeline-day-header,
+  .prospect-timeline-day-header-main,
+  .prospect-timeline-card-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .prospect-timeline-day-counts,
+  .prospect-timeline-card-controls {
+    justify-content: flex-start;
+  }
+
+  .prospect-timeline-day-snapshot {
+    justify-content: flex-start;
+  }
+
+  .prospect-timeline-card-type-row {
+    width: 100%;
+  }
+
+  .prospect-timeline-day-member {
+    margin-left: 14px;
+    padding-left: 12px;
+  }
+
+  .prospect-timeline-day-member::after {
+    width: 10px;
+  }
+
+  .prospect-detail-stage-bar {
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .prospect-detail-workbench-overlay {
+    top: 6px;
+    right: 6px;
+  }
+
+  .prospect-detail-workbench-float {
+    max-width: calc(100vw - 40px);
+  }
+
+  .prospect-detail-workbench-header,
+  .prospect-detail-workbench-body {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .prospect-detail-rail {
+    padding-left: 0;
+    padding-right: 0;
+  }
+}
+
+@media (max-width: 720px) {
+  .prospect-detail-rail-shell {
+    overflow: hidden;
+  }
+
+  .prospect-timeline-feed {
+    gap: 10px;
+  }
+
+  .prospect-timeline-day-header,
+  .prospect-timeline-sync,
+  .prospect-timeline-empty {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .prospect-timeline-card {
+    padding-left: 10px !important;
+    padding-right: 10px !important;
+  }
+
+  .prospect-timeline-day-member {
+    margin-left: 10px;
+    padding-left: 9px;
+  }
+
+  .prospect-timeline-day-member::after {
+    width: 7px;
+    top: 24px;
+  }
+
+  .prospect-timeline-card-icon-shell {
+    width: 28px;
+    height: 28px;
+  }
+
+  .prospect-timeline-card-icon-glyph {
+    font-size: 13px;
+  }
+
+  .prospect-timeline-card-title {
+    font-size: 14px;
+  }
+
+  .prospect-timeline-card-meta {
+    gap: 6px;
+  }
+
+  .prospect-pipeline-rail,
+  .prospect-detail-rail,
+  .prospect-detail-rail.is-compact {
+    padding: 0;
+    gap: 0;
+    scroll-snap-type: x proximity;
+  }
+
+  .prospect-pipeline-node {
+    flex: 0 0 auto;
+    min-width: max-content;
+    scroll-snap-align: start;
+  }
+
+  .prospect-pipeline-label {
+    font-size: 9px;
+  }
+
+  .prospect-pipeline-connector {
+    display: none;
+  }
+
+  .prospect-detail-workbench-header,
+  .prospect-detail-workbench-body {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+}
+
+@media (max-width: 720px) {
+  .prospect-detail-workbench-overlay {
+    position: static;
+    padding-bottom: 8px;
+  }
+
+  .prospect-detail-workbench-float {
+    justify-content: flex-start;
+    max-width: 100%;
   }
 }

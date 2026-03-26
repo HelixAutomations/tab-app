@@ -1,16 +1,14 @@
 import React, { useState, useRef, useLayoutEffect, useEffect } from 'react';
 import { addDays } from 'date-fns';
-import {
-  Stack,
-  Text,
-  TextField,
-  Dropdown,
-  IDropdownOption,
-  IconButton,
-  Icon,
-  mergeStyles,
-  Label,
-} from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Text } from '@fluentui/react/lib/Text';
+import { TextField } from '@fluentui/react/lib/TextField';
+import { Dropdown } from '@fluentui/react/lib/Dropdown';
+import type { IDropdownOption } from '@fluentui/react/lib/Dropdown';
+import { IconButton } from '@fluentui/react/lib/Button';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
+import { Label } from '@fluentui/react/lib/Label';
 import {
   inputFieldStyle,
   dropdownStyle,

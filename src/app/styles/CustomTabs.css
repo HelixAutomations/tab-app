@@ -7,11 +7,21 @@
   opacity: 0;
   animation: dropIn 0.3s ease forwards;
   position: relative;
+  color: var(--tab-text-color, inherit);
   background: var(--tab-active-fill, transparent);
+  transform: scale(1);
+  transition: color 0.2s ease, background 0.2s ease, transform 0.1s ease, opacity 0.1s ease,
+              padding 0.25s ease, height 0.25s ease, gap 0.2s ease, font-size 0.2s ease;
 }
 
 .custom-tab-btn:hover {
+  color: var(--tab-text-hover, var(--tab-text-color, inherit));
   background: var(--tab-hover-fill, transparent);
+}
+
+.custom-tab-btn:active {
+  transform: scale(0.96);
+  opacity: 0.75;
 }
 
 .custom-tab-btn.custom-tab-active {
@@ -26,7 +36,7 @@
   left: 0;
   right: 0;
   bottom: 1px;
-  height: 2px;
+  height: 1.5px;
   width: 100%;
   background-color: var(--tab-underline-colour, #3690CE);
   transform: scaleX(0);
@@ -42,15 +52,16 @@
   opacity: 0.4;
 }
 
-/* Active — full underline inside bar */
+/* Active — partial underline inside bar */
 .custom-tab-btn.custom-tab-active::after {
-  transform: scaleX(1);
-  opacity: 1;
+  transform: scaleX(0.6);
+  opacity: 0.7;
 }
 
 /* Active + hover */
 .custom-tab-btn.custom-tab-active:hover::after {
-  opacity: 1;
+  transform: scaleX(0.85);
+  opacity: 0.9;
 }
 
 /* Focus ring */
@@ -65,6 +76,19 @@
 .home-icon .icon-filled {
   position: absolute;
   transition: opacity 0.18s ease;
+}
+
+.home-icon {
+  background: var(--home-resting-bg, transparent);
+  transition: background 0.2s ease, opacity 0.1s ease, width 0.25s ease, height 0.25s ease, min-width 0.25s ease;
+}
+
+.home-icon:hover {
+  background: var(--home-hover-bg, transparent);
+}
+
+.home-icon.active {
+  background: var(--home-resting-bg, transparent);
 }
 
 .home-icon .icon-outline { opacity: 1; }
@@ -210,24 +234,163 @@
   opacity: 0.6;
 }
 
-/* ─── Mobile ──────────────────────────────────────────── */
+/* ─── Tab label — smooth responsive collapse ─────────── */
+
+.custom-tab-btn .tab-label {
+  display: inline-block;
+  max-width: 140px;
+  opacity: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  transition: max-width 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 0.2s ease,
+              margin 0.2s ease;
+}
+
+/* JS overflow class — smooth icon-only collapse */
+.customTabsContainer.tabs-icon-only .custom-tab-btn .tab-label {
+  max-width: 0;
+  opacity: 0;
+}
+
+/* Keep active-tab label visible when JS-collapsed (app UX) */
+.customTabsContainer.tabs-icon-only .custom-tab-btn.custom-tab-active .tab-label {
+  max-width: 80px;
+  opacity: 0.85;
+}
+
+/* ─── Separator transitions ───────────────────────────── */
+
+.tab-separator,
+.tab-section-separator {
+  transition: opacity 0.25s ease, margin 0.2s ease, font-size 0.2s ease;
+}
+
+/* ─── Container responsive transitions ────────────────── */
+
+.customTabsContainer {
+  transition: height 0.25s ease, padding 0.25s ease, gap 0.2s ease;
+}
+
+/* ─── Progressive responsive breakpoints ──────────────── */
+
+/* Tier 1: Compact — ≤ 900px */
+@media (max-width: 900px) {
+  .customTabsContainer {
+    padding: 0 14px !important;
+    height: 44px !important;
+  }
+  .custom-tab-btn {
+    padding: 0 12px !important;
+    font-size: 12px !important;
+    height: 44px !important;
+    gap: 5px !important;
+  }
+  .tab-separator {
+    margin-right: 8px !important;
+    font-size: 15px !important;
+  }
+  .tab-section-separator {
+    height: 44px !important;
+    margin: 0 3px !important;
+  }
+}
+
+/* Tier 2: Tight — ≤ 700px (all tabs icon-only) */
+@media (max-width: 700px) {
+  .customTabsContainer {
+    padding: 0 10px !important;
+    height: 40px !important;
+    gap: 2px !important;
+  }
+  .custom-tab-btn {
+    padding: 0 10px !important;
+    font-size: 11px !important;
+    height: 40px !important;
+    gap: 4px !important;
+    flex-shrink: 1 !important;
+  }
+  .custom-tab-btn .tab-label {
+    max-width: 0;
+    opacity: 0;
+  }
+  .home-icon {
+    width: 32px !important;
+    height: 32px !important;
+    min-width: 32px !important;
+  }
+  .tab-separator {
+    margin-right: 6px !important;
+    font-size: 14px !important;
+    opacity: 0.5;
+  }
+  .tab-section-separator {
+    height: 40px !important;
+    margin: 0 2px !important;
+    opacity: 0.4;
+  }
+}
+
+/* Tier 3: Minimal — ≤ 500px (all icon-only, minimal chrome, app-like) */
+@media (max-width: 500px) {
+  .customTabsContainer {
+    padding: 0 6px !important;
+    height: 36px !important;
+    gap: 0 !important;
+  }
+  .custom-tab-btn {
+    padding: 0 8px !important;
+    height: 36px !important;
+    gap: 0 !important;
+    flex-shrink: 1 !important;
+  }
+  .custom-tab-btn .tab-label {
+    max-width: 0 !important;
+    opacity: 0 !important;
+  }
+  .custom-tab-btn svg {
+    width: 13px !important;
+    height: 13px !important;
+  }
+  .home-icon {
+    width: 28px !important;
+    height: 28px !important;
+    min-width: 28px !important;
+  }
+  .home-icon svg {
+    width: 16px !important;
+    height: 16px !important;
+  }
+  .tab-separator {
+    display: none !important;
+  }
+  .tab-section-separator {
+    display: none !important;
+  }
+  /* Active tab subtle background pill */
+  .custom-tab-btn.custom-tab-active {
+    border-radius: 2px;
+  }
+}
+
+/* ─── Scrollbar for narrow overflow ───────────────────── */
 
 @media (max-width: 640px) {
-  .customTabsContainer {
-    position: relative !important;
-    top: auto !important;
-    z-index: auto !important;
-    flex-shrink: 0;
-    overflow-x: auto;
-    padding: 0 12px !important;
-  }
-
   .customTabsContainer::-webkit-scrollbar {
     height: 3px;
   }
-
   .customTabsContainer::-webkit-scrollbar-thumb {
     background-color: rgba(0, 0, 0, 0.12);
     border-radius: 0;
+  }
+}
+
+/* ─── Reduced motion ──────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .custom-tab-btn .tab-label,
+  .tab-separator,
+  .tab-section-separator,
+  .customTabsContainer {
+    transition: none !important;
   }
 }

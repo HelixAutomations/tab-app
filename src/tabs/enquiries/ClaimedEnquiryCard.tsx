@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Text, Icon, TextField, DefaultButton, PrimaryButton } from '@fluentui/react';
+import { Text } from '@fluentui/react/lib/Text';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { TextField } from '@fluentui/react/lib/TextField';
+import { DefaultButton, PrimaryButton } from '@fluentui/react/lib/Button';
 import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { Enquiry } from '../../app/functionality/types';
 import { useTheme } from '../../app/functionality/ThemeContext';

@@ -2,7 +2,14 @@
 // Streamlined leave history view with delete functionality
 
 import React, { useState, useMemo, useCallback } from 'react';
-import { Stack, Text, IconButton, TooltipHost, Spinner, SpinnerSize, Dialog, DialogType, DialogFooter, DefaultButton, PrimaryButton, Checkbox, MessageBar, MessageBarType } from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Text } from '@fluentui/react/lib/Text';
+import { IconButton, DefaultButton, PrimaryButton } from '@fluentui/react/lib/Button';
+import { TooltipHost } from '@fluentui/react/lib/Tooltip';
+import { Spinner, SpinnerSize } from '@fluentui/react/lib/Spinner';
+import { Dialog, DialogType, DialogFooter } from '@fluentui/react/lib/Dialog';
+import { Checkbox } from '@fluentui/react/lib/Checkbox';
+import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
 import { useTheme } from '../app/functionality/ThemeContext';
 import { colours } from '../app/styles/colours';
 import { format } from 'date-fns';

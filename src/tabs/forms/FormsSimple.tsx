@@ -3,13 +3,11 @@
 // Clean grid of icons - click to open form directly
 
 import React, { useState, useCallback, useMemo } from 'react';
-import {
-  Stack,
-  Text,
-  SearchBox,
-  Icon,
-  mergeStyles,
-} from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Text } from '@fluentui/react/lib/Text';
+import { SearchBox } from '@fluentui/react/lib/SearchBox';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';
 import { formSections } from './formsData';

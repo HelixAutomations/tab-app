@@ -1,5 +1,6 @@
 import React from 'react';
-import { PrimaryButton, mergeStyles } from '@fluentui/react';
+import { PrimaryButton } from '@fluentui/react/lib/Button';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';
 

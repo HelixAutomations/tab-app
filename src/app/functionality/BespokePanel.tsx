@@ -3,8 +3,9 @@
 
 import React, { ReactNode, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { IconButton, Text } from '@fluentui/react';
-import { mergeStyles } from '@fluentui/react';
+import { IconButton } from '@fluentui/react/lib/Button';
+import { Text } from '@fluentui/react/lib/Text';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { colours } from '../styles/colours';
 
 interface BespokePanelProps {

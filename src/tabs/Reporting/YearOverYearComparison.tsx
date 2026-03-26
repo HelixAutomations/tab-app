@@ -11,7 +11,8 @@ import {
   BarChart, Bar, CartesianGrid, Tooltip, XAxis, YAxis,
   ResponsiveContainer, Cell,
 } from 'recharts';
-import { Spinner, Icon } from '@fluentui/react';
+import { Spinner } from '@fluentui/react/lib/Spinner';
+import { Icon } from '@fluentui/react/lib/Icon';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';
 import {

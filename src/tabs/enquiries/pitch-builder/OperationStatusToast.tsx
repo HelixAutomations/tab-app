@@ -1,5 +1,7 @@
 import React from 'react';
-import { MessageBar, MessageBarType, Spinner, SpinnerSize, Icon } from '@fluentui/react';
+import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
+import { Spinner, SpinnerSize } from '@fluentui/react/lib/Spinner';
+import { Icon } from '@fluentui/react/lib/Icon';
 import { CSSTransition } from 'react-transition-group';
 import '../../../app/styles/toast.css';
 

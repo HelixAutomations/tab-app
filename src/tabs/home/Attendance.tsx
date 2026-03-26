@@ -1,15 +1,11 @@
 import React, { useMemo, useState, useEffect, useRef, forwardRef, useImperativeHandle, RefAttributes } from 'react';
 // invisible change 2
-import {
-  mergeStyles,
-  Text,
-  Spinner,
-  SpinnerSize,
-  MessageBar,
-  MessageBarType,
-  Icon,
-  DefaultButton,
-} from '@fluentui/react';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
+import { Text } from '@fluentui/react/lib/Text';
+import { Spinner, SpinnerSize } from '@fluentui/react/lib/Spinner';
+import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { DefaultButton } from '@fluentui/react/lib/Button';
 import { getProxyBaseUrl } from '../../utils/getProxyBaseUrl';
 import { colours } from '../../app/styles/colours';
 import { cardStyles } from '../instructions/componentTokens';
@@ -66,6 +62,8 @@ interface AttendancePerson {
   attendance: string;
   confirmed: boolean;
 }
+
+type AttendanceCellStatus = 'in' | 'wfh' | 'out' | 'pending';
 
 const CollapsibleSection: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => {
   const [collapsed, setCollapsed] = useState(false);
@@ -271,7 +269,7 @@ const Attendance: React.FC<AttendanceProps & RefAttributes<{ focusTable: () => v
     personInitials: string,
     day: string,
     cellDateStr: string
-  ): 'in' | 'wfh' | 'out' => {
+  ): AttendanceCellStatus => {
     const isOnLeave = combinedLeaveRecords.some(
       (leave) =>
         leave.status === 'booked' &&
@@ -292,6 +290,7 @@ const Attendance: React.FC<AttendanceProps & RefAttributes<{ focusTable: () => v
         .split(',')
         .map((s: string) => dayMap[s.trim()] || s.trim())
       : [];
+    if (attendedDays.length === 0 && cellDateStr > todayStr) return 'pending';
     return attendedDays.includes(day) ? 'in' : 'wfh';
   };
 
@@ -401,14 +400,16 @@ const Attendance: React.FC<AttendanceProps & RefAttributes<{ focusTable: () => v
     date.toLocaleDateString('en-GB', { weekday: 'narrow' }).toUpperCase();
 
   const AttendanceCell: React.FC<{
-    status: 'in' | 'wfh' | 'out';
+    status: AttendanceCellStatus;
     highlight?: boolean;
     editable?: boolean;
     proximity?: number;
-  }> = ({ status, highlight = false, editable = false, proximity = 0 }) => {
+    faded?: boolean;
+  }> = ({ status, highlight = false, editable = false, proximity = 0, faded = false }) => {
     let iconName = 'Home';
     if (status === 'in') iconName = 'Accept';
     else if (status === 'out') iconName = 'Airplane';
+    else if (status === 'pending') iconName = 'Clock';
     const baseColor = highlight ? '#ffffff' : isDarkMode ? colours.dark.grey : colours.light.grey;
     const hoverColor = highlight ? '#e0e0e0' : isDarkMode ? '#e0e0e0' : '#666666';
     const rBase = parseInt(baseColor.slice(1, 3), 16);
@@ -430,7 +431,9 @@ const Attendance: React.FC<AttendanceProps & RefAttributes<{ focusTable: () => v
             fontSize: '20px',
             color: interpolatedColor,
             cursor: editable ? 'pointer' : 'default',
-            transition: 'color 0.1s ease-out',
+            transition: 'color 0.1s ease-out, opacity 0.18s ease-out, transform 0.18s ease-out',
+            opacity: faded ? 0.42 : 1,
+            transform: faded ? 'scale(0.92)' : 'scale(1)',
           },
         }}
       />
@@ -479,6 +482,7 @@ const Attendance: React.FC<AttendanceProps & RefAttributes<{ focusTable: () => v
   const inHighlight = 'rgba(16,124,16,0.15)';
   const wfhHighlight = 'rgba(54,144,206,0.15)';
   const outHighlight = 'rgba(214,85,65,0.15)';
+  const pendingHighlight = isDarkMode ? 'rgba(75, 85, 99, 0.18)' : 'rgba(107, 107, 107, 0.08)';
 
   const toggleStyle = mergeStyles({
     display: 'flex',
@@ -826,12 +830,15 @@ const Attendance: React.FC<AttendanceProps & RefAttributes<{ focusTable: () => v
                           const weekStart = selectedWeek === 'current' ? currentWeek.start : nextWeek.start;
                           const localDays = localAttendance[weekStart]?.[person.initials] || person.attendance;
                           const status = getCellStatus(localDays, person.initials, day, cellDateStr);
+                          const isFutureUnset = status === 'pending';
                           const cellBg = isCurrentDay
                             ? status === 'in'
                               ? inHighlight
                               : status === 'wfh'
                               ? wfhHighlight
-                              : outHighlight
+                              : status === 'out'
+                              ? outHighlight
+                              : pendingHighlight
                             : isDarkMode
                             ? colours.dark.sectionBackground
                             : colours.light.sectionBackground;
@@ -841,7 +848,7 @@ const Attendance: React.FC<AttendanceProps & RefAttributes<{ focusTable: () => v
                             <td
                               key={person.initials}
                               className={cellStyle}
-                              style={{ backgroundColor: cellBg }}
+                              style={{ backgroundColor: cellBg, opacity: isFutureUnset ? 0.72 : 1 }}
                               onClick={() => handleCellClick(person.initials, day, cellDateStr)}
                             >
                               <AttendanceCell
@@ -849,6 +856,7 @@ const Attendance: React.FC<AttendanceProps & RefAttributes<{ focusTable: () => v
                                 highlight={isCurrentDay}
                                 editable={person.initials === userInitials}
                                 proximity={proximity}
+                                faded={isFutureUnset}
                               />
                             </td>
                           );
@@ -923,12 +931,15 @@ const Attendance: React.FC<AttendanceProps & RefAttributes<{ focusTable: () => v
                             const weekStart = selectedWeek === 'current' ? currentWeek.start : nextWeek.start;
                             const localDays = localAttendance[weekStart]?.[person.initials] || person.attendance;
                             const status = getCellStatus(localDays, person.initials, day, cellDateStr);
+                            const isFutureUnset = status === 'pending';
                             const cellBg = isCurrentDay
                               ? status === 'in'
                                 ? inHighlight
                                 : status === 'wfh'
                                 ? wfhHighlight
-                                : outHighlight
+                                : status === 'out'
+                                ? outHighlight
+                                : pendingHighlight
                               : isDarkMode
                               ? colours.dark.sectionBackground
                               : colours.light.sectionBackground;
@@ -938,7 +949,7 @@ const Attendance: React.FC<AttendanceProps & RefAttributes<{ focusTable: () => v
                               <td
                                 key={person.initials}
                                 className={cellStyle}
-                                style={{ backgroundColor: cellBg }}
+                                style={{ backgroundColor: cellBg, opacity: isFutureUnset ? 0.72 : 1 }}
                                 onClick={() => handleCellClick(person.initials, day, cellDateStr)}
                               >
                                 <AttendanceCell
@@ -946,6 +957,7 @@ const Attendance: React.FC<AttendanceProps & RefAttributes<{ focusTable: () => v
                                   highlight={isCurrentDay}
                                   editable={person.initials === userInitials}
                                   proximity={proximity}
+                                  faded={isFutureUnset}
                                 />
                               </td>
                             );

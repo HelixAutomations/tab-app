@@ -31,13 +31,14 @@ function formatSlotKey(date) {
 /**
  * Overlapping-window scheduler for collected time AND WIP.
  *
- * Tier     | Frequency              | Window          | Purpose
- * ---------|------------------------|-----------------|------------------------------------------
- * Hot      | Every 60 min at :03    | Today+yesterday | Catches entries finalised after last run
- * Warm     | Every 6h (00/06/12/18) | Rolling 3 days  | Catches delayed Clio report appearances
- * Cold     | Nightly at 23:03       | Rolling 14 days | Safety net for backdated entries
+ * Tier     | Frequency              | Window                   | Purpose
+ * ---------|------------------------|--------------------------|------------------------------------------
+ * Hot      | Every 60 min at :03    | Today+yesterday          | Catches entries finalised after last run
+ * Warm     | Every 6h (00/06/12/18) | Rolling 3 days           | Catches delayed Clio report appearances
+ * Cold     | Nightly at 23:03       | Full current month (1st→today) | Reconciles entire month, catches backdated entries & purges duplicates
+ * Monthly  | 2nd of month at 02:03  | Full previous month      | Post-close reconciliation of last month
  *
- * ~29 API calls/day per operation (24 hot + 4 warm + 1 cold).
+ * ~29 API calls/day per operation (24 hot + 4 warm + 1 cold) + 1 monthly.
  * Each tier has its own running guard + last-slot dedup.
  * WIP runs at :20 offset to avoid overlapping Clio API calls with collected.
  * WIP windows are wider than collected to catch delayed backfills in recent history.
@@ -51,6 +52,8 @@ function startDataOperationsScheduler() {
     warmRunning: false,
     coldLastDate: null,
     coldRunning: false,
+    monthlyLastDate: null,
+    monthlyRunning: false,
     // WIP
     wipHotLastSlot: null,
     wipHotRunning: false,
@@ -116,24 +119,58 @@ function startDataOperationsScheduler() {
       }
     }
 
-    // ─── COLD: nightly at 23:03 — rolling 14 days ───
+    // ─── COLD: nightly at 23:03 — full current month (1st → today) ───
     if (hour === 23 && minute === 3) {
       const dateKey = formatDateKey(now);
       if (!state.coldRunning && state.coldLastDate !== dateKey) {
         state.coldRunning = true;
         state.coldLastDate = dateKey;
+
+        // Full current month: 1st of month → today
+        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+        const startDate = formatDateKey(monthStart);
+        const endDate = formatDateKey(now);
+
         const opName = 'syncCollectedTimeCold';
-        logProgress(opName, `Cold sync triggered (${dateKey} 23:03) — rolling 14 days`, { triggeredBy: 'scheduler' });
+        logProgress(opName, `Cold sync triggered (${dateKey} 23:03) — full month ${startDate} → ${endDate}`, { triggeredBy: 'scheduler' });
         try {
-          await syncCollectedTime({ daysBack: 14, triggeredBy: 'scheduler' });
-          schedulerLogger.info(`Collected cold sync completed (${dateKey})`);
-          trackEvent('Scheduler.Collected.Cold.Completed', { dateKey });
+          await syncCollectedTime({ startDate, endDate, triggeredBy: 'scheduler' });
+          schedulerLogger.info(`Collected cold sync completed (${dateKey}): ${startDate} → ${endDate}`);
+          trackEvent('Scheduler.Collected.Cold.Completed', { dateKey, startDate, endDate });
         } catch (error) {
           schedulerLogger.error('Collected cold sync failed:', error?.message || error);
           trackException(error instanceof Error ? error : new Error(String(error?.message || error)), { tier: 'cold', entity: 'CollectedTime', dateKey });
           trackEvent('Scheduler.Collected.Cold.Failed', { dateKey, error: error?.message || String(error) });
         } finally {
           state.coldRunning = false;
+        }
+      }
+    }
+
+    // ─── MONTHLY: 2nd of month at 02:03 — full previous month ───
+    if (now.getDate() === 2 && hour === 2 && minute === 3) {
+      const dateKey = formatDateKey(now);
+      if (!state.monthlyRunning && state.monthlyLastDate !== dateKey) {
+        state.monthlyRunning = true;
+        state.monthlyLastDate = dateKey;
+
+        const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        const prevMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0); // last day of prev month
+        const startDate = formatDateKey(prevMonthStart);
+        const endDate = formatDateKey(prevMonthEnd);
+
+        const opName = 'syncCollectedTimeMonthly';
+        logProgress(opName, `Monthly sweep triggered (${dateKey} 02:03) — previous month ${startDate} → ${endDate}`, { triggeredBy: 'scheduler' });
+        try {
+          await syncCollectedTime({ startDate, endDate, triggeredBy: 'scheduler' });
+          schedulerLogger.info(`Collected monthly sweep completed (${dateKey}): ${startDate} → ${endDate}`);
+          trackEvent('Scheduler.Collected.Monthly.Completed', { dateKey, startDate, endDate });
+        } catch (error) {
+          schedulerLogger.error('Collected monthly sweep failed:', error?.message || error);
+          trackException(error instanceof Error ? error : new Error(String(error?.message || error)), { tier: 'monthly', entity: 'CollectedTime', dateKey });
+          trackEvent('Scheduler.Collected.Monthly.Failed', { dateKey, error: error?.message || String(error) });
+        } finally {
+          state.monthlyRunning = false;
         }
       }
     }

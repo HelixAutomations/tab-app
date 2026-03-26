@@ -2,18 +2,14 @@
 // invisible change
 
 import React, { useCallback, useState } from 'react';
-import {
-  Stack,
-  Text,
-  Link,
-  TooltipHost,
-  PrimaryButton,
-  DefaultButton,
-  Icon,
-  MessageBar,
-  MessageBarType,
-  mergeStyles,
-} from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Text } from '@fluentui/react/lib/Text';
+import { Link } from '@fluentui/react/lib/Link';
+import { TooltipHost } from '@fluentui/react/lib/Tooltip';
+import { PrimaryButton, DefaultButton } from '@fluentui/react/lib/Button';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { CSSTransition } from 'react-transition-group';
 import { colours } from '../../app/styles/colours';
 import { Resource } from './Resources';

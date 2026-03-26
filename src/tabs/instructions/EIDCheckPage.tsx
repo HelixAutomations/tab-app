@@ -1,15 +1,13 @@
 import React, { useState } from 'react';
 // invisible change 2.1
 //
-import {
-    Stack,
-    PrimaryButton,
-    TextField,
-    Text,
-    Checkbox,
-    Dropdown,
-    IDropdownOption,
-} from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { PrimaryButton } from '@fluentui/react/lib/Button';
+import { TextField } from '@fluentui/react/lib/TextField';
+import { Text } from '@fluentui/react/lib/Text';
+import { Checkbox } from '@fluentui/react/lib/Checkbox';
+import { Dropdown } from '@fluentui/react/lib/Dropdown';
+import type { IDropdownOption } from '@fluentui/react/lib/Dropdown';
 import { POID } from '../../app/functionality/types';
 import { dashboardTokens, cardStyles } from './componentTokens';
 import { sharedDecisionButtonStyles, sharedPrimaryButtonStyles } from '../../app/styles/ButtonStyles';

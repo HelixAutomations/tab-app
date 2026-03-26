@@ -1,6 +1,6 @@
 import React, { useRef } from 'react';
-import { Stack, IconButton } from '@fluentui/react';
-
+import { Stack } from '@fluentui/react/lib/Stack';
+import { IconButton } from '@fluentui/react/lib/Button';
 interface Step2Props {
     currentStep: number;
     questionBannerStyle: React.CSSProperties;

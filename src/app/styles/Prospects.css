@@ -12,7 +12,7 @@
 /* ─── Motion tokens (coordinated timing) ─── */
 :root {
   --motion-row-stagger: 18ms;        /* delay between consecutive rows       */
-  --motion-row-duration: 0.18s;      /* individual row entrance duration     */
+  --motion-row-duration: 0.24s;      /* individual row entrance duration     */
   --motion-ease-out: cubic-bezier(0.16, 1, 0.3, 1);  /* decelerate curve   */
   --motion-ease-smooth: cubic-bezier(0.4, 0, 0.2, 1); /* standard Material */
   --motion-fade-fast: 0.12s;         /* quick opacity transitions            */
@@ -23,7 +23,7 @@
 @keyframes prospect-row-enter {
   from {
     opacity: 0;
-    transform: translateY(2px);
+    transform: translateY(10px);
   }
   to {
     opacity: 1;
@@ -31,11 +31,45 @@
   }
 }
 
+@keyframes pipeline-chip-resolve {
+  0% {
+    opacity: 0;
+    transform: translateY(9px) scale(0.96);
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(0) scale(1.02);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 .prospect-row {
   /* Row entrance removed — prospect-content-fade handles crossfade.
      Replay on every filter switch caused border flash + double-opacity. */
   animation: none;
+  content-visibility: auto;
+  contain-intrinsic-size: 56px;
 }
+
+.prospect-content-cascade {
+  contain: layout paint style;
+}
+
+.prospect-content-cascade .enquiry-row--enter > * {
+  animation: prospect-row-enter var(--motion-row-duration) var(--motion-ease-out) both;
+  animation-delay: calc(var(--row-index, 0) * var(--motion-row-stagger));
+  will-change: opacity, transform;
+}
+
+.prospect-content-cascade .enquiry-row--enter > :nth-child(1) { animation-delay: calc(var(--row-index, 0) * var(--motion-row-stagger)); }
+.prospect-content-cascade .enquiry-row--enter > :nth-child(2) { animation-delay: calc(var(--row-index, 0) * var(--motion-row-stagger) + 10ms); }
+.prospect-content-cascade .enquiry-row--enter > :nth-child(3) { animation-delay: calc(var(--row-index, 0) * var(--motion-row-stagger) + 20ms); }
+.prospect-content-cascade .enquiry-row--enter > :nth-child(4) { animation-delay: calc(var(--row-index, 0) * var(--motion-row-stagger) + 30ms); }
+.prospect-content-cascade .enquiry-row--enter > :nth-child(5) { animation-delay: calc(var(--row-index, 0) * var(--motion-row-stagger) + 40ms); }
+.prospect-content-cascade .enquiry-row--enter > :nth-child(6) { animation-delay: calc(var(--row-index, 0) * var(--motion-row-stagger) + 50ms); }
 
 /* Day separator entrance — same cascade, slightly offset timing */
 @keyframes prospect-sep-enter {
@@ -251,6 +285,16 @@
 .wb-tab-content.wb-tab-transition .wb-meta-rail > :nth-child(5) { animation-delay: 148ms; }
 
 @media (prefers-reduced-motion: reduce) {
+  .prospect-content-cascade .enquiry-row--enter > * {
+    animation: none !important;
+    will-change: auto;
+  }
+  .pipeline-chip,
+  .pipeline-chip-reveal,
+  [data-chip-index] {
+    animation: none !important;
+    transition: none !important;
+  }
   .inline-workbench.wb-motion-enter,
   .inline-workbench.wb-motion-enter .wb-chip,
   .inline-workbench.wb-motion-enter .wb-connector,
@@ -406,21 +450,19 @@
 .prospect-day-sep {
   display: grid;
   align-items: center;
-  padding: 6px 16px 2px;
+  padding: clamp(6px, 0.7vw, 7px) clamp(8px, 1.2vw, 14px) clamp(2px, 0.3vw, 3px);
   cursor: pointer;
   user-select: none;
-  gap: 12px;
-  background: transparent;
-  border-bottom: 0.5px solid rgba(var(--subtle-grey-rgb), 0.12);
-  transition: background var(--transition-fast);
+  gap: clamp(4px, 0.8vw, 8px);
+  transition: background var(--transition-fast), padding 0.2s ease, gap 0.2s ease;
   /* gridTemplateColumns set inline (dynamic value) */
 }
 
 .prospect-day-sep:hover {
-  background: rgba(var(--accent-rgb), 0.018);
+  background: rgba(var(--subtle-grey-rgb), 0.028);
 }
 [data-theme="light"] .prospect-day-sep:hover {
-  background: rgba(var(--accent-rgb), 0.04);
+  background: rgba(var(--subtle-grey-rgb), 0.045);
 }
 
 [data-theme="dark"] .prospect-day-sep {
@@ -435,40 +477,31 @@
   align-items: center;
   justify-content: center;
   height: 100%;
-  min-height: 28px;
+  min-height: 18px;
 }
 
 .prospect-day-sep__line {
-  position: absolute;
-  top: 50%;
-  bottom: 0;
-  width: 2px;
-  background: rgba(var(--highlight-rgb), 0.42);
-  opacity: 0.34;
-  transition: opacity var(--transition-fast);
-}
-
-.prospect-day-sep:hover .prospect-day-sep__line {
-  opacity: 0.52;
+  display: none;
 }
 
 .prospect-day-sep__dot {
-  width: 4px;
-  height: 4px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
-  background: rgba(var(--highlight-rgb), 0.78);
+  background: rgba(var(--subtle-grey-rgb), 0.62);
   position: relative;
   z-index: 2;
   flex-shrink: 0;
   box-shadow: 0 0 0 2px var(--surface-page);
-  transition: box-shadow var(--transition-fast);
+  transition: box-shadow var(--transition-fast), background var(--transition-fast);
 }
 
 .prospect-day-sep:hover .prospect-day-sep__dot {
-  box-shadow: 0 0 0 2px var(--surface-page), 0 0 4px rgba(var(--highlight-rgb), 0.22);
+  background: rgba(var(--subtle-grey-rgb), 0.78);
+  box-shadow: 0 0 0 2px var(--surface-page), 0 0 2px rgba(var(--subtle-grey-rgb), 0.12);
 }
 [data-theme="light"] .prospect-day-sep:hover .prospect-day-sep__dot {
-  box-shadow: 0 0 0 2px var(--surface-page), 0 0 4px rgba(var(--highlight-rgb), 0.2);
+  box-shadow: 0 0 0 2px var(--surface-page), 0 0 2px rgba(var(--subtle-grey-rgb), 0.1);
 }
 
 .prospect-day-sep__label {
@@ -482,37 +515,37 @@
 
 .prospect-day-sep__text {
   font-family: var(--font-primary);
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 10px;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: rgba(var(--highlight-rgb), 0.78);
+  letter-spacing: 0.45px;
+  color: var(--text-muted);
   white-space: nowrap;
   transition: color var(--transition-fast);
 }
 
 .prospect-day-sep:hover .prospect-day-sep__text {
-  color: rgba(var(--highlight-rgb), 0.92);
+  color: var(--text-secondary);
 }
 
 .prospect-day-sep__count {
   font-family: var(--font-primary);
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 600;
   color: var(--text-muted);
-  background: rgba(var(--subtle-grey-rgb), 0.06);
+  background: rgba(var(--subtle-grey-rgb), 0.045);
   padding: 1px 6px;
   border-radius: 999px;
   min-width: 18px;
   text-align: center;
   line-height: 1.5;
   flex-shrink: 0;
-  border: 1px solid rgba(var(--subtle-grey-rgb), 0.15);
+  border: 1px solid rgba(var(--subtle-grey-rgb), 0.12);
 }
 [data-theme="light"] .prospect-day-sep__count {
   color: var(--text-muted);
-  background: rgba(var(--subtle-grey-rgb), 0.06);
-  border-color: rgba(var(--subtle-grey-rgb), 0.15);
+  background: rgba(var(--subtle-grey-rgb), 0.05);
+  border-color: rgba(var(--subtle-grey-rgb), 0.12);
 }
 
 .prospect-day-sep__fade {
@@ -529,31 +562,32 @@
    Follows UserBubble composition: accent-tinted idle, lift on hover */
 .prospect-row {
   display: grid;
-  gap: 12px;
-  padding: 8px 16px;
+  gap: 4px;
+  padding: clamp(6px, 0.8vw, 8px) 14px;
   align-items: center;
   cursor: pointer;
   font-family: var(--font-primary);
-  transition: background 0.18s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: background 0.18s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.18s cubic-bezier(0.4, 0, 0.2, 1), padding 0.2s ease, gap 0.2s ease;
   /* gridTemplateColumns and borderBottom set inline */
 }
 
-/* Subtle alternating rows — whisper-quiet, not striped */
-.prospect-row[data-row-parity="even"] {
-  background: transparent;
+/* Subtle column separators — faint vertical lines between key columns */
+.prospect-row > :nth-child(3),
+.prospect-row > :nth-child(4) {
+  border-left: 1px solid rgba(128, 128, 128, 0.08);
+  padding-left: 2px;
 }
-.prospect-row[data-row-parity="odd"] {
-  background: transparent;
+.prospect-row > :nth-child(5) {
+  border-left: 1px solid rgba(128, 128, 128, 0.10);
 }
-[data-theme="dark"] .prospect-row[data-row-parity="odd"] {
-  background: transparent;
-}
-[data-theme="dark"] .prospect-row[data-row-parity="even"] {
-  background: rgba(var(--highlight-rgb), 0.022);
+.prospect-row > :nth-child(6) {
+  border-left: 1px solid rgba(128, 128, 128, 0.08);
 }
 
-[data-theme="light"] .prospect-row[data-row-parity="even"] {
-  background: rgba(var(--highlight-rgb), 0.035);
+/* Row parity — no alternating fill; clean flat surface */
+.prospect-row[data-row-parity="even"],
+.prospect-row[data-row-parity="odd"] {
+  background: transparent;
 }
 
 /* Hover — accent-tinted bg + lift (composition pattern) */
@@ -570,7 +604,7 @@
 }
 
 /* ─── Converted / matter-opened row ─── */
-/* Subtle fade-back so the row clearly reads as "graduated" from prospects */
+/* Subtle dim — rows read as "graduated" without background tint */
 .prospect-row--converted {
   opacity: 0.42;
   transition: opacity 0.22s ease, background 0.18s cubic-bezier(0.4, 0, 0.2, 1);
@@ -580,6 +614,71 @@
 }
 .prospect-row--converted .prospect-timeline-cell__line {
   opacity: 0.35 !important;
+}
+
+/* ─── Area of Work icon ─── */
+/* Muted at rest, lights up with its AoW colour on row hover */
+.prospect-aow-icon {
+  opacity: 0.38;
+  transition: opacity 0.22s ease;
+}
+.prospect-row:hover .prospect-aow-icon {
+  opacity: 0.92;
+}
+
+/* ─── Copy name button ─── */
+/* Hidden until row hover to reduce visual noise */
+.prospect-copy-btn {
+  opacity: 0 !important;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+.prospect-row:hover .prospect-copy-btn {
+  opacity: 0.5 !important;
+  pointer-events: auto;
+}
+.prospect-row:hover .prospect-copy-btn:hover {
+  opacity: 0.9 !important;
+}
+
+/* ─── Smooth responsive transitions ───
+   Base rules for elements that change at breakpoints.
+   Transitions on these properties let values ease between states. */
+
+.prospect-table-header {
+  transition: padding 0.2s ease, gap 0.2s ease, font-size 0.2s ease,
+              font-weight 0.2s ease, letter-spacing 0.2s ease, height 0.2s ease;
+}
+
+.prospect-header-id-suffix {
+  display: inline;
+  max-width: 80px;
+  opacity: 1;
+  overflow: hidden;
+  transition: max-width 0.25s ease, opacity 0.2s ease;
+}
+
+.prospect-date__top,
+.prospect-date__bottom {
+  transition: font-size 0.2s ease;
+}
+
+.enq-chip-label {
+  display: inline;
+  max-width: 120px;
+  opacity: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  transition: max-width 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease;
+}
+
+.enq-chip,
+.enq-scope-chip {
+  transition: padding 0.2s ease, min-height 0.2s ease, font-size 0.2s ease, gap 0.2s ease;
+}
+
+.enq-badge {
+  transition: font-size 0.2s ease, min-width 0.2s ease, height 0.2s ease, padding 0.2s ease;
 }
 
 /* ─── Timeline cell inside a row ─── */
@@ -608,23 +707,48 @@
 .prospect-date {
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  line-height: 1.2;
+  gap: 0;
+  line-height: 1.15;
+  justify-content: center;
+  font-variant-numeric: tabular-nums;
 }
 
 .prospect-date__top {
   font-family: var(--font-primary);
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-primary);
-  letter-spacing: -0.2px;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  letter-spacing: 0;
+  white-space: nowrap;
+  transition: color 0.18s ease;
 }
 
 .prospect-date__bottom {
   font-family: var(--font-primary);
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 500;
   color: var(--text-muted);
+  white-space: nowrap;
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  transition: max-height 0.22s cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 0.18s ease,
+              color 0.18s ease;
+}
+
+/* Reveal time + brighten date on row hover */
+.prospect-row:hover .prospect-date__top {
+  color: var(--text-primary);
+}
+
+.prospect-row:hover .prospect-date__bottom {
+  max-height: 14px;
+  opacity: 0.6;
+}
+
+.prospect-date__bottom:empty {
+  display: none;
 }
 
 /* ─── Pipeline row hover (composition interactive pattern) ───
@@ -678,9 +802,6 @@
 
 /* ─── Pipeline chip (migrated from inline `pipelineCarouselStyle`) ──────── */
 
-.pipeline-chip {
-  transition: filter 0.1s ease;
-}
 .pipeline-chip:hover {
   filter: brightness(1.15);
 }
@@ -693,52 +814,67 @@
 
 /* Connector dash between chips */
 .pipeline-connector {
-  position: absolute;
-  left: -9px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 6px;
-  height: 1px;
-  border-radius: 0.5px;
-  background: rgba(var(--subtle-grey-rgb), 0.34);
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  pointer-events: none;
+  display: none;
 }
 /* Completed connector – solid green */
 .pipeline-connector.connector-done {
-  background: var(--aow-property, #20b26c);
-  opacity: 0.7;
+  display: none;
 }
 .pipeline-row-hover-ready .pipeline-connector,
 .pipeline-chip-reveal:hover .pipeline-connector {
-  width: 11px;
-  left: -11px;
-  background: rgba(var(--accent-rgb), 0.38);
-  box-shadow: 0 0 2px rgba(var(--accent-rgb), 0.22);
+  display: none;
 }
 /* Preserve green for completed connectors on hover */
 .pipeline-row-hover-ready .pipeline-connector.connector-done,
 .pipeline-chip-reveal:hover .pipeline-connector.connector-done {
-  background: var(--aow-property, #20b26c);
+  display: none;
 }
 
-/* Chip box – border + gap expand on row hover */
+/* Pipeline chip button — full-cell fills for blocky look */
+.pipeline-chip {
+  background: transparent;
+  transition: filter 0.1s ease, background-color 0.15s ease;
+}
+/* Completed chip — subtle resting fill across the full cell */
+.pipeline-chip--done {
+  background: rgba(var(--accent-rgb), 0.04);
+}
+[data-theme="dark"] .pipeline-chip--done {
+  background: rgba(var(--accent-rgb), 0.06);
+}
+
+/* Row hover — all chips get a subtle cell fill */
+.pipeline-row-hover .pipeline-chip {
+  background: rgba(var(--accent-rgb), 0.05);
+}
+[data-theme="dark"] .pipeline-row-hover .pipeline-chip {
+  background: rgba(var(--accent-rgb), 0.07);
+}
+/* Completed chips get a stronger cell fill on row hover */
+.pipeline-row-hover .pipeline-chip--done {
+  background: rgba(var(--accent-rgb), 0.10);
+}
+[data-theme="dark"] .pipeline-row-hover .pipeline-chip--done {
+  background: rgba(var(--accent-rgb), 0.12);
+}
+
 .pipeline-chip-box {
   display: inline-flex;
   align-items: center;
-  gap: 0;
+  gap: 2px;
   padding: 1px 4px;
   border: 1px solid transparent;
   border-radius: 2px;
-  transition: gap 0.25s ease, padding 0.25s ease, border-color 0.25s ease;
+  transition: gap 0.12s ease, padding 0.12s ease, border-color 0.12s ease;
   will-change: gap, padding, border-color;
   overflow: visible;
 }
+
 /* Chip-box expand on individual chip hover only */
 .pipeline-chip-reveal:hover .pipeline-chip-box {
   gap: 4px;
-  padding: 1px 6px 1px 4px;
-  border-color: rgba(var(--accent-rgb), 0.28);
+  padding: 1px 5px;
+  border-color: rgba(var(--accent-rgb), 0.18);
 }
 
 /* Chip label – max-width expand on hover */
@@ -749,7 +885,7 @@
   opacity: 0;
   overflow: hidden;
   white-space: nowrap;
-  transition: max-width 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease;
+  transition: max-width 0.12s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.1s ease;
   transition-delay: 0ms;
   font-size: 10px;
   font-weight: 600;
@@ -760,19 +896,16 @@
 /* Label reveal on individual chip hover only */
 .pipeline-chip-reveal:hover .pipeline-chip-label,
 .pipeline-chip-reveal:focus-visible .pipeline-chip-label {
-  max-width: 80px !important;
+  max-width: 68px !important;
   opacity: 0.9 !important;
 }
 
-/* Next-action breathe animation */
-@keyframes next-action-breathe {
-  0%, 100% { opacity: 0.5; filter: brightness(1); }
-  50%      { opacity: 1;   filter: brightness(1.15); }
-}
+/* Next-action breathe animation — disabled (distracting) */
+.next-action-subtle-pulse,
 .next-action-subtle-pulse .pipeline-chip-box,
 .next-action-subtle-pulse > button,
 .next-action-subtle-pulse > div {
-  animation: next-action-breathe 2s ease-in-out infinite;
+  animation: none !important;
 }
 
 /* Pitch CTA pulse */
@@ -790,4 +923,128 @@
   background: linear-gradient(90deg, rgba(255,255,255,0.05), rgba(255,255,255,0.15), rgba(255,255,255,0.05));
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Responsive — fluid adaptations for narrow viewports.
+   Grid columns use clamp() so they compress naturally.
+   These rules tighten chrome and handle overflow.
+   ═══════════════════════════════════════════════════════════ */
+
+@media (max-width: 900px) {
+  .prospect-table-header {
+    padding-left: 10px !important;
+    padding-right: 10px !important;
+    gap: 6px !important;
+    font-weight: 400 !important;
+    letter-spacing: 0.3px !important;
+  }
+}
+
+@media (max-width: 600px) {
+  .prospect-table-header {
+    padding-left: 8px !important;
+    padding-right: 8px !important;
+    gap: 4px !important;
+    height: 36px !important;
+    font-size: 9px !important;
+    font-weight: 400 !important;
+    letter-spacing: 0.2px !important;
+  }
+
+  .prospect-header-id-suffix {
+    max-width: 0;
+    opacity: 0;
+    overflow: hidden;
+    display: inline;
+  }
+
+  /* Compress date text at narrow widths */
+  .prospect-date__top {
+    font-size: 9px;
+  }
+  .prospect-date__bottom {
+    font-size: 8px;
+  }
+
+  /* Even tighter chips at narrow */
+  .enq-chip {
+    padding: 0 6px;
+    min-height: 24px;
+    font-size: 9px;
+    gap: 4px;
+  }
+  .enq-scope-chip {
+    padding: 0 4px;
+    min-height: 20px;
+    font-size: 8px;
+    gap: 3px;
+  }
+  .enq-status-primary {
+    gap: 4px !important;
+  }
+
+  /* Shrink filter icons at narrow widths */
+  .enq-chip svg,
+  .enq-scope-chip svg {
+    width: 10px;
+    height: 10px;
+  }
+
+  /* Icon-only mode: smooth label collapse at narrow widths */
+  .enq-chip-label {
+    max-width: 0;
+    opacity: 0;
+    overflow: hidden;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Responsive — filter chips compact mode.
+   Single-row horizontal scroll instead of multi-line wrapping.
+   ═══════════════════════════════════════════════════════════ */
+
+@media (max-width: 900px) {
+  .enq-status-primary {
+    flex-wrap: nowrap !important;
+    overflow-x: auto;
+    scrollbar-width: none;
+    max-width: 100%;
+  }
+  .enq-status-primary::-webkit-scrollbar {
+    display: none;
+  }
+
+  .enq-filter-cluster,
+  .enq-filter-secondary-cluster {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    max-width: 100%;
+  }
+  .enq-filter-cluster::-webkit-scrollbar,
+  .enq-filter-secondary-cluster::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Compact chip sizing */
+  .enq-chip {
+    padding: 0 8px;
+    min-height: 26px;
+    font-size: 10px;
+    letter-spacing: 0.04em;
+  }
+  .enq-scope-chip {
+    padding: 0 6px;
+    min-height: 22px;
+    font-size: 9px;
+  }
+
+  /* Compact badge sizing */
+  .enq-badge {
+    font-size: 9px !important;
+    min-width: 16px !important;
+    height: 16px !important;
+    padding: 0 4px !important;
+  }
 }

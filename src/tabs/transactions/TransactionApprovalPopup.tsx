@@ -1,6 +1,13 @@
 import React, { useState } from 'react';
 // invisible change removed
-import { Stack, Text, Spinner, MessageBar, MessageBarType, DefaultButton, IButtonStyles, TextField, ITextFieldStyles } from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Text } from '@fluentui/react/lib/Text';
+import { Spinner } from '@fluentui/react/lib/Spinner';
+import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
+import { DefaultButton } from '@fluentui/react/lib/Button';
+import type { IButtonStyles } from '@fluentui/react/lib/Button';
+import { TextField } from '@fluentui/react/lib/TextField';
+import type { ITextFieldStyles } from '@fluentui/react/lib/TextField';
 import { getProxyBaseUrl } from '../../utils/getProxyBaseUrl';
 import { Transaction, Matter } from '../../app/functionality/types';
 import { colours } from '../../app/styles/colours';

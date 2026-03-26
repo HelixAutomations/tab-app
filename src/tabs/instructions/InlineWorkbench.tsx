@@ -1,11 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Icon } from '@fluentui/react';
-import { jsPDF } from 'jspdf';
-import { RALEWAY_REGULAR_B64, RALEWAY_BOLD_B64, HELIX_LOGO_WHITE_B64 } from '../../utils/pdfAssets';
+import { Icon } from '@fluentui/react/lib/Icon';
+// jsPDF + pdfAssets loaded dynamically in buildRawRecordPdfBlob to keep ~470KB out of the main bundle
 import type { TeamData } from '../../app/functionality/types';
 import { colours } from '../../app/styles/colours';
-import { getAreaOfWorkIcon as getAreaOfWorkEmoji } from '../enquiries/components/prospectDisplayUtils';
 import PortalLaunchModal from '../../components/portal/PortalLaunchModal';
 import { useToast } from '../../components/feedback/ToastProvider';
 import { buildPortalLaunchModel, type PortalLaunchModel } from '../../utils/portalLaunch';
@@ -114,6 +112,10 @@ type InlineWorkbenchProps = {
   enableContextStageChips?: boolean;
   contextStageKeys?: ContextStageKey[];
   enableTabStages?: boolean;
+  onOpenDocumentWorkspace?: () => void;
+  documentWorkspaceLabel?: string;
+  documentWorkspaceDisabled?: boolean;
+  documentWorkspaceLive?: boolean;
   onDocumentPreview?: (doc: any) => void;
   onOpenRiskAssessment?: (instruction: any) => void;
   onOpenMatter?: (instruction: any) => void;
@@ -140,13 +142,16 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   enableContextStageChips = false,
   contextStageKeys,
   enableTabStages = true,
+  onOpenDocumentWorkspace,
+  documentWorkspaceLabel,
+  documentWorkspaceDisabled = false,
+  documentWorkspaceLive = false,
   onDocumentPreview,
   onOpenRiskAssessment,
   onOpenMatter,
   onTriggerEID,
   onOpenIdReview,
   onConfirmBankPayment,
-  onOpenEnquiryRating,
   onRefreshData,
   onClose,
   currentUser,
@@ -1854,7 +1859,11 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     };
   }, [verificationDetails, normaliseMetaText, getPrimaryRawVerificationRecord]);
 
-  const buildRawRecordPdfBlob = useCallback(() => {
+  const buildRawRecordPdfBlob = useCallback(async () => {
+    const [{ jsPDF }, { RALEWAY_REGULAR_B64, RALEWAY_BOLD_B64, HELIX_LOGO_WHITE_B64 }] = await Promise.all([
+      import('jspdf'),
+      import('../../utils/pdfAssets'),
+    ]);
     const doc = new jsPDF({ unit: 'pt', format: 'a4' });
     const pageW = 595.28;
     const pageH = 841.89;
@@ -2093,8 +2102,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     eidResult, eidDate, title, firstName, lastName, dob, passport, license, address,
   ]);
 
-  const buildRawRecordPdfBlobUrl = useCallback(() => {
-    const blob = buildRawRecordPdfBlob();
+  const buildRawRecordPdfBlobUrl = useCallback(async () => {
+    const blob = await buildRawRecordPdfBlob();
     const blobUrl = URL.createObjectURL(blob);
 
     // Convert blob → data URI for inline embed rendering.
@@ -2119,13 +2128,13 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     return blobUrl;
   }, [buildRawRecordPdfBlob]);
 
-  const openRawRecordPdfPreview = useCallback(() => {
-    buildRawRecordPdfBlobUrl();
+  const openRawRecordPdfPreview = useCallback(async () => {
+    await buildRawRecordPdfBlobUrl();
     setShowRawRecordPdfPreview(true);
   }, [buildRawRecordPdfBlobUrl]);
 
-  const downloadRawRecordPdf = useCallback(() => {
-    const url = buildRawRecordPdfBlobUrl();
+  const downloadRawRecordPdf = useCallback(async () => {
+    const url = await buildRawRecordPdfBlobUrl();
     const currentInstructionRef = resolveCurrentInstructionRef() || 'instruction';
     const fileName = `eid-raw-record-${currentInstructionRef}.pdf`;
     const link = document.createElement('a');
@@ -2155,7 +2164,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
       setRawRecordSubmitMessage('Auto-submitting report…');
     }
     try {
-      const blob = buildRawRecordPdfBlob();
+      const blob = await buildRawRecordPdfBlob();
       const fileName = `eid-raw-record-${instructionRef}.pdf`;
       const file = new File([blob], fileName, { type: 'application/pdf' });
 
@@ -3023,6 +3032,116 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     );
   };
 
+  /** Road-style journey strip: ○ origin ···· elapsed ····▸ ● destination */
+  const renderJourneyStrip = (
+    from: { label: string; stamp: string } | null,
+    to: { label: string; stamp?: string; color: string; icon: React.ReactNode; onClick?: () => void; cursor?: string; title?: string } | null,
+    elapsed?: string | null,
+  ) => {
+    if (!from && !to) return null;
+    const fromColor = isDarkMode ? colours.subtleGrey : colours.greyText;
+    const toColor = to?.color || fromColor;
+    const hasBoth = Boolean(from && to);
+    return (
+      <div className="wb-journey-strip" style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 0,
+        padding: flatEmbedMode ? '7px 0' : '7px 14px',
+        minHeight: 28,
+      }}>
+        {/* Origin waypoint */}
+        {from && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+            <div style={{
+              width: 6, height: 6, borderRadius: '50%',
+              border: `1.5px solid ${fromColor}`,
+              background: 'transparent',
+              flexShrink: 0,
+              opacity: 0.5,
+            }} />
+            <span style={{
+              fontSize: 10, fontWeight: 500, color: fromColor,
+              opacity: 0.65, whiteSpace: 'nowrap',
+            }}>
+              {from.label}
+              <span style={{ fontWeight: 400 }}> · {from.stamp}</span>
+            </span>
+          </div>
+        )}
+
+        {/* Road segment */}
+        {from && (
+          <div style={{
+            flex: 1,
+            display: 'flex',
+            alignItems: 'center',
+            padding: '0 8px',
+            minWidth: hasBoth ? 40 : 24,
+          }}>
+            <div style={{
+              flex: 1, height: 0,
+              borderBottom: `1px dashed ${isDarkMode ? `${fromColor}30` : `${fromColor}25`}`,
+            }} />
+            {elapsed && hasBoth && (
+              <span style={{
+                fontSize: 9, fontWeight: 500,
+                color: fromColor,
+                opacity: 0.55,
+                padding: '0 6px',
+                whiteSpace: 'nowrap',
+              }}>
+                {elapsed}
+              </span>
+            )}
+            {hasBoth && (
+              <>
+                <div style={{
+                  flex: 1, height: 0,
+                  borderBottom: `1px dashed ${isDarkMode ? `${toColor}40` : `${toColor}30`}`,
+                }} />
+                <div style={{
+                  width: 0, height: 0,
+                  borderLeft: `4px solid ${toColor}`,
+                  borderTop: '2.5px solid transparent',
+                  borderBottom: '2.5px solid transparent',
+                  flexShrink: 0,
+                  marginRight: 6,
+                  opacity: 0.5,
+                }} />
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Destination waypoint */}
+        {to && (
+          <div
+            onClick={to.onClick ? (e: React.MouseEvent) => { e.stopPropagation(); to.onClick!(); } : undefined}
+            title={to.title}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0,
+              cursor: to.cursor || (to.onClick ? 'pointer' : 'default'),
+            }}
+          >
+            <span style={{ color: toColor, display: 'flex', alignItems: 'center' }}>
+              {to.icon}
+            </span>
+            <span style={{
+              fontSize: 10, fontWeight: 600, color: toColor,
+              whiteSpace: 'nowrap',
+            }}>
+              {to.label}
+              {to.stamp && (
+                <span style={{ fontWeight: 500, opacity: 0.75 }}> · {to.stamp}</span>
+              )}
+            </span>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const isInstructedComplete = Boolean(submissionDateRaw && submissionDateRaw !== '—');
   const instructedStatus: StageStatus = isInstructedComplete
     ? 'complete'
@@ -3044,8 +3163,9 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         navigatesTo: 'external' as const, // Special: navigates to Enquiries tab
         externalAction: () => {
           if (prospectId) {
-            localStorage.setItem('navigateToEnquiryId', String(prospectId));
-            window.dispatchEvent(new CustomEvent('navigateToEnquiries'));
+            window.dispatchEvent(new CustomEvent('navigateToEnquiry', {
+              detail: { enquiryId: String(prospectId) },
+            }));
           }
         },
       },
@@ -3283,6 +3403,36 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
       setIsCreatingPaymentLink(false);
     }
   };
+
+  const handleBankPaymentConfirm = useCallback(async (paymentId: string, confirmedDate: string) => {
+    if (onConfirmBankPayment) {
+      await onConfirmBankPayment(paymentId, confirmedDate);
+      if (onRefreshData) {
+        try { await onRefreshData?.(instructionRef); } catch { /* silent */ }
+      }
+      return;
+    }
+
+    const response = await fetch('/api/payments/confirm-bank', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        paymentId,
+        confirmedDate,
+        confirmedBy: currentUser?.Email || currentUser?.FullName || 'hub-user',
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({} as any));
+      throw new Error(errorData?.details || errorData?.error || 'Failed to confirm bank payment');
+    }
+
+    showToast({ type: 'success', message: 'Bank payment confirmed and queued for ops review' });
+    if (onRefreshData) {
+      try { await onRefreshData?.(instructionRef); } catch { /* silent */ }
+    }
+  }, [currentUser?.Email, currentUser?.FullName, instructionRef, onConfirmBankPayment, onRefreshData, showToast]);
 
   // Status pill
   const StatusPill = ({ status, label }: { status: 'pass' | 'fail' | 'pending' | 'warn'; label: string }) => {
@@ -3692,9 +3842,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                 const paymentId = payment.id || payment.payment_id || `payment-${idx}`;
                 const isExpanded = expandedPayment === paymentId;
                 const status = payment.payment_status || payment.status || 'pending';
-                const isSuccess = status === 'succeeded' || status === 'confirmed';
                 const isFailed = status === 'failed';
-                const statusColor = isSuccess ? colours.green : isFailed ? colours.cta : colours.orange;
                 const paymentDate = payment.created_at || payment.date || payment.payment_date;
                 const formattedDate = paymentDate 
                   ? new Date(paymentDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
@@ -3723,6 +3871,9 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                 const combinedMethod = methodRaw || metaMethod || (intentIsBank ? 'bank' : intentIsCard ? 'card' : '');
                 const isCard = combinedMethod.includes('card') || combinedMethod.includes('stripe') || combinedMethod === 'cc' || intentIsCard;
                 const isBank = combinedMethod.includes('bank') || combinedMethod.includes('transfer') || combinedMethod.includes('bacs') || combinedMethod.includes('ach') || intentIsBank;
+                const isBankConfirmed = isBank && (status === 'confirmed' || meta?.bankConfirmedDate || meta?.confirmedDate || payment.confirmed === true || payment.Confirmed === true);
+                const isSuccess = isCard ? (status === 'succeeded' || status === 'confirmed') : isBankConfirmed;
+                const statusColor = isSuccess ? colours.green : isFailed ? colours.cta : colours.orange;
                 const methodLabel = isCard ? 'Card' : isBank ? 'Bank' : combinedMethod ? combinedMethod.slice(0, 6) : '\u2014';
                 const serviceLabel = deal?.ServiceDescription || deal?.serviceDescription || deal?.service_description || payment.product_description || payment.description || payment.product || 'Payment on Account';
                 const paymentIdRaw = (payment.payment_id || payment.stripe_payment_id || payment.id || '\u2014').toString();
@@ -3933,11 +4084,11 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                           )}
                           <div style={{ flex: 1 }} />
                           {/* Bank Payment Confirmation */}
-                          {isBank && !isSuccess && onConfirmBankPayment && (
+                          {isBank && !isSuccess && (
                             <BankPaymentConfirmation
                               paymentId={paymentId}
                               isDarkMode={isDarkMode}
-                              onConfirm={onConfirmBankPayment}
+                              onConfirm={handleBankPaymentConfirm}
                             />
                           )}
                         </div>
@@ -4191,39 +4342,6 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
       </div>
       )}
 
-      {onRefreshData && (
-        <div
-          data-action-button="true"
-          onClick={(e) => e.stopPropagation()}
-          onMouseDown={(e) => e.stopPropagation()}
-          className="wb-refresh-indicator"
-          style={{
-            display: 'flex',
-            justifyContent: 'flex-end',
-            alignItems: 'center',
-            padding: '4px 12px 0',
-          }}
-        >
-          <span
-            ref={refreshIndicatorRef}
-            style={{
-              fontSize: 9,
-              fontWeight: 600,
-              letterSpacing: '0.4px',
-              textTransform: 'uppercase',
-              color: isAutoRefreshing
-                ? (isDarkMode ? colours.accent : colours.highlight)
-                : (isDarkMode ? 'rgba(160, 160, 160, 0.82)' : 'rgba(107, 107, 107, 0.85)'),
-              transition: 'color 150ms ease, opacity 150ms ease',
-              opacity: isAutoRefreshing ? 1 : 0.88,
-              userSelect: 'none',
-            }}
-          >
-            {isAutoRefreshing ? 'Refreshing\u2026' : (isRefreshDeferred ? 'Refresh paused' : 'Refresh in 30s')}
-          </span>
-        </div>
-      )}
-
       {/* Tab content - expand as needed */}
       <div className={`wb-tab-content${isTabMotionActive && !isEnterMotionActive ? ' wb-tab-transition' : ''}`} style={{
         padding: '6px 8px 8px 8px',
@@ -4315,8 +4433,6 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                           return colours.greyText;
                         };
 
-                        const getAreaOfWorkIcon = (raw: any): string => getAreaOfWorkEmoji(String(raw ?? ''));
-
                         const renderTag = (opts: {
                           iconName: string;
                           label: string;
@@ -4352,9 +4468,6 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
                         if (contextStage === 'enquiry') {
                           const aowAccent = resolveAowAccent(areaOfWork);
-                          
-                          // Determine rating styling
-                          const ratingColor = enquiryRating === 'Good' ? colours.highlight : enquiryRating === 'Poor' ? colours.cta : (isDarkMode ? colours.subtleGrey : colours.greyText);
                           
                           // Claim timestamp for new space enquiries (from enquiry record, enrichment, or instruction data)
                           // Use empty-string fallback so we can fall through to enrichment data
@@ -4669,7 +4782,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                             return null;
                           })();
 
-                          const enquiryHeaderDescription = 'Review details below.';
+                          const claimTransitionLabel = claimDuration ? `to claim in ${claimDuration}` : null;
 
                           return (
                             <div className="wb-enquiry-stack" style={{
@@ -4678,171 +4791,81 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                               flexDirection: 'column',
                               gap: 8,
                             }}>
-                              <div className="wb-enquiry-header" style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'flex-start',
-                                gap: 8,
-                                padding: flatEmbedMode ? '6px 0' : '8px 14px',
-                              }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                  <span style={{ color: headerCueAccent, display: 'flex', alignItems: 'center' }}>
-                                    <FaEnvelope size={12} />
-                                  </span>
-                                  <span style={{
-                                    fontSize: 10,
-                                    fontWeight: 800,
-                                    textTransform: 'uppercase',
-                                    letterSpacing: '0.5px',
-                                    color: headerCueAccent,
-                                  }}>
-                                    Enquiry claimed
-                                  </span>
-                                  <span style={{
-                                    fontSize: 10,
-                                    fontWeight: 600,
-                                    color: isDarkMode ? 'rgba(243, 244, 246, 0.85)' : 'rgba(6, 23, 51, 0.78)',
-                                    marginLeft: 4,
-                                  }}>
-                                    {enquiryHeaderDescription}
-                                  </span>
-                                </div>
-                              </div>
-
-                              {(submissionDate && submissionDate !== '—') || hasTeamsData ? (
-                                <div className="wb-meta-row" style={{
-                                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
-                                  padding: flatEmbedMode ? '0 0 2px' : '0 14px 2px', minHeight: 36,
-                                }}>
-                                  <div className="wb-meta-rail" style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
-                                    {submissionDate && submissionDate !== '—' && (
-                                      <div className="wb-meta-pill" style={{
-                                        '--wb-pill-index': 0,
-                                        display: 'flex', alignItems: 'center', gap: 5,
-                                        padding: '5px 10px', borderRadius: 0,
-                                        background: isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0,0,0,0.03)',
-                                        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0,0,0,0.04)'}`,
-                                        flexShrink: 0,
-                                      } as React.CSSProperties}>
-                                        <FaClock size={10} style={{ color: textMuted }} />
-                                        <span style={{ fontSize: 10, fontWeight: 600, color: textBody }}>
-                                          Touchpoint · {formatRelativeDateOnly(submissionDateRaw)}{submissionTime && <span style={{ color: textMuted, fontWeight: 500 }}> · {submissionTime}</span>}
-                                        </span>
-                                      </div>
-                                    )}
-
-                                    {hasTeamsData && (
-                                      <div style={{
-                                        display: 'flex', alignItems: 'center', width: 60,
-                                        margin: '0 2px',
-                                      }}>
-                                        <div style={{
-                                          flex: 1, height: 1,
-                                          background: isDarkMode ? `${colours.dark.border}60` : '#e2e8f0',
-                                        }} />
-                                        {claimDuration && (
-                                          <span style={{
-                                            fontSize: 9,
-                                            fontWeight: isDarkMode ? 700 : 600,
-                                            color: isDarkMode ? colours.subtleGrey : colours.greyText,
-                                            opacity: isDarkMode ? 1 : 0.72,
-                                            padding: '1px 5px',
-                                            whiteSpace: 'nowrap',
-                                          }}>
-                                            {claimDuration}
-                                          </span>
-                                        )}
-                                        <div style={{
-                                          flex: 1, height: 1,
-                                          background: isDarkMode ? `${colours.dark.border}60` : '#e2e8f0',
-                                        }} />
-                                      </div>
-                                    )}
-
-                                    {hasTeamsData && (
-                                      <div
-                                        className="wb-meta-pill"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          if (effectiveTeamsLink) window.open(effectiveTeamsLink, '_blank');
-                                          else if (teamsIdentifier && !teamsCardLink) void resolveTeamsCardLink();
-                                        }}
-                                        title={effectiveTeamsLink ? 'Open Teams Card' : 'Teams activity tracked'}
-                                        style={{
-                                          '--wb-pill-index': 1,
-                                          display: 'flex', alignItems: 'center', gap: 6,
-                                          padding: '5px 10px', borderRadius: 0,
-                                          background: isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.08)',
-                                          border: `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.25)' : 'rgba(32, 178, 108, 0.16)'}`,
-                                          cursor: effectiveTeamsLink ? 'pointer' : 'default',
-                                          transition: 'all 0.15s ease',
-                                          flexShrink: 0,
-                                        } as React.CSSProperties}
-                                      >
-                                        <Icon iconName="TeamsLogo" styles={{ root: { fontSize: 12, color: colours.green } }} />
-                                        {claimedDateTime ? (
-                                          <span style={{ fontSize: 10, fontWeight: 600, color: colours.green }}>
-                                            Claimed by {claimedByInitials}
-                                            <span style={{ color: isDarkMode ? 'rgba(32, 178, 108, 0.8)' : 'rgba(32, 178, 108, 0.9)', fontWeight: 500 }}> · {claimedDateTime}</span>
-                                          </span>
-                                        ) : (
-                                          <span style={{ fontSize: 10, fontWeight: 600, color: colours.green }}>Teams</span>
-                                        )}
-                                      </div>
-                                    )}
-                                  </div>
-
-                                  <div
-                                    className="wb-meta-pill"
-                                    onClick={() => {
-                                      const eid = enquiry?.ID || enquiry?.id;
-                                      if (!eid) return;
-
-                                      if (onOpenEnquiryRating) {
-                                        onOpenEnquiryRating(String(eid));
-                                        return;
-                                      }
-
-                                      if (!enquiryRating || enquiryRating === '—') {
-                                        window.dispatchEvent(new CustomEvent('helix:rate-enquiry', { detail: { enquiryId: String(eid) } }));
-                                      }
-                                    }}
-                                    title={!enquiryRating || enquiryRating === '—' ? 'Click to rate this enquiry' : `Rating: ${enquiryRating} · Click to change`}
-                                    style={{
-                                      '--wb-pill-index': 2,
-                                      display: 'flex', alignItems: 'center', gap: 5,
-                                      padding: '5px 10px', borderRadius: 0,
-                                      background: isDarkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(0,0,0,0.02)',
-                                      border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0,0,0,0.04)'}`,
-                                      cursor: onOpenEnquiryRating || !enquiryRating || enquiryRating === '—' ? 'pointer' : 'default',
-                                      transition: 'all 0.15s ease',
-                                      flexShrink: 0,
-                                    } as React.CSSProperties}
-                                  >
-                                    {enquiryRating === 'Good' ? <Icon iconName="Like" styles={{ root: { fontSize: 11, color: ratingColor } }} />
-                                    : enquiryRating === 'Poor' ? <Icon iconName="Dislike" styles={{ root: { fontSize: 11, color: ratingColor } }} />
-                                    : <FaStar size={11} color={ratingColor} />}
-                                    <span style={{ fontSize: 10, fontWeight: 600, color: ratingColor }}>{enquiryRating || 'Rate'}</span>
-                                  </div>
-                                </div>
-                              ) : null}
+                              {renderJourneyStrip(
+                                submissionDate && submissionDate !== '—'
+                                  ? { label: 'Enquiry submitted', stamp: `${formatRelativeDateOnly(submissionDateRaw)}${submissionTime ? ` · ${submissionTime}` : ''}` }
+                                  : null,
+                                hasTeamsData
+                                  ? {
+                                      label: claimedDateTime ? `Claimed by ${claimedByInitials}` : 'Teams',
+                                      stamp: claimedDateTime || undefined,
+                                      color: colours.green,
+                                      icon: <Icon iconName="TeamsLogo" styles={{ root: { fontSize: 11 } }} />,
+                                      onClick: effectiveTeamsLink ? () => window.open(effectiveTeamsLink, '_blank') : (teamsIdentifier && !teamsCardLink ? () => { void resolveTeamsCardLink(); } : undefined),
+                                      cursor: effectiveTeamsLink ? 'pointer' : undefined,
+                                      title: effectiveTeamsLink ? 'Open Teams Card' : 'Teams activity tracked',
+                                    }
+                                  : null,
+                                claimDuration || null,
+                              )}
 
                               <div className="wb-data-shell" style={{
                                 display: 'flex',
                                 flexDirection: 'column',
                                 gap: 10,
-                                background: isDarkMode ? 'rgba(6, 23, 51, 0.45)' : 'rgba(255, 255, 255, 0.7)',
-                                border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
+                                background: isDarkMode
+                                  ? 'rgba(2, 6, 23, 0.24)'
+                                  : 'rgba(255, 255, 255, 0.76)',
+                                border: `1px solid ${isDarkMode ? 'rgba(75, 85, 99, 0.34)' : 'rgba(54, 144, 206, 0.08)'}`,
                                 borderRadius: 0,
                                 padding: '12px 14px',
                               }}>
+
+                              {/* ── Notes (full-width footer) ── */}
+                              {hasEnquiryNotes && (
+                                <div className="wb-notes-block">
+                                  <div style={{
+                                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                    padding: '4px 0 3px',
+                                  }}>
+                                    <span style={{
+                                      fontSize: 9, fontWeight: 700, letterSpacing: '0.5px',
+                                      textTransform: 'uppercase',
+                                      color: isDarkMode ? colours.accent : colours.highlight,
+                                      display: 'flex', alignItems: 'center', gap: 4,
+                                    }}>
+                                      <Icon iconName="EditNote" styles={{ root: { fontSize: 10, color: isDarkMode ? colours.accent : colours.highlight } }} />
+                                      Enquiry Notes
+                                    </span>
+                                    <span
+                                      style={{ cursor: 'pointer', padding: '2px 4px' }}
+                                      onClick={() => dispatchEdit('Notes')}
+                                      title="Edit notes"
+                                    >
+                                      <Icon iconName="Edit" styles={{ root: { fontSize: 10, color: textMuted } }} />
+                                    </span>
+                                  </div>
+                                  <div className="wb-notes-body" style={{
+                                    fontSize: 12, lineHeight: 1.6, color: textBody,
+                                    whiteSpace: 'pre-wrap', maxHeight: 180, overflowY: 'auto',
+                                    padding: '8px 14px',
+                                    margin: '4px 0 10px',
+                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.04)' : 'rgba(54, 144, 206, 0.03)',
+                                    border: `1px solid ${separatorColor}`,
+                                  }}>
+                                    {enquiryNotes}
+                                  </div>
+                                </div>
+                              )}
 
                               {/* ── Data bar: horizontal columns with vertical separators ── */}
                               <div className="wb-data-bar" style={{
                                 display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 0,
                                 padding: '14px 0',
                                 border: `1px solid ${separatorColor}`,
-                                background: isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(244, 244, 246, 0.4)',
+                                background: isDarkMode
+                                  ? 'rgba(2, 6, 23, 0.4)'
+                                  : 'rgba(244, 244, 246, 0.46)',
                               }}>
                                 <DataCol
                                   label="Area"
@@ -4908,43 +4931,6 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                                   maxW={120}
                                 />
                               </div>
-
-                              {/* ── Notes (full-width footer) ── */}
-                              {hasEnquiryNotes && (
-                                <div className="wb-notes-block">
-                                  <div style={{
-                                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                                    padding: '4px 0 3px',
-                                  }}>
-                                    <span style={{
-                                      fontSize: 9, fontWeight: 700, letterSpacing: '0.5px',
-                                      textTransform: 'uppercase',
-                                      color: isDarkMode ? colours.accent : colours.highlight,
-                                      display: 'flex', alignItems: 'center', gap: 4,
-                                    }}>
-                                      <Icon iconName="EditNote" styles={{ root: { fontSize: 10, color: isDarkMode ? colours.accent : colours.highlight } }} />
-                                      Enquiry Notes
-                                    </span>
-                                    <span
-                                      style={{ cursor: 'pointer', padding: '2px 4px' }}
-                                      onClick={() => dispatchEdit('Notes')}
-                                      title="Edit notes"
-                                    >
-                                      <Icon iconName="Edit" styles={{ root: { fontSize: 10, color: textMuted } }} />
-                                    </span>
-                                  </div>
-                                  <div className="wb-notes-body" style={{
-                                    fontSize: 12, lineHeight: 1.6, color: textBody,
-                                    whiteSpace: 'pre-wrap', maxHeight: 180, overflowY: 'auto',
-                                    padding: '8px 14px',
-                                    margin: '4px 0 10px',
-                                    background: isDarkMode ? 'rgba(54, 144, 206, 0.04)' : 'rgba(54, 144, 206, 0.03)',
-                                    border: `1px solid ${separatorColor}`,
-                                  }}>
-                                    {enquiryNotes}
-                                  </div>
-                                </div>
-                              )}
                               </div>
                             </div>
                           );
@@ -5271,16 +5257,41 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                           
                           const instructedTimelineColour = instructToExpiryCue?.kind === 'confirmed-late' ? colours.cta : colours.green;
                           const isPitchExpired = !hasInstructedChip && instructToExpiryCue?.kind === 'expired';
-                          const pitchHeaderTitle = hasInstructedChip
-                            ? 'Deal closed'
-                            : isPitchExpired
-                              ? 'Pitch expired'
-                              : 'Pitch sent';
-                          const pitchHeaderDescription = hasInstructedChip
-                            ? 'Instruction received — review closed deal details below.'
-                            : isPitchExpired
-                              ? 'Pitch window elapsed — review expiry details below.'
-                              : 'Review details below.';
+                          const claimTimelineRaw = enrichmentTeamsData?.ClaimedAt
+                            || getValue([
+                              'claim',
+                              'Claim',
+                              'ClaimTimestamp',
+                              'claim_timestamp',
+                              'AllocatedAt',
+                              'allocated_at',
+                              'ClaimedAt',
+                              'claimed_at',
+                              'ClaimedDateTime',
+                              'claimedDateTime',
+                              'Date_Claimed',
+                              'date_claimed',
+                            ], '')
+                            || enrichmentTeamsData?.MessageTimestamp
+                            || null;
+                          const claimTimelineTimeRaw =
+                            getValue(['ClaimedTime', 'claimedTime', 'Claim_Time', 'claim_time', 'AllocatedTime', 'allocatedTime', 'allocated_time', 'ClaimTime'], '')
+                            || (enquiry as any)?.ClaimedTime
+                            || (enquiry as any)?.claimedTime
+                            || (enquiry as any)?.Claim_Time
+                            || (enquiry as any)?.claim_time
+                            || (inst as any)?.ClaimedTime
+                            || (inst as any)?.claimedTime
+                            || (inst as any)?.Claim_Time
+                            || (inst as any)?.claim_time
+                            || null;
+                          const claimTimelineStamp = formatTimelineStamp(claimTimelineRaw, claimTimelineTimeRaw);
+                          const claimToPitchLabel = formatTimelineDiff(
+                            claimTimelineRaw,
+                            pitchedDateRaw,
+                            claimTimelineTimeRaw,
+                            pitchedTimelineTimeRaw,
+                          );
 
                           return (
                             <div className="wb-enquiry-stack" style={{
@@ -5289,161 +5300,15 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                               flexDirection: 'column',
                               gap: 8,
                             }}>
-                              <div className="wb-enquiry-header" style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'flex-start',
-                                gap: 8,
-                                padding: flatEmbedMode ? '6px 0' : '8px 14px',
-                              }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                  <span style={{ color: headerCueAccent, display: 'flex', alignItems: 'center' }}>
-                                    <FaPaperPlane size={12} />
-                                  </span>
-                                  <span style={{
-                                    fontSize: 10,
-                                    fontWeight: 800,
-                                    textTransform: 'uppercase',
-                                    letterSpacing: '0.5px',
-                                    color: headerCueAccent,
-                                  }}>
-                                    {pitchHeaderTitle}
-                                  </span>
-                                  <span style={{
-                                    fontSize: 10,
-                                    fontWeight: 600,
-                                    color: isDarkMode ? 'rgba(243, 244, 246, 0.85)' : 'rgba(6, 23, 51, 0.78)',
-                                    marginLeft: 4,
-                                  }}>
-                                    {pitchHeaderDescription}
-                                  </span>
-                                </div>
-                              </div>
-
-                              <div className="wb-meta-row" style={{
-                                display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 8,
-                                padding: flatEmbedMode ? '0 0 2px' : '0 14px 2px', minHeight: 36,
-                              }}>
-                                <div className="wb-meta-rail" style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
-                                  {hasPitchedChip && (
-                                    <div className="wb-meta-pill" style={{
-                                      display: 'flex', alignItems: 'center', gap: 5,
-                                      padding: '5px 10px', borderRadius: 0,
-                                      background: isDarkMode ? 'rgba(160, 160, 160, 0.08)' : 'rgba(0,0,0,0.03)',
-                                      border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.12)' : 'rgba(0,0,0,0.06)'}`,
-                                      flexShrink: 0,
-                                    }}>
-                                      <FaClock size={10} style={{ color: textMuted }} />
-                                      <span style={{ fontSize: 10, fontWeight: 600, color: textBody }}>
-                                        Pitched
-                                        <span style={{ color: textMuted, fontWeight: 500 }}> · {pitchedDateTime || pitchDate}</span>
-                                      </span>
-                                    </div>
-                                  )}
-
-                                  {hasPitchedChip && hasInstructedChip && (
-                                    <div className="wb-meta-link" style={{
-                                      display: 'flex', alignItems: 'center', width: pitchToInstructCue?.label ? 'auto' : 60,
-                                      margin: '0 2px',
-                                    }}>
-                                      <div style={{
-                                        flex: 1, height: 1, minWidth: 12,
-                                        background: isDarkMode ? `${colours.dark.border}60` : '#e2e8f0',
-                                      }} />
-                                      {pitchToInstructCue?.label && (
-                                        <span style={{
-                                          fontSize: 9,
-                                          fontWeight: isDarkMode ? 700 : 600,
-                                          color: textMuted,
-                                          opacity: isDarkMode ? 1 : 0.72,
-                                          padding: '1px 5px',
-                                          whiteSpace: 'nowrap',
-                                        }}>
-                                          {pitchToInstructCue.label}
-                                        </span>
-                                      )}
-                                      <div style={{
-                                        flex: 1, height: 1, minWidth: 12,
-                                        background: isDarkMode ? `${colours.dark.border}60` : '#e2e8f0',
-                                      }} />
-                                    </div>
-                                  )}
-
-                                  {hasInstructedChip && (
-                                    <div className="wb-meta-pill" style={{
-                                      display: 'flex', alignItems: 'center', gap: 5,
-                                      padding: '5px 10px', borderRadius: 0,
-                                      background: `${instructedTimelineColour}12`,
-                                      border: `1px solid ${instructedTimelineColour}25`,
-                                      flexShrink: 0,
-                                    }}>
-                                      <span style={{
-                                        width: 6, height: 6, borderRadius: '50%',
-                                        background: instructedTimelineColour, flexShrink: 0,
-                                      }} />
-                                      <span style={{ fontSize: 10, fontWeight: 600, color: instructedTimelineColour }}>
-                                        Instructed
-                                        {instructedDateTime && <span style={{ color: isDarkMode ? `${instructedTimelineColour}CC` : instructedTimelineColour, fontWeight: 500 }}> · {instructedDateTime}</span>}
-                                      </span>
-                                    </div>
-                                  )}
-
-                                  {!hasInstructedChip && pitchExpiry && (
-                                    <div className="wb-meta-link" style={{
-                                      display: 'flex', alignItems: 'center', width: (instructToExpiryCue?.label && !strikeExpiryChip) ? 'auto' : 44,
-                                      margin: '0 2px',
-                                    }}>
-                                      <div style={{
-                                        flex: 1, height: 1, minWidth: 12,
-                                        background: isDarkMode ? `${colours.dark.border}60` : '#e2e8f0',
-                                      }} />
-                                      {instructToExpiryCue?.label && !strikeExpiryChip && (
-                                        <span style={{
-                                          fontSize: 9,
-                                          fontWeight: isDarkMode ? 700 : 600,
-                                          color: textMuted,
-                                          opacity: isDarkMode ? 1 : 0.72,
-                                          padding: '1px 5px',
-                                          whiteSpace: 'nowrap',
-                                        }}>
-                                          {instructToExpiryCue.label}
-                                        </span>
-                                      )}
-                                      <div style={{
-                                        flex: 1, height: 1, minWidth: 12,
-                                        background: isDarkMode ? `${colours.dark.border}60` : '#e2e8f0',
-                                      }} />
-                                    </div>
-                                  )}
-
-                                  {!hasInstructedChip && pitchExpiry && (
-                                    <div className="wb-meta-pill" style={{
-                                      display: 'flex', alignItems: 'center', gap: 5,
-                                      padding: '5px 10px', borderRadius: 0,
-                                      background: strikeExpiryChip
-                                        ? (isDarkMode ? 'rgba(160, 160, 160, 0.045)' : 'rgba(107, 107, 107, 0.045)')
-                                        : (isDarkMode ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0,0,0,0.03)'),
-                                      border: `1px solid ${strikeExpiryChip
-                                        ? (isDarkMode ? 'rgba(160, 160, 160, 0.14)' : 'rgba(107, 107, 107, 0.12)')
-                                        : (isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0,0,0,0.04)')}`,
-                                      flexShrink: 0,
-                                    }}>
-                                      <FaClock size={10} style={{ color: textMuted }} />
-                                      <span style={{
-                                        fontSize: 10,
-                                        fontWeight: 600,
-                                        color: strikeExpiryChip ? textMuted : textBody,
-                                        textDecoration: 'none',
-                                        opacity: strikeExpiryChip ? (isDarkMode ? 0.75 : 0.72) : 1,
-                                      }}>
-                                        {strikeExpiryChip
-                                          ? (instructToExpiryCue?.label ? `Expiry window · ${instructToExpiryCue.label}` : `Expiry window · ${pitchExpiry}`)
-                                          : `Expires ${pitchExpiry}`}
-                                      </span>
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
+                              {renderJourneyStrip(
+                                claimTimelineStamp
+                                  ? { label: 'Enquiry claimed', stamp: claimTimelineStamp }
+                                  : null,
+                                hasPitchedChip
+                                  ? { label: 'Pitch sent', stamp: pitchedDateTime || pitchDate, color: colours.green, icon: <FaPaperPlane size={10} /> }
+                                  : null,
+                                claimToPitchLabel || null,
+                              )}
 
                               <div style={{
                                 display: 'flex',
@@ -5975,7 +5840,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                         const hasInstructionTimelineChip = Boolean(instructionDateTime);
                         const showPitchToInstructionConnector = hasPitchedTimelineChip && hasInstructionTimelineChip;
 
-                        const instructionHeaderPrompt = 'Review details below.';
+                        const pitchToInstructionLabel = pitchToInstElapsed ? `to instruction in ${pitchToInstElapsed}` : null;
 
                         return (
                           <div className="wb-enquiry-stack" style={{
@@ -5984,102 +5849,15 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                             flexDirection: 'column',
                             gap: 8,
                           }}>
-                            <div className="wb-enquiry-header" style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'flex-start',
-                              gap: 8,
-                              padding: flatEmbedMode ? '6px 0' : '8px 14px',
-                            }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <span style={{ color: headerCueAccent, display: 'flex', alignItems: 'center' }}>
-                                  <FaCheckCircle size={12} />
-                                </span>
-                                <span style={{
-                                  fontSize: 10,
-                                  fontWeight: 800,
-                                  textTransform: 'uppercase',
-                                  letterSpacing: '0.5px',
-                                  color: headerCueAccent,
-                                }}>
-                                  Instruction received
-                                </span>
-                                <span style={{
-                                  fontSize: 10,
-                                  fontWeight: 600,
-                                  color: isDarkMode ? 'rgba(243, 244, 246, 0.85)' : 'rgba(6, 23, 51, 0.78)',
-                                  marginLeft: 4,
-                                }}>
-                                  {instructionHeaderPrompt}
-                                </span>
-                              </div>
-                            </div>
-
-                            <div className="wb-meta-row" style={{
-                              display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 8,
-                              padding: flatEmbedMode ? '0 0 2px' : '0 14px 2px', minHeight: 36,
-                            }}>
-                              <div className="wb-meta-rail" style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
-                                {hasPitchedTimelineChip && (
-                                          <div className="wb-meta-pill" style={{
-                                    display: 'flex', alignItems: 'center', gap: 5,
-                                    padding: '5px 10px', borderRadius: 0,
-                                    background: isDarkMode ? 'rgba(160, 160, 160, 0.08)' : 'rgba(0,0,0,0.03)',
-                                    border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.12)' : 'rgba(0,0,0,0.06)'}`,
-                                    flexShrink: 0,
-                                  }}>
-                                    <FaClock size={10} style={{ color: textMuted }} />
-                                    <span style={{ fontSize: 10, fontWeight: 600, color: textBody }}>
-                                      Pitched
-                                      <span style={{ color: textMuted, fontWeight: 500 }}> · {pitchedDateTime}</span>
-                                    </span>
-                                  </div>
-                                )}
-
-                                {showPitchToInstructionConnector && (
-                                  <div className="wb-meta-link" style={{
-                                    display: 'flex', alignItems: 'center', width: pitchToInstElapsed ? 'auto' : 60,
-                                    margin: '0 2px',
-                                  }}>
-                                    <div style={{
-                                      flex: 1, height: 1, minWidth: 12,
-                                      background: isDarkMode ? `${colours.dark.border}60` : '#e2e8f0',
-                                    }} />
-                                    {pitchToInstElapsed && (
-                                      <span style={{
-                                        fontSize: 9,
-                                        fontWeight: isDarkMode ? 700 : 600,
-                                        color: isDarkMode ? colours.subtleGrey : colours.greyText,
-                                        opacity: isDarkMode ? 1 : 0.72,
-                                        padding: '1px 5px', whiteSpace: 'nowrap',
-                                      }}>
-                                        {pitchToInstElapsed}
-                                      </span>
-                                    )}
-                                    <div style={{
-                                      flex: 1, height: 1, minWidth: 12,
-                                      background: isDarkMode ? `${colours.dark.border}60` : '#e2e8f0',
-                                    }} />
-                                  </div>
-                                )}
-
-                                {instructionDateTime && (
-                                  <div className="wb-meta-pill" style={{
-                                    display: 'flex', alignItems: 'center', gap: 5,
-                                    padding: '5px 10px', borderRadius: 0,
-                                    background: isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.08)',
-                                    border: `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.25)' : 'rgba(32, 178, 108, 0.16)'}`,
-                                    flexShrink: 0,
-                                  }}>
-                                    <FaCheckCircle size={10} style={{ color: colours.green }} />
-                                    <span style={{ fontSize: 10, fontWeight: 600, color: colours.green }}>
-                                      Instructed
-                                      <span style={{ color: isDarkMode ? 'rgba(32, 178, 108, 0.8)' : 'rgba(32, 178, 108, 0.9)', fontWeight: 500 }}> · {instructionDateTime}</span>
-                                    </span>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
+                            {renderJourneyStrip(
+                              hasPitchedTimelineChip
+                                ? { label: 'Pitch sent', stamp: pitchedDateTime! }
+                                : null,
+                              instructionDateTime
+                                ? { label: 'Instruction received', stamp: instructionDateTime, color: colours.green, icon: <FaCheckCircle size={10} /> }
+                                : null,
+                              pitchToInstElapsed || null,
+                            )}
 
                             <div style={{
                               display: 'flex',
@@ -6646,46 +6424,6 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         {/* Identity Tab - ID Verification */}
         {activeTab === 'identity' && (
           <div className="wb-tab-stack" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {renderStatusBanner(
-              identityBannerStatus === 'complete' 
-                ? (isManuallyApproved ? 'ID Approved' : 'ID Verified')
-                : identityBannerStatus === 'review' ? 'ID Needs Review' : 'ID Pending',
-              identityBannerStatus,
-              identityBannerStatus === 'complete'
-                ? (isManuallyApproved && hasUnderlyingIssues 
-                    ? 'Manually approved despite individual check issues (see below).'
-                    : 'Verification complete.')
-                : identityBannerStatus === 'review'
-                  ? 'Review required. Approve or request additional documents.'
-                  : 'Run ID verification to proceed.',
-              identityBannerStatus === 'complete' ? <FaCheckCircle size={12} /> : identityBannerStatus === 'review' ? <FaExclamationTriangle size={12} /> : <FaIdCard size={12} />,
-              // Inline action button based on status
-              eidStatus === 'pending' && onTriggerEID ? (
-                <button
-                  type="button"
-                  disabled={isTriggerEidLoading}
-                  onClick={(e) => { e.stopPropagation(); openTriggerEidConfirm(); }}
-                  style={{
-                    padding: '6px 12px',
-                    background: colours.highlight,
-                    color: '#FFFFFF',
-                    border: 'none',
-                    borderRadius: 0,
-                    fontSize: 10,
-                    fontWeight: 600,
-                    cursor: isTriggerEidLoading ? 'default' : 'pointer',
-                    opacity: isTriggerEidLoading ? 0.7 : 1,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 5,
-                  }}
-                >
-                  <FaIdCard size={10} />
-                  {isTriggerEidLoading ? 'Starting…' : 'Run Verification'}
-                </button>
-              ) : undefined,
-            )}
-
             {(() => {
               const instructedRaw = inst?.SubmissionDate || inst?.InstructionDate || inst?.DateCreated || inst?.CreatedAt || submissionDateRaw || null;
               const instructedTimeRaw = inst?.SubmissionTime || inst?.submissionTime || inst?.CreatedTime || inst?.createdTime || null;
@@ -6741,88 +6479,23 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
               if (!showTimeline) return null;
 
-              return (
-                <div style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
-                  padding: flatEmbedMode ? '0 0 2px' : '0 14px 2px', minHeight: 36,
-                }}>
-                  <div className="wb-meta-rail" style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
-                    {instructedStamp && (
-                      <div style={{
-                        display: 'flex', alignItems: 'center', gap: 5,
-                        padding: '5px 10px', borderRadius: 0,
-                        background: isDarkMode ? 'rgba(160, 160, 160, 0.08)' : 'rgba(0, 0, 0, 0.03)',
-                        border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.12)' : 'rgba(0, 0, 0, 0.06)'}`,
-                        flexShrink: 0,
-                      }}>
-                        <FaClock size={10} style={{ color: isDarkMode ? colours.subtleGrey : colours.greyText }} />
-                        <span style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
-                          Instructed
-                          <span style={{ color: isDarkMode ? 'rgba(160, 160, 160, 0.85)' : 'rgba(107, 107, 107, 0.9)', fontWeight: 500 }}> · {instructedStamp}</span>
-                        </span>
-                      </div>
-                    )}
-
-                    {(instructedStamp && identityStamp) && (
-                      <div style={{
-                        display: 'flex', alignItems: 'center', width: elapsed ? 'auto' : 60,
-                        margin: '0 2px',
-                      }}>
-                        <div style={{
-                          flex: 1, height: 1, minWidth: 12,
-                          background: isDarkMode ? `${colours.dark.border}60` : '#e2e8f0',
-                        }} />
-                        {elapsed && (
-                          <span style={{
-                            fontSize: 9,
-                            fontWeight: isDarkMode ? 700 : 600,
-                            color: isDarkMode ? colours.subtleGrey : colours.greyText,
-                            opacity: isDarkMode ? 1 : 0.72,
-                            padding: '1px 5px', whiteSpace: 'nowrap',
-                          }}>
-                            {elapsed}
-                          </span>
-                        )}
-                        <div style={{
-                          flex: 1, height: 1, minWidth: 12,
-                          background: isDarkMode ? `${colours.dark.border}60` : '#e2e8f0',
-                        }} />
-                      </div>
-                    )}
-
-                    {identityStamp && (
-                      <div style={{
-                        display: 'flex', alignItems: 'center', gap: 5,
-                        padding: '5px 10px', borderRadius: 0,
-                        background: identityBannerStatus === 'complete'
-                          ? (isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.08)')
-                          : identityBannerStatus === 'review'
-                            ? (isDarkMode ? 'rgba(214, 85, 65, 0.12)' : 'rgba(214, 85, 65, 0.08)')
-                            : (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)'),
-                        border: `1px solid ${identityBannerStatus === 'complete'
-                          ? (isDarkMode ? 'rgba(32, 178, 108, 0.25)' : 'rgba(32, 178, 108, 0.16)')
-                          : identityBannerStatus === 'review'
-                            ? (isDarkMode ? 'rgba(214, 85, 65, 0.25)' : 'rgba(214, 85, 65, 0.16)')
-                            : (isDarkMode ? 'rgba(54, 144, 206, 0.25)' : 'rgba(54, 144, 206, 0.16)')}`,
-                        flexShrink: 0,
-                      }}>
-                        {identityBannerStatus === 'complete'
-                          ? <FaCheckCircle size={10} style={{ color: colours.green }} />
-                          : identityBannerStatus === 'review'
-                            ? <FaExclamationTriangle size={10} style={{ color: colours.cta }} />
-                            : <FaIdCard size={10} style={{ color: colours.highlight }} />}
-                        <span style={{
-                          fontSize: 10,
-                          fontWeight: 600,
-                          color: identityBannerStatus === 'complete' ? colours.green : identityBannerStatus === 'review' ? colours.cta : colours.highlight,
-                        }}>
-                          {identityBannerStatus === 'complete' ? 'Verified' : identityBannerStatus === 'review' ? 'Review' : 'Pending'}
-                          <span style={{ color: identityBannerStatus === 'complete' ? (isDarkMode ? 'rgba(32, 178, 108, 0.8)' : 'rgba(32, 178, 108, 0.9)') : identityBannerStatus === 'review' ? (isDarkMode ? 'rgba(214, 85, 65, 0.82)' : 'rgba(214, 85, 65, 0.9)') : (isDarkMode ? 'rgba(54, 144, 206, 0.82)' : 'rgba(54, 144, 206, 0.9)'), fontWeight: 500 }}> · {identityStamp}</span>
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                </div>
+              return renderJourneyStrip(
+                instructedStamp
+                  ? { label: 'Instruction received', stamp: instructedStamp }
+                  : null,
+                identityStamp
+                  ? {
+                      label: identityBannerStatus === 'complete' ? 'Verified' : identityBannerStatus === 'review' ? 'Review' : 'Pending',
+                      stamp: identityStamp,
+                      color: identityBannerStatus === 'complete' ? colours.green : identityBannerStatus === 'review' ? colours.cta : colours.highlight,
+                      icon: identityBannerStatus === 'complete'
+                        ? <FaCheckCircle size={10} />
+                        : identityBannerStatus === 'review'
+                          ? <FaExclamationTriangle size={10} />
+                          : <FaIdCard size={10} />,
+                    }
+                  : null,
+                elapsed || null,
               );
             })()}
 
@@ -7215,7 +6888,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                     onClick={(e) => {
                       e.stopPropagation();
                       if (!showEidReportPanel) {
-                        buildRawRecordPdfBlobUrl();
+                        buildRawRecordPdfBlobUrl(); // fire-and-forget: state updates when resolved
                         setIsRawRecordExpanded(false);
                       }
                       setShowEidReportPanel((v) => !v);
@@ -8447,23 +8120,6 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         {/* Payment Tab */}
         {activeTab === 'payment' && (
           <div className="wb-tab-stack" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {renderStatusBanner(
-              paymentBannerStatus === 'complete'
-                ? (hasSuccessfulBankPayment ? 'Payment confirmed' : hasSuccessfulCardPayment ? 'Payment received' : 'Payment received')
-                : paymentBannerStatus === 'review'
-                  ? 'Payment needs attention'
-                  : 'Payment pending',
-              paymentBannerStatus,
-              paymentBannerStatus === 'complete'
-                ? (hasSuccessfulBankPayment
-                  ? `Confirmed ${paymentDate !== '—' ? paymentDate : 'payment'}. Please verify transactions with Accounts.`
-                  : `£${totalPaid.toLocaleString()} · succeeded`)
-                : paymentBannerStatus === 'review'
-                  ? 'Retry failed payment or issue a new link.'
-                  : 'Send payment link or take payment on account.',
-              <FaCreditCard size={12} />,
-            )}
-
             {(() => {
               const instructedRaw = inst?.SubmissionDate || inst?.InstructionDate || inst?.DateCreated || inst?.CreatedAt || submissionDateRaw || null;
               const instructedTimeRaw = inst?.SubmissionTime || inst?.submissionTime || inst?.CreatedTime || inst?.createdTime || null;
@@ -8479,80 +8135,19 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
               if (!showTimeline) return null;
 
-              return (
-                <div className="wb-meta-row" style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
-                  padding: flatEmbedMode ? '0 0 2px' : '0 14px 2px', minHeight: 36,
-                }}>
-                  <div className="wb-meta-rail" style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
-                    {instructedStamp && (
-                      <div className="wb-meta-pill" style={{
-                        display: 'flex', alignItems: 'center', gap: 5,
-                        padding: '5px 10px', borderRadius: 0,
-                        background: isDarkMode ? 'rgba(160, 160, 160, 0.08)' : 'rgba(0, 0, 0, 0.03)',
-                        border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.12)' : 'rgba(0, 0, 0, 0.06)'}`,
-                        flexShrink: 0,
-                      }}>
-                        <FaClock size={10} style={{ color: isDarkMode ? colours.subtleGrey : colours.greyText }} />
-                        <span style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
-                          Instructed
-                          <span style={{ color: isDarkMode ? 'rgba(160, 160, 160, 0.85)' : 'rgba(107, 107, 107, 0.9)', fontWeight: 500 }}> · {instructedStamp}</span>
-                        </span>
-                      </div>
-                    )}
-
-                    {(instructedStamp && paymentStamp) && (
-                      <div style={{
-                        display: 'flex', alignItems: 'center', width: elapsed ? 'auto' : 60,
-                        margin: '0 2px',
-                      }}>
-                        <div style={{
-                          flex: 1, height: 1, minWidth: 12,
-                          background: isDarkMode ? `${colours.dark.border}60` : '#e2e8f0',
-                        }} />
-                        {elapsed && (
-                          <span style={{
-                            fontSize: 9,
-                            fontWeight: isDarkMode ? 700 : 600,
-                            color: isDarkMode ? colours.subtleGrey : colours.greyText,
-                            opacity: isDarkMode ? 1 : 0.72,
-                            padding: '1px 5px', whiteSpace: 'nowrap',
-                          }}>
-                            {elapsed}
-                          </span>
-                        )}
-                        <div style={{
-                          flex: 1, height: 1, minWidth: 12,
-                          background: isDarkMode ? `${colours.dark.border}60` : '#e2e8f0',
-                        }} />
-                      </div>
-                    )}
-
-                    {paymentStamp && (
-                      <div className="wb-meta-pill" style={{
-                        display: 'flex', alignItems: 'center', gap: 5,
-                        padding: '5px 10px', borderRadius: 0,
-                        background: hasSuccessfulPayment
-                          ? (isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.08)')
-                          : hasFailedPayment
-                            ? (isDarkMode ? 'rgba(214, 85, 65, 0.12)' : 'rgba(214, 85, 65, 0.08)')
-                            : (isDarkMode ? 'rgba(255, 140, 0, 0.12)' : 'rgba(255, 140, 0, 0.08)'),
-                        border: `1px solid ${hasSuccessfulPayment
-                          ? (isDarkMode ? 'rgba(32, 178, 108, 0.25)' : 'rgba(32, 178, 108, 0.16)')
-                          : hasFailedPayment
-                            ? (isDarkMode ? 'rgba(214, 85, 65, 0.25)' : 'rgba(214, 85, 65, 0.16)')
-                            : (isDarkMode ? 'rgba(255, 140, 0, 0.25)' : 'rgba(255, 140, 0, 0.16)')}`,
-                        flexShrink: 0,
-                      }}>
-                        {hasSuccessfulPayment ? <FaCheckCircle size={10} style={{ color: colours.green }} /> : hasFailedPayment ? <FaExclamationTriangle size={10} style={{ color: colours.cta }} /> : <FaClock size={10} style={{ color: colours.orange }} />}
-                        <span style={{ fontSize: 10, fontWeight: 600, color: hasSuccessfulPayment ? colours.green : hasFailedPayment ? colours.cta : colours.orange }}>
-                          {hasSuccessfulBankPayment ? 'Confirmed' : hasSuccessfulCardPayment ? 'Paid' : hasSuccessfulPayment ? 'Paid' : hasFailedPayment ? 'Failed' : 'Pending'}
-                          <span style={{ color: hasSuccessfulPayment ? (isDarkMode ? 'rgba(32, 178, 108, 0.8)' : 'rgba(32, 178, 108, 0.9)') : hasFailedPayment ? (isDarkMode ? 'rgba(214, 85, 65, 0.82)' : 'rgba(214, 85, 65, 0.9)') : (isDarkMode ? 'rgba(255, 140, 0, 0.82)' : 'rgba(255, 140, 0, 0.9)'), fontWeight: 500 }}> · {paymentStamp}</span>
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                </div>
+              return renderJourneyStrip(
+                instructedStamp
+                  ? { label: 'Instruction received', stamp: instructedStamp }
+                  : null,
+                paymentStamp
+                  ? {
+                      label: hasSuccessfulBankPayment ? 'Confirmed' : hasSuccessfulCardPayment ? 'Paid' : hasSuccessfulPayment ? 'Paid' : hasFailedPayment ? 'Failed' : 'Pending',
+                      stamp: paymentStamp,
+                      color: hasSuccessfulPayment ? colours.green : hasFailedPayment ? colours.cta : colours.orange,
+                      icon: hasSuccessfulPayment ? <FaCheckCircle size={10} /> : hasFailedPayment ? <FaExclamationTriangle size={10} /> : <FaClock size={10} />,
+                    }
+                  : null,
+                elapsed || null,
               );
             })()}
 
@@ -8573,18 +8168,79 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         {/* Documents Tab */}
         {activeTab === 'documents' && (
           <div className="wb-tab-stack" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {renderStatusBanner(
-              documentBannerStatus === 'complete'
-                ? `${documents.length} doc${documents.length !== 1 ? 's' : ''} on file`
-                : 'Docs pending',
-              documentBannerStatus,
-              documentBannerStatus === 'complete' ? 'Review uploaded files and confirm completeness.' : 'Upload ID, proof of address, or supporting documents.',
-              <FaFileAlt size={12} />,
+            {onOpenDocumentWorkspace && (
+              <div
+                className="wb-section"
+                style={{
+                  '--section-index': 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                  background: isDarkMode ? 'rgba(2, 6, 23, 0.28)' : 'rgba(255, 255, 255, 0.82)',
+                  border: `1px solid ${documentWorkspaceLive
+                    ? (isDarkMode ? 'rgba(32, 178, 108, 0.2)' : 'rgba(32, 178, 108, 0.14)')
+                    : (isDarkMode ? 'rgba(75, 85, 99, 0.34)' : 'rgba(6, 23, 51, 0.08)')}`,
+                  borderRadius: 0,
+                  padding: '12px 14px',
+                } as React.CSSProperties}
+              >
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
+                  <span style={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    letterSpacing: '0.4px',
+                    textTransform: 'uppercase',
+                    color: documentWorkspaceLive ? colours.green : (isDarkMode ? colours.accent : colours.highlight),
+                  }}>
+                    {documentWorkspaceLive ? 'Shared workspace live' : 'Client upload workspace'}
+                  </span>
+                  <span style={{
+                    fontSize: 12,
+                    lineHeight: 1.4,
+                    color: isDarkMode ? '#d1d5db' : '#374151',
+                  }}>
+                    {documentWorkspaceLive
+                      ? 'Open the existing upload workspace from the documents tab.'
+                      : 'Request documents from here when you are ready to open a shared upload workspace.'}
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={onOpenDocumentWorkspace}
+                  disabled={documentWorkspaceDisabled}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '7px 12px',
+                    borderRadius: 0,
+                    border: `1px solid ${documentWorkspaceLive
+                      ? (isDarkMode ? 'rgba(32, 178, 108, 0.28)' : 'rgba(32, 178, 108, 0.18)')
+                      : (isDarkMode ? 'rgba(135, 243, 243, 0.24)' : 'rgba(54, 144, 206, 0.18)')}`,
+                    background: documentWorkspaceLive
+                      ? (isDarkMode ? 'rgba(32, 178, 108, 0.1)' : 'rgba(32, 178, 108, 0.08)')
+                      : (isDarkMode ? 'rgba(135, 243, 243, 0.08)' : 'rgba(54, 144, 206, 0.08)'),
+                    color: documentWorkspaceLive ? colours.green : (isDarkMode ? colours.accent : colours.highlight),
+                    cursor: documentWorkspaceDisabled ? 'default' : 'pointer',
+                    opacity: documentWorkspaceDisabled ? 0.55 : 1,
+                    whiteSpace: 'nowrap',
+                    fontSize: 10,
+                    fontWeight: 700,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.3px',
+                  }}
+                >
+                  <FaFolderOpen size={10} />
+                  <span>{documentWorkspaceLabel || 'Request docs'}</span>
+                </button>
+              </div>
             )}
             <div
               className="wb-section"
               style={{
-                '--section-index': 0,
+                '--section-index': 1,
                 background: isDarkMode ? 'rgba(6, 23, 51, 0.35)' : 'rgba(255, 255, 255, 0.7)',
                 border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
                 borderRadius: 0,
@@ -8605,25 +8261,6 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         {/* Risk Tab */}
         {activeTab === 'risk' && (
           <div className="wb-tab-stack" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {renderStatusBanner(
-              riskBannerStatus === 'complete'
-                ? 'Risk completed'
-                : riskBannerStatus === 'review'
-                  ? 'High risk requires review'
-                  : riskBannerStatus === 'warning'
-                    ? 'Medium risk flagged'
-                    : 'Risk pending',
-              riskBannerStatus,
-              riskBannerStatus === 'complete'
-                ? 'Risk assessed and recorded.'
-                : riskBannerStatus === 'review'
-                  ? 'High risk flagged. Review assessment and approvals.'
-                  : riskBannerStatus === 'warning'
-                    ? 'Medium risk flagged. Review the assessment before proceeding.'
-                  : 'Complete AML risk assessment before proceeding.',
-              <FaShieldAlt size={12} />,
-            )}
-
             {(() => {
               const instructedRaw = inst?.SubmissionDate || inst?.InstructionDate || inst?.DateCreated || inst?.CreatedAt || submissionDateRaw || null;
               const instructedTimeRaw = inst?.SubmissionTime || inst?.submissionTime || inst?.CreatedTime || inst?.createdTime || null;
@@ -8639,84 +8276,19 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
               const riskColor = isHighRisk ? colours.cta : isMediumRisk ? colours.orange : colours.green;
 
-              return (
-                <div className="wb-meta-row" style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
-                  padding: flatEmbedMode ? '0 0 2px' : '0 14px 2px', minHeight: 36,
-                }}>
-                  <div className="wb-meta-rail" style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
-                    {instructedStamp && (
-                      <div className="wb-meta-pill" style={{
-                        display: 'flex', alignItems: 'center', gap: 5,
-                        padding: '5px 10px', borderRadius: 0,
-                        background: isDarkMode ? 'rgba(160, 160, 160, 0.08)' : 'rgba(0, 0, 0, 0.03)',
-                        border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.12)' : 'rgba(0, 0, 0, 0.06)'}`,
-                        flexShrink: 0,
-                      }}>
-                        <FaClock size={10} style={{ color: isDarkMode ? colours.subtleGrey : colours.greyText }} />
-                        <span style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
-                          Instructed
-                          <span style={{ color: isDarkMode ? 'rgba(160, 160, 160, 0.85)' : 'rgba(107, 107, 107, 0.9)', fontWeight: 500 }}> · {instructedStamp}</span>
-                        </span>
-                      </div>
-                    )}
-
-                    {(instructedStamp && (riskStamp || riskComplete)) && (
-                      <div style={{
-                        display: 'flex', alignItems: 'center', width: elapsed ? 'auto' : 60,
-                        margin: '0 2px',
-                      }}>
-                        <div style={{
-                          flex: 1, height: 1, minWidth: 12,
-                          background: isDarkMode ? `${colours.dark.border}60` : '#e2e8f0',
-                        }} />
-                        {elapsed && (
-                          <span style={{
-                            fontSize: 9,
-                            fontWeight: isDarkMode ? 700 : 600,
-                            color: isDarkMode ? colours.subtleGrey : colours.greyText,
-                            opacity: isDarkMode ? 1 : 0.72,
-                            padding: '1px 5px', whiteSpace: 'nowrap',
-                          }}>
-                            {elapsed}
-                          </span>
-                        )}
-                        <div style={{
-                          flex: 1, height: 1, minWidth: 12,
-                          background: isDarkMode ? `${colours.dark.border}60` : '#e2e8f0',
-                        }} />
-                      </div>
-                    )}
-
-                    {(riskStamp || riskComplete) && (
-                      <div className="wb-meta-pill" style={{
-                        display: 'flex', alignItems: 'center', gap: 5,
-                        padding: '5px 10px', borderRadius: 0,
-                        background: riskComplete
-                          ? (isHighRisk
-                            ? (isDarkMode ? 'rgba(214, 85, 65, 0.12)' : 'rgba(214, 85, 65, 0.08)')
-                            : isMediumRisk
-                              ? (isDarkMode ? 'rgba(255, 140, 0, 0.12)' : 'rgba(255, 140, 0, 0.08)')
-                              : (isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.08)'))
-                          : (isDarkMode ? 'rgba(255, 140, 0, 0.12)' : 'rgba(255, 140, 0, 0.08)'),
-                        border: `1px solid ${riskComplete
-                          ? (isHighRisk
-                            ? (isDarkMode ? 'rgba(214, 85, 65, 0.25)' : 'rgba(214, 85, 65, 0.16)')
-                            : isMediumRisk
-                              ? (isDarkMode ? 'rgba(255, 140, 0, 0.25)' : 'rgba(255, 140, 0, 0.16)')
-                              : (isDarkMode ? 'rgba(32, 178, 108, 0.25)' : 'rgba(32, 178, 108, 0.16)'))
-                          : (isDarkMode ? 'rgba(255, 140, 0, 0.25)' : 'rgba(255, 140, 0, 0.16)')}`,
-                        flexShrink: 0,
-                      }}>
-                        {riskComplete ? <FaShieldAlt size={10} style={{ color: riskColor }} /> : <FaClock size={10} style={{ color: colours.orange }} />}
-                        <span style={{ fontSize: 10, fontWeight: 600, color: riskComplete ? riskColor : colours.orange }}>
-                          {riskComplete ? `${riskResult}${riskScore != null ? ` · ${riskScore}` : ''}` : 'Pending'}
-                          {riskStamp && <span style={{ color: riskComplete ? (isDarkMode ? `${riskColor}CC` : riskColor) : (isDarkMode ? 'rgba(255, 140, 0, 0.82)' : 'rgba(255, 140, 0, 0.9)'), fontWeight: 500 }}> · {riskStamp}</span>}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                </div>
+              return renderJourneyStrip(
+                instructedStamp
+                  ? { label: 'Instruction received', stamp: instructedStamp }
+                  : null,
+                (riskStamp || riskComplete)
+                  ? {
+                      label: riskComplete ? `${riskResult}${riskScore != null ? ` · ${riskScore}` : ''}` : 'Pending',
+                      stamp: riskStamp || undefined,
+                      color: riskComplete ? riskColor : colours.orange,
+                      icon: riskComplete ? <FaShieldAlt size={10} /> : <FaClock size={10} />,
+                    }
+                  : null,
+                elapsed || null,
               );
             })()}
 
@@ -9228,12 +8800,28 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         {/* Matter Tab */}
         {activeTab === 'matter' && (
           <div className="wb-tab-stack" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {renderStatusBanner(
-              matterBannerStatus === 'complete' ? 'Matter opened' : 'Matter pending',
-              matterBannerStatus,
-              matterBannerStatus === 'complete' ? 'Matter link ready. Open in Clio or sync details.' : 'Open matter to generate Display Number and link client.',
-              <FaFolderOpen size={12} />,
-            )}
+            {(() => {
+              const instructedStamp = matterInstructionTimelineStamp;
+              const matterStamp = matterOpenedTimelineStamp;
+              const elapsed = matterInstructionToOpenDuration;
+
+              if (!instructedStamp && !matterStamp) return null;
+
+              return renderJourneyStrip(
+                instructedStamp
+                  ? { label: 'Instruction received', stamp: instructedStamp }
+                  : null,
+                matterStamp
+                  ? {
+                      label: hasMatter ? 'Matter opened' : 'Matter pending',
+                      stamp: matterStamp,
+                      color: hasMatter ? colours.green : colours.orange,
+                      icon: <FaFolderOpen size={10} />,
+                    }
+                  : null,
+                elapsed || null,
+              );
+            })()}
             {!hasMatter ? (
               <>
                 {showMatterBreadcrumbRail && (

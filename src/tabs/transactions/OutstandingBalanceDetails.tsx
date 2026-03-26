@@ -1,8 +1,13 @@
 // src/tabs/transactions/OutstandingBalanceDetails.tsx
 // invisible change
 import React from 'react';
-import { Stack, Text, Link, Separator, Icon, TooltipHost } from '@fluentui/react';
-import { mergeStyles } from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Text } from '@fluentui/react/lib/Text';
+import { Link } from '@fluentui/react/lib/Link';
+import { Separator } from '@fluentui/react/lib/Separator';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { TooltipHost } from '@fluentui/react/lib/Tooltip';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { colours } from '../../app/styles/colours';
 import { OutstandingClientBalance, Matter } from '../../app/functionality/types';
 

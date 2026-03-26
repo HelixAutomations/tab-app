@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { TextField } from '@fluentui/react';
+import { TextField } from '@fluentui/react/lib/TextField';
 import { colours } from '../../../app/styles/colours';
 
 /** Props for DealCapture component */

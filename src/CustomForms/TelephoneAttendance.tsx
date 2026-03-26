@@ -2,7 +2,7 @@
 // invisible change
 
 import React from 'react';
-import { TooltipHost } from '@fluentui/react';
+import { TooltipHost } from '@fluentui/react/lib/Tooltip';
 import { useTheme } from '../app/functionality/ThemeContext';
 import { getFormModeToggleStyles } from './shared/formStyles';
 

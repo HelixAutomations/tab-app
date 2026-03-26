@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Icon } from '@fluentui/react';
+import { Icon } from '@fluentui/react/lib/Icon';
 import { colours } from '../../../app/styles/colours';
 
 export interface CCLField {

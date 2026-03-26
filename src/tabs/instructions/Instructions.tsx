@@ -2,23 +2,16 @@ import React, { useEffect, useState, useMemo, useRef, useLayoutEffect, useCallba
 import { flushSync } from "react-dom";
 import { format } from "date-fns";
 // Clean admin tools - legacy toggles removed - cache cleared
-import {
-  Stack,
-  mergeStyles,
-  Pivot,
-  PivotItem,
-  Text,
-  PrimaryButton,
-  Dialog,
-  DialogType,
-  DialogFooter,
-  DefaultButton,
-  IconButton,
-  DatePicker,
-  IDatePickerStyles,
-  Icon,
-  TooltipHost,
-} from "@fluentui/react";
+import { Stack } from '@fluentui/react/lib/Stack';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
+import { Pivot, PivotItem } from '@fluentui/react/lib/Pivot';
+import { Text } from '@fluentui/react/lib/Text';
+import { PrimaryButton, DefaultButton, IconButton } from '@fluentui/react/lib/Button';
+import { Dialog, DialogType, DialogFooter } from '@fluentui/react/lib/Dialog';
+import { DatePicker } from '@fluentui/react/lib/DatePicker';
+import type { IDatePickerStyles } from '@fluentui/react/lib/DatePicker';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { TooltipHost } from '@fluentui/react/lib/Tooltip';
 import DocumentPreviewModal from "../../components/DocumentPreviewModal";
 import { ActionFeedback } from "../../components/feedback/FeedbackComponents";
 import { useToast } from "../../components/feedback/ToastProvider";
@@ -88,6 +81,26 @@ interface InstructionsProps {
   featureToggles?: Record<string, boolean>;
   demoModeEnabled?: boolean;
 }
+
+const getRiskAssessments = (entity: any): any[] => {
+  if (Array.isArray(entity?.riskAssessments)) return entity.riskAssessments;
+  if (Array.isArray(entity?.compliance)) return entity.compliance;
+  return [];
+};
+
+const upsertRiskAssessment = (entity: any, risk: any) => ({
+  ...entity,
+  riskAssessments: [
+    ...getRiskAssessments(entity).filter((item: any) => item.InstructionRef !== risk.InstructionRef),
+    risk,
+  ],
+});
+
+const removeRiskAssessment = (entity: any, instructionRef: string) => ({
+  ...entity,
+  riskAssessments: getRiskAssessments(entity).filter((item: any) => item.InstructionRef !== instructionRef),
+});
+
 const Instructions: React.FC<InstructionsProps> = ({
   userInitials,
   instructionData,
@@ -401,36 +414,11 @@ const Instructions: React.FC<InstructionsProps> = ({
               return prospect;
             }
 
-            const updatedProspect = { ...prospect } as any;
-            const riskKey = updatedProspect.riskAssessments
-              ? 'riskAssessments'
-              : updatedProspect.compliance
-              ? 'compliance'
-              : 'riskAssessments';
-
-            const currentProspectRisks = Array.isArray(updatedProspect[riskKey])
-              ? updatedProspect[riskKey]
-              : [];
-            updatedProspect[riskKey] = [
-              ...currentProspectRisks.filter((r: any) => r.InstructionRef !== updatedRisk.InstructionRef),
-              updatedRisk,
-            ];
+            const updatedProspect = upsertRiskAssessment(prospect, updatedRisk) as any;
 
             updatedProspect.instructions = (updatedProspect.instructions || []).map((inst: any) => {
               if (inst.InstructionRef === updatedRisk.InstructionRef) {
-                const instRiskKey = inst.riskAssessments
-                  ? 'riskAssessments'
-                  : inst.compliance
-                  ? 'compliance'
-                  : 'riskAssessments';
-                const currentInstRisks = Array.isArray(inst[instRiskKey]) ? inst[instRiskKey] : [];
-                return {
-                  ...inst,
-                  [instRiskKey]: [
-                    ...currentInstRisks.filter((r: any) => r.InstructionRef !== updatedRisk.InstructionRef),
-                    updatedRisk,
-                  ],
-                };
+                return upsertRiskAssessment(inst, updatedRisk);
               }
               return inst;
             });
@@ -442,16 +430,7 @@ const Instructions: React.FC<InstructionsProps> = ({
         // Update selectedInstruction state
         setSelectedInstruction((prev: any) => {
           if (!prev || prev.InstructionRef !== updatedRisk.InstructionRef) return prev;
-          const instRiskKey = prev.riskAssessments
-            ? 'riskAssessments'
-            : prev.compliance
-            ? 'compliance'
-            : 'riskAssessments';
-          const arr = Array.isArray(prev[instRiskKey])
-            ? prev[instRiskKey].filter((r: any) => r.InstructionRef !== updatedRisk.InstructionRef)
-            : [];
-          arr.push(updatedRisk);
-          return { ...prev, [instRiskKey]: arr } as any;
+          return upsertRiskAssessment(prev, updatedRisk) as any;
         });
 
         // Update the selectedOverviewItem risk data
@@ -861,36 +840,11 @@ const Instructions: React.FC<InstructionsProps> = ({
           return prospect; // untouched
         }
 
-        const updatedProspect = { ...prospect } as any;
-        const riskKey = updatedProspect.riskAssessments
-          ? 'riskAssessments'
-          : updatedProspect.compliance
-          ? 'compliance'
-          : 'riskAssessments';
-
-        const currentProspectRisks = Array.isArray(updatedProspect[riskKey])
-          ? updatedProspect[riskKey]
-          : [];
-        updatedProspect[riskKey] = [
-          ...currentProspectRisks.filter((r: any) => r.InstructionRef !== risk.InstructionRef),
-          risk,
-        ];
+        const updatedProspect = upsertRiskAssessment(prospect, risk) as any;
 
         updatedProspect.instructions = (updatedProspect.instructions || []).map((inst: any) => {
           if (inst.InstructionRef === risk.InstructionRef) {
-            const instRiskKey = inst.riskAssessments
-              ? 'riskAssessments'
-              : inst.compliance
-              ? 'compliance'
-              : 'riskAssessments';
-            const currentInstRisks = Array.isArray(inst[instRiskKey]) ? inst[instRiskKey] : [];
-            return {
-              ...inst,
-              [instRiskKey]: [
-                ...currentInstRisks.filter((r: any) => r.InstructionRef !== risk.InstructionRef),
-                risk,
-              ],
-            };
+            return upsertRiskAssessment(inst, risk);
           }
           return inst;
         });
@@ -901,16 +855,7 @@ const Instructions: React.FC<InstructionsProps> = ({
 
     setSelectedInstruction((prev: any) => {
       if (!prev || prev.InstructionRef !== risk.InstructionRef) return prev;
-      const instRiskKey = prev.riskAssessments
-        ? 'riskAssessments'
-        : prev.compliance
-        ? 'compliance'
-        : 'riskAssessments';
-      const arr = Array.isArray(prev[instRiskKey])
-        ? prev[instRiskKey].filter((r: any) => r.InstructionRef !== risk.InstructionRef)
-        : [];
-      arr.push(risk);
-      return { ...prev, [instRiskKey]: arr } as any;
+      return upsertRiskAssessment(prev, risk) as any;
     });
 
     setSelectedRisk(risk);
@@ -940,16 +885,10 @@ const Instructions: React.FC<InstructionsProps> = ({
       setInstructionData(prev => prev.map(prospect => {
         const contains = (prospect.instructions || []).some((i: any) => i.InstructionRef === instructionRef);
         if (!contains) return prospect;
-        const updated = { ...prospect } as any;
-        const key = updated.riskAssessments ? 'riskAssessments' : (updated.compliance ? 'compliance' : 'riskAssessments');
-        if (Array.isArray(updated[key])) {
-          updated[key] = updated[key].filter((r: any) => r.InstructionRef !== instructionRef);
-        }
+        const updated = removeRiskAssessment(prospect, instructionRef) as any;
         updated.instructions = (updated.instructions || []).map((inst: any) => {
           if (inst.InstructionRef !== instructionRef) return inst;
-          const instKey = inst.riskAssessments ? 'riskAssessments' : (inst.compliance ? 'compliance' : 'riskAssessments');
-          const arr = Array.isArray(inst[instKey]) ? inst[instKey].filter((r: any) => r.InstructionRef !== instructionRef) : [];
-          return { ...inst, [instKey]: arr };
+          return removeRiskAssessment(inst, instructionRef);
         });
         return updated;
       }));
@@ -1154,7 +1093,7 @@ const Instructions: React.FC<InstructionsProps> = ({
   
 
   // Filter states
-  const [clientsActionFilter, setClientsActionFilter] = useState<'All' | 'Verify ID' | 'Assess Risk' | 'Open Matter' | 'Draft CCL' | 'Complete'>('All');
+  const [clientsActionFilter, setClientsActionFilter] = useState<'All' | 'Verify ID' | 'Assess Risk' | 'Open Matter' | 'CCL Service' | 'Complete'>('All');
   const [pitchesStatusFilter, setPitchesStatusFilter] = useState<'All' | 'Open' | 'Closed'>('All');
   const [riskStatusFilter, setRiskStatusFilter] = useState<'All' | 'Outstanding' | 'Completed'>('All');
   
@@ -1189,25 +1128,10 @@ const Instructions: React.FC<InstructionsProps> = ({
   // Auto-refresh state (5 minute interval like Enquiries)
   const [lastRefreshTime, setLastRefreshTime] = useState<Date>(new Date());
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
-  const [nextRefreshIn, setNextRefreshIn] = useState<number>(5 * 60); // 5 minutes in seconds
+  const [nextRefreshIn, setNextRefreshIn] = useState<number>(60); // 60 seconds
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const handleManualRefreshRef = useRef<(() => Promise<void>) | null>(null);
-  
-  // Area of Work icon mapping to match Teams channels (same as Enquiries)
-  const getAreaOfWorkIcon = (areaOfWork: string): string => {
-    const area = (areaOfWork || '').toLowerCase().trim();
-    
-    if (area.includes('triage')) return '🩺';
-    if (area.includes('construction') || area.includes('building')) return '🏗️';
-    if (area.includes('property') || area.includes('real estate') || area.includes('conveyancing')) return '🏠';
-    if (area.includes('commercial') || area.includes('business')) return '🏢';
-    if (area.includes('employment') || area.includes('hr') || area.includes('workplace')) return '👩🏻‍💼';
-    if (area.includes('allocation')) return '📂';
-    if (area.includes('general') || area.includes('misc') || area.includes('other')) return 'ℹ️';
-    
-    return 'ℹ️'; // Default icon
-  };
   
   const currentUser: UserData | undefined = userData?.[0] || (localUserData as UserData[])[0];
   // Admin detection using proper utility
@@ -1252,7 +1176,7 @@ const Instructions: React.FC<InstructionsProps> = ({
       // Dispatch event to trigger App-level data refresh
       window.dispatchEvent(new CustomEvent('refreshInstructionData'));
       setLastRefreshTime(new Date());
-      setNextRefreshIn(5 * 60); // Reset to 5 minutes
+      setNextRefreshIn(60); // Reset to 60 seconds
       debugLog('✅ Instruction refresh triggered successfully');
     } catch (error) {
       console.error('❌ Failed to refresh instructions:', error);
@@ -1308,30 +1232,30 @@ const Instructions: React.FC<InstructionsProps> = ({
     handleManualRefreshRef.current = handleManualRefresh;
   }, [handleManualRefresh]);
 
-  // Auto-refresh timer (5 minutes) - uses ref to avoid interval reset on function recreation
+  // Auto-refresh timer (60 seconds) - uses ref to avoid interval reset on function recreation
   useEffect(() => {
     // Clear existing intervals
     if (refreshIntervalRef.current) clearInterval(refreshIntervalRef.current);
     if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
 
-    // Set up 5-minute auto-refresh - uses ref so interval doesn't reset when function changes
+    // Set up 60-second auto-refresh
     refreshIntervalRef.current = setInterval(() => {
       debugLog('⏰ Auto-refresh timer fired for Instructions');
       if (handleManualRefreshRef.current) {
         handleManualRefreshRef.current();
       }
-    }, 5 * 60 * 1000); // 5 minutes
+    }, 60 * 1000); // 60 seconds
 
-    // Set up countdown timer (updates every second for smooth progress)
+    // Tick every second for smooth countdown
     countdownIntervalRef.current = setInterval(() => {
       setNextRefreshIn(prev => {
         const newValue = prev - 1;
         if (newValue <= 0) {
-          return 5 * 60; // Reset to 5 minutes
+          return 60;
         }
         return newValue;
       });
-    }, 1000); // 1 second
+    }, 1000);
 
     debugLog('🕐 Instruction auto-refresh intervals initialized');
 
@@ -1340,19 +1264,6 @@ const Instructions: React.FC<InstructionsProps> = ({
       if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
     };
   }, []); // Empty deps - only run once on mount
-
-  // Format time remaining for display
-  const formatTimeRemaining = (seconds: number): string => {
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
-    const hours = Math.floor(minutes / 60);
-    const remainingMinutes = minutes % 60;
-    
-    if (hours > 0) {
-      return `${hours}h ${remainingMinutes}m ${remainingSeconds}s`;
-    }
-    return `${remainingMinutes}m ${remainingSeconds}s`;
-  };
 
   // Window resize effect for responsive filters
   useEffect(() => {
@@ -2306,8 +2217,8 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
           refresh={{
             onRefresh: handleManualRefresh,
             isLoading: isRefreshing,
-            nextUpdateTime: nextRefreshIn ? formatTimeRemaining(nextRefreshIn) : undefined,
-            progressPercentage: (nextRefreshIn / (5 * 60)) * 100, // 0-100% remaining
+            progressPercentage: Math.round((nextRefreshIn / 60) * 100),
+            countdownLabel: `0:${nextRefreshIn < 10 ? '0' : ''}${nextRefreshIn}`,
           }}
         />
     );
@@ -2417,13 +2328,12 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
         const deal = dealsForInst[0];
 
         const riskSource = [
-          ...(prospect.riskAssessments ?? prospect.compliance ?? []),
-          ...((inst as any).riskAssessments ?? (inst as any).compliance ?? []),
+          ...getRiskAssessments(prospect),
+          ...getRiskAssessments(inst as any),
         ];
         dealsForInst.forEach((d) => {
           if (d.instruction) {
-            riskSource.push(...(d.instruction.riskAssessments ?? []));
-            riskSource.push(...(d.instruction.compliance ?? []));
+            riskSource.push(...getRiskAssessments(d.instruction));
           }
         });
         const eidSource = [
@@ -3057,10 +2967,7 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
       effectiveInstructionData.flatMap((p) => {
         const instructions = p.instructions ?? [];
         const deals = p.deals ?? [];
-        const riskSource: any[] = [
-          ...(p.riskAssessments ?? []),
-          ...(p.compliance ?? []),
-        ];
+        const riskSource: any[] = [...getRiskAssessments(p)];
         const prospectEids: any[] = [
           ...(p.electronicIDChecks ?? []),
           ...(p.idVerifications ?? []),
@@ -3078,8 +2985,7 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
           });
         });
         instructions.forEach((inst: any) => {
-          riskSource.push(...(inst.riskAssessments ?? []));
-          riskSource.push(...(inst.compliance ?? []));
+          riskSource.push(...getRiskAssessments(inst));
           const instEids: any[] = [
             ...(inst.electronicIDChecks ?? []),
             ...(inst.idVerifications ?? []),
@@ -3099,8 +3005,7 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
         });
         deals.forEach((d: any) => {
           if (d.instruction) {
-            riskSource.push(...(d.instruction.riskAssessments ?? []));
-            riskSource.push(...(d.instruction.compliance ?? []));
+            riskSource.push(...getRiskAssessments(d.instruction));
             const instEids: any[] = [
               ...(d.instruction.electronicIDChecks ?? []),
               ...(d.instruction.idVerifications ?? []),
@@ -3254,7 +3159,7 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
       if (verifyIdStatus !== 'complete') nextAction = 'Verify ID';
       else if (riskStatus === 'pending') nextAction = 'Assess Risk';
       else if (!hasMatter && poidPassed && paymentCompleted) nextAction = 'Open Matter';
-      else if (hasMatter && !cclSubmitted) nextAction = 'Draft CCL';
+      else if (hasMatter && !cclSubmitted) nextAction = 'CCL Service';
       return { ...item, nextAction };
     });
   }, [overviewItems]);
@@ -4498,7 +4403,7 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
   };
 
 
-  // Always open CCL template for global Draft CCL action
+  // Always open the CCL surface for the global CCL service action
   const handleOpenDraftCcl = (ref: string) => {
     setSelectedInstruction({ InstructionRef: ref } as any);
     // Set a global variable or state to force initialTemplate to 'ccl'
@@ -6208,7 +6113,7 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                         transform: 'translate(-50%, -50%)',
                         whiteSpace: 'nowrap'
                       }}>
-                        Draft CCL
+                        CCL Service
                       </span>
                     </button>
                   </div>

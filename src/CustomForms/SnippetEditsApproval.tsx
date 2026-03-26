@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
 // invisible change
-import { Stack, DefaultButton, Text } from '@fluentui/react';
-import { mergeStyles } from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { DefaultButton } from '@fluentui/react/lib/Button';
+import { Text } from '@fluentui/react/lib/Text';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { colours } from '../app/styles/colours';
 import { componentTokens } from '../app/styles/componentTokens';
 import { getFormPrimaryButtonStyles, getFormDefaultButtonStyles } from './shared/formStyles';

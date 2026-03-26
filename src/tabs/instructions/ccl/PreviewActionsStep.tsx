@@ -1,6 +1,7 @@
 import React from 'react';
-import { MessageBar, MessageBarType, Icon, Stack } from '@fluentui/react';
-
+import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { Stack } from '@fluentui/react/lib/Stack';
 interface Step3Props {
     currentStep: number;
     questionBannerStyle: React.CSSProperties;

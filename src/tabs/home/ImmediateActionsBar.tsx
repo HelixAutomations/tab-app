@@ -32,34 +32,46 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
   const isDark = contextDarkMode ?? propDarkMode ?? false;
   const [showSuccess, setShowSuccess] = useState(false);
   const [allowEmptyState, setAllowEmptyState] = useState(false);
-  const [emptyCollapsed, setEmptyCollapsed] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(() => {
     // Persist collapse state in localStorage
     const saved = localStorage.getItem('immediateActionsCollapsed');
     return saved === 'true';
   });
 
+  // Track whether we've already shown the first live render.
+  // Only the initial skeleton→live transition gets staggered chip animation;
+  // subsequent list updates (new actions arriving) render without replaying it.
+  const hasRenderedLive = useRef(false);
+
   const actions = immediateActionsList;
+
+  // Progressive display: show chips the moment they exist, don't wait for
+  // all deps to finish. Skeletons only when the list is empty AND still loading.
+  const stillLoading = !immediateActionsReady;
+  const hasActions = actions.length > 0;
 
   // Avoid flicker: keep skeletons briefly when ready-but-empty, to allow
   // attendance/instructions derived actions to appear without showing empty state first.
   useEffect(() => {
     if (!immediateActionsReady) {
       setAllowEmptyState(false);
+      hasRenderedLive.current = false;
       return;
     }
-    if (actions.length > 0) {
+    if (hasActions) {
       setAllowEmptyState(true);
       return;
     }
 
     setAllowEmptyState(false);
-    const timer = setTimeout(() => setAllowEmptyState(true), 700);
+    const timer = setTimeout(() => setAllowEmptyState(true), 400);
     return () => clearTimeout(timer);
-  }, [immediateActionsReady, actions.length]);
+  }, [immediateActionsReady, hasActions]);
 
-  const settlingEmpty = immediateActionsReady && actions.length === 0 && !allowEmptyState;
-  const loading = !immediateActionsReady || settlingEmpty;
+  // Show skeletons only when we have no actions yet and data is still arriving
+  const showSkeletons = !hasActions && stillLoading;
+  // Show chips whenever they exist — even if more data is still loading
+  const showChips = hasActions;
 
   // Toggle collapse and persist
   const toggleCollapse = () => {
@@ -69,24 +81,22 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
   };
 
   // Show success briefly when loading completes with no actions
+  // (only after settling delay, so it doesn't flash during transient empty state)
   useEffect(() => {
-    if (immediateActionsReady && actions.length === 0) {
+    if (immediateActionsReady && allowEmptyState && actions.length === 0) {
       setShowSuccess(true);
       const timer = setTimeout(() => setShowSuccess(false), 2000);
       return () => clearTimeout(timer);
     }
-  }, [immediateActionsReady, actions.length]);
-
-  // Auto-collapse empty state shortly after it appears
-  useEffect(() => {
-    if (immediateActionsReady && allowEmptyState && actions.length === 0) {
-      setEmptyCollapsed(false);
-      const timer = setTimeout(() => setEmptyCollapsed(true), 900);
-      return () => clearTimeout(timer);
-    }
-    setEmptyCollapsed(false);
   }, [immediateActionsReady, allowEmptyState, actions.length]);
-  
+
+  // Mark first live render done after this render cycle completes
+  useEffect(() => {
+    if (showChips && !hasRenderedLive.current) {
+      const raf = requestAnimationFrame(() => { hasRenderedLive.current = true; });
+      return () => cancelAnimationFrame(raf);
+    }
+  }, [showChips]);
 
 
   // Colors
@@ -96,13 +106,9 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
 
   // Empty state
   if (immediateActionsReady && allowEmptyState && actions.length === 0) {
-    if (emptyCollapsed) {
-      return null;
-    }
-
     return (
       <Section isDark={isDark} seamless={seamless} quiet>
-        <EmptyState isDark={isDark} collapsed={emptyCollapsed}>All caught up</EmptyState>
+        <EmptyState isDark={isDark} collapsed={false}>All caught up</EmptyState>
       </Section>
     );
   }
@@ -130,13 +136,15 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
           alignItems: 'stretch',
           flexWrap: 'wrap',
           width: '100%',
+          minHeight: 32,
           minWidth: 0,
-          gap: 8,
-          paddingLeft: 12,
-          paddingTop: 4,
+          gap: 6,
+          paddingLeft: 6,
+          paddingTop: 2,
           position: 'relative',
+          transition: 'opacity 0.18s ease',
         }}>
-          {loading && (
+          {showSkeletons && (
             <>
               <SkeletonChip isDark={isDark} />
               <SkeletonChip isDark={isDark} />
@@ -144,10 +152,14 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
             </>
           )}
 
-          {!loading && actions.map((action, idx) => (
+          {showChips && actions.map((action, idx) => {
+            // Animate only the very first skeleton→live transition;
+            // subsequent list updates render instantly without replaying.
+            const shouldAnimate = !hasRenderedLive.current;
+            return (
             <div 
               key={`${action.title}-${idx}`} 
-              style={{ position: 'relative', animation: `iabChipIn 0.22s ease ${idx * 0.035}s both` }}
+              style={{ position: 'relative', animation: shouldAnimate ? `iabChipIn 0.22s ease ${idx * 0.035}s both` : 'none' }}
             >
               <ImmediateActionChip
                 title={action.title}
@@ -160,7 +172,8 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
                 isDarkMode={isDark}
               />
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </Section>
@@ -191,14 +204,15 @@ const Section: React.FC<{ isDark: boolean; seamless?: boolean; highlighted?: boo
   children 
 }) => (
   <section style={{
-    padding: seamless ? '8px 0 10px' : quiet ? '6px 0 8px' : '8px 0 10px',
+    padding: seamless ? '4px 0 6px' : quiet ? '4px 0 6px' : '4px 0 6px',
+    minHeight: quiet ? 40 : 56,
     background: isDark ? colours.websiteBlue : colours.light.background,
     border: 'none',
     borderBottom: `1px solid ${isDark ? 'rgba(75, 85, 99, 0.22)' : 'rgba(6, 23, 51, 0.06)'}`,
     boxShadow: 'none',
-    paddingInline: quiet ? '16px' : '20px',
+    paddingInline: quiet ? '10px' : '12px',
     marginBottom: 0,
-    transition: 'all 0.15s ease',
+    transition: 'min-height 0.2s ease, padding 0.15s ease, opacity 0.18s ease',
   }}>
     {children}
   </section>
@@ -208,10 +222,10 @@ const HeaderRow: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <div style={{
     display: 'flex',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
     width: '100%',
     minWidth: 0,
-    marginBottom: 2,
+    marginBottom: 1,
   }}>
     {children}
   </div>
@@ -346,8 +360,8 @@ if (typeof document !== 'undefined' && !document.head.querySelector(`style[data-
   s.setAttribute(`data-${iabResponsiveId}`, '');
   s.textContent = `
     @keyframes iabChipIn {
-      from { opacity: 0; transform: translateX(-6px); }
-      to { opacity: 1; transform: translateX(0); }
+      from { opacity: 0; }
+      to { opacity: 1; }
     }
     .iab-chip-grid > div {
       flex: 1 1 180px;

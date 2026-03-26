@@ -1,12 +1,10 @@
 // src/tabs/matters/documents/DocumentCard.tsx
 
 import React from 'react';
-import {
-  Text,
-  mergeStyles,
-  Icon,
-  IconButton,
-} from '@fluentui/react';
+import { Text } from '@fluentui/react/lib/Text';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { IconButton } from '@fluentui/react/lib/Button';
 import { useTheme } from '../../../app/functionality/ThemeContext';
 import { colours } from '../../../app/styles/colours';
 import { DocumentEntry } from './documentIndex';

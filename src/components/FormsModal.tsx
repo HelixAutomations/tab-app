@@ -1,5 +1,8 @@
 import React, { useState, useMemo, useCallback } from "react";
-import { IconButton, Text, Modal, Icon } from "@fluentui/react";
+import { IconButton } from '@fluentui/react/lib/Button';
+import { Text } from '@fluentui/react/lib/Text';
+import { Modal } from '@fluentui/react/lib/Modal';
+import { Icon } from '@fluentui/react/lib/Icon';
 import { useTheme } from "../app/functionality/ThemeContext";
 import { colours } from "../app/styles/colours";
 import { formSections } from "../tabs/forms/formsData";

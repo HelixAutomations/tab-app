@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-export type HomeMetricName = 'transactions' | 'futureBookings' | 'outstandingBalances' | 'poid6Years';
+export type HomeMetricName = 'transactions' | 'futureBookings' | 'outstandingBalances';
 
 export interface HomeMetricEvent {
   type: 'init' | 'metric-complete' | 'metric-error' | 'complete';

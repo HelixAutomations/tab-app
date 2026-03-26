@@ -95,7 +95,7 @@ export const FIELD_PROMPTS: FieldPrompt[] = [
     sectionTitle: 'Disbursements',
     placeholder: '{{disbursements_paragraph}}',
     templateContext: '{{disbursements_paragraph}}',
-    instruction: '1–2 sentences about likely disbursements for this matter type — court fees, search fees, counsel\'s fees, expert fees, etc.',
+    instruction: 'Write 1–3 client-friendly sentences about likely disbursements for this matter. Avoid tables, repeated placeholder rows, or generic filler. If no material disbursements are expected at the outset, say so and explain that any court fee, counsel\'s fee, expert fee, search fee or similar third-party cost will be discussed in advance before being incurred.',
     dataHint: 'Practice area, type of work (area-specific disbursement norms)',
     outputType: 'paragraph',
     order: 6,

@@ -1,5 +1,9 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { Modal, TextField, PrimaryButton, DefaultButton, Text, IconButton, Icon } from '@fluentui/react';
+import { Modal } from '@fluentui/react/lib/Modal';
+import { TextField } from '@fluentui/react/lib/TextField';
+import { PrimaryButton, DefaultButton, IconButton } from '@fluentui/react/lib/Button';
+import { Text } from '@fluentui/react/lib/Text';
+import { Icon } from '@fluentui/react/lib/Icon';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';
 import { Enquiry } from '../../app/functionality/types';

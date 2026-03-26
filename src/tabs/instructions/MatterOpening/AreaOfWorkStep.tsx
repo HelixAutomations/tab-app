@@ -1,7 +1,9 @@
 // invisible change 3
 import React from 'react'; // invisible change // invisible change 2
 // invisible change 2.2
-import { Stack, Text, Icon } from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Text } from '@fluentui/react/lib/Text';
+import { Icon } from '@fluentui/react/lib/Icon';
 import '../../../app/styles/MultiSelect.css';
 import { colours } from '../../../app/styles/colours';
 import { useTheme } from '../../../app/functionality/ThemeContext';

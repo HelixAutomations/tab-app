@@ -3,14 +3,18 @@ const { withRequest, sql } = require('../utils/db');
 const { cacheUnified, generateCacheKey, CACHE_CONFIG, deleteCachePattern } = require('../utils/redisClient');
 const { loggers } = require('../utils/logger');
 const { attachEnquiriesStream, broadcastEnquiriesChanged } = require('../utils/enquiries-stream');
+const { VALID_SOURCE_BIASES, resolveSourceSelection, getDefaultSourceBiasForPolicy } = require('../utils/enquirySourcePolicy');
 const router = express.Router();
+const { annotate } = require('../utils/devConsole');
 
 const log = loggers.enquiries;
-const VALID_SOURCE_BIASES = new Set(['legacy-primary', 'new-primary', 'legacy-only', 'new-only']);
+const VALID_SOURCE_BIASES_SET = new Set(VALID_SOURCE_BIASES);
 const VALID_PROCESSING_APPROACHES = new Set(['unified', 'area-personalised']);
 const MEMORY_UNIFIED_CACHE_TTL_MS = 15 * 1000;
 const MEMORY_UNIFIED_CACHE_STALE_MS = 60 * 1000;
 const unifiedMemoryCache = new Map();
+const instructionsColumnPresenceCache = new Map();
+const INSTRUCTIONS_COLUMN_CACHE_TTL_MS = 10 * 60 * 1000;
 
 function getMemoryUnifiedEntry(cacheKey) {
   const entry = unifiedMemoryCache.get(cacheKey);
@@ -62,7 +66,9 @@ const isUserInSharedWith = (sharedWith, userEmail) => {
 
 const normaliseSourceBias = (value) => {
   const candidate = String(value || '').trim().toLowerCase();
-  return VALID_SOURCE_BIASES.has(candidate) ? candidate : 'legacy-primary';
+  return VALID_SOURCE_BIASES_SET.has(candidate)
+    ? candidate
+    : getDefaultSourceBiasForPolicy('operational');
 };
 
 const normaliseProcessingApproach = (value) => {
@@ -82,10 +88,11 @@ const mergeIfBlank = (target, targetField, source, sourceField = targetField) =>
   }
 };
 
-const annotateProcessingIdentity = (record, { processingEnquiryId, processingSource, legacyEnquiryId, sourceBias, processingApproach }) => {
+const annotateProcessingIdentity = (record, { processingEnquiryId, processingSource, legacyEnquiryId, sourcePolicy, sourceBias, processingApproach }) => {
   record.processingEnquiryId = processingEnquiryId;
   record.processingSource = processingSource;
   record.legacyEnquiryId = legacyEnquiryId || null;
+  record.sourcePolicy = sourcePolicy;
   record.sourceBias = sourceBias;
   record.processingApproach = processingApproach;
   return record;
@@ -107,6 +114,21 @@ async function instructionsHasColumn(instructionsConnectionString, columnName) {
     log.warn(`Failed to inspect instructions column ${columnName}:`, error?.message || error);
     return false;
   }
+}
+
+async function getCachedInstructionsColumnPresence(instructionsConnectionString, columnName) {
+  const cacheKey = `${instructionsConnectionString}::${columnName}`;
+  const cached = instructionsColumnPresenceCache.get(cacheKey);
+  if (cached && (Date.now() - cached.checkedAt) < INSTRUCTIONS_COLUMN_CACHE_TTL_MS) {
+    return cached.hasColumn;
+  }
+
+  const hasColumn = await instructionsHasColumn(instructionsConnectionString, columnName);
+  instructionsColumnPresenceCache.set(cacheKey, {
+    hasColumn,
+    checkedAt: Date.now(),
+  });
+  return hasColumn;
 }
 
 // SSE stream endpoint: GET /api/enquiries-unified/stream
@@ -183,7 +205,10 @@ router.get('/', async (req, res) => {
     const initials = (req.query.initials || '').trim().toLowerCase();
     const includeTeamInbox = String(req.query.includeTeamInbox || 'true').toLowerCase() === 'true';
     const fetchAll = String(req.query.fetchAll || 'false').toLowerCase() === 'true';
-    const sourceBias = normaliseSourceBias(req.query.sourceBias);
+    const { sourcePolicy, sourceBias } = resolveSourceSelection({
+      sourcePolicy: req.query.sourcePolicy,
+      sourceBias: req.query.sourceBias,
+    });
     const processingApproach = normaliseProcessingApproach(req.query.processingApproach);
     const dateFrom = req.query.dateFrom || '';
     const dateTo = req.query.dateTo || '';
@@ -202,6 +227,7 @@ router.get('/', async (req, res) => {
       initials,
       includeTeamInbox,
       fetchAll,
+      sourcePolicy,
       sourceBias,
       processingApproach,
       dateFrom,
@@ -213,6 +239,7 @@ router.get('/', async (req, res) => {
     if (!effectiveBypassCache) {
       const memoryEntry = getMemoryUnifiedEntry(memoryCacheKey);
       if (memoryEntry?.isFresh) {
+        annotate(res, { source: 'memory' });
         return res.json({ ...memoryEntry.data, cached: true, source: 'memory' });
       }
 
@@ -234,6 +261,7 @@ router.get('/', async (req, res) => {
       }
 
       if (memoryEntry) {
+        annotate(res, { source: 'stale', note: 'memory stale — refreshing' });
         return res.json({ ...memoryEntry.data, cached: true, source: 'memory-stale' });
       }
     }
@@ -244,12 +272,14 @@ router.get('/', async (req, res) => {
         return await performUnifiedEnquiriesQuery(req.query);
       });
       setMemoryUnifiedEntry(memoryCacheKey, result);
+      annotate(res, { source: 'redis' });
       return res.json({ ...result, cached: true });
     }
 
     // Bypass cache - direct query
     const result = await performUnifiedEnquiriesQuery(req.query);
     setMemoryUnifiedEntry(memoryCacheKey, result);
+    annotate(res, { source: 'sql', note: 'bypass-cache' });
     res.json({ ...result, cached: false });
 
   } catch (error) {
@@ -273,7 +303,10 @@ async function performUnifiedEnquiriesQuery(queryParams) {
   log.debug('Query params:', queryParams);
 
   const fetchAll = String(queryParams.fetchAll || 'false').toLowerCase() === 'true';
-  const sourceBias = normaliseSourceBias(queryParams.sourceBias);
+  const { sourcePolicy, sourceBias } = resolveSourceSelection({
+    sourcePolicy: queryParams.sourcePolicy,
+    sourceBias: queryParams.sourceBias,
+  });
   const processingApproach = normaliseProcessingApproach(queryParams.processingApproach);
   const includeLegacySource = sourceBias !== 'new-only';
   const includeInstructionsSource = sourceBias !== 'legacy-only';
@@ -306,195 +339,199 @@ async function performUnifiedEnquiriesQuery(queryParams) {
 
   // Collect warnings and debug info
   const warnings = [];
-  const hasInstructionsSharedWithColumn = await instructionsHasColumn(instructionsConnectionString, 'shared_with');
+  const hasInstructionsSharedWithColumn = await getCachedInstructionsColumnPresence(instructionsConnectionString, 'shared_with');
 
-  // Main DB query
-  let mainEnquiries = [];
   let mainWhereClause = '';
-  try {
-    if (!includeLegacySource) {
-      mainEnquiries = [];
-      log.debug('Skipping legacy enquiries query due to source bias');
-    } else {
-    const result = await withRequest(mainConnectionString, async (request) => {
-      const filters = [];
-
-      if (dateFrom && !hasProspectId) {
-        request.input('dateFrom', sql.DateTime2, new Date(dateFrom));
-        filters.push('Date_Created >= @dateFrom');
-      }
-      if (dateTo && !hasProspectId) {
-        const endDate = new Date(dateTo);
-        endDate.setHours(23, 59, 59, 999);
-        request.input('dateTo', sql.DateTime2, endDate);
-        filters.push('Date_Created <= @dateTo');
-      }
-
-      if (hasProspectId) {
-        request.input('prospectId', sql.Int, prospectIdInt);
-        filters.push('ID = @prospectId');
-      }
-
-      // User filtering (unless fetchAll is true)
-      if (!hasProspectId && !fetchAll && (email || initials)) {
-        const pocConditions = [];
-        if (email) {
-          request.input('userEmail', sql.VarChar(255), email);
-          pocConditions.push("LOWER(LTRIM(RTRIM(Point_of_Contact))) = @userEmail");
-        }
-        if (initials) {
-          request.input('userInitials', sql.VarChar(50), initials.replace(/\./g, ''));
-          pocConditions.push("LOWER(REPLACE(REPLACE(LTRIM(RTRIM(Point_of_Contact)), ' ', ''), '.', '')) = @userInitials");
-        }
-        if (includeTeamInbox) {
-          pocConditions.push("LOWER(LTRIM(RTRIM(Point_of_Contact))) IN ('team@helix-law.com', 'team', 'team inbox')");
-          pocConditions.push("Point_of_Contact IS NULL OR LTRIM(RTRIM(Point_of_Contact)) = ''");
-        }
-        if (pocConditions.length > 0) filters.push(`(${pocConditions.join(' OR ')})`);
-      }
-
-      request.input('limit', sql.Int, limit);
-      mainWhereClause = filters.length > 0 ? `WHERE ${filters.join(' AND ')}` : '';
-
-      return await request.query(`
-        SELECT TOP (@limit)
-          ID,
-          ID as id,
-          Date_Created as datetime,
-          Tags as stage,
-          NULL as claim,
-          Point_of_Contact as poc,
-          Area_of_Work as pitch,
-          Area_of_Work as aow,
-          Type_of_Work as tow,
-          Method_of_Contact as moc,
-          Contact_Referrer as rep,
-          First_Name,
-          First_Name as first,
-          Last_Name,
-          Last_Name as last,
-          Email as email,
-          Phone_Number as phone,
-          NULL as uid,
-          NULL as displayNumber,
-          NULL as postcode,
-          Initial_first_call_notes,
-          Initial_first_call_notes as notes,
-          NULL as convertDate,
-          Value,
-          Rating,
-          Ultimate_Source,
-          'main' as _dbSource,
-          'not-checked' as migrationStatus
-        FROM enquiries
-        ${mainWhereClause}
-        ORDER BY Date_Created DESC
-      `);
-    });
-    mainEnquiries = Array.isArray(result.recordset) ? result.recordset : [];
-    }
-    log.debug(`Main DB returned: ${mainEnquiries.length} enquiries`);
-  } catch (err) {
-    log.error('Main DB enquiries query failed:', err?.message || err);
-    warnings.push({ source: 'main', message: err?.message || String(err) });
-    mainEnquiries = [];
-  }
-
-  // Instructions DB query
-  let instructionsEnquiries = [];
   let instWhereClause = '';
-  try {
-    if (!includeInstructionsSource) {
-      instructionsEnquiries = [];
-      log.debug('Skipping instructions enquiries query due to source bias');
-    } else {
-    const result = await withRequest(instructionsConnectionString, async (request) => {
-      const filters = [];
-      if (dateFrom && !hasProspectId) {
-        request.input('dateFrom', sql.DateTime2, new Date(dateFrom));
-        filters.push('datetime >= @dateFrom');
-      }
-      if (dateTo && !hasProspectId) {
-        const endDate = new Date(dateTo);
-        endDate.setHours(23, 59, 59, 999);
-        request.input('dateTo', sql.DateTime2, endDate);
-        filters.push('datetime <= @dateTo');
-      }
-      if (hasProspectId) {
-        request.input('prospectIdStr', sql.NVarChar(100), prospectIdRaw);
-        // Deals.ProspectId = ActiveCampaign contact ID.
-        // New-space: acid = AC contact ID (the bridge), id = internal PK (auto-increment).
-        // Legacy: ID = PK which also served as the AC bridge.
-        // Match both columns so we find the record regardless of which value was stored.
-        filters.push('(id = @prospectIdStr OR acid = @prospectIdStr)');
-      }
-      if (!fetchAll && (email || initials)) {
-        const pocConditions = [];
-        if (email) {
-          request.input('userEmail', sql.VarChar(255), email);
-          pocConditions.push("LOWER(LTRIM(RTRIM(poc))) = @userEmail");
-          if (hasInstructionsSharedWithColumn) {
-            pocConditions.push("(',' + LOWER(REPLACE(REPLACE(ISNULL(shared_with, ''), ' ', ''), ';', ',')) + ',') LIKE '%,' + @userEmail + ',%'");
-          }
-        }
-        if (initials) {
-          request.input('userInitials', sql.VarChar(50), initials.replace(/\./g, ''));
-          pocConditions.push("LOWER(REPLACE(REPLACE(LTRIM(RTRIM(poc)), ' ', ''), '.', '')) = @userInitials");
-        }
-        if (includeTeamInbox) {
-          pocConditions.push("LOWER(LTRIM(RTRIM(poc))) IN ('team@helix-law.com', 'team', 'team inbox')");
-          pocConditions.push("poc IS NULL OR LTRIM(RTRIM(poc)) = ''");
-        }
-        if (pocConditions.length > 0) filters.push(`(${pocConditions.join(' OR ')})`);
-      }
-      request.input('limit', sql.Int, limit);
-      instWhereClause = filters.length > 0 ? `WHERE ${filters.join(' AND ')}` : '';
 
-      return await request.query(`
-        SELECT TOP (@limit)
-          id,
-          datetime,
-          stage,
-          claim,
-          poc,
-          pitch,
-          aow,
-          tow,
-          moc,
-          rep,
-          first,
-          last,
-          email,
-          phone,
-          acid,
-          source,
-          url,
-          contact_referrer,
-          company_referrer,
-          gclid,
-          ${hasInstructionsSharedWithColumn ? 'shared_with,' : 'CAST(NULL as NVARCHAR(1000)) as shared_with,'}
-          NULL as uid,
-          NULL as displayNumber,
-          NULL as postcode,
-          notes,
-          NULL as convertDate,
-          value as Value,
-          rating as Rating,
-          'instructions' as _dbSource,
-          'not-checked' as migrationStatus
-        FROM dbo.enquiries
-        ${instWhereClause}
-        ORDER BY datetime DESC
-      `);
-    });
-    instructionsEnquiries = Array.isArray(result.recordset) ? result.recordset : [];
-    }
-    log.debug(`Instructions DB returned: ${instructionsEnquiries.length} enquiries`);
-  } catch (err) {
-    log.error('Instructions DB enquiries query failed:', err?.message || err);
-    warnings.push({ source: 'instructions', message: err?.message || String(err) });
-    instructionsEnquiries = [];
-  }
+  const [mainResult, instructionsResult] = await Promise.all([
+    (async () => {
+      try {
+        if (!includeLegacySource) {
+          log.debug('Skipping legacy enquiries query due to source bias');
+          return [];
+        }
+
+        const result = await withRequest(mainConnectionString, async (request) => {
+          const filters = [];
+
+          if (dateFrom && !hasProspectId) {
+            request.input('dateFrom', sql.DateTime2, new Date(dateFrom));
+            filters.push('Date_Created >= @dateFrom');
+          }
+          if (dateTo && !hasProspectId) {
+            const endDate = new Date(dateTo);
+            endDate.setHours(23, 59, 59, 999);
+            request.input('dateTo', sql.DateTime2, endDate);
+            filters.push('Date_Created <= @dateTo');
+          }
+
+          if (hasProspectId) {
+            request.input('prospectId', sql.Int, prospectIdInt);
+            filters.push('ID = @prospectId');
+          }
+
+          if (!hasProspectId && !fetchAll && (email || initials)) {
+            const pocConditions = [];
+            if (email) {
+              request.input('userEmail', sql.VarChar(255), email);
+              pocConditions.push("LOWER(LTRIM(RTRIM(Point_of_Contact))) = @userEmail");
+            }
+            if (initials) {
+              request.input('userInitials', sql.VarChar(50), initials.replace(/\./g, ''));
+              pocConditions.push("LOWER(REPLACE(REPLACE(LTRIM(RTRIM(Point_of_Contact)), ' ', ''), '.', '')) = @userInitials");
+            }
+            if (includeTeamInbox) {
+              pocConditions.push("LOWER(LTRIM(RTRIM(Point_of_Contact))) IN ('team@helix-law.com', 'team', 'team inbox')");
+              pocConditions.push("Point_of_Contact IS NULL OR LTRIM(RTRIM(Point_of_Contact)) = ''");
+            }
+            if (pocConditions.length > 0) filters.push(`(${pocConditions.join(' OR ')})`);
+          }
+
+          request.input('limit', sql.Int, limit);
+          mainWhereClause = filters.length > 0 ? `WHERE ${filters.join(' AND ')}` : '';
+
+          return request.query(`
+            SELECT TOP (@limit)
+              ID,
+              ID as id,
+              Date_Created as datetime,
+              Tags as stage,
+              NULL as claim,
+              Point_of_Contact as poc,
+              Area_of_Work as pitch,
+              Area_of_Work as aow,
+              Type_of_Work as tow,
+              Method_of_Contact as moc,
+              Contact_Referrer as rep,
+              First_Name,
+              First_Name as first,
+              Last_Name,
+              Last_Name as last,
+              Email as email,
+              Phone_Number as phone,
+              NULL as uid,
+              NULL as displayNumber,
+              NULL as postcode,
+              Initial_first_call_notes,
+              Initial_first_call_notes as notes,
+              NULL as convertDate,
+              Value,
+              Rating,
+              Ultimate_Source,
+              'main' as _dbSource,
+              'not-checked' as migrationStatus
+            FROM enquiries
+            ${mainWhereClause}
+            ORDER BY Date_Created DESC
+          `);
+        });
+
+        const mainEnquiries = Array.isArray(result.recordset) ? result.recordset : [];
+        log.debug(`Main DB returned: ${mainEnquiries.length} enquiries`);
+        return mainEnquiries;
+      } catch (err) {
+        log.error('Main DB enquiries query failed:', err?.message || err);
+        warnings.push({ source: 'main', message: err?.message || String(err) });
+        return [];
+      }
+    })(),
+    (async () => {
+      try {
+        if (!includeInstructionsSource) {
+          log.debug('Skipping instructions enquiries query due to source bias');
+          return [];
+        }
+
+        const result = await withRequest(instructionsConnectionString, async (request) => {
+          const filters = [];
+          if (dateFrom && !hasProspectId) {
+            request.input('dateFrom', sql.DateTime2, new Date(dateFrom));
+            filters.push('datetime >= @dateFrom');
+          }
+          if (dateTo && !hasProspectId) {
+            const endDate = new Date(dateTo);
+            endDate.setHours(23, 59, 59, 999);
+            request.input('dateTo', sql.DateTime2, endDate);
+            filters.push('datetime <= @dateTo');
+          }
+          if (hasProspectId) {
+            request.input('prospectIdStr', sql.NVarChar(100), prospectIdRaw);
+            filters.push('(id = @prospectIdStr OR acid = @prospectIdStr)');
+          }
+          if (!fetchAll && (email || initials)) {
+            const pocConditions = [];
+            if (email) {
+              request.input('userEmail', sql.VarChar(255), email);
+              pocConditions.push("LOWER(LTRIM(RTRIM(poc))) = @userEmail");
+              if (hasInstructionsSharedWithColumn) {
+                pocConditions.push("(',' + LOWER(REPLACE(REPLACE(ISNULL(shared_with, ''), ' ', ''), ';', ',')) + ',') LIKE '%,' + @userEmail + ',%'");
+              }
+            }
+            if (initials) {
+              request.input('userInitials', sql.VarChar(50), initials.replace(/\./g, ''));
+              pocConditions.push("LOWER(REPLACE(REPLACE(LTRIM(RTRIM(poc)), ' ', ''), '.', '')) = @userInitials");
+            }
+            if (includeTeamInbox) {
+              pocConditions.push("LOWER(LTRIM(RTRIM(poc))) IN ('team@helix-law.com', 'team', 'team inbox')");
+              pocConditions.push("poc IS NULL OR LTRIM(RTRIM(poc)) = ''");
+            }
+            if (pocConditions.length > 0) filters.push(`(${pocConditions.join(' OR ')})`);
+          }
+          request.input('limit', sql.Int, limit);
+          instWhereClause = filters.length > 0 ? `WHERE ${filters.join(' AND ')}` : '';
+
+          return request.query(`
+            SELECT TOP (@limit)
+              id,
+              datetime,
+              stage,
+              claim,
+              poc,
+              pitch,
+              aow,
+              tow,
+              moc,
+              rep,
+              first,
+              last,
+              email,
+              phone,
+              acid,
+              source,
+              url,
+              contact_referrer,
+              company_referrer,
+              gclid,
+              ${hasInstructionsSharedWithColumn ? 'shared_with,' : 'CAST(NULL as NVARCHAR(1000)) as shared_with,'}
+              NULL as uid,
+              NULL as displayNumber,
+              NULL as postcode,
+              notes,
+              NULL as convertDate,
+              value as Value,
+              rating as Rating,
+              'instructions' as _dbSource,
+              'not-checked' as migrationStatus
+            FROM dbo.enquiries
+            ${instWhereClause}
+            ORDER BY datetime DESC
+          `);
+        });
+
+        const instructionsEnquiries = Array.isArray(result.recordset) ? result.recordset : [];
+        log.debug(`Instructions DB returned: ${instructionsEnquiries.length} enquiries`);
+        return instructionsEnquiries;
+      } catch (err) {
+        log.error('Instructions DB enquiries query failed:', err?.message || err);
+        warnings.push({ source: 'instructions', message: err?.message || String(err) });
+        return [];
+      }
+    })(),
+  ]);
+
+  const mainEnquiries = mainResult;
+  const instructionsEnquiries = instructionsResult;
 
   // Cross-reference and merge
   const crossReferenceMap = new Map();
@@ -594,6 +631,7 @@ async function performUnifiedEnquiriesQuery(queryParams) {
           processingEnquiryId: enquiry.id,
           processingSource: 'new',
           legacyEnquiryId: pairedMain?.id || enquiry.acid || null,
+          sourcePolicy,
           sourceBias,
           processingApproach,
         });
@@ -614,6 +652,7 @@ async function performUnifiedEnquiriesQuery(queryParams) {
           processingEnquiryId: enquiry.id,
           processingSource: 'legacy',
           legacyEnquiryId: enquiry.id,
+          sourcePolicy,
           sourceBias,
           processingApproach,
         });
@@ -694,6 +733,7 @@ async function performUnifiedEnquiriesQuery(queryParams) {
       processingEnquiryId: enquiry.pitchEnquiryId || enquiry.id,
       processingSource: enquiry.pitchEnquiryId ? 'new' : 'legacy',
       legacyEnquiryId: enquiry.id,
+      sourcePolicy,
       sourceBias,
       processingApproach,
     });
@@ -725,6 +765,7 @@ async function performUnifiedEnquiriesQuery(queryParams) {
         processingEnquiryId: enquiry.id,
         processingSource: 'new',
         legacyEnquiryId: enquiry.acid || null,
+        sourcePolicy,
         sourceBias,
         processingApproach,
       });
@@ -775,10 +816,12 @@ async function performUnifiedEnquiriesQuery(queryParams) {
     debug: {
       mainWhereClause,
       instWhereClause,
+      sourcePolicy,
       sourceBias,
       processingApproach,
     },
     processingModel: {
+      sourcePolicy,
       sourceBias,
       processingApproach,
       primarySource: preferInstructionsPrimary ? 'instructions' : 'legacy',
@@ -1053,7 +1096,7 @@ router.post('/update', async (req, res) => {
     }
 
     try {
-      broadcastEnquiriesChanged({ changeType: 'update', enquiryId: displayEnquiryId || enquiryId });
+      broadcastEnquiriesChanged({ changeType: 'update', enquiryId: displayEnquiryId || enquiryId, record: updates });
     } catch { /* non-blocking */ }
 
     res.status(200).json({
@@ -1239,7 +1282,7 @@ router.post('/create', async (req, res) => {
     }
 
     try {
-      broadcastEnquiriesChanged({ changeType: 'create', enquiryId: String(newId) });
+      broadcastEnquiriesChanged({ changeType: 'create', enquiryId: String(newId), record: { id: newId, ...data } });
     } catch { /* non-blocking */ }
 
     res.status(201).json({
@@ -1776,4 +1819,6 @@ router.delete('/cleanup', async (req, res) => {
 });
 
 module.exports = router;
+module.exports.performUnifiedEnquiriesQuery = performUnifiedEnquiriesQuery;
+module.exports.getDefaultEnquirySourceBias = (policy = 'operational') => getDefaultSourceBiasForPolicy(policy);
 

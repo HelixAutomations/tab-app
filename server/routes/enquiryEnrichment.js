@@ -3,6 +3,7 @@ const { withRequest } = require('../utils/db');
 const { loggers } = require('../utils/logger');
 
 const router = express.Router();
+const { annotate } = require('../utils/devConsole');
 const log = loggers.enquiries.child('Enrichment');
 
 // Unified enrichment endpoint - combines Teams and pitch data for enquiries
@@ -278,6 +279,7 @@ router.get('/', async (req, res) => {
       ...data
     }));
 
+    annotate(res, { source: 'sql', note: `${enrichmentArray.length} enriched from Instructions DB` });
     res.json({
       enquiryData: enrichmentArray,
       pitchByEmail: enrichmentData.pitchByEmail

@@ -1,17 +1,12 @@
 import React, { useRef, useState } from 'react';
 // invisible change 2
-import {
-    Stack,
-    PrimaryButton,
-    DefaultButton,
-    Dialog,
-    DialogType,
-    DialogFooter,
-    DatePicker,
-    IDatePickerStyles,
-    IButtonStyles,
-    Checkbox,
-} from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { PrimaryButton, DefaultButton } from '@fluentui/react/lib/Button';
+import { Dialog, DialogType, DialogFooter } from '@fluentui/react/lib/Dialog';
+import { DatePicker } from '@fluentui/react/lib/DatePicker';
+import type { IDatePickerStyles } from '@fluentui/react/lib/DatePicker';
+import type { IButtonStyles } from '@fluentui/react/lib/Button';
+import { Checkbox } from '@fluentui/react/lib/Checkbox';
 import { useTheme } from '../app/functionality/ThemeContext';
 import { colours } from '../app/styles/colours';
 import { sharedPrimaryButtonStyles, sharedDefaultButtonStyles } from '../app/styles/ButtonStyles';

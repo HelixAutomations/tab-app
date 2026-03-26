@@ -11,6 +11,7 @@ const {
 const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
 
 const router = express.Router();
+const { annotate } = require('../utils/devConsole');
 
 const STORAGE_ACCOUNT_NAME = process.env.INSTRUCTIONS_STORAGE_ACCOUNT_NAME || 'instructionfiles';
 const PROSPECT_CONTAINER = process.env.PROSPECT_FILES_CONTAINER || 'prospect-files';
@@ -645,7 +646,7 @@ router.get('/documents', async (req, res) => {
  * Blob iteration is expensive (~10s). Results are cached in-memory for 60s.
  */
 let _pendingActionsCache = { data: null, expires: 0 };
-const PENDING_ACTIONS_TTL_MS = 60_000;
+const PENDING_ACTIONS_TTL_MS = 180_000; // 3 minutes — blob scan is expensive (~3s)
 
 router.get('/pending-actions', async (req, res) => {
   try {
@@ -656,6 +657,7 @@ router.get('/pending-actions', async (req, res) => {
     // Use cached full scan when available (filter is applied client-side after cache)
     const now = Date.now();
     let allActions = _pendingActionsCache.data;
+    const usedCache = allActions && _pendingActionsCache.expires > now;
     if (!allActions || _pendingActionsCache.expires <= now) {
       const svc = getBlobServiceClient();
       const containerClient = svc.getContainerClient(PROSPECT_CONTAINER);
@@ -695,6 +697,9 @@ router.get('/pending-actions', async (req, res) => {
       ? allActions.filter(a => filterIds.includes(a.enquiryId))
       : allActions;
 
+    annotate(res, usedCache
+      ? { source: 'memory', note: `${filtered.length} actions, TTL ${Math.round((_pendingActionsCache.expires - now) / 1000)}s` }
+      : { source: 'sql', note: `${filtered.length} actions from blob scan` });
     return res.json({
       pendingActions: filtered,
       total: filtered.length,

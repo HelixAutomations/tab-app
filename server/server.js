@@ -88,12 +88,18 @@ const cclDateRouter = require('./routes/ccl-date');
 const expertsRouter = require('./routes/experts');
 const counselRouter = require('./routes/counsel');
 const techTicketsRouter = require('./routes/techTickets');
+const registersRouter = require('./routes/registers');
 const telemetryRouter = require('./routes/telemetry');
 const financialTaskRouter = require('./routes/financialTask');
 const { router: dataOperationsRouter } = require('./routes/dataOperations');
 const { startDataOperationsScheduler } = require('./utils/dataOperationsScheduler');
 const yoyComparisonRouter = require('./routes/yoy-comparison');
 const teamsNotifyRouter = require('./routes/teamsNotify');
+const logsStreamRouter = require('./routes/logs-stream');
+const releaseNotesRouter = require('./routes/release-notes');
+const opsQueueRouter = require('./routes/opsQueue');
+const healthRouter = require('./routes/health');
+const { setStatus: setServerStatus } = require('./utils/serverStatus');
 
 // Initialize ops log (loads recent entries and ensures log dir)
 try { opLog.init(); } catch { /* best effort */ }
@@ -102,7 +108,7 @@ const app = express();
 // Enable gzip compression if available, but skip SSE endpoints
 if (compression) {
     app.use((req, res, next) => {
-        if (req.path.startsWith('/api/reporting-stream') || req.path.startsWith('/api/home-metrics')) {
+        if (req.path.startsWith('/api/reporting-stream') || req.path.startsWith('/api/home-metrics') || req.path.startsWith('/api/logs/stream')) {
             res.setHeader('Cache-Control', 'no-cache, no-transform');
             return next();
         }
@@ -139,7 +145,8 @@ const buildPath = require('fs').existsSync(rootBuildPath) ? rootBuildPath : path
 if (process.env.NODE_ENV !== 'production') {
     app.use(morgan('dev'));
 }
-app.use(express.json());
+app.use(express.json({ limit: '20mb' }));
+app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 app.use('/api/refresh', refreshRouter);
 app.use('/api/cache', clearCacheRouter);
 app.use('/api/matter-requests', matterRequestsRouter);
@@ -212,8 +219,17 @@ app.use('/api/counsel', counselRouter);
 // Tech tickets (Asana integration for ideas and problem reports)
 app.use('/api/tech-tickets', techTicketsRouter);
 
+// Compliance registers (L&D, Undertakings, Complaints)
+app.use('/api/registers', registersRouter);
+
 // Telemetry endpoint for pitch builder and client-side event tracking
 app.use('/api/telemetry', telemetryRouter);
+
+// Log stream (SSE + polling) for Activity Monitor in Reporting
+app.use('/api/logs', logsStreamRouter);
+
+// Release notes (powered by changelog.md)
+app.use('/api/release-notes', releaseNotesRouter);
 
 // Data operations (collected time, WIP sync) - manual triggers for Data Centre
 app.use('/api/data-operations', dataOperationsRouter);
@@ -221,12 +237,18 @@ app.use('/api/data-operations', dataOperationsRouter);
 // Year-over-Year comparison (WIP, Collected, Matters) — Management Dashboard
 app.use('/api/yoy-comparison', yoyComparisonRouter);
 
+// Operations queue (bank transfer approval workflow)
+app.use('/api/ops-queue', opsQueueRouter);
+
 // IMPORTANT: Attendance routes must come BEFORE proxy routes to avoid conflicts
 app.use('/api/attendance', attendanceRouter);
 app.use('/api/book-space', bookSpaceRouter);
 
 // Financial task route (Asana + optional OneDrive upload)
 app.use('/api/financial-task', financialTaskRouter);
+
+// Server component health
+app.use('/api/health', healthRouter);
 
 // Metrics routes (migrated from Azure Functions to fix cold start issues)
 app.use('/api/poid', poidRouter);
@@ -312,5 +334,6 @@ app.get('*', (_req, res) => {
 
 app.listen(PORT, () => {
     console.log(`Server listening on port ${PORT}`);
+    setServerStatus('scheduler', true);
     startDataOperationsScheduler();
 });

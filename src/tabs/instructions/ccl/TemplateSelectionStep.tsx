@@ -1,6 +1,6 @@
 import React from 'react';
-import { Stack, Icon } from '@fluentui/react';
-
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Icon } from '@fluentui/react/lib/Icon';
 interface Step1Props {
     currentStep: number;
     isInstructionBasedMode: boolean;

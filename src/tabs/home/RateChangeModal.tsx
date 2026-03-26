@@ -2,14 +2,11 @@
 // Clean ledger-style rate change notification tracker
 
 import React, { useState, useCallback, useMemo, useEffect, useTransition, useRef } from 'react';
-import {
-    Modal,
-    IconButton,
-    Icon,
-    Spinner,
-    SpinnerSize,
-    TextField,
-} from '@fluentui/react';
+import { Modal } from '@fluentui/react/lib/Modal';
+import { IconButton } from '@fluentui/react/lib/Button';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { Spinner, SpinnerSize } from '@fluentui/react/lib/Spinner';
+import { TextField } from '@fluentui/react/lib/TextField';
 import { colours } from '../../app/styles/colours';
 import { isAdminUser } from '../../app/admin';
 import type { UserData } from '../../app/functionality/types';

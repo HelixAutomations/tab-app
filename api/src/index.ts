@@ -11,7 +11,8 @@ import "./functions/getAllMatters";
 import "./functions/getAnnualLeave";
 import "./functions/getAnnualLeaveAll";
 import "./functions/getAttendance";
-import "./functions/getComplianceData";
+// getComplianceData migrated to Express server route /api/compliance
+// import "./functions/getComplianceData";
 import "./functions/getEnquiries";
 // getFutureBookings migrated to Express server route /api/future-bookings
 // import "./functions/getFutureBookings";

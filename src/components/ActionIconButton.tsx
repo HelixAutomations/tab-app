@@ -1,7 +1,8 @@
 import React from 'react';
 // invisible change 2
-import { IconButton, IButtonProps, Icon } from '@fluentui/react';
-
+import { IconButton } from '@fluentui/react/lib/Button';
+import type { IButtonProps } from '@fluentui/react/lib/Button';
+import { Icon } from '@fluentui/react/lib/Icon';
 interface ActionIconButtonProps extends IButtonProps {
     outlineIcon: string;
     filledIcon?: string;

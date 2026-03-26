@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 // invisible change 2
-import { MessageBar, MessageBarType, TooltipHost } from '@fluentui/react';
+import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
+import { TooltipHost } from '@fluentui/react/lib/Tooltip';
 import { FormItem, UserData, NormalizedMatter, TeamData } from '../app/functionality/types';
 import BespokeForm from '../CustomForms/BespokeForms';
 import loaderIcon from '../assets/grey helix mark.png';

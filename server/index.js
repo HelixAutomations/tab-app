@@ -28,6 +28,7 @@ require('dotenv').config({ path: path.join(__dirname, '../.env'), override: fals
 const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
+const { devMiddleware, banner, annotate, status: devStatus } = require('./utils/devConsole');
 // Optional compression (safe if not installed)
 let compression;
 try { compression = require('compression'); } catch { /* optional */ }
@@ -36,14 +37,21 @@ const { getRedisClient } = require('./utils/redisClient');
 const { getPool } = require('./utils/db');
 const { getSecret } = require('./utils/getSecret');
 const { startDataOperationsScheduler } = require('./utils/dataOperationsScheduler');
+const { setStatus: setServerStatus } = require('./utils/serverStatus');
 
 const isRedacted = (value) => typeof value === 'string' && value.includes('<REDACTED>');
+
+// Connection status tracking for dev banner
+const _connStatus = { redis: null, sql: null, instructionsSql: null, clio: null };
 
 async function buildConnectionString({ server, database, user, secretName }) {
     const password = await getSecret(secretName);
     if (!password || isRedacted(password)) {
         throw new Error(`Missing or redacted SQL password secret: ${secretName}`);
     }
+    // Store raw password in env so routes that independently fetch it (e.g. attendance) skip Key Vault
+    const envKey = secretName.replace(/-/g, '_').toUpperCase();
+    if (!process.env[envKey]) process.env[envKey] = password;
     return `Server=tcp:${server},1433;Initial Catalog=${database};Persist Security Info=False;User ID=${user};Password=${password};MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;`;
 }
 
@@ -87,16 +95,89 @@ async function hydrateSqlConnectionStringsFromKeyVault() {
 // Warm up connections in background (non-blocking)
 async function warmupConnections() {
     // Warm up Redis
-    getRedisClient().catch(() => { /* ignore - will retry on first use */ });
+    getRedisClient()
+        .then(() => { _connStatus.redis = true; setServerStatus('redis', true); devStatus('Redis', true, 'connected'); })
+        .catch(() => { _connStatus.redis = false; setServerStatus('redis', false); devStatus('Redis', false, 'connection failed — will retry on first use'); });
     
     // Warm up SQL connection pool with main database
     const connStr = process.env.SQL_CONNECTION_STRING;
     if (connStr) {
-        getPool(connStr).catch(() => { /* ignore - will retry on first use */ });
+        getPool(connStr)
+            .then(() => { _connStatus.sql = true; setServerStatus('sql', true); devStatus('Core SQL', true, 'pool ready'); })
+            .catch(() => { _connStatus.sql = false; setServerStatus('sql', false); devStatus('Core SQL', false, 'pool failed — will retry on first use'); });
     }
+
+    // Warm up Instructions SQL pool
+    const instrConn = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
+    if (instrConn) {
+        getPool(instrConn)
+            .then(() => { _connStatus.instructionsSql = true; setServerStatus('instructionsSql', true); devStatus('Instructions SQL', true, 'pool ready'); })
+            .catch(() => { _connStatus.instructionsSql = false; setServerStatus('instructionsSql', false); devStatus('Instructions SQL', false, 'pool failed'); });
+    }
+
+    // Pre-warm Clio API credentials from Key Vault
+    // Eliminates ~3.7s cold-start penalty on first /api/home-wip call
+    try {
+        const homeWip = require('./routes/home-wip');
+        if (typeof homeWip.warmupClioCredentials === 'function') {
+            homeWip.warmupClioCredentials()
+                .then(() => { _connStatus.clio = true; setServerStatus('clio', true); devStatus('Clio creds', true, 'pre-warmed'); })
+                .catch((err) => {
+                    _connStatus.clio = false; setServerStatus('clio', false);
+                    devStatus('Clio creds', false, `cold — ${err?.message || err}`);
+                });
+        }
+    } catch { /* ignore — route not loaded yet */ }
+
+    // ─── Aggressive data pre-warming ───────────────────────────────────
+    // Fire-and-forget: populate caches for ALL heavy endpoints so the first
+    // user gets instant hits. Runs 3s after listen (server must be accepting).
+    // Tier 1 (fast, no external API): attendance, annual leave, ops-queue SQL.
+    // Tier 2 (Clio API, slower): team WIP aggregate — chains after Clio creds.
+    setTimeout(() => {
+        const http = require('http');
+        const port = process.env.PORT || 8080;
+
+        const warmup = (ep) => {
+            const body = ep.body ? JSON.stringify(ep.body) : '';
+            const headers = { 'Content-Type': 'application/json' };
+            if (body) headers['Content-Length'] = Buffer.byteLength(body);
+            const req = http.request({ hostname: '127.0.0.1', port, path: ep.path, method: ep.method, headers }, (res) => {
+                res.resume();
+                devStatus(`Warmup ${ep.label || ep.path}`, res.statusCode < 400, `${res.statusCode}`);
+            });
+            req.on('error', () => { /* best-effort */ });
+            if (body) req.write(body);
+            req.end();
+        };
+
+        // Tier 1 — fire all immediately (SQL-only, fast)
+        const tier1 = [
+            { path: '/api/attendance/getAttendance', method: 'POST', label: 'Attendance' },
+            { path: '/api/attendance/getAnnualLeave', method: 'POST', body: {}, label: 'Annual Leave' },
+            { path: '/api/ops-queue/pending', method: 'GET', label: 'Ops Pending' },
+            { path: '/api/ops-queue/recent', method: 'GET', label: 'Ops Recent' },
+            { path: '/api/ops-queue/ccl-dates-pending', method: 'GET', label: 'CCL Dates' },
+            { path: '/api/ops-queue/transactions-pending?range=mtd', method: 'GET', label: 'Transactions' },
+            { path: '/api/ops-queue/asana-account-tasks?initials=KW', method: 'GET', label: 'Asana Tasks' },
+        ];
+        for (const ep of tier1) warmup(ep);
+
+        // Tier 2 — team WIP aggregate (Clio API, ~30-90s but pre-fills all 32 per-user caches)
+        // Delayed 5s extra to let Clio creds finish warming
+        setTimeout(() => {
+            warmup({ path: '/api/home-wip/team', method: 'GET', label: 'Team WIP (aggregate)' });
+        }, 5000);
+
+        // Periodic cache warming — re-heats high-value datasets when TTL drops below 5 min
+        const { schedulePeriodicCacheWarming } = require('./utils/smartCache');
+        schedulePeriodicCacheWarming();
+    }, 3000);
 }
 
-(async () => {
+// Hydrate SQL secrets from Key Vault BEFORE accepting requests.
+// Stored as a module-level promise so app.listen() can await it.
+const _hydrationReady = (async () => {
     await hydrateSqlConnectionStringsFromKeyVault();
     warmupConnections();
 })().catch(() => warmupConnections());
@@ -153,6 +234,7 @@ const resourcesCoreRouter = require('./routes/resources-core');
 const reportingRouter = require('./routes/reporting');
 const reportingStreamRouter = require('./routes/reporting-stream');
 const homeMetricsStreamRouter = require('./routes/home-metrics-stream');
+const complianceRouter = require('./routes/compliance');
 const homeWipRouter = require('./routes/home-wip');
 const homeEnquiriesRouter = require('./routes/home-enquiries');
 const poidRouter = require('./routes/poid');
@@ -160,6 +242,7 @@ const futureBookingsRouter = require('./routes/futureBookings');
 const outstandingBalancesRouter = require('./routes/outstandingBalances');
 const matterMetricsRouter = require('./routes/matter-metrics');
 const transactionsRouter = require('./routes/transactions');
+const transactionsV2Router = require('./routes/transactionsV2');
 const marketingMetricsRouter = require('./routes/marketing-metrics');
 const cachePreheaterRouter = require('./routes/cache-preheater');
 const clearCacheRouter = require('./routes/clearCache');
@@ -180,6 +263,7 @@ const telemetryRouter = require('./routes/telemetry');
 const bookSpaceRouter = require('./routes/bookSpace');
 const financialTaskRouter = require('./routes/financialTask');
 const releaseNotesRouter = require('./routes/release-notes');
+const opsQueueRouter = require('./routes/opsQueue');
 const { router: dataOperationsRouter } = require('./routes/dataOperations');
 const yoyComparisonRouter = require('./routes/yoy-comparison');
 const formHealthCheckRouter = require('./routes/formHealthCheck');
@@ -190,7 +274,7 @@ const app = express();
 if (compression) {
     app.use((req, res, next) => {
         // Skip compression for Server-Sent Events to avoid buffering
-        if (req.path.startsWith('/api/reporting-stream') || req.path.startsWith('/api/home-metrics') || req.path.startsWith('/api/logs/stream') || req.path.startsWith('/api/ccl-date') || req.path.startsWith('/api/enquiries-unified/stream') || req.path.startsWith('/api/attendance/annual-leave/stream') || req.path.startsWith('/api/attendance/attendance/stream') || req.path.startsWith('/api/future-bookings/stream')) {
+        if (req.path.startsWith('/api/reporting-stream') || req.path.startsWith('/api/home-metrics') || req.path.startsWith('/api/logs/stream') || req.path.startsWith('/api/ccl-date') || req.path.startsWith('/api/enquiries-unified/stream') || req.path.startsWith('/api/attendance/annual-leave/stream') || req.path.startsWith('/api/attendance/attendance/stream') || req.path.startsWith('/api/future-bookings/stream') || req.path.startsWith('/api/data-operations/stream')) {
             res.setHeader('Cache-Control', 'no-cache, no-transform');
             return next();
         }
@@ -248,9 +332,9 @@ app.use(cors((req, callback) => {
     return callback(null, corsOptions);
 }));
 
-// Reduce logging noise in production
+// Dev console: structured request logger (replaces morgan in dev)
 if (process.env.NODE_ENV !== 'production') {
-    app.use(morgan('dev'));
+    app.use(devMiddleware);
 }
 
 // Stripe webhooks require the *raw* request body for signature verification.
@@ -334,6 +418,7 @@ app.use('/api/payment-link', paymentLinkRouter);
 app.use('/api/reporting', reportingRouter);
 app.use('/api/reporting-stream', reportingStreamRouter);
 app.use('/api/home-metrics', homeMetricsStreamRouter);
+app.use('/api/compliance', complianceRouter);
 app.use('/api/marketing-metrics', marketingMetricsRouter);
 app.use('/api/cache-preheater', cachePreheaterRouter);
 app.use('/api/cache', clearCacheRouter);
@@ -343,6 +428,7 @@ app.use('/api/enquiry-enrichment', enquiryEnrichmentRouter);
 app.use('/api/people-search', peopleSearchRouter);
 app.use('/api/logs', logsStreamRouter);
 app.use('/api/release-notes', releaseNotesRouter);
+app.use('/api/ops-queue', opsQueueRouter);
 
 // Rate change notification tracking (for Jan 2026 hourly rate increase)
 app.use('/api/rate-changes', rateChangesRouter);
@@ -378,12 +464,24 @@ app.use('/api/financial-task', financialTaskRouter);
 // Form health checks (admin-only, non-destructive endpoint probes)
 app.use('/api/form-health', formHealthCheckRouter);
 
+// Route health (dev indicator — probes all registered routes)
+const registersRouter = require('./routes/registers');
+app.use('/api/registers', registersRouter);
+
+const routeHealthRouter = require('./routes/routeHealth');
+app.use('/api/route-health', routeHealthRouter);
+
+// Server component health
+const healthRouter = require('./routes/health');
+app.use('/api/health', healthRouter);
+
 // Metrics routes (migrated from Azure Functions to fix cold start issues)
 app.use('/api/poid', poidRouter);
 app.use('/api/future-bookings', futureBookingsRouter);
 app.use('/api/outstanding-balances', outstandingBalancesRouter);
 app.use('/api/matter-metrics', matterMetricsRouter);
 app.use('/api/transactions', transactionsRouter);
+app.use('/api/transactions-v2', transactionsV2Router);
 app.use('/api/migration', require('./routes/legacyMigration'));
 
 app.use('/ccls', express.static(CCL_DIR));
@@ -491,9 +589,21 @@ app.use((error, req, res, next) => {
     return res.status(safeStatus).send(message);
 });
 
-app.listen(PORT, () => {
-    // Server started
-    startDataOperationsScheduler();
+// Wait for Key Vault secrets before accepting connections — eliminates
+// ELOGIN race where routes query SQL before credentials are hydrated.
+_hydrationReady.then(() => {
+    app.listen(PORT, () => {
+        banner({
+            port: PORT,
+            redis: _connStatus.redis,
+            sql: _connStatus.sql,
+            instructionsSql: _connStatus.instructionsSql,
+            clio: _connStatus.clio,
+            scheduler: true,
+        });
+        setServerStatus('scheduler', true);
+        startDataOperationsScheduler();
+    });
 });
 
 // Flush App Insights telemetry on graceful shutdown

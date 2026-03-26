@@ -2,20 +2,15 @@
 // invisible change 2
 
 import React, { useEffect, useCallback, useRef, useState } from 'react';
-import {
-  Stack,
-  Text,
-  Panel,
-  PanelType,
-  Link,
-  PrimaryButton,
-  DefaultButton,
-  MessageBar,
-  MessageBarType,
-  TextField,
-} from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Text } from '@fluentui/react/lib/Text';
+import { Panel, PanelType } from '@fluentui/react/lib/Panel';
+import { Link } from '@fluentui/react/lib/Link';
+import { PrimaryButton, DefaultButton } from '@fluentui/react/lib/Button';
+import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
+import { TextField } from '@fluentui/react/lib/TextField';
 import { colours } from '../../app/styles/colours';
-import { mergeStyles } from '@fluentui/react';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
 import loaderIcon from '../../assets/grey helix mark.png';
 import BespokeForm from '../../CustomForms/BespokeForms';
 import { sharedPrimaryButtonStyles, sharedDefaultButtonStyles } from '../../app/styles/ButtonStyles';

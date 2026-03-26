@@ -4,6 +4,7 @@ const {
     AlignmentType,
     BorderStyle,
     Document,
+    ExternalHyperlink,
     HeadingLevel,
     Packer,
     Paragraph,
@@ -12,6 +13,7 @@ const {
     TableCell,
     TableRow,
     TextRun,
+    UnderlineType,
     VerticalAlign,
     WidthType,
 } = require('docx');
@@ -35,6 +37,7 @@ const BRAND_SIZE = 30; // 15pt
 const BODY_LINE = 276; // ~1.15 line spacing
 const BODY_AFTER = 120;
 const PAGE_MARGIN = 1440;
+const LINK_RE = /(https?:\/\/[^\s,)]+)|(\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b)|(\b0\d{4}\s?\d{3}\s?\d{3}\b)/g;
 
 const TEMPLATE_FIELDS = [
     'insert_clients_name', 'client_address', 'client_email', 'letter_date',
@@ -132,9 +135,52 @@ function bodyRun(text, options = {}) {
     });
 }
 
+function buildInlineChildren(text, options = {}) {
+    const value = String(text || '');
+    if (!LINK_RE.test(value)) return [bodyRun(value, options)];
+    LINK_RE.lastIndex = 0;
+
+    const children = [];
+    let lastIndex = 0;
+    let match;
+
+    while ((match = LINK_RE.exec(value)) !== null) {
+        if (match.index > lastIndex) {
+            children.push(bodyRun(value.slice(lastIndex, match.index), options));
+        }
+
+        const matched = match[0];
+        const link = match[1] ? matched : match[2] ? `mailto:${matched}` : `tel:${matched.replace(/\s/g, '')}`;
+        children.push(
+            new ExternalHyperlink({
+                link,
+                children: [
+                    new TextRun({
+                        text: matched,
+                        font: FONT_FAMILY,
+                        size: options.size || BODY_SIZE,
+                        bold: true,
+                        color: HELIX.highlight,
+                        underline: { type: UnderlineType.SINGLE, color: HELIX.highlight },
+                        italics: !!options.italics,
+                    }),
+                ],
+            })
+        );
+
+        lastIndex = match.index + matched.length;
+    }
+
+    if (lastIndex < value.length) {
+        children.push(bodyRun(value.slice(lastIndex), options));
+    }
+
+    return children;
+}
+
 function paragraph(text, options = {}) {
     return new Paragraph({
-        children: [bodyRun(text, options)],
+        children: buildInlineChildren(text, options),
         alignment: options.alignment || AlignmentType.JUSTIFIED,
         heading: options.heading,
         spacing: options.spacing || {
@@ -222,7 +268,7 @@ function buildHeaderChildren(data) {
 function buildBulletParagraph(text) {
     const cleaned = text.replace(/^[—o]\s*/, '').replace(/^☐\s*/, '').trim();
     return new Paragraph({
-        children: [bodyRun(cleaned)],
+        children: buildInlineChildren(cleaned),
         bullet: { level: 0 },
         alignment: AlignmentType.JUSTIFIED,
         spacing: { line: BODY_LINE, after: 80 },
@@ -259,17 +305,39 @@ function buildActionTable(rows) {
         ],
     });
 
-    const bodyCell = (text) => new TableCell({
-        verticalAlign: VerticalAlign.TOP,
-        margins: { top: 100, bottom: 100, left: 120, right: 120 },
-        children: [
-            new Paragraph({
-                children: [bodyRun(text || ' ')],
+    const bodyCell = (text) => {
+        const lines = String(text || '').split('\n').map((line) => line.trim()).filter(Boolean);
+        const paragraphs = [];
+
+        if (lines.length === 0) {
+            paragraphs.push(new Paragraph({ children: [bodyRun(' ')], spacing: { after: 0, before: 0, line: BODY_LINE } }));
+        } else {
+            const [firstLine, ...rest] = lines;
+            paragraphs.push(new Paragraph({
+                children: buildInlineChildren(firstLine),
                 alignment: AlignmentType.JUSTIFIED,
-                spacing: { after: 0, before: 0, line: BODY_LINE },
-            }),
-        ],
-    });
+                spacing: { after: rest.length > 0 ? 40 : 0, before: 0, line: BODY_LINE },
+            }));
+
+            rest.forEach((line) => {
+                const cleaned = line.replace(/^[•*—–\-]\s*/, '').trim();
+                if (!cleaned) return;
+                paragraphs.push(new Paragraph({
+                    children: buildInlineChildren(cleaned),
+                    bullet: { level: 0 },
+                    alignment: AlignmentType.JUSTIFIED,
+                    indent: { left: 360, hanging: 180 },
+                    spacing: { after: 40, before: 0, line: BODY_LINE },
+                }));
+            });
+        }
+
+        return new TableCell({
+            verticalAlign: VerticalAlign.TOP,
+            margins: { top: 100, bottom: 100, left: 120, right: 120 },
+            children: paragraphs,
+        });
+    };
 
     return new Table({
         width: { size: 100, type: WidthType.PERCENTAGE },
@@ -321,8 +389,22 @@ function buildBodyChildren(bodyText) {
                     break;
                 }
                 const [left, ...rest] = rowLine.split('|');
+                const additionalLines = [];
+                if (left.includes('Provide the following documents')) {
+                    let nextIndex = index + 1;
+                    while (nextIndex < lines.length) {
+                        const nextLine = lines[nextIndex].trim();
+                        if (!nextLine) break;
+                        if (nextLine.startsWith('☐') || /^\d+(?:\.\d+)?\s+/.test(nextLine) || nextLine.includes('|')) break;
+                        additionalLines.push(nextLine.replace(/^[•*—–\-]\s*/, '').trim());
+                        nextIndex += 1;
+                    }
+                    if (additionalLines.length > 0) {
+                        index = nextIndex - 1;
+                    }
+                }
                 rows.push({
-                    action: left.replace(/^☐\s*/, '').trim(),
+                    action: [left.replace(/^☐\s*/, '').trim(), ...additionalLines.map((line) => `• ${line}`)].filter(Boolean).join('\n'),
                     info: rest.join('|').trim(),
                 });
                 index += 1;

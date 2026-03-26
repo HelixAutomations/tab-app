@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Spinner, SpinnerSize, Icon } from '@fluentui/react';
+import { Spinner, SpinnerSize } from '@fluentui/react/lib/Spinner';
+import { Icon } from '@fluentui/react/lib/Icon';
 import { useTheme } from '../../../app/functionality/ThemeContext';
 import { colours } from '../../../app/styles/colours';
 

@@ -4,7 +4,7 @@
  * Config + auto-fill logic lives in cclSections.ts.
  */
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
-import { Icon } from '@fluentui/react';
+import { Icon } from '@fluentui/react/lib/Icon';
 import type { NormalizedMatter, TeamData } from '../../../app/functionality/types';
 import { colours } from '../../../app/styles/colours';
 import { useTheme } from '../../../app/functionality/ThemeContext';
@@ -41,10 +41,11 @@ interface CCLEditorProps {
   teamData?: TeamData[] | null;
   demoModeEnabled?: boolean;
   userInitials?: string;
+  instructionPaymentReceived?: boolean;
   onClose: () => void;
 }
 
-const CCLEditor: React.FC<CCLEditorProps> = ({ matter, teamData, demoModeEnabled = false, userInitials, onClose }) => {
+const CCLEditor: React.FC<CCLEditorProps> = ({ matter, teamData, demoModeEnabled = false, userInitials, instructionPaymentReceived = false, onClose }) => {
   const { isDarkMode } = useTheme();
 
   // Only use demo fields for the synthetic demo matter — real matters always get real data
@@ -310,9 +311,10 @@ const CCLEditor: React.FC<CCLEditorProps> = ({ matter, teamData, demoModeEnabled
       chargesChoice,
       disbursementsChoice,
       showEstimateExamples: false,
+      instructionPaymentReceived,
     };
     return generateTemplateContent(DEFAULT_CCL_TEMPLATE, fields, options);
-  }, [fields, costsChoice, chargesChoice, disbursementsChoice]);
+  }, [fields, costsChoice, chargesChoice, disbursementsChoice, instructionPaymentReceived]);
 
   // Template with section choices resolved but {{field}} placeholders kept intact
   // — used by PreviewStep to render inline-editable fields on the A4 surface
@@ -322,9 +324,10 @@ const CCLEditor: React.FC<CCLEditorProps> = ({ matter, teamData, demoModeEnabled
       chargesChoice,
       disbursementsChoice,
       showEstimateExamples: false,
+      instructionPaymentReceived,
     };
     return generateTemplateContent(DEFAULT_CCL_TEMPLATE, fields, options, true);
-  }, [fields, costsChoice, chargesChoice, disbursementsChoice]);
+  }, [fields, costsChoice, chargesChoice, disbursementsChoice, instructionPaymentReceived]);
 
   // Completion tracking
   const completionBySection = useMemo(() => {

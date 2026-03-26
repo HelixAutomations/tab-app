@@ -79,6 +79,7 @@ export interface Enquiry {
   processingEnquiryId?: number | string;
   processingSource?: 'legacy' | 'new';
   legacyEnquiryId?: number | string;
+  sourcePolicy?: string;
   sourceBias?: string;
   processingApproach?: string;
   Date_Created: string;

@@ -1,20 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import {
-  DatePicker,
-  DayOfWeek,
-  DefaultButton,
-  Icon,
-  type IButtonStyles,
-  type IDatePickerStyles,
-  MessageBar,
-  MessageBarType,
-  Dialog,
-  DialogType,
-  DialogFooter,
-  PrimaryButton,
-  TextField,
-} from '@fluentui/react';
+import { DatePicker } from '@fluentui/react/lib/DatePicker';
+import { DayOfWeek } from '@fluentui/react/lib/Calendar';
+import type { IDatePickerStyles } from '@fluentui/react/lib/DatePicker';
+import type { IButtonStyles } from '@fluentui/react/lib/Button';
+import { DefaultButton, PrimaryButton } from '@fluentui/react/lib/Button';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
+import { Dialog, DialogType, DialogFooter } from '@fluentui/react/lib/Dialog';
+import { TextField } from '@fluentui/react/lib/TextField';
 import {
   PieChart,
   Pie,

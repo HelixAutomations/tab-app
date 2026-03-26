@@ -1,5 +1,5 @@
 import React from 'react';
-import { mergeStyles } from '@fluentui/react';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { SkeletonLoader } from './FeedbackComponents';
 
 interface InstructionCardSkeletonProps {

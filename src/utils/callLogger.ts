@@ -1,3 +1,5 @@
+import { trackClientError, trackClientEvent } from './telemetry';
+
 export interface CallLogEntry {
     url: string;
     method: string;
@@ -26,6 +28,42 @@ function persist() {
 function push(entry: CallLogEntry) {
     callLogs.push(entry);
     persist();
+
+    let path = entry.url;
+    try {
+        path = new URL(entry.url, window.location.origin).pathname;
+    } catch {
+        path = entry.url;
+    }
+
+    if (path === '/api/telemetry') {
+        return;
+    }
+
+    if (entry.status == null || entry.status >= 500) {
+        trackClientError('Network', 'request-failed', `${entry.method} ${path} failed`, {
+            path,
+            method: entry.method,
+            status: entry.status ?? 'network-error',
+        }, {
+            duration: entry.durationMs,
+            throttleKey: `network-failed:${entry.method}:${path}:${entry.status ?? 'network'}`,
+            cooldownMs: 5000,
+        });
+        return;
+    }
+
+    if (entry.durationMs >= 1500) {
+        trackClientEvent('Network', 'request-slow', {
+            path,
+            method: entry.method,
+            status: entry.status,
+        }, {
+            duration: entry.durationMs,
+            throttleKey: `network-slow:${entry.method}:${path}`,
+            cooldownMs: 30000,
+        });
+    }
 }
 
 if (typeof window !== 'undefined' && (window as any).fetch) {

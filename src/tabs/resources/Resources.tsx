@@ -2,18 +2,14 @@
 // invisible change
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import {
-  Stack,
-  Text,
-  mergeStyles,
-  MessageBar,
-  MessageBarType,
-  SearchBox,
-  PrimaryButton,
-  DefaultButton,
-  Icon,
-  Link as FluentLink, // Renamed to avoid confusion with resource Link
-} from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Text } from '@fluentui/react/lib/Text';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
+import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
+import { SearchBox } from '@fluentui/react/lib/SearchBox';
+import { PrimaryButton, DefaultButton } from '@fluentui/react/lib/Button';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { Link as FluentLink } from '@fluentui/react/lib/Link';
 import { app } from '@microsoft/teams-js';
 import { colours } from '../../app/styles/colours';
 import BespokePanel from '../../app/functionality/BespokePanel';

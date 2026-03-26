@@ -1,7 +1,5 @@
-import {
-    Text,
-    Icon,
-} from '@fluentui/react';
+import { Text } from '@fluentui/react/lib/Text';
+import { Icon } from '@fluentui/react/lib/Icon';
 import { mergeStyles, keyframes } from '@fluentui/react/lib/Styling';
 import { Enquiry } from '../../app/functionality/types';
 import { colours } from '../../app/styles/colours';
@@ -10,6 +8,7 @@ import { useTheme } from '../../app/functionality/ThemeContext';
 import TeamsLinkWidget from '../../components/TeamsLinkWidget';
 import InlineWorkbench from '../instructions/InlineWorkbench';
 import { TeamsActivityData } from '../../app/functionality/teamsActivityTracking';
+import { renderPipelineIcon } from './components/pipeline';
 
 import React, { useState, useRef, useEffect } from 'react';
 
@@ -346,13 +345,13 @@ const EnquiryLineItem: React.FC<EnquiryLineItemProps> = ({
     fontFamily: 'Raleway, sans-serif',
     minHeight: '44px',
     position: 'relative',
-    backgroundColor: isGreyedOut ? (isDarkMode ? '#23272e' : '#f3f3f3') : 'transparent',
+    backgroundColor: isGreyedOut ? (isDarkMode ? colours.dark.sectionBackground : colours.grey) : 'transparent',
     opacity: isGreyedOut ? 0.5 : 1,
     filter: isGreyedOut ? 'grayscale(0.7)' : 'none',
     pointerEvents: isGreyedOut ? 'auto' : 'auto',
     selectors: {
       ':hover': {
-        backgroundColor: isGreyedOut ? (isDarkMode ? '#23272e' : '#f3f3f3') : 'transparent',
+        backgroundColor: isGreyedOut ? (isDarkMode ? colours.dark.sectionBackground : colours.grey) : 'transparent',
         transform: 'translateX(2px)',
       },
       ':active': {
@@ -1079,7 +1078,7 @@ const EnquiryLineItem: React.FC<EnquiryLineItemProps> = ({
                 title='Pitch this enquiry'
                 style={{ lineHeight: 1 }}
               >
-                <Icon iconName="Send" style={{ fontSize: '11px', lineHeight: 1 }} />
+                {renderPipelineIcon('Send', colours.highlight, 11)}
                 Pitch
               </button>
 
@@ -1089,7 +1088,7 @@ const EnquiryLineItem: React.FC<EnquiryLineItemProps> = ({
                 title="Call"
                 style={{ padding: '6px 12px' }}
               >
-                <Icon iconName="Phone" style={{ fontSize: '12px' }} />
+                <Icon iconName="Phone" style={{ fontSize: '12px', lineHeight: 1, color: 'currentColor' }} />
                 <span style={{ fontSize: 11, fontWeight: 600 }}>Call</span>
               </button>
 
@@ -1099,7 +1098,7 @@ const EnquiryLineItem: React.FC<EnquiryLineItemProps> = ({
                 title="Email"
                 style={{ padding: '6px 12px' }}
               >
-                <Icon iconName="Mail" style={{ fontSize: '12px' }} />
+                <Icon iconName="Mail" style={{ fontSize: '12px', lineHeight: 1, color: 'currentColor' }} />
                 <span style={{ fontSize: 11, fontWeight: 600 }}>Email</span>
               </button>
 

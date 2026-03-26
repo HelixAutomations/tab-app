@@ -6,6 +6,7 @@ const { SecretClient } = require('@azure/keyvault-secrets');
 const { getRedisClient, generateCacheKey, cacheWrapper, deleteCachePattern, deleteCache } = require('../utils/redisClient');
 const { attachAnnualLeaveStream, broadcastAnnualLeaveChanged } = require('../utils/annual-leave-stream');
 const { attachAttendanceStream, broadcastAttendanceChanged } = require('../utils/attendance-stream');
+const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
 const router = express.Router();
 
 const TRANSIENT_SQL_CODES = new Set(['ESOCKET', 'ECONNCLOSED', 'ECONNRESET', 'ETIMEDOUT', 'ETIMEOUT']);
@@ -32,6 +33,166 @@ const shouldAutoBookAnnualLeave = (initials) => {
 };
 
 const getTodayIso = () => new Date().toISOString().split('T')[0];
+
+const PAYROLL_NOTIFICATION_LEAVE_TYPES = new Set(['purchase', 'sale']);
+
+function normalizeAnnualLeaveType(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'unpaid') return 'purchase';
+  return normalized;
+}
+
+function shouldSyncAnnualLeaveCalendars(leaveRecord) {
+  const status = String(leaveRecord?.status || '').trim().toLowerCase();
+  const leaveType = normalizeAnnualLeaveType(leaveRecord?.leave_type);
+  return status === 'booked' && leaveType === 'standard';
+}
+
+const formatAnnualLeaveDate = (value) => {
+  const parsed = value ? new Date(value) : null;
+  if (!parsed || Number.isNaN(parsed.getTime())) {
+    return value || 'Unknown date';
+  }
+
+  return parsed.toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+};
+
+const escapeHtml = (value) => String(value || '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;');
+
+async function sendPayrollAnnualLeaveNotification({ req, leaveRecord, effectiveStatus }) {
+  const leaveType = String(leaveRecord?.leave_type || '').trim().toLowerCase();
+  if (!PAYROLL_NOTIFICATION_LEAVE_TYPES.has(leaveType)) {
+    return false;
+  }
+
+  if (!['approved', 'booked'].includes(String(effectiveStatus || '').toLowerCase())) {
+    return false;
+  }
+
+  const startedAt = Date.now();
+  const requestId = String(leaveRecord?.request_id || '');
+  const operation = 'annual-leave-payroll-email';
+  const baseUrl = `${req.protocol}://${req.get('host')}`;
+  const person = String(leaveRecord?.fe || '').trim() || 'Unknown';
+  const daysTaken = Number(leaveRecord?.days_taken);
+  const safeDaysTaken = Number.isFinite(daysTaken) ? daysTaken : 0;
+  const typeLabel = leaveType === 'sale' ? 'Sale' : 'Purchase';
+  const dateRange = formatAnnualLeaveDate(leaveRecord?.start_date) === formatAnnualLeaveDate(leaveRecord?.end_date)
+    ? formatAnnualLeaveDate(leaveRecord?.start_date)
+    : `${formatAnnualLeaveDate(leaveRecord?.start_date)} - ${formatAnnualLeaveDate(leaveRecord?.end_date)}`;
+  const reason = String(leaveRecord?.reason || '').trim();
+
+  trackEvent('Attendance.AnnualLeavePayrollEmail.Started', {
+    operation,
+    triggeredBy: 'updateAnnualLeave',
+    requestId,
+    leaveType,
+    effectiveStatus: String(effectiveStatus),
+    person,
+  });
+
+  const subject = `Payroll notification: ${typeLabel.toLowerCase()} annual leave ${String(effectiveStatus).toLowerCase()} for ${person}`;
+  const bodyHtml = `
+    <div style="font-family: Raleway, Segoe UI, sans-serif; color: #061733;">
+      <p>A ${escapeHtml(leaveType)} annual leave request has been ${escapeHtml(String(effectiveStatus).toLowerCase())}.</p>
+      <table style="border-collapse: collapse; margin-top: 12px;">
+        <tr><td style="padding: 4px 12px 4px 0;"><strong>Person</strong></td><td style="padding: 4px 0;">${escapeHtml(person)}</td></tr>
+        <tr><td style="padding: 4px 12px 4px 0;"><strong>Type</strong></td><td style="padding: 4px 0;">${escapeHtml(typeLabel)}</td></tr>
+        <tr><td style="padding: 4px 12px 4px 0;"><strong>Days</strong></td><td style="padding: 4px 0;">${escapeHtml(String(safeDaysTaken))}</td></tr>
+        <tr><td style="padding: 4px 12px 4px 0;"><strong>Date${dateRange.includes(' - ') ? 's' : ''}</strong></td><td style="padding: 4px 0;">${escapeHtml(dateRange)}</td></tr>
+        <tr><td style="padding: 4px 12px 4px 0;"><strong>Status</strong></td><td style="padding: 4px 0; text-transform: capitalize;">${escapeHtml(String(effectiveStatus).toLowerCase())}</td></tr>
+        ${reason ? `<tr><td style="padding: 4px 12px 4px 0;"><strong>Reason</strong></td><td style="padding: 4px 0;">${escapeHtml(reason)}</td></tr>` : ''}
+        <tr><td style="padding: 4px 12px 4px 0;"><strong>Request ID</strong></td><td style="padding: 4px 0;">${escapeHtml(requestId)}</td></tr>
+      </table>
+    </div>
+  `;
+
+  try {
+    const emailResp = await fetch(`${baseUrl}/api/sendEmail`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_email: 'kw@helix-law.com',
+        cc_emails: 'lz@helix-law.com',
+        subject,
+        email_contents: bodyHtml,
+        from_email: 'automations@helix-law.com',
+        skip_signature: true,
+      }),
+    });
+
+    const durationMs = Date.now() - startedAt;
+    if (!emailResp.ok) {
+      const emailErrorText = await emailResp.text();
+      const emailError = new Error(`Payroll annual leave email failed: ${emailResp.status} ${emailErrorText}`);
+      trackException(emailError, {
+        operation,
+        phase: 'send-email',
+        requestId,
+        leaveType,
+        effectiveStatus: String(effectiveStatus),
+        person,
+      });
+      trackEvent('Attendance.AnnualLeavePayrollEmail.Failed', {
+        operation,
+        triggeredBy: 'updateAnnualLeave',
+        requestId,
+        leaveType,
+        effectiveStatus: String(effectiveStatus),
+        person,
+        error: emailError.message,
+      });
+      return false;
+    }
+
+    trackEvent('Attendance.AnnualLeavePayrollEmail.Completed', {
+      operation,
+      triggeredBy: 'updateAnnualLeave',
+      requestId,
+      leaveType,
+      effectiveStatus: String(effectiveStatus),
+      person,
+      durationMs: String(durationMs),
+    });
+    trackMetric('Attendance.AnnualLeavePayrollEmail.Duration', durationMs, {
+      operation,
+      leaveType,
+      effectiveStatus: String(effectiveStatus),
+    });
+    return true;
+  } catch (error) {
+    const durationMs = Date.now() - startedAt;
+    trackException(error instanceof Error ? error : new Error(String(error?.message || error)), {
+      operation,
+      phase: 'send-email',
+      requestId,
+      leaveType,
+      effectiveStatus: String(effectiveStatus),
+      person,
+      durationMs: String(durationMs),
+    });
+    trackEvent('Attendance.AnnualLeavePayrollEmail.Failed', {
+      operation,
+      triggeredBy: 'updateAnnualLeave',
+      requestId,
+      leaveType,
+      effectiveStatus: String(effectiveStatus),
+      person,
+      error: error?.message || String(error),
+    });
+    return false;
+  }
+}
 
 async function acquireAnnualLeaveRefreshLock(today) {
   const lockKey = generateCacheKey('attendance', 'annual-leave-refresh-lock', today);
@@ -1002,7 +1163,7 @@ router.post('/getAnnualLeave', async (req, res) => {
     refreshMetadata = metadata;
 
     // Handle user-specific data (not cached since it's user-specific and varies per request)
-    let userDetails = { leaveEntries: [], totals: { standard: 0, unpaid: 0, sale: 0, rejected: 0 } };
+    let userDetails = { leaveEntries: [], totals: { standard: 0, purchase: 0, unpaid: 0, sale: 0, rejected: 0 } };
 
     if (userInitials) {
       const fiscalStart = getFiscalYearStart(new Date());
@@ -1041,7 +1202,8 @@ router.post('/getAnnualLeave', async (req, res) => {
             if (status === 'booked' || status === 'approved') {
               if (leaveType === 'standard') {
                 acc.standard += days;
-              } else if (leaveType === 'purchase') {
+              } else if (leaveType === 'purchase' || leaveType === 'unpaid') {
+                acc.purchase += days;
                 acc.unpaid += days;
               } else if (leaveType === 'sale') {
                 acc.sale += days;
@@ -1050,7 +1212,7 @@ router.post('/getAnnualLeave', async (req, res) => {
 
             return acc;
           },
-          { standard: 0, unpaid: 0, sale: 0, rejected: 0 }
+          { standard: 0, purchase: 0, unpaid: 0, sale: 0, rejected: 0 }
         );
 
         userDetails = { leaveEntries: filteredEntries, totals };
@@ -1107,7 +1269,8 @@ router.post('/getAnnualLeave', async (req, res) => {
               // Count approved and booked leave toward totals
               if (leaveType === 'standard') {
                 acc.standard += days;
-              } else if (leaveType === 'purchase') {
+              } else if (leaveType === 'purchase' || leaveType === 'unpaid') {
+                acc.purchase += days;
                 acc.unpaid += days;
               } else if (leaveType === 'sale') {
                 acc.sale += days;
@@ -1115,7 +1278,7 @@ router.post('/getAnnualLeave', async (req, res) => {
             }
             return acc;
           },
-          { standard: 0, unpaid: 0, sale: 0, rejected: 0 }
+          { standard: 0, purchase: 0, unpaid: 0, sale: 0, rejected: 0 }
         );
 
         userDetails = { leaveEntries: userLeaveResult.recordset, totals };
@@ -1132,7 +1295,7 @@ router.post('/getAnnualLeave', async (req, res) => {
 
   } catch (error) {
     console.error('Error fetching annual leave:', error);
-    const emptyUserDetails = { leaveEntries: [], totals: { standard: 0, unpaid: 0, sale: 0, rejected: 0 } };
+    const emptyUserDetails = { leaveEntries: [], totals: { standard: 0, purchase: 0, unpaid: 0, sale: 0, rejected: 0 } };
     const fallbackPayload = {
       success: false,
       error: 'Failed to fetch annual leave data',
@@ -1158,7 +1321,7 @@ router.post('/getAnnualLeave', async (req, res) => {
 // POST /api/attendance/annual-leave - Insert new annual leave request
 router.post('/annual-leave', async (req, res) => {
   try {
-    const { fe, dateRanges, reason, days_taken, leave_type, hearing_confirmation, hearing_details } = req.body;
+    const { fe, dateRanges, reason, days_taken, leave_type, hearing_confirmation, hearing_details, admin_status } = req.body;
 
     // Validate required fields
     if (!fe || !Array.isArray(dateRanges) || dateRanges.length === 0 || !leave_type) {
@@ -1180,7 +1343,13 @@ router.post('/annual-leave', async (req, res) => {
 
     const insertedIds = [];
     const shouldAutoBook = shouldAutoBookAnnualLeave(fe);
-    const initialStatus = shouldAutoBook ? 'booked' : 'requested';
+    // admin_status allows admins to directly book leave (bypassing approval workflow)
+    const validAdminStatuses = new Set(['booked', 'requested', 'approved']);
+    const effectiveAdminStatus = admin_status && validAdminStatuses.has(String(admin_status).toLowerCase())
+      ? String(admin_status).toLowerCase()
+      : null;
+    const initialStatus = effectiveAdminStatus || (shouldAutoBook ? 'booked' : 'requested');
+    const needsCalendarSync = initialStatus === 'booked';
     
     // Insert each date range as a separate record
     for (const range of dateRanges) {
@@ -1216,7 +1385,7 @@ router.post('/annual-leave', async (req, res) => {
       insertedIds.push(result.recordset[0].InsertedId);
     }
 
-    if (shouldAutoBook) {
+    if (needsCalendarSync) {
       try {
         const settled = await Promise.allSettled(
           insertedIds.map((requestId) => ensureAnnualLeaveCalendarEntries({
@@ -1240,7 +1409,7 @@ router.post('/annual-leave', async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: shouldAutoBook
+      message: needsCalendarSync
         ? 'Annual leave entries created and automatically booked.'
         : 'Annual leave entries created successfully.',
       insertedIds
@@ -1373,14 +1542,33 @@ router.post('/updateAnnualLeave', async (req, res) => {
       });
     }
 
-    // If newStatus is 'booked', create calendar entries.
-    if (effectiveStatus === 'booked') {
-      try {
-        await ensureAnnualLeaveCalendarEntries({ projectDataConnStr, password, requestId: parsedId });
-      } catch (calendarError) {
-        console.error('Error creating annual leave calendar entries:', calendarError);
-        // Continue with the response even if calendar creation fails
+    try {
+      await ensureAnnualLeaveCalendarEntries({ projectDataConnStr, password, requestId: parsedId });
+    } catch (calendarError) {
+      console.error('Error syncing annual leave calendar entries:', calendarError);
+      // Continue with the response even if calendar sync fails
+    }
+
+    try {
+      const leaveRecordResult = await attendanceQuery(projectDataConnStr, (reqSql, s) =>
+        reqSql
+          .input('id', s.Int, parsedId)
+          .query(`
+            SELECT request_id, fe, start_date, end_date, days_taken, leave_type, reason, status
+            FROM [dbo].[annualLeave]
+            WHERE request_id = @id
+          `)
+      );
+
+      const leaveRecord = leaveRecordResult.recordset?.[0] || null;
+      if (leaveRecord) {
+        const notified = await sendPayrollAnnualLeaveNotification({ req, leaveRecord, effectiveStatus });
+        if (!notified && PAYROLL_NOTIFICATION_LEAVE_TYPES.has(String(leaveRecord.leave_type || '').toLowerCase()) && ['approved', 'booked'].includes(String(effectiveStatus).toLowerCase())) {
+          console.warn(`Payroll annual leave notification was not sent for request ${parsedId}.`);
+        }
       }
+    } catch (notificationError) {
+      console.warn('Payroll annual leave notification error (non-blocking):', notificationError?.message || notificationError);
     }
 
     res.json({
@@ -1449,11 +1637,11 @@ async function ensureAnnualLeaveCalendarEntries({ projectDataConnStr, password, 
     throw new Error(`ensureAnnualLeaveCalendarEntries: invalid requestId '${requestId}'`);
   }
 
-  // Fetch the leave record details including half-day flags
+  // Fetch the leave record details including half-day flags and leave type/status.
   const leaveResult = await attendanceQuery(projectDataConnStr, (req, sql) =>
     req.input('id', sql.Int, parsedId)
       .query(`
-        SELECT fe, start_date, end_date, ClioEntryId, OutlookEntryId, half_day_start, half_day_end
+        SELECT fe, start_date, end_date, status, leave_type, ClioEntryId, OutlookEntryId, half_day_start, half_day_end
         FROM [dbo].[annualLeave]
         WHERE request_id = @id
       `)
@@ -1461,6 +1649,65 @@ async function ensureAnnualLeaveCalendarEntries({ projectDataConnStr, password, 
 
   const leaveRecord = leaveResult.recordset?.[0];
   if (!leaveRecord) {
+    return;
+  }
+
+  if (!shouldSyncAnnualLeaveCalendars(leaveRecord)) {
+    if (leaveRecord.ClioEntryId) {
+      const clioSecrets = await getClioSecrets();
+      if (clioSecrets) {
+        const accessToken = await getClioAccessToken(clioSecrets);
+        if (accessToken) {
+          const clioDeleted = await deleteClioCalendarEntry(accessToken, leaveRecord.ClioEntryId);
+          if (clioDeleted) {
+            await attendanceQuery(projectDataConnStr, (req, sql) =>
+              req.input('id', sql.Int, parsedId)
+                .query(`
+                  UPDATE [dbo].[annualLeave]
+                     SET [ClioEntryId] = NULL
+                   WHERE [request_id] = @id;
+                `)
+            );
+          }
+        }
+      }
+    }
+
+    const teamMember = await getTeamMemberByInitials(leaveRecord.fe, password);
+    const outlookUserId = teamMember?.entraId || teamMember?.email;
+    if (outlookUserId) {
+      const graphToken = await getGraphAccessToken();
+      if (graphToken) {
+        let outlookDeleted = false;
+        if (leaveRecord.OutlookEntryId) {
+          outlookDeleted = await deleteOutlookCalendarEntry(graphToken, outlookUserId, leaveRecord.OutlookEntryId);
+        }
+
+        if (!outlookDeleted) {
+          const fallbackEventId = await findOutlookEventIdForLeave(graphToken, outlookUserId, {
+            startDate: leaveRecord.start_date,
+            endDate: leaveRecord.end_date,
+            transactionId: `annual-leave-${parsedId}`,
+            subject: `${leaveRecord.fe} Annual Leave`
+          });
+          if (fallbackEventId) {
+            outlookDeleted = await deleteOutlookCalendarEntry(graphToken, outlookUserId, fallbackEventId);
+          }
+        }
+
+        if (leaveRecord.OutlookEntryId && outlookDeleted) {
+          await attendanceQuery(projectDataConnStr, (req, sql) =>
+            req.input('id', sql.Int, parsedId)
+              .query(`
+                UPDATE [dbo].[annualLeave]
+                   SET [OutlookEntryId] = NULL
+                 WHERE [request_id] = @id;
+              `)
+          );
+        }
+      }
+    }
+
     return;
   }
 
@@ -1654,10 +1901,10 @@ async function deleteClioCalendarEntry(accessToken, clioEntryId) {
   }
 }
 
-// PUT /api/attendance/admin/annual-leave - Admin endpoint to modify leave records (status, days_taken)
+// PUT /api/attendance/admin/annual-leave - Admin endpoint to modify leave records (status, days_taken, leave_type, reason)
 router.put('/admin/annual-leave', async (req, res) => {
   try {
-    const { id, newStatus, days_taken } = req.body;
+    const { id, newStatus, days_taken, leave_type, reason } = req.body;
 
     if (!id) {
       return res.status(400).json({
@@ -1680,6 +1927,14 @@ router.put('/admin/annual-leave', async (req, res) => {
       return res.status(400).json({
         success: false,
         error: `Invalid 'newStatus'. Allowed statuses are: ${allowedStatuses.join(', ')}.`
+      });
+    }
+
+    const allowedLeaveTypes = ['standard', 'purchase', 'sale', 'unpaid'];
+    if (leave_type && !allowedLeaveTypes.includes(String(leave_type).toLowerCase())) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid 'leave_type'. Allowed leave types are: ${allowedLeaveTypes.join(', ')}.`
       });
     }
 
@@ -1710,10 +1965,20 @@ router.put('/admin/annual-leave', async (req, res) => {
       inputs.push({ name: 'daysTaken', type: sql.Decimal(5, 1), value: parseFloat(days_taken) });
     }
 
+    if (leave_type) {
+      updates.push('[leave_type] = @leaveType');
+      inputs.push({ name: 'leaveType', type: sql.VarChar(50), value: String(leave_type).toLowerCase() });
+    }
+
+    if (reason !== undefined) {
+      updates.push('[reason] = @reason');
+      inputs.push({ name: 'reason', type: sql.NVarChar(sql.MAX), value: String(reason) });
+    }
+
     if (updates.length === 0) {
       return res.status(400).json({
         success: false,
-        error: 'No valid fields to update. Provide newStatus and/or days_taken.'
+        error: 'No valid fields to update. Provide newStatus, days_taken, leave_type, and/or reason.'
       });
     }
 
@@ -1738,81 +2003,11 @@ router.put('/admin/annual-leave', async (req, res) => {
       });
     }
 
-    if (newStatus && newStatus.toLowerCase() === 'booked') {
+    if (newStatus || leave_type) {
       try {
-        const leaveResult = await attendanceQuery(projectDataConnStr, (req, sql) =>
-          req.input('id', sql.Int, parseInt(id, 10))
-            .query(`
-              SELECT fe, start_date, end_date, ClioEntryId, OutlookEntryId, half_day_start, half_day_end
-              FROM [dbo].[annualLeave]
-              WHERE request_id = @id
-            `)
-        );
-
-        const leaveRecord = leaveResult.recordset[0];
-        if (leaveRecord) {
-          if (!leaveRecord.ClioEntryId) {
-            const clioSecrets = await getClioSecrets();
-            if (clioSecrets) {
-              const accessToken = await getClioAccessToken(clioSecrets);
-              if (accessToken) {
-                const clioEntryId = await createClioCalendarEntry(
-                  accessToken,
-                  leaveRecord.fe,
-                  leaveRecord.start_date,
-                  leaveRecord.end_date,
-                  leaveRecord.half_day_start,
-                  leaveRecord.half_day_end
-                );
-
-                if (clioEntryId) {
-                  await attendanceQuery(projectDataConnStr, (req, sql) =>
-                    req.input('id', sql.Int, parseInt(id, 10))
-                      .input('clioEntryId', sql.Int, clioEntryId)
-                      .query(`
-                        UPDATE [dbo].[annualLeave]
-                           SET [ClioEntryId] = @clioEntryId
-                         WHERE [request_id] = @id;
-                      `)
-                  );
-                }
-              }
-            }
-          }
-
-          if (!leaveRecord.OutlookEntryId) {
-            const teamMember = await getTeamMemberByInitials(leaveRecord.fe, password);
-            const outlookUserId = teamMember?.entraId || teamMember?.email;
-            if (outlookUserId) {
-              const graphToken = await getGraphAccessToken();
-              if (graphToken) {
-                const payload = buildOutlookEventPayload({
-                  initials: leaveRecord.fe,
-                  startDate: leaveRecord.start_date,
-                  endDate: leaveRecord.end_date,
-                  halfDayStart: leaveRecord.half_day_start,
-                  halfDayEnd: leaveRecord.half_day_end,
-                  requestId: parsedId
-                });
-
-                const outlookEntryId = await createOutlookCalendarEntry(graphToken, outlookUserId, payload);
-                if (outlookEntryId) {
-                  await attendanceQuery(projectDataConnStr, (req, sql) =>
-                    req.input('id', sql.Int, parseInt(id, 10))
-                      .input('outlookEntryId', sql.NVarChar(100), outlookEntryId)
-                      .query(`
-                        UPDATE [dbo].[annualLeave]
-                           SET [OutlookEntryId] = @outlookEntryId
-                         WHERE [request_id] = @id;
-                      `)
-                  );
-                }
-              }
-            }
-          }
-        }
+        await ensureAnnualLeaveCalendarEntries({ projectDataConnStr, password, requestId: parsedId });
       } catch (calendarError) {
-        console.error('Error syncing calendars (admin):', calendarError);
+        console.error('Error syncing annual leave calendars (admin):', calendarError);
       }
     }
 
@@ -1832,7 +2027,7 @@ router.put('/admin/annual-leave', async (req, res) => {
       // Cache clear failed, not critical
     }
 
-    console.log(`[Admin] Updated annual leave record ${id}: status=${newStatus || 'unchanged'}, days_taken=${days_taken ?? 'unchanged'}`);
+    console.log(`[Admin] Updated annual leave record ${id}: status=${newStatus || 'unchanged'}, leave_type=${leave_type || 'unchanged'}, days_taken=${days_taken ?? 'unchanged'}, reason=${reason !== undefined ? 'updated' : 'unchanged'}`);
 
     res.json({
       success: true,

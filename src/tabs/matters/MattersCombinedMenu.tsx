@@ -1,15 +1,13 @@
 import React from 'react';
 // invisible change
-import {
-  Stack,
-  Text,
-  mergeStyles,
-  Icon,
-  SearchBox,
-  Dropdown,
-  IDropdownOption,
-  IStyle,
-} from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Text } from '@fluentui/react/lib/Text';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { SearchBox } from '@fluentui/react/lib/SearchBox';
+import { Dropdown } from '@fluentui/react/lib/Dropdown';
+import type { IDropdownOption } from '@fluentui/react/lib/Dropdown';
+import type { IStyle } from '@fluentui/react/lib/Styling';
 import QuickActionsCard from '../home/QuickActionsCard';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { TeamData } from '../../app/functionality/types';

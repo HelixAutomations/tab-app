@@ -1,22 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import {
-  Modal,
-  Stack,
-  Text,
-  TextField,
-  DefaultButton,
-  PrimaryButton,
-  Spinner,
-  MessageBar,
-  MessageBarType,
-  SearchBox,
-  List,
-  FontIcon,
-  Persona,
-  PersonaSize,
-  PersonaPresence,
-  Checkbox
-} from '@fluentui/react';
+import { Modal } from '@fluentui/react/lib/Modal';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Text } from '@fluentui/react/lib/Text';
+import { TextField } from '@fluentui/react/lib/TextField';
+import { DefaultButton, PrimaryButton } from '@fluentui/react/lib/Button';
+import { Spinner } from '@fluentui/react/lib/Spinner';
+import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
+import { SearchBox } from '@fluentui/react/lib/SearchBox';
+import { List } from '@fluentui/react/lib/List';
+import { FontIcon } from '@fluentui/react/lib/Icon';
+import { PersonaPresence } from '@fluentui/react/lib/Persona';
+import { Persona, PersonaSize } from '@fluentui/react/lib/Persona';
+import { Checkbox } from '@fluentui/react/lib/Checkbox';
 import { useTheme } from '../../../app/functionality/ThemeContext';
 import { colours } from '../../../app/styles/colours';
 

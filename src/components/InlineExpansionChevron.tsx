@@ -1,5 +1,5 @@
 import React from 'react';
-import { Icon } from '@fluentui/react';
+import { Icon } from '@fluentui/react/lib/Icon';
 import { colours } from '../app/styles/colours';
 
 interface InlineExpansionChevronProps {
@@ -27,31 +27,42 @@ const InlineExpansionChevron: React.FC<InlineExpansionChevronProps> = ({
   const title = isExpanded 
     ? `Collapse ${count} ${itemLabel}`
     : `Show all ${count} ${itemLabel}`;
+  const baseBackground = isDarkMode ? 'rgba(8, 28, 48, 0.42)' : 'rgba(244, 244, 246, 0.78)';
+  const hoverBackground = isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(214, 232, 255, 0.88)';
+  const baseBorder = isDarkMode ? 'rgba(75, 85, 99, 0.48)' : 'rgba(160, 160, 160, 0.22)';
+  const hoverBorder = isDarkMode ? 'rgba(135, 243, 243, 0.4)' : 'rgba(54, 144, 206, 0.3)';
+  const baseIconColor = isDarkMode ? 'rgba(209, 213, 219, 0.92)' : 'rgba(55, 65, 81, 0.78)';
+  const hoverIconColor = isDarkMode ? colours.accent : colours.highlight;
 
   return (
     <div
       onClick={onClick}
       style={{
-        width: 24,
-        height: 24,
+        width: 22,
+        height: 22,
         borderRadius: 0,
-        background: isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)',
-        border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(148, 163, 184, 0.2)'}`,
+        background: baseBackground,
+        border: `1px solid ${baseBorder}`,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         cursor: 'pointer',
         pointerEvents: 'auto',
-        transition: 'all 0.2s ease',
+        color: baseIconColor,
+        transition: 'background 0.16s ease, border-color 0.16s ease, color 0.16s ease, transform 0.16s ease',
         position: 'relative',
       }}
       onMouseEnter={(e) => {
-        e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.15)' : 'rgba(148, 163, 184, 0.12)';
-        e.currentTarget.style.transform = 'scale(1.05)';
+        e.currentTarget.style.background = hoverBackground;
+        e.currentTarget.style.borderColor = hoverBorder;
+        e.currentTarget.style.color = hoverIconColor;
+        e.currentTarget.style.transform = 'translateY(-1px)';
       }}
       onMouseLeave={(e) => {
-        e.currentTarget.style.background = isDarkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(148, 163, 184, 0.08)';
-        e.currentTarget.style.transform = 'scale(1)';
+        e.currentTarget.style.background = baseBackground;
+        e.currentTarget.style.borderColor = baseBorder;
+        e.currentTarget.style.color = baseIconColor;
+        e.currentTarget.style.transform = 'translateY(0)';
       }}
       title={title}
     >
@@ -59,8 +70,8 @@ const InlineExpansionChevron: React.FC<InlineExpansionChevronProps> = ({
         iconName={isExpanded ? 'ChevronUp' : 'ChevronDown'}
         styles={{
           root: {
-            fontSize: '10px',
-            color: isDarkMode ? 'rgba(203, 213, 225, 0.9)' : 'rgba(71, 85, 105, 0.9)',
+            fontSize: '9px',
+            color: 'currentColor',
           }
         }}
       />

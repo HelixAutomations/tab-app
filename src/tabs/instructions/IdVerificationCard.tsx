@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { mergeStyles, Text } from '@fluentui/react';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
+import { Text } from '@fluentui/react/lib/Text';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';
 import { FaUserCheck, FaMapMarkerAlt, FaChevronDown, FaChevronUp, FaIdCard } from 'react-icons/fa';

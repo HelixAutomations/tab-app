@@ -7,7 +7,10 @@
 const express = require('express');
 const router = express.Router();
 const opLog = require('../utils/opLog');
-const { trackEvent, trackException } = require('../utils/appInsights');
+const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
+
+const EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
+const LONG_NUMBER_PATTERN = /\b\d{6,}\b/g;
 
 /**
  * POST /api/telemetry
@@ -30,16 +33,22 @@ router.post('/', (req, res) => {
       return res.status(400).json({ error: 'Invalid event structure' });
     }
 
+    const sanitizedEntityRef = sanitizeScalar('enquiryId', enquiryId);
+    const sanitizedFeeEarner = sanitizeScalar('feeEarner', feeEarner);
+    const sanitizedData = sanitizeData(data);
+    const sanitizedError = error ? sanitizeScalar('error', error) : null;
+    const durationNumber = Number(duration);
+
     // Log to opLog for local persistence
     opLog.append({
       type: `telemetry.${source}.${type}`,
       route: 'server:/api/telemetry',
       clientSessionId: sessionId,
-      enquiryId,
-      feeEarner,
-      data,
-      error,
-      durationMs: duration,
+      entityRef: sanitizedEntityRef,
+      feeEarner: sanitizedFeeEarner,
+      data: sanitizedData,
+      error: sanitizedError,
+      durationMs: Number.isFinite(durationNumber) ? durationNumber : undefined,
       clientTimestamp: timestamp,
     });
 
@@ -49,33 +58,42 @@ router.post('/', (req, res) => {
       source,
       eventType: type,
       sessionId,
-      enquiryId,
-      feeEarner,
-      durationMs: duration,
-      error: error || null,
+      entityRef: sanitizedEntityRef,
+      feeEarner: sanitizedFeeEarner,
+      durationMs: Number.isFinite(durationNumber) ? durationNumber : undefined,
+      error: sanitizedError,
       timestamp: new Date().toISOString(),
       clientTimestamp: timestamp,
-      ...sanitizeData(data)
+      ...sanitizedData
     };
 
-    // Use console.log with JSON for structured logging in Application Insights
-    console.log(JSON.stringify({
-      message: `[Telemetry] ${source}:${type}`,
-      ...telemetryLog
-    }));
+    // Send to App Insights via structured log (no console dump in dev — too noisy)
+    if (process.env.NODE_ENV === 'production') {
+      console.log(JSON.stringify({
+        message: `[Telemetry] ${source}:${type}`,
+        ...telemetryLog
+      }));
+    }
 
     // Fire direct App Insights events for all client-side telemetry
     const eventName = `Client.${source}.${type}`;
     trackEvent(eventName, telemetryLog);
+    if (Number.isFinite(durationNumber)) {
+      trackMetric(`${eventName}.Duration`, durationNumber, {
+        source,
+        eventType: type,
+        path: typeof sanitizedData?.path === 'string' ? sanitizedData.path : '',
+      });
+    }
 
     // Track errors/failures as exceptions in App Insights
-    if (type.includes('error') || type.includes('failed') || type.includes('Failed') || error) {
-      trackException(new Error(error || `${source}:${type}`), {
+    if (type.includes('error') || type.includes('failed') || type.includes('Failed') || sanitizedError) {
+      trackException(new Error(sanitizedError || `${source}:${type}`), {
         component: 'MatterOpening',
         operation: type,
         source,
-        instructionRef: data?.instructionRef || data?.instruction_ref || enquiryId || '',
-        feeEarner: feeEarner || ''
+        instructionRef: '',
+        feeEarner: sanitizedFeeEarner || ''
       });
     }
 
@@ -128,11 +146,8 @@ function sanitizeData(data) {
   const sensitiveKeys = ['password', 'token', 'secret', 'key', 'auth', 'cookie'];
   
   for (const key of Object.keys(sanitized)) {
-    const lowerKey = key.toLowerCase();
-    if (sensitiveKeys.some(s => lowerKey.includes(s))) {
-      sanitized[key] = '[REDACTED]';
-    }
-    
+    sanitized[key] = sanitizeScalar(key, sanitized[key]);
+
     // Truncate long strings
     if (typeof sanitized[key] === 'string' && sanitized[key].length > 500) {
       sanitized[key] = sanitized[key].slice(0, 500) + '...[truncated]';
@@ -140,6 +155,33 @@ function sanitizeData(data) {
   }
 
   return sanitized;
+}
+
+function sanitizeScalar(key, value) {
+  if (value == null) return value;
+
+  const lowerKey = String(key || '').toLowerCase();
+  const sensitiveKeys = [
+    'password', 'token', 'secret', 'key', 'auth', 'cookie',
+    'email', 'phone', 'name', 'address', 'dob', 'birth',
+    'instruction', 'prospect', 'matterid', 'clientid', 'enquiryid'
+  ];
+
+  if (sensitiveKeys.some((s) => lowerKey.includes(s))) {
+    return '[REDACTED]';
+  }
+
+  if (typeof value === 'string') {
+    return value
+      .replace(EMAIL_PATTERN, '[redacted-email]')
+      .replace(LONG_NUMBER_PATTERN, '[redacted-number]');
+  }
+
+  if (typeof value === 'object') {
+    return '[object]';
+  }
+
+  return value;
 }
 
 module.exports = router;

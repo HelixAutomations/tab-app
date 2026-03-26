@@ -1,11 +1,11 @@
 import React, { useCallback } from 'react';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';
+import { renderAreaGlyph, type AreaGlyphVariant } from './areaGlyphs';
 
 interface AreaOption {
   key: string;
   label: string;
-  emoji: string;
   color: string;
 }
 
@@ -14,15 +14,16 @@ interface IconAreaFilterProps {
   availableAreas: string[];
   onAreaChange: (selectedAreas: string[]) => void;
   ariaLabel?: string;
+  variant?: AreaGlyphVariant;
 }
 
-// Area configuration with colors and emojis (matching table display)
+// Area configuration with colours and labels.
 const areaConfig: Record<string, AreaOption> = {
-  'Commercial': { key: 'Commercial', label: 'Commercial', emoji: '🏢', color: colours.blue },
-  'Property': { key: 'Property', label: 'Property', emoji: '🏠', color: colours.green },
-  'Construction': { key: 'Construction', label: 'Construction', emoji: '🏗️', color: colours.orange },
-  'Employment': { key: 'Employment', label: 'Employment', emoji: '👩🏻‍💼', color: colours.yellow },
-  'Other/Unsure': { key: 'Other/Unsure', label: 'Other', emoji: 'ℹ️', color: colours.greyText },
+  'Commercial': { key: 'Commercial', label: 'Commercial', color: colours.blue },
+  'Property': { key: 'Property', label: 'Property', color: colours.green },
+  'Construction': { key: 'Construction', label: 'Construction', color: colours.orange },
+  'Employment': { key: 'Employment', label: 'Employment', color: colours.yellow },
+  'Other/Unsure': { key: 'Other/Unsure', label: 'Other', color: colours.greyText },
 };
 
 // Inject CSS once for area filter hover/active (avoids per-render JS handlers)
@@ -32,13 +33,14 @@ if (typeof document !== 'undefined' && !document.head.querySelector('style[data-
   s.textContent = `
     .area-btn {
       display: flex; align-items: center; justify-content: center;
-      width: 26px; height: 26px; border-radius: 0; cursor: pointer;
+      width: 30px; height: 30px; border-radius: 0; cursor: pointer;
       pointer-events: auto;
       transition: background 120ms ease, border-color 120ms ease,
-                  box-shadow 120ms ease, opacity 120ms ease, transform 100ms ease;
+                  box-shadow 120ms ease, opacity 120ms ease;
+      box-sizing: border-box;
     }
-    .area-btn:hover { transform: scale(1.08); opacity: 1 !important; }
-    .area-btn:active { transform: scale(0.95); }
+    .area-btn:hover { opacity: 1 !important; }
+    .area-btn:active { opacity: 0.85; }
   `;
   document.head.appendChild(s);
 }
@@ -51,7 +53,8 @@ const IconAreaFilter: React.FC<IconAreaFilterProps> = React.memo(({
   selectedAreas,
   availableAreas,
   onAreaChange,
-  ariaLabel = "Filter by area of work"
+  ariaLabel = "Filter by area of work",
+  variant = 'glyph'
 }) => {
   const { isDarkMode } = useTheme();
 
@@ -76,7 +79,7 @@ const IconAreaFilter: React.FC<IconAreaFilterProps> = React.memo(({
       style={{
         display: 'flex',
         alignItems: 'center',
-        gap: 2,
+        gap: 6,
         height: 30,
         padding: 0,
         background: 'transparent',
@@ -88,6 +91,7 @@ const IconAreaFilter: React.FC<IconAreaFilterProps> = React.memo(({
       {displayAreas.map(areaKey => {
         const area = areaConfig[areaKey];
         const isSelected = selectedAreas.includes(areaKey);
+        const iconColor = isSelected ? area.color : (isDarkMode ? '#d1d5db' : colours.greyText);
         
         return (
           <button
@@ -104,24 +108,23 @@ const IconAreaFilter: React.FC<IconAreaFilterProps> = React.memo(({
             aria-pressed={isSelected}
             style={{
               background: isSelected
-                ? (isDarkMode ? colours.dark.cardHover : colours.light.cardBackground)
+                ? (isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(54, 144, 206, 0.08)')
                 : 'transparent',
-              border: isSelected ? `1px solid ${area.color}` : `1px solid ${isDarkMode ? 'rgba(55,65,81,0.4)' : 'rgba(13,47,96,0.10)'}`,
+              border: 'none',
               opacity: noneSelected || isSelected ? 1 : 0.45,
-              boxShadow: isSelected 
-                ? (isDarkMode ? '0 1px 3px rgba(0,0,0,0.25)' : '0 1px 2px rgba(0,0,0,0.06)')
-                : 'none',
+              boxShadow: `inset 0 0 0 1px ${isSelected
+                ? (isDarkMode ? 'rgba(135,243,243,0.40)' : colours.highlight)
+                : (isDarkMode ? 'rgba(75,85,99,0.22)' : 'rgba(0,0,0,0.08)')}`,
+              color: iconColor,
             }}
           >
             <span
               style={{
-                fontSize: 14,
                 lineHeight: 1,
-                filter: isSelected ? 'none' : 'grayscale(0.5)',
-                transition: 'filter 120ms ease',
+                opacity: isSelected ? 1 : 0.9,
               }}
             >
-              {area.emoji}
+              {renderAreaGlyph(areaKey, iconColor, variant, 15)}
             </span>
           </button>
         );

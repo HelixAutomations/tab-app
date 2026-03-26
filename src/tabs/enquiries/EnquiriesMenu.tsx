@@ -1,5 +1,10 @@
 import React from 'react';
-import { mergeStyles, SearchBox, Icon, Text, IconButton, TooltipHost } from '@fluentui/react';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
+import { SearchBox } from '@fluentui/react/lib/SearchBox';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { Text } from '@fluentui/react/lib/Text';
+import { IconButton } from '@fluentui/react/lib/Button';
+import { TooltipHost } from '@fluentui/react/lib/Tooltip';
 import QuickActionsCard from '../home/QuickActionsCard';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';
@@ -61,12 +66,12 @@ const stateButtonStyle = (isDark: boolean) =>
         borderRadius: '6px',
         cursor: 'pointer',
         transition: 'background-color 0.3s, color 0.3s, transform 0.1s',
-        border: `1px solid ${isDark ? '#444' : '#ccc'}`,
-        color: isDark ? '#333' : '#333',
+        border: `1px solid ${isDark ? colours.dark.border : 'rgba(160, 160, 160, 0.3)'}`,
+        color: isDark ? colours.dark.text : colours.light.text,
         fontFamily: 'Raleway, sans-serif',
         selectors: {
             ':hover': {
-                backgroundColor: isDark ? '#555' : '#f3f2f1',
+                backgroundColor: isDark ? colours.dark.cardHover : colours.grey,
             },
             ':active': {
                 transform: 'scale(0.97)',

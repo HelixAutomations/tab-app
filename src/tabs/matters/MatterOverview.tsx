@@ -1,5 +1,7 @@
 import React, { useState, useMemo } from 'react';
-import { Icon, Link, TooltipHost } from '@fluentui/react';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { Link } from '@fluentui/react/lib/Link';
+import { TooltipHost } from '@fluentui/react/lib/Tooltip';
 import { FaUser, FaCheckCircle, FaClipboard, FaIdCard, FaPoundSign, FaShieldAlt, FaFolder, FaFolderOpen, FaFileAlt, FaCheck, FaExclamationTriangle, FaChevronRight, FaChevronDown } from 'react-icons/fa';
 import type { Enquiry, NormalizedMatter, TeamData, Transaction } from '../../app/functionality/types';
 import { colours } from '../../app/styles/colours';
@@ -107,6 +109,27 @@ interface MatterClioCustomField {
   key: string;
   label: string;
   value: string;
+}
+
+type MatterCclServiceSummary = {
+  stage: string;
+  label: string;
+  needsAttention: boolean;
+  confidence?: string | null;
+  attentionReason?: string | null;
+};
+
+function getMatterCclLabel(stage: string): string {
+  switch (stage.toLowerCase()) {
+    case 'generated':
+      return 'Generated';
+    case 'reviewed':
+      return 'Reviewed';
+    case 'sent':
+      return 'Sent';
+    default:
+      return 'Pending';
+  }
 }
 
 interface ClioMatterActivity {
@@ -447,7 +470,7 @@ const PipelineSection: React.FC<PipelineSectionProps> = ({
     },
     {
       key: 'ccl',
-      label: hasCcl ? 'CCL Completed' : hasCclDraft ? 'CCL Draft Ready' : 'CCL',
+      label: hasCcl ? 'CCL Sent' : hasCclDraft ? 'CCL Generated' : 'CCL',
       shortLabel: 'CCL',
       icon: <FaFileAlt size={10} />,
       status: !hasInstruction ? 'disabled' : cclStageStatus as any,
@@ -659,6 +682,11 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
   const [cclDraftFields, setCclDraftFields] = React.useState<Record<string, string>>({});
   const [showCclDraftPreview, setShowCclDraftPreview] = React.useState(false);
   const [isCclDraftLoading, setIsCclDraftLoading] = React.useState(false);
+  const [cclServiceSummary, setCclServiceSummary] = React.useState<MatterCclServiceSummary>({
+    stage: matter.cclDate ? 'sent' : 'pending',
+    label: matter.cclDate ? 'Sent' : 'Pending',
+    needsAttention: false,
+  });
   const [netDocumentsWorkspaceLoading, setNetDocumentsWorkspaceLoading] = React.useState(false);
   const [netDocumentsWorkspaceError, setNetDocumentsWorkspaceError] = React.useState<string | null>(null);
   const [netDocumentsWorkspace, setNetDocumentsWorkspace] = React.useState<MatterNetDocumentsWorkspaceResult | null>(null);
@@ -701,6 +729,58 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
       onCclOpened?.();
     }
   }, [autoOpenCcl, onCclOpened, showCCLEditor]);
+
+  React.useEffect(() => {
+    const matterId = matter.matterId;
+    if (!matterId) {
+      setCclServiceSummary({
+        stage: matter.cclDate ? 'sent' : 'pending',
+        label: matter.cclDate ? 'Sent' : 'Pending',
+        needsAttention: false,
+      });
+      return;
+    }
+
+    let cancelled = false;
+
+    fetch('/api/ccl/batch-status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ matterIds: [matterId] }),
+    })
+      .then((response) => (response.ok ? response.json() : Promise.reject(new Error('Failed to load CCL status'))))
+      .then((data) => {
+        if (cancelled) {
+          return;
+        }
+
+        const result = data?.results?.[matterId];
+        const stage = typeof result?.stage === 'string' && result.stage.trim()
+          ? result.stage.trim().toLowerCase()
+          : (matter.cclDate ? 'sent' : 'pending');
+
+        setCclServiceSummary({
+          stage,
+          label: typeof result?.label === 'string' && result.label.trim() ? result.label.trim() : getMatterCclLabel(stage),
+          needsAttention: Boolean(result?.needsAttention),
+          confidence: typeof result?.confidence === 'string' ? result.confidence : null,
+          attentionReason: typeof result?.attentionReason === 'string' ? result.attentionReason : null,
+        });
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCclServiceSummary({
+            stage: matter.cclDate ? 'sent' : 'pending',
+            label: matter.cclDate ? 'Sent' : 'Pending',
+            needsAttention: false,
+          });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [matter.cclDate, matter.matterId]);
 
   React.useEffect(() => {
     const matterKey = matter.matterId || matter.displayNumber;
@@ -1439,6 +1519,12 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
   const canSeeCcl = isCclUser(userInitials);
   const showNextSteps = isAdmin && !showCCLEditor;
   const [isPortalLaunchOpen, setIsPortalLaunchOpen] = useState(false);
+  const instructionPayments = Array.isArray(derivedWorkbenchItem?.payments)
+    ? derivedWorkbenchItem.payments
+    : [];
+  const instructionPaymentReceived = instructionPayments.some((payment: any) =>
+    payment?.payment_status === 'succeeded' || payment?.payment_status === 'confirmed'
+  );
 
   // Portal URL computation
   const portalBaseUrl = 'https://instruct.helix-law.com/pitch';
@@ -1456,6 +1542,11 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
     entryLabel: 'Matters → Client destination',
   }), [matter.displayNumber, matter.instructionRef, matter.matterId, pipelineLink.instructionRef, pipelineLink.passcode, portalUrl]);
   const hasCcl = Boolean(matter.cclDate);
+  const cclStage = cclServiceSummary.stage;
+  const cclStatusLabel = cclServiceSummary.label;
+  const cclIsGenerated = cclStage === 'generated';
+  const cclIsReviewed = cclStage === 'reviewed';
+  const cclIsSent = cclStage === 'sent';
   const riskAssessmentResult = derivedWorkbenchItem?.risk?.RiskAssessmentResult || '';
   const normalizedRiskResult = String(riskAssessmentResult).trim().toLowerCase();
   const riskLabel = hasMeaningfulValue(riskAssessmentResult) ? fmt(riskAssessmentResult) : 'Not assessed';
@@ -1796,12 +1887,13 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
 
       {/* CCL Editor — replaces main content when open (CCL users only) */}
       {canSeeCcl && showCCLEditor && (
-        <div style={{ padding: '0', flex: 1, display: 'flex', flexDirection: 'column' as const, minHeight: 0 }}>
+        <div style={{ padding: '0', flex: 1, display: 'flex', flexDirection: 'column' as const, minHeight: 0, width: 'min(1160px, 100%)', alignSelf: 'center' }}>
         <CCLEditor
           matter={matter}
           teamData={teamData}
           demoModeEnabled={demoModeEnabled}
           userInitials={userInitials}
+          instructionPaymentReceived={instructionPaymentReceived}
           onClose={() => setShowCCLEditor(false)}
         />
         </div>
@@ -1844,14 +1936,17 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
               }}>
                 Next
               </span>
-              {matter.status === 'active' && !hasCcl && !hasCclDraft && (
-                <NextStepChip title="CCL needs drafting" icon="TextDocument" isDarkMode={isDarkMode} category="standard" />
+              {matter.status === 'active' && cclStage === 'pending' && (
+                <NextStepChip title="CCL service pending" icon="TextDocument" isDarkMode={isDarkMode} category="standard" />
               )}
-              {matter.status === 'active' && !hasCcl && hasCclDraft && (
-                <NextStepChip title="CCL draft ready for review" icon="CompletedSolid" isDarkMode={isDarkMode} category="success" />
+              {matter.status === 'active' && cclIsGenerated && (
+                <NextStepChip title="CCL generated" subtitle={cclServiceSummary.confidence || ''} icon="CompletedSolid" isDarkMode={isDarkMode} category="success" />
               )}
-              {hasCcl && (
-                <NextStepChip title="CCL complete" subtitle={fmtDate(matter.cclDate)} icon="CompletedSolid" isDarkMode={isDarkMode} category="success" />
+              {matter.status === 'active' && cclIsReviewed && (
+                <NextStepChip title="CCL reviewed" icon="CompletedSolid" isDarkMode={isDarkMode} category="success" />
+              )}
+              {cclIsSent && (
+                <NextStepChip title="CCL sent" subtitle={fmtDate(matter.cclDate)} icon="CompletedSolid" isDarkMode={isDarkMode} category="success" />
               )}
               {outstandingBalance > 0 && !isOutstandingLoading && (
                 <NextStepChip title="Outstanding balance" subtitle={fmtCurrency(outstandingBalance)} icon="Money" isDarkMode={isDarkMode} category="warning" />
@@ -2463,37 +2558,24 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
                       borderRadius: '50%',
                       flexShrink: 0,
                       marginTop: 1,
-                      background: hasCcl ? colours.green : hasCclDraft ? colours.highlight : colours.subtleGrey,
-                      boxShadow: `0 0 0 4px ${hasCcl ? 'rgba(32, 178, 108, 0.14)' : hasCclDraft ? 'rgba(54, 144, 206, 0.14)' : 'rgba(160, 160, 160, 0.12)'}`,
+                      background: cclIsSent ? colours.green : cclIsGenerated || cclIsReviewed ? colours.highlight : colours.subtleGrey,
+                      boxShadow: `0 0 0 4px ${cclIsSent ? 'rgba(32, 178, 108, 0.14)' : cclIsGenerated || cclIsReviewed ? 'rgba(54, 144, 206, 0.14)' : 'rgba(160, 160, 160, 0.12)'}`,
                     }}
                   />
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
                     <span style={{ fontSize: 12, fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.light.text }}>
-                      {hasCcl
-                        ? `Tracked ${fmtDate(matter.cclDate)}`
-                        : hasCclDraft
-                          ? 'Draft saved and ready for review'
-                          : 'Not started yet'}
+                      {cclIsSent ? `Sent ${fmtDate(matter.cclDate)}` : cclStatusLabel}
                     </span>
                     <span style={{ fontSize: 11, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
-                      {hasCcl
+                      {cclIsSent
                         ? 'Client care letter is recorded for this matter.'
-                        : hasCclDraft
-                          ? (() => {
-                              const CCL_KEYS = [
-                                'insert_current_position_and_scope_of_retainer', 'next_steps', 'realistic_timescale',
-                                'handler_hourly_rate', 'charges_estimate_paragraph', 'disbursements_paragraph',
-                                'costs_other_party_paragraph', 'figure', 'and_or_intervals_eg_every_three_months',
-                                'may_will', 'insert_next_step_you_would_like_client_to_take', 'state_why_this_step_is_important',
-                                'state_amount', 'insert_consequence', 'describe_first_document_or_information_you_need_from_your_client',
-                                'describe_second_document_or_information_you_need_from_your_client',
-                                'describe_third_document_or_information_you_need_from_your_client',
-                                'identify_the_other_party_eg_your_opponents',
-                              ];
-                              const filled = CCL_KEYS.filter(k => cclDraftFields[k]?.trim()).length;
-                              return `${filled} of ${CCL_KEYS.length} fields completed`;
-                            })()
-                          : 'Prepare the first draft in the CCL workbench when this matter is ready.'}
+                        : cclServiceSummary.needsAttention
+                          ? (cclServiceSummary.attentionReason || 'Review required before the service can complete delivery.')
+                          : cclIsReviewed
+                            ? 'The service has completed review and is ready for delivery.'
+                            : cclIsGenerated
+                              ? 'The service has generated the draft and is waiting for review.'
+                              : 'The CCL service will run automatically after matter opening.'}
                     </span>
                   </div>
                 </div>
@@ -2518,7 +2600,7 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
                     }}
                   >
                     <Icon iconName="OpenInNewWindow" styles={{ root: { fontSize: 11, color: colours.highlight } }} />
-                    {hasCcl || hasCclDraft ? 'Open CCL Workbench' : 'Start CCL Workbench'}
+                    {cclServiceSummary.needsAttention || hasCclDraft ? 'Open CCL Workbench' : 'View CCL Workbench'}
                   </button>
                 )}
               </div>

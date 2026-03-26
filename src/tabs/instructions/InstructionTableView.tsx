@@ -1,8 +1,9 @@
 import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import { TableConfig } from '../../components/DataTable';
-import { Icon } from '@fluentui/react';
+import { Icon } from '@fluentui/react/lib/Icon';
 import { format } from 'date-fns';
 import { colours } from '../../app/styles/colours';
+import { renderAreaOfWorkGlyph } from '../../components/filter/areaGlyphs';
 import { TeamData } from '../../app/functionality/types';
 import { groupInstructionsByClient, shouldGroupInstructions } from '../../utils/tableGrouping';
 import InlineExpansionChevron from '../../components/InlineExpansionChevron';
@@ -519,21 +520,6 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
     });
   }, [groupedData, expandedClientsInTable]);
 
-  // Area icon and color helper functions
-  const getAreaOfWorkIcon = (areaOfWork: string): string => {
-    const area = (areaOfWork || '').toLowerCase().trim();
-    
-    if (area.includes('triage')) return '🩺';
-    if (area.includes('construction') || area.includes('building')) return '🏗️';
-    if (area.includes('property') || area.includes('real estate') || area.includes('conveyancing')) return '🏠';
-    if (area.includes('commercial') || area.includes('business')) return '🏢';
-    if (area.includes('employment') || area.includes('hr') || area.includes('workplace')) return '👩🏻‍💼';
-    if (area.includes('allocation')) return '📂';
-    if (area.includes('general') || area.includes('misc') || area.includes('other')) return 'ℹ️';
-    
-    return 'ℹ️'; // Default icon
-  };
-
   // Status pipeline renderer with ID, Payment, Risk, Matter, Docs stages
   const renderStatusPipeline = (item: any) => {
     const inst = item.rawData.instruction;
@@ -1014,9 +1000,7 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
   const renderArea = (item: any) => {
     const area = item.area;
     if (!area) return <span style={{ opacity: 0.5 }}>—</span>;
-    
-    const areaIcon = getAreaOfWorkIcon(area);
-    
+
     return (
       <div style={{
         display: 'flex',
@@ -1027,11 +1011,14 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
         <span 
           title={area}
           style={{ 
-            fontSize: '18px', 
-            lineHeight: 1 
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            lineHeight: 1,
+            opacity: 0.9,
           }}
         >
-          {areaIcon}
+          {renderAreaOfWorkGlyph(area, isDarkMode ? '#d1d5db' : colours.greyText, 'glyph', 17)}
         </span>
       </div>
     );

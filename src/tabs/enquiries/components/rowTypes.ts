@@ -56,6 +56,7 @@ export interface RowDisplayState {
   visiblePipelineChipCount: number;
   PIPELINE_CHIP_MIN_WIDTH_PX: number;
   collapsedDays: Set<string>;
+  currentUserEmail: string;
 }
 
 export interface RowHoverHandlers {
@@ -86,9 +87,7 @@ export interface RowDataDeps {
 export interface ProspectTableRowProps {
   item: Enquiry;
   idx: number;
-  isLast: boolean;
-  displayedItems: (Enquiry | any)[]; // Enquiry | GroupedEnquiry
-  isGroupedEnquiry: (item: any) => boolean;
+  nextDateStr: string;
   pipelineHandlers: RowPipelineHandlers;
   actionHandlers: RowActionHandlers;
   displayState: RowDisplayState;

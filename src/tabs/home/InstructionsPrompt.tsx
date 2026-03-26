@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { DefaultButton } from '@fluentui/react';
+import { DefaultButton } from '@fluentui/react/lib/Button';
 import { InstructionData } from '../../app/functionality/types';
 
 export interface InstructionSummary {
@@ -76,7 +76,7 @@ export const getActionableInstructions = (
             paymentStatus !== 'complete' ? 'payment' :
             // Documents are non-blocking once payment is complete; don't gate flow on docs.
             riskStatus !== 'complete' ? 'risk' :
-            'ccl'; // Include CCL as final step
+            'complete';
 
         // For localhost, add matter opening after core workflow steps (ID + payment)
         // Only suggest Matter Opening (dev helper) after ID, payment, and risk are complete, and only if not already linked.
@@ -90,11 +90,11 @@ export const getActionableInstructions = (
         const hasRiskReview = riskStatus === 'review';
         
         // Include items that either:
-        // 1. Have next action step as id/risk/ccl (blue active step), OR
+        // 1. Have next action step as id/risk (blue active step), OR
         // 2. Have review status (red step that needs attention), OR
         // 3. Need matter opening (localhost only)
         const needsUserAction = 
-            (nextActionStep === 'id' || nextActionStep === 'risk' || nextActionStep === 'ccl') ||
+            (nextActionStep === 'id' || nextActionStep === 'risk') ||
             hasIdReview || hasRiskReview || needsMatterOpening;
             
         if (!needsUserAction) {
@@ -118,9 +118,6 @@ export const getActionableInstructions = (
             actionLabel = 'Verify ID';
         } else if (nextActionStep === 'risk') {
             actionLabel = 'Assess Risk';
-        } else if (nextActionStep === 'ccl') {
-            actionLabel = 'Submit to CCL';
-            isDisabled = !isLocalhost; // Enable CCL locally, disable in production
         } else {
             return;
         }

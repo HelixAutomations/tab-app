@@ -1,6 +1,9 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { debugLog } from '../../utils/debug';
-import { Callout, DirectionalHint, Icon, Text, DefaultButton } from '@fluentui/react';
+import { Callout, DirectionalHint } from '@fluentui/react/lib/Callout';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { Text } from '@fluentui/react/lib/Text';
+import { DefaultButton } from '@fluentui/react/lib/Button';
 import { mergeStyles, keyframes } from '@fluentui/react/lib/Styling';
 import { colours } from '../../app/styles/colours';
 import { FaUmbrellaBeach } from 'react-icons/fa';

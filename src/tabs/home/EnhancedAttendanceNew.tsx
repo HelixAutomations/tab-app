@@ -1,5 +1,8 @@
 import React, { useState, forwardRef, useImperativeHandle } from 'react';
-import { Icon, Text, DefaultButton, MessageBar, MessageBarType } from '@fluentui/react';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { Text } from '@fluentui/react/lib/Text';
+import { DefaultButton } from '@fluentui/react/lib/Button';
+import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
 import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { colours } from '../../app/styles/colours';
 import WeeklyAttendanceView from './WeeklyAttendanceView';

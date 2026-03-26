@@ -1,5 +1,6 @@
 import React from 'react';
-import { Stack, TextField } from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { TextField } from '@fluentui/react/lib/TextField';
 import ModernMultiSelect from './ModernMultiSelect';
 
 // Shared light/dark aware colours (fallbacks if global theme not injected)

@@ -1,12 +1,10 @@
 import React from 'react'; // invisible change // invisible change
 // invisible change 2.2
-import {
-    Stack,
-    Text,
-    PrimaryButton,
-    mergeStyles,
-    TextField,
-} from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Text } from '@fluentui/react/lib/Text';
+import { PrimaryButton } from '@fluentui/react/lib/Button';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
+import { TextField } from '@fluentui/react/lib/TextField';
 import { sharedPrimaryButtonStyles } from '../../../app/styles/ButtonStyles';
 import { colours } from '../../../app/styles/colours';
 import '../../../app/styles/MultiSelect.css';

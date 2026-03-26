@@ -1,5 +1,13 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Stack, PrimaryButton, Dropdown, IDropdownOption, TextField, Label, DefaultButton, MessageBar, MessageBarType, FontIcon, Panel } from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { PrimaryButton, DefaultButton } from '@fluentui/react/lib/Button';
+import { Dropdown } from '@fluentui/react/lib/Dropdown';
+import type { IDropdownOption } from '@fluentui/react/lib/Dropdown';
+import { TextField } from '@fluentui/react/lib/TextField';
+import { Label } from '@fluentui/react/lib/Label';
+import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
+import { FontIcon } from '@fluentui/react/lib/Icon';
+import { Panel } from '@fluentui/react/lib/Panel';
 import { useParams } from 'react-router-dom';
 import { InstructionData, CCLJson, UserData } from '../../app/functionality/types';
 import { schema as cclSchema, tokens as cclTokens } from '../../app/functionality/cclSchema';

@@ -1,6 +1,10 @@
 import React from 'react';
 // invisible change removed
-import { mergeStyles, Text, Stack, TooltipHost, Icon } from '@fluentui/react';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
+import { Text } from '@fluentui/react/lib/Text';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { TooltipHost } from '@fluentui/react/lib/Tooltip';
+import { Icon } from '@fluentui/react/lib/Icon';
 import { Transaction } from '../../app/functionality/types';
 import { colours } from '../../app/styles/colours';
 import { useTheme } from '../../app/functionality/ThemeContext';

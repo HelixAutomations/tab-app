@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
-import { Icon } from '@fluentui/react';
-
+import { Icon } from '@fluentui/react/lib/Icon';
 interface ToolbarButtonProps {
   icon: string;
   onClick: () => void;

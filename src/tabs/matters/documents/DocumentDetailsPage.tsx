@@ -1,15 +1,11 @@
 import React, { useState, useMemo } from 'react';
-import {
-  Text,
-  Stack,
-  TextField,
-  DefaultButton,
-  PrimaryButton,
-  IconButton,
-  Icon,
-  TooltipHost,
-  mergeStyles,
-} from '@fluentui/react';
+import { Text } from '@fluentui/react/lib/Text';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { TextField } from '@fluentui/react/lib/TextField';
+import { DefaultButton, PrimaryButton, IconButton } from '@fluentui/react/lib/Button';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { TooltipHost } from '@fluentui/react/lib/Tooltip';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { DocumentEntry } from './documentIndex';
 import { useTheme } from '../../../app/functionality/ThemeContext';
 import { colours } from '../../../app/styles/colours';

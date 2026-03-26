@@ -184,4 +184,5 @@ function attachEnquiriesStream(router) {
 module.exports = {
   attachEnquiriesStream,
   broadcastEnquiriesChanged,
+  getSseClientCount: () => clients.size,
 };

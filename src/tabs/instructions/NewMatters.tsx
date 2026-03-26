@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 // invisible change 2.2
-import { Stack } from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
 import { POID, TeamData, UserData } from '../../app/functionality/types';
 import StepHeader from './StepHeader';
 import ClientDetails from './ClientDetails';

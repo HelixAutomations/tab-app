@@ -1,6 +1,12 @@
 import React, { useState, useEffect } from 'react';
 // invisible change 2
-import { IconButton, mergeStyles, SearchBox, Stack, Text, ActionButton, Icon, Spinner } from '@fluentui/react';
+import { IconButton, ActionButton } from '@fluentui/react/lib/Button';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
+import { SearchBox } from '@fluentui/react/lib/SearchBox';
+import { Stack } from '@fluentui/react/lib/Stack';
+import { Text } from '@fluentui/react/lib/Text';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { Spinner } from '@fluentui/react/lib/Spinner';
 import { useTheme } from '../app/functionality/ThemeContext';
 import { colours } from '../app/styles/colours';
 import Resources from '../tabs/resources/Resources';

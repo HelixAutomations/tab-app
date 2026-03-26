@@ -1,6 +1,8 @@
 // invisible change
 import React from 'react';
-import { IconButton, IIconProps, IButtonStyles } from '@fluentui/react';
+import { IconButton } from '@fluentui/react/lib/Button';
+import type { IIconProps } from '@fluentui/react/lib/Icon';
+import type { IButtonStyles } from '@fluentui/react/lib/Button';
 import { colours } from '../../app/styles/colours';
 import { useTheme } from '../../app/functionality/ThemeContext'; // Import useTheme
 

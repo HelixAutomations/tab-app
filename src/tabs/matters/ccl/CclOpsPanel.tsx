@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Icon, Spinner, SpinnerSize } from '@fluentui/react';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { Spinner, SpinnerSize } from '@fluentui/react/lib/Spinner';
 import { colours } from '../../../app/styles/colours';
 import {
     fetchCclMatterDetail,

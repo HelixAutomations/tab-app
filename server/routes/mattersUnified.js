@@ -3,6 +3,7 @@ const { withRequest, sql } = require('../utils/db');
 const { cacheUnified, generateCacheKey, CACHE_CONFIG } = require('../utils/redisClient');
 
 const router = express.Router();
+const { annotate } = require('../utils/devConsole');
 
 // Simple in-memory cache for the unified payload
 let unifiedCache = {
@@ -81,7 +82,7 @@ router.get('/', async (req, res) => {
 
   // Level 1: In-memory cache (fastest)
   if (!bypassCache && unifiedCache.data && (now - unifiedCache.ts) < UNIFIED_CACHE_TTL_MS) {
-    console.info('[mattersUnified] hit memory cache', { requestId, ms: Date.now() - startMs });
+    annotate(res, { source: 'memory', note: `TTL ${Math.round((UNIFIED_CACHE_TTL_MS - (now - unifiedCache.ts)) / 1000)}s remaining` });
     return res.json({ ...unifiedCache.data, cached: true, source: 'memory' });
   }
 
@@ -100,6 +101,7 @@ router.get('/', async (req, res) => {
         .catch((err) => console.warn('[mattersUnified] background refresh failed:', err.message))
         .finally(() => { backgroundRefreshInFlight = false; });
     }
+    annotate(res, { source: 'stale', note: 'memory stale — refreshing in background' });
     return res.json({ ...unifiedCache.data, cached: true, source: 'memory-stale' });
   }
 
@@ -115,6 +117,7 @@ router.get('/', async (req, res) => {
       unifiedCache.ts = now;
 
       console.info('[mattersUnified] hit redis cache', { requestId, ms: Date.now() - startMs });
+      annotate(res, { source: 'redis' });
       return res.json({ ...result, source: 'redis' });
     } catch (redisError) {
       console.warn('[mattersUnified] Redis cache unavailable, using in-memory fallback:', redisError.message);
@@ -314,6 +317,7 @@ async function performDirectMattersQuery(req, res) {
 
     // Update in-memory cache timestamp correctly
     unifiedCache = { data: responsePayload, ts: Date.now() };
+    annotate(res, { source: 'sql', note: `${responsePayload.legacyAllCount + responsePayload.vnetAllCount} matters from 2 DBs` });
     return res.json(responsePayload);
   } catch (err) {
     console.error('❌ /api/matters-unified failed:', err);

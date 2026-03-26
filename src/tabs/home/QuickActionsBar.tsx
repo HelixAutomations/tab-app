@@ -1,5 +1,5 @@
 import React from 'react';
-import { Icon } from '@fluentui/react';
+import { Icon } from '@fluentui/react/lib/Icon';
 import { colours } from '../../app/styles/colours';
 import {
   FaChevronRight,
@@ -47,7 +47,7 @@ const SkeletonChip: React.FC<{ isDark: boolean; width?: number }> = ({ isDark, w
   <div
     className="skeleton-shimmer"
     style={{
-      height: 30,
+      height: 22,
       width,
       borderRadius: 2,
       background: isDark ? `${colours.blue}14` : `${colours.subtleGrey}26`,
@@ -147,20 +147,19 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
       return;
     }
     // Small delay so the bar renders first, then greeting slides in
-    const showTimer = window.setTimeout(() => setShowGreeting(true), 300);
+    const showTimer = window.setTimeout(() => setShowGreeting(true), 120);
     const hideTimer = window.setTimeout(() => {
       setShowGreeting(false);
       // Mark greeting as done after fade-out transition completes
-      window.setTimeout(() => setGreetingDone(true), 350);
-    }, 4000);
+      window.setTimeout(() => setGreetingDone(true), 200);
+    }, 2800);
     return () => { window.clearTimeout(showTimer); window.clearTimeout(hideTimer); };
   }, [greetingLabel]);
 
-  // Trigger icon drop-in animation only after greeting has cleared
+  // Icons mount immediately once greeting is done — no staged delay
   React.useEffect(() => {
     if (!greetingDone) return;
-    const timer = window.setTimeout(() => setIconsMounted(true), 80);
-    return () => window.clearTimeout(timer);
+    setIconsMounted(true);
   }, [greetingDone]);
 
   React.useEffect(() => {
@@ -205,9 +204,9 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 12,
-          padding: '8px 16px',
-          minHeight: 44,
+          gap: isCompact ? 6 : 10,
+          padding: isCompact ? '4px 10px' : '4px 20px',
+          minHeight: isCompact ? 30 : 32,
           background: isDarkMode
               ? colours.darkBlue
             : 'rgba(255, 255, 255, 0.88)',
@@ -216,21 +215,23 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
           borderTop: 'none',
           borderBottom: `0.5px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.06)'}`,
           width: '100%',
+          boxSizing: 'border-box',
         }}
+        ref={barRef}
         role="region"
         aria-label="Quick actions loading"
         aria-busy="true"
       >
         {/* Skeleton toggle button */}
-        <SkeletonChip isDark={isDarkMode} width={110} />
+        <SkeletonChip isDark={isDarkMode} width={60} />
         {/* Skeleton action chips */}
-        <SkeletonChip isDark={isDarkMode} width={85} />
-        <SkeletonChip isDark={isDarkMode} width={100} />
-        <SkeletonChip isDark={isDarkMode} width={75} />
-        <SkeletonChip isDark={isDarkMode} width={90} />
+        <SkeletonChip isDark={isDarkMode} width={70} />
+        <SkeletonChip isDark={isDarkMode} width={80} />
+        <SkeletonChip isDark={isDarkMode} width={60} />
+        <SkeletonChip isDark={isDarkMode} width={70} />
         {/* Spacer for theme toggle area */}
         <div style={{ marginLeft: 'auto' }}>
-          <SkeletonChip isDark={isDarkMode} width={50} />
+          <SkeletonChip isDark={isDarkMode} width={40} />
         </div>
       </div>
     );
@@ -558,12 +559,12 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
       {/* Animation keyframes + CSS fallback for compact */}
       <style>{`
         @keyframes fadeInChip {
-          from { opacity: 0; transform: translateX(-6px); }
-          to { opacity: 1; transform: translateX(0); }
+          from { opacity: 0; }
+          to { opacity: 1; }
         }
         @keyframes qaIconDropIn {
-          from { opacity: 0; transform: translateY(-8px) scale(0.85); }
-          to { opacity: 1; transform: translateY(0) scale(1); }
+          from { opacity: 0; }
+          to { opacity: 1; }
         }
         /* JS ResizeObserver handles compact via .qa-compact class.
            CSS media queries stay as a pre-paint fallback. */

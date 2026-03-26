@@ -1,6 +1,7 @@
 
 import React from 'react';
-import { mergeStyles, Text } from '@fluentui/react';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
+import { Text } from '@fluentui/react/lib/Text';
 import { colours } from '../../app/styles/colours'; // Corrected path
 
 interface ScoreCardProps {

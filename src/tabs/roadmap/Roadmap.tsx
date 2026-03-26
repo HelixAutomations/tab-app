@@ -2,21 +2,15 @@
 // invisible change removed
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { getProxyBaseUrl } from '../../utils/getProxyBaseUrl';
-import {
-  Stack,
-  Text,
-  mergeStyles,
-  Icon,
-  IStackTokens,
-  Modal,
-  PrimaryButton,
-  IconButton,
-  MessageBar,
-  MessageBarType,
-  Spinner,
-  SpinnerSize,
-} from '@fluentui/react';
+import { Stack } from '@fluentui/react/lib/Stack';
+import type { IStackTokens } from '@fluentui/react/lib/Stack';
+import { Text } from '@fluentui/react/lib/Text';
+import { mergeStyles } from '@fluentui/react/lib/Styling';
+import { Icon } from '@fluentui/react/lib/Icon';
+import { Modal } from '@fluentui/react/lib/Modal';
+import { PrimaryButton, IconButton } from '@fluentui/react/lib/Button';
+import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
+import { Spinner, SpinnerSize } from '@fluentui/react/lib/Spinner';
 import ThemedSpinner from '../../components/ThemedSpinner';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';
@@ -50,11 +44,44 @@ interface GroupedRoadmap {
 
 // Caching variables to store fetched roadmap data and errors
 let cachedRoadmapData: RoadmapEntry[] | null = null;
-let cachedRoadmapError: string | null = null;
 
 const inTeams = isInTeams();
 // PHASED OUT: Roadmap feature no longer supports live data - always use local data
 const useLocalData = true;
+const ROADMAP_SUGGESTIONS_STORAGE_KEY = 'helix-roadmap-local-suggestions';
+
+const getLocalRoadmapEntries = (): RoadmapEntry[] => {
+  const baseEntries = localRoadmap as RoadmapEntry[];
+
+  if (typeof window === 'undefined') {
+    return baseEntries;
+  }
+
+  try {
+    const storedValue = window.localStorage.getItem(ROADMAP_SUGGESTIONS_STORAGE_KEY);
+    if (!storedValue) {
+      return baseEntries;
+    }
+
+    const parsed = JSON.parse(storedValue);
+    return Array.isArray(parsed) ? [...baseEntries, ...parsed] : baseEntries;
+  } catch (error) {
+    console.error('Error reading local roadmap suggestions:', error);
+    return baseEntries;
+  }
+};
+
+const persistLocalRoadmapSuggestions = (entries: RoadmapEntry[]) => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(ROADMAP_SUGGESTIONS_STORAGE_KEY, JSON.stringify(entries));
+  } catch (error) {
+    console.error('Error persisting local roadmap suggestions:', error);
+  }
+};
 
 /**
  * Normalize status strings to standardized labels.
@@ -434,50 +461,33 @@ const AddSuggestionForm: React.FC = () => {
     setMessage(null);
 
     try {
-  const response = await fetch(
-  `${getProxyBaseUrl()}/${process.env.REACT_APP_GET_INSERT_ROADMAP_PATH}?code=${process.env.REACT_APP_GET_INSERT_ROADMAP_CODE}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        }
-      );
+      const newEntry: RoadmapEntry = {
+        id: Date.now(),
+        requested_by: userInitials,
+        date_requested: new Date().toISOString(),
+        component: payload.component,
+        label: payload.label,
+        description: payload.description,
+        status: 'Suggested',
+      };
 
-      if (response.ok) {
-        const data = await response.json();
-        setMessage({
-          type: MessageBarType.success,
-          text: 'Your suggestion has been submitted successfully!',
-        });
+      setMessage({
+        type: MessageBarType.success,
+        text: 'Your suggestion has been saved locally for this browser.',
+      });
 
-        const newEntry: RoadmapEntry = {
-          id: data.insertedId,
-          requested_by: userInitials,
-          date_requested: new Date().toISOString(),
-          component: payload.component,
-          label: payload.label,
-          description: payload.description,
-          status: 'Suggested',
-        };
-
-        setRoadmapData((prevData) => {
-          const updatedData = prevData ? [...prevData, newEntry] : [newEntry];
-          cachedRoadmapData = updatedData;
-          return updatedData;
-        });
-      } else {
-        const errorText = await response.text();
-        console.error('Error submitting suggestion:', errorText);
-        setMessage({
-          type: MessageBarType.error,
-          text: 'Error submitting your suggestion. Please try again later.',
-        });
-      }
+      setRoadmapData((prevData) => {
+        const updatedData = prevData ? [...prevData, newEntry] : [newEntry];
+        const localSuggestions = updatedData.filter((entry) => entry.id >= 1000000000000);
+        cachedRoadmapData = updatedData;
+        persistLocalRoadmapSuggestions(localSuggestions);
+        return updatedData;
+      });
     } catch (error) {
       console.error('Error submitting suggestion:', error);
       setMessage({
         type: MessageBarType.error,
-        text: 'Unexpected error. Please try again later.',
+        text: 'Unexpected error while saving your suggestion locally.',
       });
     } finally {
       setIsSubmitting(false);
@@ -592,50 +602,17 @@ const Roadmap: React.FC<RoadmapProps> = ({ userData }) => {
    * Fetch roadmap data from the API or use cached data if available.
    */
   useEffect(() => {
-    if (cachedRoadmapData || cachedRoadmapError) {
+    if (cachedRoadmapData) {
       setRoadmapData(cachedRoadmapData);
-      setRoadmapError(cachedRoadmapError);
       setIsLoadingRoadmap(false);
     } else if (useLocalData) {
-      const localData = localRoadmap as RoadmapEntry[];
+      const localData = getLocalRoadmapEntries();
       setRoadmapData(localData);
       cachedRoadmapData = localData;
       setIsLoadingRoadmap(false);
     } else {
-      const fetchRoadmap = async () => {
-        try {
-          setIsLoadingRoadmap(true);
-          setRoadmapError(null);
-
-          const response = await fetch(
-            `${getProxyBaseUrl()}/${process.env.REACT_APP_GET_GET_ROADMAP_PATH}?code=${process.env.REACT_APP_GET_GET_ROADMAP_CODE}`,
-            {
-              method: 'GET',
-              headers: { 'Content-Type': 'application/json' },
-            }
-          );
-
-          if (!response.ok) {
-            throw new Error(`Failed to fetch roadmap: ${response.statusText}`);
-          }
-
-          const data = await response.json();
-          if (data && Array.isArray(data.data)) {
-            setRoadmapData(data.data);
-            cachedRoadmapData = data.data;
-          } else {
-            throw new Error('Invalid data format received from roadmap API.');
-          }
-        } catch (error: any) {
-          console.error('Error fetching roadmap:', error);
-          setRoadmapError(error.message || 'Unknown error occurred while fetching roadmap.');
-          cachedRoadmapError = error.message || 'Unknown error occurred while fetching roadmap.';
-        } finally {
-          setIsLoadingRoadmap(false);
-        }
-      };
-
-      fetchRoadmap();
+      setRoadmapError('Live roadmap data is no longer supported.');
+      setIsLoadingRoadmap(false);
     }
   }, [useLocalData]);
 
