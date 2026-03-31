@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Icon } from '@fluentui/react/lib/Icon';
 import { Spinner, SpinnerSize } from '@fluentui/react/lib/Spinner';
+import CompactOptionStrip, { type CompactOptionStripItem } from '../../../components/CompactOptionStrip';
 import { colours } from '../../../app/styles/colours';
 import {
     fetchCclMatterDetail,
@@ -294,10 +295,30 @@ const CclOpsPanel: React.FC<CclOpsPanelProps> = ({ matterId, isDarkMode, onClose
     useEffect(() => { load(); }, [load]);
 
     // ─── Tab buttons ────────────────────────────────────────────────────
-    const tabs: { key: Tab; label: string; icon: string; count?: number }[] = [
-        { key: 'history', label: 'Content History', icon: 'History', count: data?.versions?.length },
-        { key: 'traces', label: 'AI Traces', icon: 'Processing', count: data?.aiTraces?.length },
-        { key: 'assessments', label: 'Assessments', icon: 'AnalyticsReport', count: assessments.length },
+    const tabs: CompactOptionStripItem<Tab>[] = [
+        {
+            key: 'history',
+            label: 'History',
+            title: 'Content History',
+            count: data?.versions?.length,
+            tone: colours.highlight,
+            icon: <Icon iconName="History" style={{ fontSize: 12, color: colours.highlight }} />,
+        },
+        {
+            key: 'traces',
+            label: 'Traces',
+            title: 'AI Traces',
+            count: data?.aiTraces?.length,
+            tone: colours.accent,
+            icon: <Icon iconName="Processing" style={{ fontSize: 12, color: colours.accent }} />,
+        },
+        {
+            key: 'assessments',
+            label: 'Assessments',
+            count: assessments.length,
+            tone: colours.green,
+            icon: <Icon iconName="AnalyticsReport" style={{ fontSize: 12, color: colours.green }} />,
+        },
     ];
 
     // ─── Render ─────────────────────────────────────────────────────────
@@ -538,44 +559,18 @@ const CclOpsPanel: React.FC<CclOpsPanelProps> = ({ matterId, isDarkMode, onClose
             )}
 
             {/* ═══ Tab bar ═══ */}
-            <div style={{ display: 'flex', flexShrink: 0 }}>
-                {tabs.map(t => {
-                    const isActive = activeTab === t.key;
-                    return (
-                        <button
-                            key={t.key}
-                            onClick={() => setActiveTab(t.key)}
-                            style={{
-                                flex: 1,
-                                padding: '9px 0',
-                                background: isActive ? (isDarkMode ? '#061733' : '#061733') : 'none',
-                                border: 'none',
-                                borderBottom: isActive ? 'none' : `1px solid ${border}`,
-                                color: isActive ? '#fff' : textMuted,
-                                fontWeight: isActive ? 700 : 400,
-                                fontSize: 11,
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: 5,
-                                transition: TRANSITION,
-                                letterSpacing: isActive ? 0.3 : 0,
-                            }}
-                        >
-                            <Icon iconName={t.icon} style={{ fontSize: 11 }} />
-                            {t.label}
-                            {t.count !== undefined && (
-                                <span style={{
-                                    background: isActive ? 'rgba(255,255,255,0.15)' : (isDarkMode ? 'rgba(148,163,184,0.1)' : 'rgba(0,0,0,0.05)'),
-                                    color: isActive ? 'rgba(255,255,255,0.8)' : textMuted,
-                                    borderRadius: 2, padding: '1px 5px',
-                                    fontSize: 9, fontWeight: 700, fontFamily: FONT_MONO,
-                                }}>{t.count}</span>
-                            )}
-                        </button>
-                    );
-                })}
+            <div style={{
+                padding: '10px 20px 12px',
+                borderBottom: `1px solid ${border}`,
+                background: isDarkMode ? 'rgba(54,144,206,0.02)' : 'rgba(54,144,206,0.015)',
+                flexShrink: 0,
+            }}>
+                <CompactOptionStrip
+                    items={tabs}
+                    selectedKey={activeTab}
+                    onSelect={setActiveTab}
+                    ariaLabel="CCL operations sections"
+                />
             </div>
 
             {/* ═══ Content area ═══ */}

@@ -533,13 +533,31 @@ async function syncCollectedTime(options = {}) {
           // Flatten all line items into a single array first
           const matterEntries = Object.entries(downloadData.report_data);
           const allRows = [];
+
+          // Diagnostic: log report shape for debugging
+          const topLevelKeys = Object.keys(downloadData);
+          const reportDataKeys = Object.keys(downloadData.report_data);
+          logProgress(operationKey, `Report shape: topLevel=[${topLevelKeys.join(',')}] report_data entries=${reportDataKeys.length}`);
+          if (reportDataKeys.length > 0 && reportDataKeys.length <= 3) {
+            // Few entries — log their sub-keys for diagnosis
+            for (const k of reportDataKeys) {
+              const subKeys = Object.keys(downloadData.report_data[k] || {});
+              logProgress(operationKey, `  report_data["${k}"] keys=[${subKeys.join(',')}]`);
+            }
+          } else if (reportDataKeys.length > 3) {
+            // Sample first entry
+            const firstKey = reportDataKeys[0];
+            const subKeys = Object.keys(downloadData.report_data[firstKey] || {});
+            logProgress(operationKey, `  Sample report_data["${firstKey}"] keys=[${subKeys.join(',')}]`);
+          }
+
           for (const [, matterData] of matterEntries) {
             if (!matterData.bill_data || !matterData.matter_payment_data || !matterData.line_items_data) {
               skippedRows++;
               continue;
             }
             const billId = matterData.bill_data.bill_id;
-            const contactId = matterData.matter_payment_data.contact_id;
+            const contactId = matterData.matter_payment_data.contact_id || null;
             const matterId = matterData.matter_payment_data.matter_id;
             const paymentDate = matterData.matter_payment_data.date;
             for (const item of matterData.line_items_data.line_items || []) {
@@ -548,6 +566,7 @@ async function syncCollectedTime(options = {}) {
           }
 
           const totalRows = allRows.length;
+          logProgress(operationKey, `Flattened: ${matterEntries.length} matter entries → ${totalRows} rows (skipped=${skippedRows})`);
           logProgress(operationKey, `Inserting ${totalRows} rows...`);
 
           // Batch insert in chunks (limited by SQL Server's 2100 parameter cap: 17 cols × 100 = 1700)

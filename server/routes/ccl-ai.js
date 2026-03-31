@@ -59,6 +59,7 @@ const PRACTICE_AREA_DEFAULTS = {
         figure: '2,500',
         figure_or_range: '2,500 - 5,000',
         estimate: '£2,500 to £5,000 plus VAT',
+        may_will: 'may',
         and_or_intervals_eg_every_three_months: 'monthly',
         insert_next_step_you_would_like_client_to_take: 'Provide all relevant contractual documentation',
         state_why_this_step_is_important: 'We cannot advise properly without sight of the key documents',
@@ -79,6 +80,7 @@ const PRACTICE_AREA_DEFAULTS = {
         figure: '1,500',
         figure_or_range: '1,500 - 3,000',
         estimate: '£1,500 to £3,000 plus VAT',
+        may_will: 'may',
         and_or_intervals_eg_every_three_months: 'on completion',
         insert_next_step_you_would_like_client_to_take: 'Complete and return the property information questionnaire',
         state_why_this_step_is_important: 'We need this information to prepare the contract pack',
@@ -99,6 +101,7 @@ const PRACTICE_AREA_DEFAULTS = {
         figure: '1,500',
         figure_or_range: '1,500 - 3,000',
         estimate: '£1,500 to £3,000 plus VAT',
+        may_will: 'may',
         and_or_intervals_eg_every_three_months: 'monthly',
         insert_next_step_you_would_like_client_to_take: 'Provide copies of your employment contract and any relevant correspondence',
         state_why_this_step_is_important: 'We need to understand the full contractual position before advising',
@@ -113,6 +116,7 @@ const PRACTICE_AREA_DEFAULTS = {
         next_steps: 'review the contract and associated documents, and advise on the merits of your position',
         realistic_timescale: '4-8 weeks for initial advice',
         next_stage: 'contract review and initial advice',
+        may_will: 'may',
         charges_estimate_paragraph: ORIGINAL_CHARGES_PARAGRAPH,
         disbursements_paragraph: ORIGINAL_DISBURSEMENTS_PARAGRAPH,
         costs_other_party_paragraph: ORIGINAL_COSTS_OTHER_PARTY_PARAGRAPH,
@@ -139,6 +143,7 @@ const PRACTICE_AREA_DEFAULTS = {
         figure: '2,000',
         figure_or_range: '2,000 - 5,000',
         estimate: '£2,000 to £5,000 plus VAT',
+        may_will: 'may',
         and_or_intervals_eg_every_three_months: 'monthly',
         insert_next_step_you_would_like_client_to_take: 'Provide all relevant documentation and a chronology of events',
         state_why_this_step_is_important: 'We need to understand the full factual background before advising',
@@ -319,6 +324,133 @@ function formatFallbackReason(errorMessage) {
         return `Azure OpenAI deployment '${DEPLOYMENT}' is not available for this resource. Check AZURE_OPENAI_DEPLOYMENT and Azure deployment naming.`;
     }
     return message;
+}
+
+function normalisePhoneDigits(value) {
+    return String(value || '').replace(/\D/g, '');
+}
+
+function buildPhoneLikePatterns(value) {
+    const digits = normalisePhoneDigits(value);
+    if (!digits) return [];
+
+    const variants = [
+        digits,
+        digits.startsWith('44') ? `0${digits.slice(2)}` : '',
+        digits.length >= 11 ? digits.slice(-11) : '',
+        digits.length >= 10 ? digits.slice(-10) : '',
+        digits.length >= 9 ? digits.slice(-9) : '',
+        digits.length >= 7 ? digits.slice(-7) : '',
+    ].filter(Boolean);
+
+    return [...new Set(variants.map((item) => `%${item}%`))];
+}
+
+async function fetchDubberTranscriptEvidence(instrConnStr, phone, limit = 3) {
+    if (!instrConnStr || !phone) return [];
+
+    const patterns = buildPhoneLikePatterns(phone);
+    if (patterns.length === 0) return [];
+
+    const pool = await getPool(instrConnStr);
+    const recordingsRequest = pool.request();
+    const clauses = [];
+
+    patterns.forEach((pattern, index) => {
+        const param = `dubberPhone${index}`;
+        recordingsRequest.input(param, sql.NVarChar, pattern);
+        clauses.push(`REPLACE(REPLACE(REPLACE(ISNULL(from_party, ''), ' ', ''), '+', ''), '-', '') LIKE @${param}`);
+        clauses.push(`REPLACE(REPLACE(REPLACE(ISNULL(to_party, ''), ' ', ''), '+', ''), '-', '') LIKE @${param}`);
+    });
+
+    const recordingsResult = await recordingsRequest.query(`
+        SELECT TOP (${Number(limit) || 3})
+            recording_id,
+            from_party,
+            from_label,
+            to_party,
+            to_label,
+            call_type,
+            duration_seconds,
+            start_time_utc,
+            matched_team_initials,
+            channel
+        FROM dbo.dubber_recordings
+        WHERE ${clauses.join('\n           OR ')}
+        ORDER BY start_time_utc DESC
+    `);
+
+    const recordings = recordingsResult.recordset || [];
+    if (recordings.length === 0) return [];
+
+    const recordingIds = recordings.map((row) => String(row.recording_id || '').trim()).filter(Boolean);
+    if (recordingIds.length === 0) return [];
+
+    const sentenceRequest = pool.request();
+    const summaryRequest = pool.request();
+    const idParams = recordingIds.map((recordingId, index) => {
+        const param = `rid${index}`;
+        sentenceRequest.input(param, sql.NVarChar, recordingId);
+        summaryRequest.input(param, sql.NVarChar, recordingId);
+        return `@${param}`;
+    });
+
+    const [sentenceResult, summaryResult] = await Promise.all([
+        sentenceRequest.query(`
+            SELECT recording_id, sentence_index, speaker, content
+            FROM dbo.dubber_transcript_sentences
+            WHERE recording_id IN (${idParams.join(', ')})
+            ORDER BY recording_id, sentence_index
+        `),
+        summaryRequest.query(`
+            SELECT recording_id, summary_source, summary_type, summary_text
+            FROM dbo.dubber_recording_summaries
+            WHERE recording_id IN (${idParams.join(', ')})
+            ORDER BY recording_id,
+                     CASE WHEN summary_source = 'dubber_ai' THEN 0 ELSE 1 END,
+                     CASE WHEN summary_type = 'summary' THEN 0 ELSE 1 END
+        `),
+    ]);
+
+    const transcriptMap = new Map();
+    for (const row of sentenceResult.recordset || []) {
+        const key = String(row.recording_id || '').trim();
+        if (!key) continue;
+        if (!transcriptMap.has(key)) transcriptMap.set(key, []);
+        transcriptMap.get(key).push(row);
+    }
+
+    const summaryMap = new Map();
+    for (const row of summaryResult.recordset || []) {
+        const key = String(row.recording_id || '').trim();
+        if (!key || summaryMap.has(key)) continue;
+        const text = String(row.summary_text || '').trim();
+        if (text) summaryMap.set(key, text);
+    }
+
+    return recordings.map((recording) => {
+        const recordingId = String(recording.recording_id || '').trim();
+        const transcriptRows = (transcriptMap.get(recordingId) || []).slice(0, 40);
+        const transcriptText = transcriptRows
+            .map((row) => {
+                const speaker = String(row.speaker || '').trim();
+                const content = String(row.content || '').trim();
+                if (!content) return '';
+                return speaker ? `${speaker}: ${content}` : content;
+            })
+            .filter(Boolean)
+            .join(' ')
+            .trim();
+
+        return {
+            recordingId,
+            date: recording.start_time_utc ? new Date(recording.start_time_utc).toLocaleDateString('en-GB') : '',
+            direction: String(recording.call_type || recording.channel || '').trim(),
+            duration: recording.duration_seconds ? `${Math.round(Number(recording.duration_seconds) / 60)}min` : '',
+            note: String(summaryMap.get(recordingId) || '').trim(),
+            transcription: transcriptText,
+        };
+    }).filter((entry) => entry.note || entry.transcription);
 }
 
 async function gatherFullContext(matterId, instructionRef) {
@@ -510,35 +642,47 @@ async function gatherFullContext(matterId, instructionRef) {
         }
     }
 
-    // ── 3. CallRail transcripts (if we have a phone number) ──
+    // ── 3. Call transcripts (prefer Dubber SQL, fall back to CallRail) ──
     if (phone) {
         try {
-            // CallRail endpoint is POST, so use fetch directly
-            const resp = await fetch(`${base}/api/callrailCalls`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ phoneNumber: phone, maxResults: 5 }),
-            });
-            if (resp.ok) {
-                const calls = await resp.json();
-                const transcripts = (Array.isArray(calls) ? calls : calls.calls || [])
-                    .filter(c => c.transcription || c.note)
-                    .slice(0, 3) // limit to 3 most recent for token budget
-                    .map(c => {
-                        const parts = [];
-                        if (c.startTime) parts.push(`[${new Date(c.startTime).toLocaleDateString('en-GB')}]`);
-                        if (c.direction) parts.push(`(${c.direction})`);
-                        if (c.duration) parts.push(`${Math.round(c.duration / 60)}min`);
-                        if (c.note) parts.push(`Notes: ${c.note}`);
-                        if (c.transcription) parts.push(`Transcript: ${c.transcription.substring(0, 1500)}`);
-                        return parts.join(' ');
-                    });
-                if (transcripts.length > 0) {
-                    context.callTranscripts = transcripts.join('\n---\n');
+            const dubberCalls = await fetchDubberTranscriptEvidence(instrConnStr, phone, 3);
+            if (dubberCalls.length > 0) {
+                context.callTranscripts = dubberCalls.map((call) => {
+                    const parts = [];
+                    if (call.date) parts.push(`[${call.date}]`);
+                    if (call.direction) parts.push(`(${call.direction})`);
+                    if (call.duration) parts.push(call.duration);
+                    if (call.note) parts.push(`Summary: ${call.note}`);
+                    if (call.transcription) parts.push(`Transcript: ${call.transcription.substring(0, 1500)}`);
+                    return parts.join(' ');
+                }).join('\n---\n');
+            } else {
+                const resp = await fetch(`${base}/api/callrailCalls`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phoneNumber: phone, maxResults: 5 }),
+                });
+                if (resp.ok) {
+                    const calls = await resp.json();
+                    const transcripts = (Array.isArray(calls) ? calls : calls.calls || [])
+                        .filter(c => c.transcription || c.note)
+                        .slice(0, 3)
+                        .map(c => {
+                            const parts = [];
+                            if (c.startTime) parts.push(`[${new Date(c.startTime).toLocaleDateString('en-GB')}]`);
+                            if (c.direction) parts.push(`(${c.direction})`);
+                            if (c.duration) parts.push(`${Math.round(c.duration / 60)}min`);
+                            if (c.note) parts.push(`Notes: ${c.note}`);
+                            if (c.transcription) parts.push(`Transcript: ${c.transcription.substring(0, 1500)}`);
+                            return parts.join(' ');
+                        });
+                    if (transcripts.length > 0) {
+                        context.callTranscripts = transcripts.join('\n---\n');
+                    }
                 }
             }
         } catch (err) {
-            console.warn('[CCL-AI] CallRail lookup failed:', err.message);
+            console.warn('[CCL-AI] Call transcript lookup failed:', err.message);
         }
     }
 
@@ -559,6 +703,7 @@ async function gatherFullContext(matterId, instructionRef) {
 
     // Expose contact details so pressure test can fetch emails/calls
     if (phone) context.phone = phone;
+    if (!phone) context._noPhoneForCalls = true;
 
     return context;
 }
@@ -644,6 +789,7 @@ function summariseContextSources(dbContext) {
     if (dbContext.pitchServiceDescription) sources.push('Pitch service description');
     if (dbContext.dealServiceDescription) sources.push('Deal information');
     if (dbContext.callTranscripts) sources.push('Call transcripts');
+    if (dbContext._noPhoneForCalls) sources.push('No phone (calls skipped)');
     if (dbContext.areaOfWork) sources.push('Area of work classification');
     if (dbContext.typeOfWork) sources.push('Type of work');
     if (dbContext.company) sources.push('Company details');
@@ -1267,6 +1413,47 @@ function stripEmpty(obj) {
     return result;
 }
 
+const PRESSURE_TEST_REVIEWABLE_FIELD_KEYS = [
+    'insert_heading_eg_matter_description',
+    'insert_current_position_and_scope_of_retainer',
+    'next_steps',
+    'realistic_timescale',
+    'charges_estimate_paragraph',
+    'disbursements_paragraph',
+    'costs_other_party_paragraph',
+    'figure',
+    'and_or_intervals_eg_every_three_months',
+    'eid_paragraph',
+    'may_will',
+    'explain_the_nature_of_your_arrangement_with_any_introducer_for_link_to_sample_wording_see_drafting_note_referral_and_fee_sharing_arrangement',
+    'instructions_link',
+    'insert_next_step_you_would_like_client_to_take',
+    'state_why_this_step_is_important',
+    'state_amount',
+    'insert_consequence',
+    'describe_first_document_or_information_you_need_from_your_client',
+    'describe_second_document_or_information_you_need_from_your_client',
+    'describe_third_document_or_information_you_need_from_your_client',
+];
+
+function sanitisePressureTestFields(generatedFields) {
+    const sanitised = {};
+    if (!generatedFields || typeof generatedFields !== 'object') return sanitised;
+
+    for (const key of PRESSURE_TEST_REVIEWABLE_FIELD_KEYS) {
+        const value = generatedFields[key];
+        if (typeof value === 'string' && value.trim()) {
+            sanitised[key] = value.trim();
+            continue;
+        }
+        if (typeof value === 'number' || typeof value === 'boolean') {
+            sanitised[key] = String(value);
+        }
+    }
+
+    return sanitised;
+}
+
 // ─── POST /api/ccl-ai/pressure-test ─────────────────────────────────────────
 // After AI generation completes, the frontend calls this to verify output
 // confidence. Gathers extended evidence (emails, transcripts, documents,
@@ -1394,6 +1581,7 @@ function buildPressureTestUserPrompt(generatedFields, evidencePackage) {
 
 async function gatherVerificationEvidence(matterId, instructionRef, feeEarnerEmail, prospectEmail, phone) {
     const base = getInternalBase();
+    const instrConnStr = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
     const evidence = {};
 
     // Gather emails (inbound + outbound, up to 10 total split by direction)
@@ -1434,24 +1622,29 @@ async function gatherVerificationEvidence(matterId, instructionRef, feeEarnerEma
     // Gather call transcripts (up to 5)
     if (phone) {
         try {
-            const resp = await fetch(`${base}/api/callrailCalls`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ phoneNumber: phone, maxResults: 5 }),
-            });
-            if (resp.ok) {
-                const data = await resp.json();
-                const calls = Array.isArray(data) ? data : data.calls || [];
-                evidence.callTranscripts = calls.filter(c => c.transcription || c.note).slice(0, 5).map(c => ({
-                    date: c.startTime ? new Date(c.startTime).toLocaleDateString('en-GB') : '',
-                    direction: c.direction || '',
-                    duration: c.duration ? `${Math.round(c.duration / 60)}min` : '',
-                    note: c.note || '',
-                    transcription: c.transcription || '',
-                }));
+            const dubberCalls = await fetchDubberTranscriptEvidence(instrConnStr, phone, 5);
+            if (dubberCalls.length > 0) {
+                evidence.callTranscripts = dubberCalls;
+            } else {
+                const resp = await fetch(`${base}/api/callrailCalls`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phoneNumber: phone, maxResults: 5 }),
+                });
+                if (resp.ok) {
+                    const data = await resp.json();
+                    const calls = Array.isArray(data) ? data : data.calls || [];
+                    evidence.callTranscripts = calls.filter(c => c.transcription || c.note).slice(0, 5).map(c => ({
+                        date: c.startTime ? new Date(c.startTime).toLocaleDateString('en-GB') : '',
+                        direction: c.direction || '',
+                        duration: c.duration ? `${Math.round(c.duration / 60)}min` : '',
+                        note: c.note || '',
+                        transcription: c.transcription || '',
+                    }));
+                }
             }
         } catch (err) {
-            console.warn('[CCL-AI] Pressure test CallRail fetch failed:', err.message);
+            console.warn('[CCL-AI] Pressure test call transcript fetch failed:', err.message);
         }
     }
 
@@ -1501,12 +1694,20 @@ router.post('/pressure-test', async (req, res) => {
         return res.status(400).json({ error: 'matterId and generatedFields are required' });
     }
 
+    const sanitisedGeneratedFields = sanitisePressureTestFields(generatedFields);
+    if (Object.keys(sanitisedGeneratedFields).length === 0) {
+        return res.status(400).json({ error: 'No AI review fields were available to pressure test.' });
+    }
+
     const trackingId = Math.random().toString(36).slice(2, 10);
     const startMs = Date.now();
     const actor = resolveRequestActor(req);
 
     trackEvent('CCL.PressureTest.Started', {
-        trackingId, matterId: String(matterId), fieldCount: String(Object.keys(generatedFields).length),
+        trackingId,
+        matterId: String(matterId),
+        fieldCount: String(Object.keys(sanitisedGeneratedFields).length),
+        rawFieldCount: String(Object.keys(generatedFields).length),
     });
 
     try {
@@ -1551,7 +1752,7 @@ router.post('/pressure-test', async (req, res) => {
         if (externalEvidence.documents?.length) dataSources.push(`${externalEvidence.documents.length} documents`);
 
         // Phase 4: Call AI for verification scoring
-        const userPrompt = buildPressureTestUserPrompt(generatedFields, evidencePackage);
+        const userPrompt = buildPressureTestUserPrompt(sanitisedGeneratedFields, evidencePackage);
 
         const verificationResult = await chatCompletion(
             PRESSURE_TEST_SYSTEM_PROMPT,
@@ -1564,7 +1765,7 @@ router.post('/pressure-test', async (req, res) => {
         // Normalise the result — ensure every field has score/reason/flag
         const fieldScores = {};
         let flaggedCount = 0;
-        for (const [key, value] of Object.entries(generatedFields)) {
+        for (const [key, value] of Object.entries(sanitisedGeneratedFields)) {
             if (key.startsWith('_')) continue;
             const aiScore = verificationResult[key];
             if (aiScore && typeof aiScore === 'object') {

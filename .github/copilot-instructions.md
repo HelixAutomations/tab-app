@@ -302,6 +302,21 @@ trackEvent('Component.Entity.Failed', { operation, error: error.message, ...cont
 - HTTP requests: auto-instrumented by SDK
 - Console output: auto-captured as traces
 
+## CCL Prompt Engineering
+
+The CCL (Client Care Letter) system uses a two-pass AI pipeline:
+
+1. **Generate** (`POST /api/ccl-ai/fill`): Gathers matter context from Instructions DB, Deals, PitchContent, Core Data, then generates 26 intake fields via Azure OpenAI (temperature 0.2). Confidence levels: `full` (auto-approve), `partial`, `fallback` (defaults only).
+2. **Safety Net / Pressure Test** (`POST /api/ccl-ai/pressure-test`): Second AI pass (temperature 0.1) that scores each generated field 0-10 against extended evidence (emails, call transcripts, documents, deal data). Fields scoring ≤7 are flagged for fee earner review.
+
+**Pipeline**: Generate → auto-approve if full confidence → auto-trigger Safety Net → results surface inline in review rail (orange warning strip for flagged fields, green verified dot for passed).
+
+**When modifying prompts or fields:**
+- Adding a field: update schema → sections → fieldPrompts → system prompt → defaults → PT keys → template
+- Changing prompt instructions: check PT scoring model still aligns
+- Financial fields: respect cost accuracy rules (deal/pitch amounts flow through unchanged)
+- See `docs/CCL_PROMPT_ENGINEERING.md` for the full reference
+
 ## Reference Files (read these)
 
 | File | Purpose |
@@ -312,6 +327,7 @@ trackEvent('Component.Entity.Failed', { operation, error: error.message, ...cont
 | `.github/instructions/TEAM_DATA_REFERENCE.md` | Team table, rates, dual-DB sync |
 | `.github/instructions/CLIO_API_REFERENCE.md` | Clio integration, auth, endpoints |
 | `.github/instructions/ARCHITECTURE_DATA_FLOW.md` | System architecture, data flows |
+| `docs/CCL_PROMPT_ENGINEERING.md` | CCL AI generation + Safety Net scoring model |
 
 ## "Helix look and feel" (what the user means)
 

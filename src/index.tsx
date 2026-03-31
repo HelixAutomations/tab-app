@@ -11,7 +11,7 @@ import { mergeMattersFromSources } from "./utils/matterNormalization";
 import { getCachedData, setCachedData, cleanupOldCache } from "./utils/storageHelpers";
 import { debugLog } from "./utils/debug";
 import { isDevOwner } from "./app/admin";
-import { appendDefaultEnquiryProcessingParams } from "./app/functionality/enquiryProcessingModel";
+import { appendDefaultEnquiryProcessingParams, enquiryReferencesId } from "./app/functionality/enquiryProcessingModel";
 import { trackClientError, trackClientEvent } from "./utils/telemetry";
 
 import "./utils/callLogger";
@@ -245,8 +245,36 @@ function setMemoryCachedData(key: string, data: any): void {
   }
 }
 
+/**
+ * Purge all client-side enquiries caches (in-memory + localStorage + sessionStorage snapshot).
+ * Called on SSE delete to prevent stale records from resurfacing.
+ */
+function clearClientEnquiriesCaches(): void {
+  // 1. Clear in-memory cache entries for enquiries
+  for (const key of Array.from(inMemoryCache.keys())) {
+    if (key.startsWith('enquiries-v3-')) {
+      inMemoryCache.delete(key);
+    }
+  }
+  // 2. Clear localStorage entries for enquiries
+  try {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('enquiries-v3-')) {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach((k) => { try { localStorage.removeItem(k); } catch { /* ignore */ } });
+  } catch { /* localStorage unavailable */ }
+  // 3. Clear Home metrics snapshot in sessionStorage (recent enquiry records)
+  try { sessionStorage.removeItem('HomeMetricsSnapshot'); } catch { /* ignore */ }
+}
+
 // Helper function to calculate the date range (6 months)
 const getDateRange = () => {
+  // 4. Clear shell boot snapshot so stale enquiry state cannot survive a refresh
+  try { sessionStorage.removeItem(SHELL_SNAPSHOT_KEY); } catch { /* ignore */ }
   const now = new Date();
   const twelveMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 12, 1); // Increase range
   const startDate = new Date(
@@ -349,7 +377,8 @@ async function fetchEnquiries(
 ): Promise<Enquiry[]> {
   // Re-enable caching for production performance
   const forceNoCaching = false; // was: process.env.NODE_ENV === 'development'
-  const cacheKey = `enquiries-${email}-${userInitials}-${dateFrom}-${dateTo}-${userAow}-${fetchAll ? 'all' : 'mine'}`;
+  const cacheScope = fetchAll ? 'all-unscoped' : (userAow || 'mine');
+  const cacheKey = `enquiries-v3-${email}-${userInitials}-${dateFrom}-${dateTo}-${cacheScope}`;
   let unifiedRequestSucceeded = false;
   
   if (!bypassCache && !forceNoCaching) {
@@ -388,6 +417,12 @@ async function fetchEnquiries(
       params.set('limit', '999999'); // No effective cap for personal view
     }
     appendDefaultEnquiryProcessingParams(params);
+    if (fetchAll) {
+      // Team-wide Home/Enquiries views must include the legacy/core feed as well as
+      // instructions records. The shared client default can resolve to new-only,
+      // which collapses the dataset to a partial instructions-side slice.
+      params.set('sourceBias', 'legacy-primary');
+    }
     
     const primaryUrl = `/api/enquiries-unified?${params.toString()}`;
     // Dedup: if an identical request is already in-flight, reuse it
@@ -508,7 +543,7 @@ async function fetchEnquiries(
 
   // Apply area-of-work filtering based on user's AOW (only for unclaimed enquiries)
   let filteredEnquiries = enquiries;
-  if (userAow) {
+  if (!fetchAll && userAow) {
     const userAreas = userAow
       .split(',')
       .map((a) => a.trim().toLowerCase())
@@ -760,7 +795,8 @@ function getCachedEnquiriesSnapshot(
   userInitials: string = '',
   fetchAll: boolean = false,
 ): Enquiry[] | null {
-  const cacheKey = `enquiries-${email}-${userInitials}-${dateFrom}-${dateTo}-${userAow}-${fetchAll ? 'all' : 'mine'}`;
+  const cacheScope = fetchAll ? 'all-unscoped' : (userAow || 'mine');
+  const cacheKey = `enquiries-v3-${email}-${userInitials}-${dateFrom}-${dateTo}-${cacheScope}`;
   const memCached = getMemoryCachedData<Enquiry[]>(cacheKey);
   if (memCached && (fetchAll || memCached.length > 0)) {
     return memCached;
@@ -821,7 +857,14 @@ const AppWithContext: React.FC = () => {
   const bgReconcileTimerRef = React.useRef<number | null>(null);
 
   // Realtime event distribution — app shell is sole SSE owner; downstream tabs subscribe.
-  type EnquiryRealtimeEvent = { changeType: string; enquiryId: string; claimedBy?: string; claimedAt?: string | null; record?: Record<string, unknown> };
+  type EnquiryRealtimeEvent = {
+    changeType: string;
+    enquiryId: string;
+    claimedBy?: string;
+    claimedAt?: string | null;
+    deletedIds?: string[];
+    record?: Record<string, unknown>;
+  };
   const enquiryEventListenersRef = React.useRef<Set<(event: EnquiryRealtimeEvent) => void>>(new Set());
   const subscribeToEnquiryStream = React.useCallback(
     (listener: (event: EnquiryRealtimeEvent) => void) => {
@@ -985,6 +1028,9 @@ const AppWithContext: React.FC = () => {
 
       const changeType = String(payload?.changeType || 'changed');
       const enquiryId = String(payload?.enquiryId || '');
+      const deletedIds = Array.isArray(payload?.deletedIds)
+        ? payload.deletedIds.map((value: unknown) => String(value || '').trim()).filter(Boolean)
+        : [];
       const record = payload?.record && typeof payload.record === 'object' ? payload.record : undefined;
 
       // Broadcast event (with record data) to downstream subscribers (Enquiries tab, etc.)
@@ -993,6 +1039,7 @@ const AppWithContext: React.FC = () => {
         enquiryId,
         claimedBy: payload?.claimedBy != null ? String(payload.claimedBy) : undefined,
         claimedAt: typeof payload?.claimedAt === 'string' ? payload.claimedAt : null,
+        deletedIds,
         record,
       };
       enquiryEventListenersRef.current.forEach(fn => {
@@ -1025,15 +1072,17 @@ const AppWithContext: React.FC = () => {
       }
 
       if (changeType === 'delete' && enquiryId) {
+        const candidateIds = new Set<string>([String(enquiryId).trim(), ...deletedIds].filter(Boolean));
         // Remove deleted record from local state immediately
         setEnquiries(prev => {
           if (!prev) return prev;
-          return prev.filter(enq => {
-            const enqId = String(enq.ID || (enq as any).id || '');
-            return enqId !== String(enquiryId);
-          });
+          return prev.filter(enq => !Array.from(candidateIds).some((candidateId) => enquiryReferencesId(enq, candidateId)));
         });
-        scheduleBackgroundReconciliation(30000);
+        // Purge all client caches so stale data can't resurface on re-render/refresh
+        clearClientEnquiriesCaches();
+        // Reconcile immediately against the live server response so any missed linked-ID
+        // row is overwritten without waiting for the normal delayed refresh.
+        scheduleBackgroundReconciliation(400);
         return;
       }
 
@@ -1128,13 +1177,25 @@ const AppWithContext: React.FC = () => {
     }
   };
 
+  const normalizeSwitchIdentity = (user?: UserData | null) => ({
+    entraId: String(user?.EntraID || (user as any)?.["Entra ID"] || '').trim().toLowerCase(),
+    email: String(user?.Email || '').trim().toLowerCase(),
+    fullName: String(user?.FullName || (user as any)?.["Full Name"] || '').trim().toLowerCase(),
+    initials: String(user?.Initials || '').trim().toUpperCase(),
+  });
+
+  const isSameSwitchIdentity = (left?: UserData | null, right?: UserData | null) => {
+    const a = normalizeSwitchIdentity(left);
+    const b = normalizeSwitchIdentity(right);
+    if (a.entraId && b.entraId) return a.entraId === b.entraId;
+    if (a.email && b.email) return a.email === b.email;
+    if (a.fullName && b.fullName) return a.fullName === b.fullName;
+    return !!a.initials && !!b.initials && a.initials === b.initials;
+  };
+
   // Allow switching user in production for specific users
   const switchUser = async (newUser: UserData) => {
     setLoading(true);
-    // Store the current admin user if this is the first switch
-    if (!originalAdminUser && userData && userData[0]) {
-      setOriginalAdminUser(userData[0]);
-    }
 
     const normalized: UserData = {
       ...newUser,
@@ -1142,12 +1203,23 @@ const AppWithContext: React.FC = () => {
       ClioID: (newUser as any)["Clio ID"] || newUser.ClioID,
       FullName: newUser.FullName || (newUser as any)["Full Name"],
     };
+    const returningToOriginalAdmin = !!originalAdminUser && isSameSwitchIdentity(normalized, originalAdminUser);
+
+    // Store the current admin user only when moving away from the original identity.
+    if (!originalAdminUser && userData && userData[0] && !isSameSwitchIdentity(normalized, userData[0])) {
+      setOriginalAdminUser(userData[0]);
+    }
+    if (returningToOriginalAdmin) {
+      setOriginalAdminUser(null);
+    }
+
     setUserData([normalized]);
     const liveTeam = teamData ?? await fetchTeamData().catch(() => null);
     if (liveTeam && liveTeam !== teamData) {
       setTeamData(liveTeam);
     }
     const effectiveUser = resolveEffectiveDatasetUser(normalized, liveTeam);
+    const activeOriginalAdminUser = returningToOriginalAdmin ? null : originalAdminUser;
     
 
 
@@ -1168,7 +1240,7 @@ const AppWithContext: React.FC = () => {
       // Always fetch matters for the selected user.
       // Matters can be user-scoped server-side (queryName), so reusing a previously-loaded
       // matters list will show the wrong "Mine" results after switching user.
-      const queryName = isDevOwner(normalized) ? '' : effectiveUser.fullName;
+      const queryName = isDevOwner(normalized) && !activeOriginalAdminUser ? '' : effectiveUser.fullName;
       const mattersRes = await fetchAllMatterSources(effectiveUser.fullName, queryName);
       setMatters(mattersRes);
       
@@ -1177,6 +1249,7 @@ const AppWithContext: React.FC = () => {
       // Use actual user's email and initials - no overrides
       const userInitials = effectiveUser.initials;
       const enquiriesEmail = effectiveUser.email;
+      const adminFetchAll = isDevOwner(normalized) && !activeOriginalAdminUser;
       
       // Don't pass AOW to backend - let frontend handle AOW filtering for Claimable state only
       // For Mine/Claimed, users should see ALL their claimed enquiries regardless of DB AOW setting
@@ -1187,7 +1260,7 @@ const AppWithContext: React.FC = () => {
         dateTo,
         "", // Empty AOW - frontend will apply AOW logic for Claimable state only
         userInitials,
-        false, // fetchAll
+        adminFetchAll,
         false  // bypassCache - allow caching for better performance when switching users
       );
       setEnquiries(enquiriesRes);
@@ -1284,7 +1357,7 @@ const AppWithContext: React.FC = () => {
         const enquiriesEmail = effectiveUser.email;
         setEnquiriesLiveRefreshInFlight(true);
 
-        const enquiriesRes = await fetchEnquiries(enquiriesEmail, dateFrom, dateTo, initialUserData[0].AOW || "", userInitials, isDevOwner(initialUserData[0] as UserData))
+        const enquiriesRes = await fetchEnquiries(enquiriesEmail, dateFrom, dateTo, initialUserData[0].AOW || "", userInitials, isDevOwner(initialUserData[0] as UserData), true)
           .catch(err => {
             console.warn('⚠️ Enquiries API failed, using fallback:', err);
             return import('./tabs/home/Home').then(m => m.getLiveLocalEnquiries(initialUserData[0].Email) as Enquiry[]);
@@ -1386,6 +1459,7 @@ const AppWithContext: React.FC = () => {
               "", // Empty AOW - frontend will apply AOW logic for Claimable state only
               userInitials,
               isDevOwner(primaryUser),
+              true,
             ).then(res => {
               console.info(`[Boot:Teams] Enquiries: ${Math.round(performance.now() - t0Enq)}ms (${res.length} rows)`);
               setEnquiries(res);
@@ -1559,7 +1633,7 @@ const AppWithContext: React.FC = () => {
                     "",
                     userInitials,
                     fetchAll,
-                    false,
+                    true,
                   );
                   console.info(`[Boot] Enquiries: ${Math.round(performance.now() - t0)}ms (${res.length} rows)`);
                   setEnquiries(res);

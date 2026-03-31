@@ -790,7 +790,7 @@ async function getAssessmentAccuracySummary({ practiceArea } = {}) {
 
 /**
  * Transition CclContent status for a matter (latest version).
- * Supports: draft → approved, approved → uploaded.
+ * Supports: draft → pressure-tested → approved, approved → uploaded.
  * Returns the updated row or null on failure.
  */
 async function updateCclStatus(matterId, newStatus, { actor, clioDocId, ndDocId } = {}) {
@@ -812,7 +812,8 @@ async function updateCclStatus(matterId, newStatus, { actor, clioDocId, ndDocId 
     if (!row) return null;
 
     const validTransitions = {
-        draft: ['approved'],
+        draft: ['pressure-tested', 'approved'],
+        'pressure-tested': ['approved'],
         approved: ['uploaded'],
         uploaded: [], // terminal
     };

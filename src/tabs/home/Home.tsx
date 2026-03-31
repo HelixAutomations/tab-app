@@ -216,6 +216,9 @@ interface HomeProps {
   context: app.Context | null;
   userData: any;
   enquiries: any[] | null;
+  enquiriesUsingSnapshot?: boolean;
+  enquiriesLiveRefreshInFlight?: boolean;
+  enquiriesLastLiveSyncAt?: number | null;
   matters?: NormalizedMatter[]; // Prefer app-provided normalized matters
   instructionData?: InstructionData[];
   onAllMattersFetched?: (matters: Matter[]) => void;
@@ -614,12 +617,25 @@ interface AttendanceData {
 interface HomeRecentEnquiryRecord {
   id?: string;
   enquiryId?: string;
+  processingEnquiryId?: string;
+  pitchEnquiryId?: string;
+  legacyEnquiryId?: string;
   date?: string;
   poc?: string;
   aow?: string;
   source?: string;
   name?: string;
   stage?: string;
+  pipelineStage?: string;
+  teamsChannel?: string;
+  teamsCardType?: string;
+  teamsStage?: string;
+  teamsClaimed?: string;
+  teamsLink?: string;
+  dataSource?: 'new' | 'legacy';
+  email?: string;
+  notes?: string;
+  prospectIds?: string[];
 }
 
 let cachedAttendance: AttendanceData | null = null;
@@ -640,7 +656,7 @@ let cachedRecoveredHours: number | null = null;
 let cachedPrevRecoveredHours: number | null = null;
 let cachedMetricsUserKey: string | null = null;
 
-const HOME_METRICS_SNAPSHOT_KEY = 'home-metrics-snapshot-v1';
+const HOME_METRICS_SNAPSHOT_KEY = 'home-metrics-snapshot-v2';
 const HOME_METRICS_SNAPSHOT_TTL_MS = 5 * 60 * 1000;
 
 interface HomeMetricsSnapshot {
@@ -771,7 +787,7 @@ const CognitoForm: React.FC<{ dataKey: string; dataForm: string }> = ({ dataKey,
 // Home Component
 //////////////////////
 
-const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: providedMatters, instructionData: propInstructionData, onAllMattersFetched, onOutstandingBalancesFetched, onTransactionsFetched, teamData, onBoardroomBookingsFetched, onSoundproofBookingsFetched, isInMatterOpeningWorkflow = false, onImmediateActionsChange, originalAdminUser, featureToggles = {}, demoModeEnabled = false, isActive = true, isSwitchingUser = false }) => {
+const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsingSnapshot = false, enquiriesLiveRefreshInFlight = false, enquiriesLastLiveSyncAt = null, matters: providedMatters, instructionData: propInstructionData, onAllMattersFetched, onOutstandingBalancesFetched, onTransactionsFetched, teamData, onBoardroomBookingsFetched, onSoundproofBookingsFetched, isInMatterOpeningWorkflow = false, onImmediateActionsChange, originalAdminUser, featureToggles = {}, demoModeEnabled = false, isActive = true, isSwitchingUser = false }) => {
   const { isDarkMode, toggleTheme } = useTheme();
   const hasAdminContext = isAdminUser(userData?.[0]) || isAdminUser(originalAdminUser || null);
   const [showReleaseNotes, setShowReleaseNotes] = useState(false);
@@ -1510,12 +1526,13 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
       if (!userData?.[0]) return;
 
       const currentUserData = userData[0];
+      const isFirmWide = isDevOwner(currentUserData) && !originalAdminUser;
       let userClioId = currentUserData?.['Clio ID'] ? String(currentUserData['Clio ID']) : null;
       let userEntraId = currentUserData?.['Entra ID'] || currentUserData?.EntraID 
         ? String(currentUserData['Entra ID'] || currentUserData.EntraID) 
         : null;
 
-      if (!userClioId && !userEntraId) {
+      if (!isFirmWide && !userClioId && !userEntraId) {
         console.warn('⚠️ No Clio ID or Entra ID available for recovered fees');
         return;
       }
@@ -1525,6 +1542,9 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
         url.searchParams.set('datasets', 'recoveredFeesSummary');
         if (bypassCache) {
           url.searchParams.set('bypassCache', 'true');
+        }
+        if (isFirmWide) {
+          url.searchParams.set('firm', 'true');
         }
         if (userClioId) {
           url.searchParams.set('clioId', userClioId);
@@ -1780,7 +1800,6 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
       .filter(m => isDemoMatter(m) ? isDemo : (isAdmin || isUserMatter(m.responsibleSolicitor || '')))
       .filter(m => isDemo ? true : !isDemoMatter(m))
       .sort((a, b) => (b.openDate || '').localeCompare(a.openDate || ''))
-      .slice(0, isAdmin ? 30 : 15)
       .map(m => ({
         matterId: m.matterId || '',
         displayNumber: m.displayNumber || '',
@@ -1788,6 +1807,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
         practiceArea: m.practiceArea || '',
         openDate: m.openDate || '',
         responsibleSolicitor: m.responsibleSolicitor || '',
+        originatingSolicitor: m.originatingSolicitor || '',
         status: (m.status === 'closed' ? 'closed' : 'active') as 'active' | 'closed',
         instructionRef: m.instructionRef,
       }));
@@ -1816,6 +1836,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, matters: prov
         practiceArea: 'Commercial',
         openDate: today,
         responsibleSolicitor: resolvedName || userFullName || 'Demo User',
+        originatingSolicitor: resolvedName || userFullName || 'Demo User',
         status: 'active' as 'active' | 'closed',
         instructionRef: 'HELIX01-01',
       },
@@ -3812,6 +3833,14 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
       if (!outstandingBalancesData || !outstandingBalancesData.data) {
         return null; // Data not ready yet — will show as loading/skeleton
       }
+      // Dev owner god mode: show firm-wide total directly
+      const isFirmWide = isDevOwner(userData?.[0]) && !originalAdminUser;
+      if (isFirmWide) {
+        return outstandingBalancesData.data.reduce(
+          (sum: number, record: any) => sum + (Number(record.total_outstanding_balance) || 0),
+          0
+        );
+      }
       // If matters haven't loaded yet, return null (not 0) so the card
       // shows a loading state rather than a misleading £0.
       if (userMatterIDs.length === 0) return null;
@@ -3819,9 +3848,8 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         (sum: number, record: any) => sum + (Number(record.total_outstanding_balance) || 0),
         0
       );
-      console.log('[OutstandingBalances] outstandingTotal:', total, '| userMatterIDs:', userMatterIDs.length, '| myOutstandingBalances:', myOutstandingBalances.length, '| allRecords:', outstandingBalancesData.data.length);
       return total;
-    }, [outstandingBalancesData, userMatterIDs, myOutstandingBalances]);
+    }, [outstandingBalancesData, userMatterIDs, myOutstandingBalances, userData, originalAdminUser]);
 
     const firmOutstandingTotal = useMemo(() => {
       if (!outstandingBalancesData || !outstandingBalancesData.data) {
@@ -3859,8 +3887,11 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
       }).length;
     }, [normalizedMatters, currentMonth, currentYear]);
 
+    const mattersResolvedForConversion = Array.isArray(providedMatters) || allMatters !== null || !!allMattersError;
+
     const liveConversionComparison = useMemo<ConversionComparisonPayload | null>(() => {
       if (!Array.isArray(enquiries) || enquiries.length === 0) return null;
+      if (!mattersResolvedForConversion) return null;
 
       let effectiveEmail = String(userData?.[0]?.Email || currentUserEmail || '').toLowerCase().trim();
       let effectiveInitials = String(userData?.[0]?.Initials || '').toUpperCase().trim();
@@ -3917,9 +3948,10 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
             weekKey: formatWeekFragment(parsedDate),
             name: `${String(enquiry.First_Name || '').trim()} ${String(enquiry.Last_Name || '').trim()}`.trim() || String(enquiry.Email || '').trim() || '—',
             poc: String(enquiry.Point_of_Contact || '').trim(),
+            aow: String(enquiry.Area_of_Work || enquiry.aow || 'Other').trim() || 'Other',
           };
         })
-        .filter(Boolean) as Array<{ id: string; date: Date; dayKey: string; weekKey: string; name: string; poc: string }>;
+        .filter(Boolean) as Array<{ id: string; date: Date; dayKey: string; weekKey: string; name: string; poc: string; aow: string }>;
 
       const userMatters = (normalizedMatters || []).filter((matter) => godMode || namesMatchForOutstanding(matter.responsibleSolicitor, userResponsibleName));
 
@@ -3949,6 +3981,39 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
           const openDate = parseOpenDate((matter as any).openDate);
           return openDate && openDate >= startBoundary && openDate <= endBoundary;
         }).length;
+      };
+
+      const countAowMixInRange = (rangeStart: Date, rangeEnd: Date, granularity: 'day' | 'week') => {
+        const startBoundary = startOfDay(rangeStart);
+        const endBoundary = endOfDay(rangeEnd);
+        const seen = new Set<string>();
+        const counts = new Map<string, number>();
+
+        for (const enquiry of userEnquiries) {
+          if (enquiry.date < startBoundary || enquiry.date > endBoundary) continue;
+          const suffix = granularity === 'week' ? enquiry.weekKey : enquiry.dayKey;
+          const base = enquiry.id || `${enquiry.name}|${enquiry.poc}`;
+          const key = `${base}|${suffix}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          counts.set(enquiry.aow, (counts.get(enquiry.aow) || 0) + 1);
+        }
+
+        return [...counts.entries()]
+          .map(([key, count]) => ({ key, count }))
+          .sort((a, b) => b.count - a.count);
+      };
+
+      const mergeAowMixes = (items: Array<Array<{ key: string; count: number }>>) => {
+        const counts = new Map<string, number>();
+        items.forEach((list) => {
+          list.forEach((item) => {
+            counts.set(item.key, (counts.get(item.key) || 0) + Number(item.count || 0));
+          });
+        });
+        return [...counts.entries()]
+          .map(([key, count]) => ({ key, count }))
+          .sort((a, b) => b.count - a.count);
       };
 
       const pctFromCounts = (matters: number, enquiryCount: number) => enquiryCount > 0
@@ -4025,6 +4090,18 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
       const sameDaysWeekBuckets = buildWorkingDayBuckets(startOfWeek, prevWeekStart, true);
       const monthBuckets = buildMonthBuckets(startOfMonth, prevMonthStart);
       const quarterBuckets = buildQuarterBuckets(startOfQuarter, prevQuarterStart);
+      const monthRanges = monthBuckets.map((bucket, index) => {
+        const daysInMonth = new Date(startOfMonth.getFullYear(), startOfMonth.getMonth() + 1, 0).getDate();
+        const bucketSize = Math.ceil(daysInMonth / 4);
+        const start = new Date(startOfMonth.getFullYear(), startOfMonth.getMonth(), 1 + index * bucketSize);
+        const end = new Date(startOfMonth.getFullYear(), startOfMonth.getMonth(), Math.min(daysInMonth, (index + 1) * bucketSize));
+        return { start, end: end > today ? today : end, isFuture: bucket.isFuture };
+      });
+      const quarterRanges = quarterBuckets.map((bucket, index) => {
+        const start = addDays(startOfQuarter, index * 7);
+        const rawEnd = addDays(start, 6);
+        return { start, end: rawEnd > today ? today : rawEnd, isFuture: bucket.isFuture };
+      });
 
       const todayEnquiries = countEnquiriesInRange(today, today, 'day');
       const yesterdayEnquiries = countEnquiriesInRange(yesterday, yesterday, 'day');
@@ -4046,6 +4123,16 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
       const lastQuarterEnquiries = sumField(quarterBuckets, 'previousEnquiries');
       const thisQuarterMatters = sumField(quarterBuckets, 'currentMatters');
       const lastQuarterMatters = sumField(quarterBuckets, 'previousMatters');
+      const todayAowMix = countAowMixInRange(today, today, 'day');
+      const thisWeekAowMix = countAowMixInRange(startOfWeek, today, 'week');
+      const thisMonthAowMix = mergeAowMixes(monthRanges.map((range) => {
+        if (range.isFuture || range.end < range.start) return [];
+        return countAowMixInRange(range.start, range.end, 'week');
+      }));
+      const thisQuarterAowMix = mergeAowMixes(quarterRanges.map((range) => {
+        if (range.isFuture || range.end < range.start) return [];
+        return countAowMixInRange(range.start, range.end, 'week');
+      }));
 
       return {
         items: [
@@ -4063,6 +4150,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
             previousPct: pctFromCounts(yesterdayMatters, yesterdayEnquiries),
             chartMode: 'none',
             buckets: [],
+            currentAowMix: todayAowMix,
           },
           {
             key: 'week-vs-last',
@@ -4078,22 +4166,9 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
             previousPct: pctFromCounts(lastWeekMatters, lastWeekEnquiries),
             chartMode: 'working-days',
             buckets: fullWeekBuckets,
+            currentAowMix: thisWeekAowMix,
           },
-          {
-            key: 'week-pace',
-            title: 'Week to date',
-            comparisonLabel: 'vs same weekdays last week',
-            currentLabel: 'Week to date',
-            previousLabel: 'Same days last week',
-            currentEnquiries: weekPaceEnquiries,
-            previousEnquiries: lastWeekSameDaysEnquiries,
-            currentMatters: weekPaceMatters,
-            previousMatters: lastWeekSameDaysMatters,
-            currentPct: pctFromCounts(weekPaceMatters, weekPaceEnquiries),
-            previousPct: pctFromCounts(lastWeekSameDaysMatters, lastWeekSameDaysEnquiries),
-            chartMode: 'working-days',
-            buckets: sameDaysWeekBuckets,
-          },
+
           {
             key: 'month-vs-last',
             title: 'This month',
@@ -4108,6 +4183,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
             previousPct: pctFromCounts(lastMonthMatters, lastMonthEnquiries),
             chartMode: 'month-weeks',
             buckets: monthBuckets,
+            currentAowMix: thisMonthAowMix,
           },
           {
             key: 'quarter-vs-last',
@@ -4123,10 +4199,11 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
             previousPct: pctFromCounts(lastQuarterMatters, lastQuarterEnquiries),
             chartMode: 'quarter-weeks',
             buckets: quarterBuckets,
+            currentAowMix: thisQuarterAowMix,
           },
         ],
       };
-    }, [currentUserEmail, enquiries, normalizedMatters, teamData, userData, userResponsibleName]);
+    }, [currentUserEmail, enquiries, mattersResolvedForConversion, normalizedMatters, teamData, userData, userResponsibleName]);
 
   // Removed no-op effect that could trigger unnecessary renders
   // useEffect(() => {}, [userMatterIDs, outstandingBalancesData]);
@@ -4282,9 +4359,11 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     const avgAmountLastWeekToDate = lastWeekToDateAmount / effectiveDaysSoFarLastWeek;
     const adjustedTarget = (5 - leaveDays) * 6;
 
+    const isFirmWideView = isDevOwner(userData?.[0]) && !originalAdminUser;
+
     return [
       {
-        title: 'Time Today',
+        title: isFirmWideView ? 'Firm Time Today' : 'Time Today',
         isTimeMoney: true,
         money: Number(todayTotals.total_amount) || 0,
         hours: Number(todayTotals.total_hours) || 0,
@@ -4293,41 +4372,39 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         yesterdayMoney: showYesterdayTotals ? (Number(yesterdayTotals.total_amount) || 0) : 0,
         yesterdayHours: showYesterdayTotals ? (Number(yesterdayTotals.total_hours) || 0) : 0,
         showDial: true,
-        dialTarget: 6,
+        dialTarget: isFirmWideView ? undefined : 6,
       },
       {
-        title: 'Av. Time This Week',
+        title: isFirmWideView ? 'Firm Av. This Week' : 'Av. Time This Week',
         isTimeMoney: true,
         money: avgAmountThisWeek,
         hours: avgHoursThisWeek,
         prevMoney: avgAmountLastWeekToDate,
         prevHours: avgHoursLastWeekToDate,
         showDial: true,
-        dialTarget: 6,
+        dialTarget: isFirmWideView ? undefined : 6,
       },
       {
-        title: 'Time This Week',
+        title: isFirmWideView ? 'Firm Time This Week' : 'Time This Week',
         isTimeMoney: true,
         money: weekToDateAmount,
         hours: totalTimeThisWeek,
         prevMoney: lastWeekToDateAmount,
         prevHours: lastWeekToDateHours,
         showDial: true,
-        dialTarget: adjustedTarget,
+        dialTarget: isFirmWideView ? undefined : adjustedTarget,
       },
       {
-        title: 'Fees Recovered This Month',
-        isTimeMoney: true,
+        title: isFirmWideView ? 'Firm Collected This Month' : 'Fees Recovered This Month',
+        isMoneyOnly: true,
         money: recoveredData ?? 0,
-        hours: recoveredHours ?? 0,
         prevMoney: prevRecoveredData ?? 0,
-        prevHours: prevRecoveredHours ?? 0,
       },
       {
-        title: 'Outstanding Office Balances',
+        title: isFirmWideView ? 'Firm Outstanding' : 'Outstanding Office Balances',
         isMoneyOnly: true,
         money: outstandingTotal ?? 0,
-        secondary: firmOutstandingTotal ?? 0,
+        secondary: isFirmWideView ? undefined : (firmOutstandingTotal ?? 0),
       },
       {
         title: 'Enquiries Today',
@@ -4356,11 +4433,11 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         prevPitchedCount: prevPitchedEnquiriesMonthToDate,
       },
       {
-        title: 'Matters Opened',
+        title: isFirmWideView ? 'Firm Matters Opened' : 'Matters Opened',
         isTimeMoney: false,
-        count: mattersOpenedCount,
+        count: isFirmWideView ? firmMattersOpenedCount : mattersOpenedCount,
         prevCount: 0,
-        secondary: firmMattersOpenedCount,
+        secondary: isFirmWideView ? undefined : firmMattersOpenedCount,
       },
     ];
   }, [
@@ -4385,6 +4462,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     prevPitchedEnquiriesMonthToDate,
     annualLeaveRecords,
     userData,
+    originalAdminUser,
     normalizedMatters,
     outstandingBalancesData,
     userMatterIDs,
@@ -4471,6 +4549,11 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         previousPct: 20,
         chartMode: 'none',
         buckets: [],
+        currentAowMix: [
+          { key: 'Construction', count: 3 },
+          { key: 'Commercial', count: 2 },
+          { key: 'Property', count: 1 },
+        ],
       },
       {
         key: 'week-vs-last',
@@ -4485,6 +4568,12 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         currentPct: 27.8,
         previousPct: 25,
         chartMode: 'working-days',
+        currentAowMix: [
+          { key: 'Construction', count: 8 },
+          { key: 'Commercial', count: 5 },
+          { key: 'Property', count: 3 },
+          { key: 'Employment', count: 2 },
+        ],
         buckets: [
           { label: 'Mon', axisLabel: 'Mon', currentEnquiries: 4, previousEnquiries: 3, currentMatters: 1, previousMatters: 1 },
           { label: 'Tue', axisLabel: 'Tue', currentEnquiries: 3, previousEnquiries: 4, currentMatters: 1, previousMatters: 1 },
@@ -4493,27 +4582,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
           { label: 'Fri', axisLabel: 'Fri', currentEnquiries: 2, previousEnquiries: 4, currentMatters: 0, previousMatters: 0 },
         ],
       },
-      {
-        key: 'week-pace',
-        title: 'Week to date',
-        comparisonLabel: 'vs same weekdays last week',
-        currentLabel: 'Week to date',
-        previousLabel: 'Same days last week',
-        currentEnquiries: 14,
-        previousEnquiries: 12,
-        currentMatters: 4,
-        previousMatters: 3,
-        currentPct: 28.6,
-        previousPct: 25,
-        chartMode: 'working-days',
-        buckets: [
-          { label: 'Mon', axisLabel: 'Mon', currentEnquiries: 4, previousEnquiries: 3, currentMatters: 1, previousMatters: 1 },
-          { label: 'Tue', axisLabel: 'Tue', currentEnquiries: 3, previousEnquiries: 4, currentMatters: 1, previousMatters: 1 },
-          { label: 'Wed', axisLabel: 'Wed', currentEnquiries: 5, previousEnquiries: 2, currentMatters: 2, previousMatters: 1 },
-          { label: 'Thu', axisLabel: 'Thu', currentEnquiries: 2, previousEnquiries: 3, currentMatters: 0, previousMatters: 0 },
-          { label: 'Fri', axisLabel: 'Fri', currentEnquiries: 0, previousEnquiries: 0, currentMatters: 0, previousMatters: 0, isFuture: true },
-        ],
-      },
+
       {
         key: 'month-vs-last',
         title: 'This month',
@@ -4527,6 +4596,12 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         currentPct: 19.4,
         previousPct: 17.6,
         chartMode: 'month-weeks',
+        currentAowMix: [
+          { key: 'Commercial', count: 24 },
+          { key: 'Construction', count: 22 },
+          { key: 'Property', count: 18 },
+          { key: 'Employment', count: 8 },
+        ],
         buckets: [
           { label: 'Week 1', axisLabel: 'W1', currentEnquiries: 18, previousEnquiries: 16, currentMatters: 4, previousMatters: 3 },
           { label: 'Week 2', axisLabel: 'W2', currentEnquiries: 20, previousEnquiries: 18, currentMatters: 4, previousMatters: 3 },
@@ -4547,6 +4622,12 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
         currentPct: 18.3,
         previousPct: 17,
         chartMode: 'quarter-weeks',
+        currentAowMix: [
+          { key: 'Commercial', count: 68 },
+          { key: 'Construction', count: 51 },
+          { key: 'Property', count: 42 },
+          { key: 'Employment', count: 25 },
+        ],
         buckets: [
           { label: 'Week 1', axisLabel: 'Jan', currentEnquiries: 13, previousEnquiries: 11, currentMatters: 2, previousMatters: 2 },
           { label: 'Week 2', currentEnquiries: 15, previousEnquiries: 12, currentMatters: 3, previousMatters: 2 },
@@ -4579,8 +4660,15 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
   const displayPitchedEnquiriesWeekToDate = demoModeEnabled ? 0 : pitchedEnquiriesWeekToDate;
   const displayPitchedEnquiriesMonthToDate = demoModeEnabled ? 0 : pitchedEnquiriesMonthToDate;
   const displayMattersOpenedCount = demoModeEnabled ? demoEnquiryMetrics.mattersOpened : mattersOpenedCount;
-  const resolvedConversionComparison = demoModeEnabled ? demoConversionComparison : liveConversionComparison ?? savedConversionComparison;
+  const resolvedConversionComparison = demoModeEnabled
+    ? demoConversionComparison
+    : mattersResolvedForConversion
+      ? (liveConversionComparison ?? savedConversionComparison)
+      : null;
   const showExperimentalConversionComparison = isLocalhost;
+  const isResolvingConversionComparison = showExperimentalConversionComparison
+    && !demoModeEnabled
+    && !mattersResolvedForConversion;
   const isWaitingForLocalDashboardIdentity = false;
   const isDashboardProcessing = isSwitchingUser || isWaitingForLocalDashboardIdentity;
   const dashboardProcessingLabel = isWaitingForLocalDashboardIdentity ? 'Resolving dashboard identity…' : 'Rebuilding this user view…';
@@ -4592,34 +4680,54 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     const rawInitials = String(userData?.[0]?.Initials || '').trim().toUpperCase();
     return { email: rawEmail, initials: rawInitials };
   }, [userData]);
+  const isFirmWideDashboard = isDevOwner(userData?.[0]) && !originalAdminUser;
   const recentEnquiryRecords = useMemo(() => {
     const effectiveEmail = String(effectiveDashboardIdentity.email || '').toLowerCase().trim();
     const effectiveInitials = String(effectiveDashboardIdentity.initials || '').toUpperCase().trim();
     if (!Array.isArray(enquiries) || enquiries.length === 0 || !effectiveEmail) return [];
-    const isAdmin = isDevOwner(userData?.[0]);
+    const isAdmin = isFirmWideDashboard;
+    const uniqueStrings = (values: unknown[]): string[] => Array.from(new Set(
+      values
+        .map((value) => String(value || '').trim())
+        .filter(Boolean),
+    ));
 
     const normalizeStage = (enquiry: any): string => {
-      const rawStage = String(
-        enquiry.stage
-        || enquiry.Stage
-        || enquiry.pipelineStage
-        || enquiry.Pipeline_Stage
-        || enquiry.teamsStage
-        || enquiry.teams_stage
-        || enquiry.Status
-        || ''
-      ).toLowerCase().trim();
+      const rawStages = [
+        enquiry.stage,
+        enquiry.Stage,
+        enquiry.pipelineStage,
+        enquiry.Pipeline_Stage,
+        enquiry.teamsStage,
+        enquiry.teams_stage,
+        enquiry.Status,
+      ]
+        .map((value) => String(value || '').toLowerCase().trim())
+        .filter(Boolean);
 
-      if (!rawStage) return 'enquiry';
-      if (rawStage.includes('proof-of-id') || rawStage.includes('poid') || rawStage.includes('complete')) return 'complete';
-      if (rawStage.includes('instruct')) return 'instructed';
-      if (rawStage.includes('pitch')) return 'pitched';
-      if (rawStage.includes('claim')) return 'claimed';
-      if (rawStage.includes('new') || rawStage.includes('enquiry') || rawStage.includes('initial')) return 'enquiry';
-      return rawStage;
+      const normalizeSingleStage = (rawStage: string): string => {
+        if (!rawStage) return 'enquiry';
+        if (rawStage.includes('proof-of-id') || rawStage.includes('poid') || rawStage.includes('complete')) return 'complete';
+        if (rawStage.includes('instruct')) return 'instructed';
+        if (rawStage.includes('pitch')) return 'pitched';
+        if (rawStage.includes('claim')) return 'claimed';
+        if (rawStage.includes('new') || rawStage.includes('enquiry') || rawStage.includes('initial')) return 'enquiry';
+        return rawStage;
+      };
+
+      const scoreStage = (stage: string): number => {
+        if (stage === 'complete') return 5;
+        if (stage === 'instructed') return 4;
+        if (stage === 'pitched') return 3;
+        if (stage === 'claimed') return 2;
+        return 1;
+      };
+
+      const normalizedStages = rawStages.map(normalizeSingleStage);
+      return normalizedStages.sort((left, right) => scoreStage(right) - scoreStage(left))[0] || 'enquiry';
     };
 
-    return enquiries
+    const mappedRecentEnquiries = enquiries
       .map((enq: any) => ({
         ...enq,
         ID: enq.ID || enq.id?.toString(),
@@ -4639,21 +4747,57 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
       .map((enquiry: any) => {
         const parsedDate = parseDateValue(enquiry.Touchpoint_Date);
         const fullName = `${String(enquiry.First_Name || '').trim()} ${String(enquiry.Last_Name || '').trim()}`.trim();
+        const normalizedStage = normalizeStage(enquiry);
         return {
           id: enquiry.ID ? String(enquiry.ID) : undefined,
           enquiryId: enquiry.ID ? String(enquiry.ID) : undefined,
+          processingEnquiryId: enquiry.processingEnquiryId ? String(enquiry.processingEnquiryId) : undefined,
+          pitchEnquiryId: enquiry.pitchEnquiryId ? String(enquiry.pitchEnquiryId) : undefined,
+          legacyEnquiryId: (enquiry.legacyEnquiryId || enquiry.acid) ? String(enquiry.legacyEnquiryId || enquiry.acid) : undefined,
           date: parsedDate ? parsedDate.toISOString() : String(enquiry.Touchpoint_Date || ''),
           poc: (isAdmin ? String(enquiry.Point_of_Contact || effectiveInitials || '').toUpperCase().trim() : effectiveInitials) || undefined,
           aow: String(enquiry.Area_of_Work || 'Other').trim() || 'Other',
           source: enquiry.Source || enquiry.source,
           name: String(enquiry.Name || fullName || enquiry.Email || '—'),
-          stage: normalizeStage(enquiry),
+          email: String(enquiry.Email || enquiry.email || '').trim() || undefined,
+          notes: String(enquiry.Initial_first_call_notes || enquiry.notes || '').trim() || undefined,
+          stage: normalizedStage,
+          pipelineStage: enquiry.pipelineStage || enquiry.Pipeline_Stage || normalizedStage,
+          teamsChannel: enquiry.teamsChannel || enquiry.teams_channel || undefined,
+          teamsCardType: enquiry.teamsCardType || enquiry.teams_card_type || undefined,
+          teamsStage: enquiry.teamsStage || enquiry.teams_stage || undefined,
+          teamsClaimed: enquiry.teamsClaimed || enquiry.teams_claimed || undefined,
+          teamsLink: enquiry.teamsLink || enquiry.teams_link || undefined,
+          prospectIds: uniqueStrings([
+            enquiry.processingEnquiryId,
+            enquiry.pitchEnquiryId,
+            enquiry.legacyEnquiryId,
+            enquiry.acid,
+            enquiry.ID,
+            enquiry.id,
+          ]),
         };
       })
       .filter((enquiry) => enquiry.date)
-      .sort((a, b) => Date.parse(b.date || '') - Date.parse(a.date || ''))
-      .slice(0, isAdmin ? 500 : 500);
-  }, [effectiveDashboardIdentity.email, effectiveDashboardIdentity.initials, enquiries, userData]);
+      .sort((a, b) => Date.parse(b.date || '') - Date.parse(a.date || ''));
+
+    if (isAdmin) return mappedRecentEnquiries;
+    return mappedRecentEnquiries.slice(0, 500);
+  }, [effectiveDashboardIdentity.email, effectiveDashboardIdentity.initials, enquiries, isFirmWideDashboard]);
+
+  // Prune snapshot records when live data excludes rows (e.g. after a delete via SSE)
+  useEffect(() => {
+    if (recentEnquiryRecords.length === 0 || recentEnquirySnapshotRecords.length === 0) return;
+    const liveIds = new Set(recentEnquiryRecords.map((r) => String(r.id || r.enquiryId || '')).filter(Boolean));
+    const pruned = recentEnquirySnapshotRecords.filter((r) => {
+      const key = String(r.id || (r as any).enquiryId || '');
+      return !key || liveIds.has(key);
+    });
+    if (pruned.length < recentEnquirySnapshotRecords.length) {
+      setRecentEnquirySnapshotRecords(pruned);
+    }
+  }, [recentEnquiryRecords, recentEnquirySnapshotRecords]);
+
   const seededRecentEnquiryRecords = recentEnquiryRecords.length > 0 ? recentEnquiryRecords : recentEnquirySnapshotRecords;
 
   useEffect(() => {
@@ -4670,7 +4814,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
       prevRecoveredData,
       recoveredHours,
       prevRecoveredHours,
-      recentEnquiryRecords,
+      recentEnquiryRecords: recentEnquiryRecords.slice(0, 500),
       enquiryMetrics: shouldPersistEnquiryMetrics ? {
         enquiriesToday,
         enquiriesWeekToDate,
@@ -5994,6 +6138,7 @@ const conversionRate = displayEnquiriesMonthToDate
                 enquiryMetricsBreakdown={enquiryMetricsBreakdown}
                 conversionComparison={resolvedConversionComparison}
                 enableConversionComparison={showExperimentalConversionComparison}
+                isResolvingConversionComparison={isResolvingConversionComparison}
                 unclaimedSummary={unclaimedSummary}
                 recentEnquiryRecords={seededRecentEnquiryRecords}
                 unclaimedQueueCount={unclaimedEnquiries.length}
@@ -6005,7 +6150,10 @@ const conversionRate = displayEnquiriesMonthToDate
                 processingLabel={dashboardProcessingLabel}
                 processingDetail={dashboardProcessingDetail}
                 isDarkMode={isDarkMode}
-                isTeamWideEnquiryView={isDevOwner(userData?.[0]) && !originalAdminUser}
+                enquiriesUsingSnapshot={enquiriesUsingSnapshot}
+                enquiriesLiveRefreshInFlight={enquiriesLiveRefreshInFlight}
+                enquiriesLastLiveSyncAt={enquiriesLastLiveSyncAt}
+                isTeamWideEnquiryView={isFirmWideDashboard}
                 userEmail={isWaitingForLocalDashboardIdentity ? '' : effectiveDashboardIdentity.email}
                 userInitials={isWaitingForLocalDashboardIdentity ? '' : effectiveDashboardIdentity.initials}
                 recentMatters={recentMatters}
@@ -6075,6 +6223,7 @@ const conversionRate = displayEnquiriesMonthToDate
                 isAdmin={userIsAdmin || isLzOrAc}
                 isV2User={isLzOrAc}
                 isDevOwner={isDevOwner(userData?.[0])}
+                showHomeOpsCclDates={featureToggles.showHomeOpsCclDates === true}
               />
             </div>
           ) : null;

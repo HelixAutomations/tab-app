@@ -206,46 +206,102 @@ function buildHeaderChildren(data) {
     const clientName = data.insert_clients_name || 'Client';
     const matterHeading = data.insert_heading_eg_matter_description || 'Client Care Letter';
     const clientAddressLines = buildAddressLines(data.client_address);
+    const brandContactLines = [
+        '01273 761990',
+        'helix-law.com',
+        'Second Floor, Britannia House',
+        '21 Station Street, Brighton',
+        'BN1 4DE',
+    ];
+    const matterMetaLines = [
+        `Our Reference ${data.matter_number || ''}`.trim(),
+        data.fee_earner_email ? `Email ${data.fee_earner_email}` : '',
+        data.letter_date ? `Date ${data.letter_date}` : '',
+    ].filter(Boolean);
 
     const children = [
-        new Paragraph({
-            children: [bodyRun('HELIX LAW', { size: BRAND_SIZE, bold: true, color: HELIX.darkBlue, allCaps: true })],
-            spacing: { after: 80 },
+        new Table({
+            width: { size: 100, type: WidthType.PERCENTAGE },
+            rows: [
+                new TableRow({
+                    children: [
+                        new TableCell({
+                            width: { size: 58, type: WidthType.PERCENTAGE },
+                            borders: {
+                                top: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+                                right: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+                                bottom: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+                                left: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+                            },
+                            children: [
+                                new Paragraph({
+                                    children: [bodyRun('HELIX LAW', { size: BRAND_SIZE, bold: true, color: HELIX.darkBlue, allCaps: true })],
+                                    spacing: { after: 80 },
+                                }),
+                            ],
+                        }),
+                        new TableCell({
+                            width: { size: 42, type: WidthType.PERCENTAGE },
+                            borders: {
+                                top: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+                                right: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+                                bottom: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+                                left: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+                            },
+                            children: brandContactLines.map((line, index) => paragraph(line, {
+                                alignment: AlignmentType.RIGHT,
+                                size: index === 0 ? META_SIZE : SMALL_SIZE,
+                                bold: index === 0,
+                                color: index === 0 ? HELIX.helixBlue : HELIX.greyText,
+                                after: index === brandContactLines.length - 1 ? 0 : 30,
+                            })),
+                        }),
+                    ],
+                }),
+            ],
         }),
-        new Paragraph({
-            children: [bodyRun('Second Floor, Britannia House · 21 Station Street · Brighton · BN1 4DE', {
-                size: SMALL_SIZE,
-                color: HELIX.greyText,
-            })],
-            spacing: { after: 180 },
-            border: {
-                bottom: {
-                    color: HELIX.highlight,
-                    style: BorderStyle.SINGLE,
-                    size: 8,
-                    space: 6,
-                },
-            },
-        }),
-        paragraph(`Our Reference ${data.matter_number || ''}`, {
-            alignment: AlignmentType.LEFT,
-            size: META_SIZE,
-            after: 60,
+        new Table({
+            width: { size: 100, type: WidthType.PERCENTAGE },
+            rows: [
+                new TableRow({
+                    children: [
+                        new TableCell({
+                            width: { size: 58, type: WidthType.PERCENTAGE },
+                            borders: {
+                                top: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+                                right: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+                                bottom: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+                                left: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+                            },
+                            children: [clientName, ...clientAddressLines].filter(Boolean).map((line, index) => paragraph(line, {
+                                alignment: AlignmentType.LEFT,
+                                size: META_SIZE,
+                                bold: index === 0,
+                                after: index === clientAddressLines.length ? 30 : 20,
+                            })),
+                        }),
+                        new TableCell({
+                            width: { size: 42, type: WidthType.PERCENTAGE },
+                            borders: {
+                                top: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+                                right: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+                                bottom: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+                                left: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+                            },
+                            children: matterMetaLines.map((line, index) => paragraph(line, {
+                                alignment: AlignmentType.RIGHT,
+                                size: META_SIZE,
+                                after: index === matterMetaLines.length - 1 ? 0 : 40,
+                            })),
+                        }),
+                    ],
+                }),
+            ],
         }),
     ];
 
-    for (const line of clientAddressLines.length ? [clientName, ...clientAddressLines] : [clientName]) {
-        children.push(paragraph(line, { alignment: AlignmentType.LEFT, size: META_SIZE, after: 40 }));
-    }
-
     if (data.client_email) {
-        children.push(paragraph(`BY EMAIL ONLY - ${data.client_email}`, { alignment: AlignmentType.LEFT, size: META_SIZE, after: 40 }));
-    }
-    if (data.fee_earner_email) {
-        children.push(paragraph(`Email ${data.fee_earner_email}`, { alignment: AlignmentType.LEFT, size: META_SIZE, after: 40 }));
-    }
-    if (data.letter_date) {
-        children.push(paragraph(`Date ${data.letter_date}`, { alignment: AlignmentType.LEFT, size: META_SIZE, after: 140 }));
+        children.push(paragraph(`BY EMAIL ONLY - ${data.client_email}`, { alignment: AlignmentType.LEFT, size: META_SIZE, after: 140 }));
     }
 
     children.push(

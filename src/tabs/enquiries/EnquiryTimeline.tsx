@@ -10,8 +10,9 @@ import { FaEnvelope, FaPhone, FaFileAlt, FaCheck, FaCheckCircle, FaCircle, FaArr
 import { FaRegEnvelope, FaRegFileAlt, FaRegClipboard, FaRegAddressCard, FaRegFolderOpen, FaRegCheckCircle, FaRegCircle, FaRegUser, FaRegCommentDots } from 'react-icons/fa';
 import { parseISO, format, differenceInDays } from 'date-fns';
 import { useToast } from '../../components/feedback/ToastProvider';
+import CompactOptionStrip from '../../components/CompactOptionStrip';
+import { buildPitchScenarioStripItems } from '../../components/pitchScenarioPresentation';
 import { practiceAreasByArea } from '../instructions/MatterOpening/config';
-import { SCENARIOS } from './pitch-builder/scenarios';
 import InlineWorkbench from '../instructions/InlineWorkbench';
 import ProspectCaseChips from './components/ProspectCaseChips';
 import ProspectHeroHeader from './components/ProspectHeroHeader';
@@ -338,6 +339,22 @@ interface TimelineItem {
     matterResponsibleSolicitor?: string;
     matterOriginatingSolicitor?: string;
     matterSupervisingPartner?: string;
+
+    // Dubber call recording fields
+    dubber?: {
+      recordingId: string;
+      fromParty: string | null;
+      fromLabel: string | null;
+      toParty: string | null;
+      toLabel: string | null;
+      callType: string | null;
+      durationSeconds: number | null;
+      sentimentScore: number | null;
+      emotionJson: string | null;
+      channel: string | null;
+      matchedTeamInitials: string | null;
+      matchStrategy: string | null;
+    };
   };
 }
 
@@ -877,6 +894,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
   
   const { isDarkMode } = useTheme();
   const { showToast: showGlobalToast } = useToast();
+  const pitchScenarioStripItems = useMemo(() => buildPitchScenarioStripItems(), []);
 
   const viewAsProdFromStorage = (() => {
     try {
@@ -1189,6 +1207,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
   };
 
   const renderCallDetails = (item: TimelineItem) => {
+    const dubber = item.metadata?.dubber;
     const callrail = (item.metadata as any)?.callrail as
       | {
           customerName?: string;
@@ -1207,11 +1226,13 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
 
     const fallback = extractCallContentSections(item.content);
     const durationSeconds =
-      typeof callrail?.durationSeconds === 'number'
-        ? callrail.durationSeconds
-        : typeof item.metadata?.duration === 'number'
-          ? item.metadata.duration
-          : 0;
+      typeof dubber?.durationSeconds === 'number'
+        ? dubber.durationSeconds
+        : typeof callrail?.durationSeconds === 'number'
+          ? callrail.durationSeconds
+          : typeof item.metadata?.duration === 'number'
+            ? item.metadata.duration
+            : 0;
 
     const minutes = Math.floor(durationSeconds / 60);
     const seconds = (durationSeconds % 60).toString().padStart(2, '0');
@@ -1238,18 +1259,49 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
       if (v) metaPairs.push({ label, value: v });
     };
 
-    pushIf('Duration', durationLabel);
-    if (answered !== undefined) pushIf('Answered', answered ? 'Yes' : 'No');
-    pushIf('Contact', callrail?.customerName);
-    pushIf('Company', callrail?.companyName);
-    pushIf('Phone', callrail?.customerPhoneNumber);
-    pushIf('Source', callrail?.source || item.metadata?.source);
-    pushIf('Medium', callrail?.medium);
-    pushIf('Tracking Number', callrail?.trackingPhoneNumber);
-    pushIf('Business Number', callrail?.businessPhoneNumber);
+    if (dubber) {
+      // Dubber-specific meta
+      pushIf('Duration', durationLabel);
+      pushIf('Direction', dubber.callType);
+      pushIf('From', dubber.fromLabel || dubber.fromParty);
+      pushIf('To', dubber.toLabel || dubber.toParty);
+      pushIf('Channel', dubber.channel);
+      pushIf('Team', dubber.matchedTeamInitials);
+      pushIf('Match', dubber.matchStrategy);
+      if (dubber.sentimentScore !== null && dubber.sentimentScore !== undefined) {
+        const pct = (dubber.sentimentScore * 100).toFixed(0);
+        const label = dubber.sentimentScore >= 0.6 ? 'Positive' : dubber.sentimentScore >= 0.3 ? 'Neutral' : 'Negative';
+        pushIf('Sentiment', `${pct}% (${label})`);
+      }
+      pushIf('Source', 'Dubber');
+    } else {
+      // CallRail / generic meta
+      pushIf('Duration', durationLabel);
+      if (answered !== undefined) pushIf('Answered', answered ? 'Yes' : 'No');
+      pushIf('Contact', callrail?.customerName);
+      pushIf('Company', callrail?.companyName);
+      pushIf('Phone', callrail?.customerPhoneNumber);
+      pushIf('Source', callrail?.source || item.metadata?.source);
+      pushIf('Medium', callrail?.medium);
+      pushIf('Tracking Number', callrail?.trackingPhoneNumber);
+      pushIf('Business Number', callrail?.businessPhoneNumber);
+    }
 
     const recordingUrl = (item.metadata as any)?.recordingUrl as string | undefined;
     const note = String(callrail?.note || fallback.note || '').trim();
+
+    // Parse Dubber emotion tags
+    let emotionTags: Array<{ label: string; value: number }> = [];
+    if (dubber?.emotionJson) {
+      try {
+        const obj = JSON.parse(dubber.emotionJson);
+        emotionTags = Object.entries(obj)
+          .filter(([, v]) => typeof v === 'number')
+          .sort(([, a], [, b]) => (b as number) - (a as number))
+          .slice(0, 4)
+          .map(([lbl, val]) => ({ label: lbl, value: val as number }));
+      } catch { /* ignore */ }
+    }
 
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -1316,6 +1368,22 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 </button>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Dubber emotion tags */}
+        {emotionTags.length > 0 && (
+          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+            {emotionTags.map((e) => (
+              <span key={e.label} style={{
+                fontSize: '10px', fontWeight: 600, padding: '2px 8px', borderRadius: '999px',
+                background: isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(54, 144, 206, 0.08)',
+                color: isDarkMode ? colours.accent : colours.blue,
+                textTransform: 'capitalize',
+              }}>
+                {e.label} {(e.value * 100).toFixed(0)}%
+              </span>
+            ))}
           </div>
         )}
 
@@ -3591,6 +3659,75 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         setLoadingStates(prev => ({ ...prev, calls: false }));
       }
 
+      // Auto-fetch Dubber recordings by phone number (supplements CallRail)
+      try {
+        const dubberPhone = enquiry.Phone_Number || '';
+        const dubberName = [enquiry.First_Name, enquiry.Last_Name].filter(Boolean).join(' ').trim();
+        if (dubberPhone || dubberName) {
+          const dubberBody: Record<string, string | number> = { maxResults: 50 };
+          if (dubberPhone) dubberBody.phoneNumber = dubberPhone;
+          else dubberBody.name = dubberName;
+
+          const dubResp = await fetch('/api/dubberCalls/search', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(dubberBody),
+          });
+          if (dubResp.ok) {
+            const dubData = await dubResp.json();
+            const dubberItems: TimelineItem[] = (dubData.recordings || []).map((rec: any) => {
+              const dur = Number(rec.duration_seconds || 0);
+              const dir = (rec.call_type || '').toLowerCase();
+              const from = rec.from_label || rec.from_party || 'Unknown';
+              const to = rec.to_label || rec.to_party || 'Unknown';
+              const mins = Math.floor(dur / 60);
+              const secs = (dur % 60).toString().padStart(2, '0');
+              const dirLabel = dir === 'inbound' ? 'Inbound' : dir === 'outbound' ? 'Outbound' : '';
+
+              const details: string[] = [];
+              if (dur) details.push(`Duration: ${mins}:${secs}`);
+              details.push(`From: ${from}`);
+              details.push(`To: ${to}`);
+              if (rec.matched_team_initials) details.push(`Team: ${rec.matched_team_initials}`);
+              if (rec.document_sentiment_score !== null) details.push(`Sentiment: ${(rec.document_sentiment_score * 100).toFixed(0)}%`);
+
+              return {
+                id: `dubber-${rec.recording_id}`,
+                type: 'call' as CommunicationType,
+                date: rec.start_time_utc,
+                subject: `${dirLabel} Call (Dubber)`.trim(),
+                content: details.join('\n'),
+                createdBy: dir === 'inbound' ? from : to,
+                metadata: {
+                  direction: (dir === 'inbound' || dir === 'outbound' ? dir : undefined) as 'inbound' | 'outbound' | undefined,
+                  duration: dur,
+                  answered: true,
+                  source: 'Dubber',
+                  dubber: {
+                    recordingId: rec.recording_id,
+                    fromParty: rec.from_party,
+                    fromLabel: rec.from_label,
+                    toParty: rec.to_party,
+                    toLabel: rec.to_label,
+                    callType: rec.call_type,
+                    durationSeconds: dur,
+                    sentimentScore: rec.document_sentiment_score,
+                    emotionJson: rec.document_emotion_json,
+                    channel: rec.channel,
+                    matchedTeamInitials: rec.matched_team_initials,
+                    matchStrategy: rec.match_strategy,
+                  },
+                },
+              };
+            });
+            mergeTimelineItems(dubberItems);
+          }
+        }
+      } catch (error) {
+        // Dubber is supplementary — do not fail the timeline if it errors
+        console.debug('Dubber auto-fetch failed (non-fatal):', error);
+      }
+
       // Fetch prospect documents via tab-app backend (storage-backed)
       try {
         const pitchEnquiryId = resolvePitchEnquiryId(enquiry);
@@ -4634,57 +4771,30 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
           <div>
             <h4 style={{
               margin: 0,
-              fontSize: '14px',
+              fontSize: '12px',
               fontWeight: 600,
               color: isDarkMode ? 'rgb(160, 160, 160)' : 'rgba(6, 23, 51, 0.7)',
-              marginBottom: '12px',
+              marginBottom: '8px',
               textTransform: 'uppercase',
               letterSpacing: '0.5px',
             }}>
               Select scenario
             </h4>
-            <div style={{
-              display: 'flex',
-              gap: '10px',
-              flexWrap: 'wrap',
-              marginBottom: '20px',
+            <p style={{
+              margin: '0 0 12px',
+              fontSize: '12px',
+              color: isDarkMode ? '#d1d5db' : '#374151',
+              lineHeight: 1.4,
             }}>
-              {SCENARIOS.map((scenario) => (
-                <button
-                  key={scenario.id}
-                  onClick={() => handleScenarioSelected(scenario.id)}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.borderColor = colours.blue;
-                    e.currentTarget.style.boxShadow = isDarkMode
-                      ? '0 6px 24px rgba(54, 144, 206, 0.35), 0 0 0 1px rgba(54, 144, 206, 0.2) inset'
-                      : '0 4px 16px rgba(54, 144, 206, 0.2), 0 0 0 1px rgba(54, 144, 206, 0.1) inset';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(160, 160, 160, 0.16)';
-                    e.currentTarget.style.boxShadow = isDarkMode ? '0 6px 18px rgba(0, 3, 25, 0.55)' : '0 3px 12px rgba(13, 47, 96, 0.08)';
-                  }}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    padding: '12px 18px',
-                    border: `2px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.2)' : 'rgba(160, 160, 160, 0.16)'}`,
-                    borderRadius: 0,
-                    background: isDarkMode 
-                      ? 'linear-gradient(135deg, rgba(6, 23, 51, 0.88) 0%, rgba(8, 28, 48, 0.8) 100%)'
-                      : 'linear-gradient(135deg, rgba(244, 244, 246, 0.92) 0%, rgba(255, 255, 255, 0.88) 100%)',
-                    color: isDarkMode ? 'rgb(243, 244, 246)' : colours.light.text,
-                    fontSize: '13px',
-                    fontWeight: 500,
-                    cursor: 'pointer',
-                    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                    whiteSpace: 'nowrap',
-                    boxShadow: isDarkMode ? '0 6px 18px rgba(0, 3, 25, 0.55)' : '0 3px 12px rgba(13, 47, 96, 0.08)',
-                    backdropFilter: 'blur(8px)',
-                  }}
-                >
-                  {scenario.name}
-                </button>
-              ))}
+              Pick the pitch route. This now uses the same compact strip language as Matters so the control feels identical between both spaces.
+            </p>
+            <div style={{ marginBottom: '20px' }}>
+              <CompactOptionStrip
+                items={pitchScenarioStripItems}
+                selectedKey={selectedScenario}
+                onSelect={handleScenarioSelected}
+                ariaLabel="Pitch scenarios"
+              />
             </div>
           </div>
 

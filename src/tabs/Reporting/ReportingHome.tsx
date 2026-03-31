@@ -34,9 +34,10 @@ import { isAdminUser, isPowerUser, canSeePrivateHubControls } from '../../app/ad
 import markWhite from '../../assets/markwhite.svg';
 import type { PpcIncomeMetrics } from './PpcReport';
 import { useToast } from '../../components/feedback/ToastProvider';
-import type { DealRecord, InstructionRecord } from './dataSources';
+import type { DealRecord, InstructionRecord, DubberCallRecord } from './dataSources';
 import { reportingPanelBackground, reportingPanelBorder } from './styles/reportingFoundation';
 import NavigatorDetailBar from '../../components/NavigatorDetailBar';
+import CallsReport from './CallsReport';
 
 // Add spinner animation CSS
 const spinnerStyle = `
@@ -311,6 +312,7 @@ let cachedData: DatasetMap = {
   googleAds: null,
   deals: null,
   instructions: null,
+  dubberCalls: null,
 };
 let cachedTimestamp: number | null = null;
 
@@ -569,6 +571,7 @@ interface DatasetMap {
   googleAds: GoogleAdsData[] | null;
   deals: DealRecord[] | null;
   instructions: InstructionRecord[] | null;
+  dubberCalls: DubberCallRecord[] | null;
 }
 
 interface AnnualLeaveFetchResult {
@@ -592,6 +595,7 @@ const DATASETS = [
   { key: 'googleAds', name: 'Google Ads' },
   { key: 'deals', name: 'Pitches' },
   { key: 'instructions', name: 'Instructions' },
+  { key: 'dubberCalls', name: 'Calls' },
 ] as const;
 
 type DatasetDefinition = typeof DATASETS[number];
@@ -642,7 +646,7 @@ interface AvailableReport {
   key: string;
   name: string;
   status: string;
-  action?: 'dashboard' | 'annualLeave' | 'enquiries' | 'metaMetrics' | 'seoReport' | 'ppcReport' | 'matters' | 'logMonitor';
+  action?: 'dashboard' | 'annualLeave' | 'enquiries' | 'metaMetrics' | 'seoReport' | 'ppcReport' | 'matters' | 'logMonitor' | 'calls';
   requiredDatasets: DatasetKey[];
   description?: string;
   disabled?: boolean;
@@ -704,6 +708,14 @@ const AVAILABLE_REPORTS: AvailableReport[] = [
     action: 'ppcReport',
     requiredDatasets: ['googleAds', 'enquiries', 'allMatters', 'recoveredFees'],
     disabled: true,
+  },
+  {
+    key: 'calls',
+    name: 'Calls report',
+    status: 'In development',
+    action: 'calls',
+    requiredDatasets: ['dubberCalls', 'teamData'],
+    development: true,
   },
   // logMonitor is not a report — rendered separately as a utility strip below the reports grid
 ];
@@ -1408,8 +1420,9 @@ const REPORT_NAV_TABS: { key: typeof ACTIVE_VIEW_TYPE; label: string; draft?: bo
   { key: 'ppcReport' as const, label: 'PPC', draft: true },
   { key: 'seoReport' as const, label: 'SEO', draft: true },
   { key: 'agedDebts' as const, label: 'Debts', draft: true },
+  { key: 'calls' as const, label: 'Calls', draft: true },
 ];
-type ActiveViewType = 'overview' | 'dashboard' | 'annualLeave' | 'enquiries' | 'metaMetrics' | 'seoReport' | 'ppcReport' | 'matters' | 'logMonitor' | 'dataCentre' | 'cacheMonitor' | 'agedDebts';
+type ActiveViewType = 'overview' | 'dashboard' | 'annualLeave' | 'enquiries' | 'metaMetrics' | 'seoReport' | 'ppcReport' | 'matters' | 'logMonitor' | 'dataCentre' | 'cacheMonitor' | 'agedDebts' | 'calls';
 const ACTIVE_VIEW_TYPE: ActiveViewType = 'overview';
 
 interface ReportingNavigationRequest {
@@ -1695,6 +1708,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     googleAds: cachedData.googleAds,
     deals: cachedData.deals,
     instructions: cachedData.instructions,
+    dubberCalls: cachedData.dubberCalls,
   }));
   const [datasetStatus, setDatasetStatus] = useState<DatasetStatus>(() => {
     const record: Partial<DatasetStatus> = {};
@@ -1827,6 +1841,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
       googleAds: [],
       deals: [],
       instructions: [],
+      dubberCalls: [],
     };
   }, [propUserData, propTeamData]);
 
@@ -2617,7 +2632,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     const isViewingAsProd = Boolean(featureToggles?.viewAsProd);
     const initials = extractUserInitials(propUserData);
     const isDraftViewer = (isLocalNow && !isViewingAsProd) || initials === 'LZ' || initials === 'AW';
-    const PROD_TAB_KEYS = ['dashboard', 'enquiries'];
+    const PROD_TAB_KEYS = ['dashboard', 'enquiries', 'calls'];
     // In prod: only prod tabs. Locally: show all (drafts muted via isDraftViewer).
     const visibleTabs = (isLocalNow && !isViewingAsProd)
       ? REPORT_NAV_TABS
@@ -4339,7 +4354,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
 
   const renderAvailableReportCards = () => {
     const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-    const PROD_REPORT_KEYS = ['dashboard', 'enquiries'];
+    const PROD_REPORT_KEYS = ['dashboard', 'enquiries', 'calls'];
 
     // In production: only show prod reports. Locally: show all.
     const visibleCards = isLocal
@@ -5702,6 +5717,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
         googleAds: describeRangeKey(enquiriesRangeKey),
         deals: describeRangeKey(enquiriesRangeKey),
         instructions: describeRangeKey(enquiriesRangeKey),
+        dubberCalls: 'All',
       };
 
       return dateRanges[datasetKey] || '';
@@ -5954,6 +5970,22 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     return (
       <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
         <AgedDebtsReport onBack={handleBackToOverview} />
+      </div>
+    );
+  }
+
+  if (activeView === 'calls') {
+    return (
+      <div className={`management-dashboard-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`} style={fullScreenWrapperStyle(isDarkMode)}>
+        <div className={`glass-report-container ${isDarkMode ? 'dark-theme' : 'light-theme'}`}>
+          <CallsReport
+            dubberCalls={datasetData.dubberCalls}
+            teamData={datasetData.teamData}
+            isFetching={isFetching}
+            lastRefreshTimestamp={lastRefreshTimestamp ?? undefined}
+            triggerRefresh={refreshDatasetsWithStreaming}
+          />
+        </div>
       </div>
     );
   }

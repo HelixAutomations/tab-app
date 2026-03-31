@@ -38,6 +38,7 @@ export interface ImmediateActionChipProps {
   count?: number;
   totalCount?: number;
   category?: ImmediateActionCategory;
+  allowWrap?: boolean;
 }
 
 type IconComponent = React.ComponentType<{ style?: React.CSSProperties; className?: string }>;
@@ -82,6 +83,7 @@ export const ImmediateActionChip: React.FC<ImmediateActionChipProps> = ({
   count,
   totalCount,
   category = 'critical',
+  allowWrap = false,
 }) => {
   const ChipIcon = getChipIcon(icon);
   const [isHovered, setIsHovered] = React.useState(false);
@@ -106,10 +108,10 @@ export const ImmediateActionChip: React.FC<ImmediateActionChipProps> = ({
         alignItems: 'center',
         gap: 7,
         width: '100%',
-        minHeight: 30,
-        padding: '3px 10px 3px 14px',
+        minHeight: allowWrap ? 42 : 30,
+        padding: allowWrap ? '7px 10px 7px 14px' : '3px 10px 3px 14px',
         minWidth: 0,
-        maxWidth: 260,
+        maxWidth: '100%',
         boxSizing: 'border-box' as const,
         background: hovered 
           ? (isDark
@@ -152,10 +154,12 @@ export const ImmediateActionChip: React.FC<ImmediateActionChipProps> = ({
         alignItems: 'center',
         justifyContent: 'center',
         flexShrink: 0,
+        alignSelf: allowWrap ? 'flex-start' : 'center',
         color: hovered ? text : categoryAccent,
         background: 'transparent',
         borderRadius: 2,
         transition: 'color 0.2s ease',
+        marginTop: allowWrap ? 1 : 0,
       }}>
         <ChipIcon style={{ fontSize: 8 }} />
       </div>
@@ -165,10 +169,13 @@ export const ImmediateActionChip: React.FC<ImmediateActionChipProps> = ({
         <div style={{
           fontSize: 11,
           fontWeight: 600,
-          lineHeight: 1.2,
+          lineHeight: allowWrap ? 1.25 : 1.2,
           overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
+          textOverflow: allowWrap ? 'clip' : 'ellipsis',
+          whiteSpace: allowWrap ? 'normal' : 'nowrap',
+          display: '-webkit-box',
+          WebkitLineClamp: allowWrap ? 2 : 1,
+          WebkitBoxOrient: 'vertical' as const,
           color: hovered ? text : text,
         }}>
           {title}
@@ -197,7 +204,7 @@ export const ImmediateActionChip: React.FC<ImmediateActionChipProps> = ({
         fill="none" 
         stroke={textMuted}
         strokeWidth="2"
-        style={{ flexShrink: 0, opacity: hovered ? 0.5 : 0.32 }}
+        style={{ flexShrink: 0, opacity: hovered ? 0.5 : 0.32, alignSelf: allowWrap ? 'flex-start' : 'center', marginTop: allowWrap ? 2 : 0 }}
       >
         <path d="M9 18l6-6-6-6" />
       </svg>

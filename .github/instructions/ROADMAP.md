@@ -97,6 +97,7 @@ Status: **Stream A complete as of 17 March 2026.** All 7 workstream items delive
 - Add a shared action summary strip above the sections so users can read “needs action now” before scanning cards.
 - Tighten completion separation: completed/recent items should visually step back harder than action-required items.
 - Normalise status grammar across payments, transactions, debts, and CCL so action ownership is readable from the same vocabulary.
+- Calls/Time Entries follow-up: keep the Home split at 50/50 and add left-side telephone attendance controls once the current Power Automate flow is handed over, including matter confirmation from the enquiry link and optional Clio unit capture for matter-linked calls.
 
 1. ~~Unify Home and Prospects around one operational enquiry contract.~~ ✅
 2. ~~Collapse duplicate boot and dashboard fetch logic.~~ ✅
@@ -191,6 +192,7 @@ Implementation brief for owning repo/agent:
 - Audit `CtaController`, claim handlers, and Teams card action handlers for any path that still resolves by legacy-only fields when the new-space enquiry row already exists.
 - Standardise the write-back payload for claim events so Hub can trust one shape for: `processingEnquiryId`, `processingSource`, `claimedBy`, `claimedAt`, `stage`, `channelId`, `activityId`, `cardType`.
 - Ensure `TeamsBotActivityTracking` is updated consistently for claim/reassign/card-refresh flows, including `ClaimedBy`, `ClaimedAt`, `UpdatedAt`, active card stage, and channel linkage.
+- When Hub claims from the Home recent-enquiry row, make sure the refreshed Teams card/deep link is stable immediately after claim, or document the exact tracking fields Hub should poll while the card refresh catches up.
 - Confirm whether the repo can emit a lightweight outbound signal for Hub consumption on claim/create/reassign/card-stage changes. If webhook/event work is too heavy, return the exact table/column contract Hub should poll instead.
 - Preserve existing user-facing Teams behaviour. This brief is about schema/state alignment, not redesigning card UX.
 

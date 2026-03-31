@@ -35,6 +35,7 @@ const DATASET_TTL = {
   metaMetrics: 3600,  // 1 hour - Meta metrics don't need frequent updates
   deals: 1800,        // 30 min - Deal/pitch data for Meta metrics conversion tracking
   instructions: 1800, // 30 min - Instruction data for conversion funnel
+  dubberCalls: 300,   // 5 min - Dubber call recordings
 };
 
 // Server-Sent Events endpoint for progressive dataset loading
@@ -413,6 +414,8 @@ async function fetchDatasetByName(datasetName, { connectionString, instructionsC
       return fetchDeals({ connectionString, range: rangeOverrides.deals });
     case 'instructions':
       return fetchInstructions({ connectionString, range: rangeOverrides.instructions });
+    case 'dubberCalls':
+      return fetchDubberCallsStream();
     default:
       throw new Error(`Unknown dataset: ${datasetName}`);
   }
@@ -1308,4 +1311,138 @@ async function fetchWipDbCurrentWeek({ connectionString }) {
   
   log.info(`✅ wipDbCurrentWeek: retrieved ${rows.length} rows from DB`);
   return rows;
+}
+
+/**
+ * Fetch Dubber recordings with summary and enquiry cross-reference.
+ * Mirrors the logic in reporting.js fetchDubberCalls but lives here for the SSE pipeline.
+ */
+async function fetchDubberCallsStream() {
+  const instrConnStr = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
+  const coreConnStr = process.env.SQL_CONNECTION_STRING;
+  if (!instrConnStr) return [];
+
+  try {
+    const recordings = await withRequest(instrConnStr, async (request) => {
+      const result = await request.query(`
+        SELECT
+          r.recording_id, r.from_party, r.from_label, r.to_party, r.to_label,
+          r.call_type, r.recording_type, r.duration_seconds, r.start_time_utc,
+          r.document_sentiment_score, r.ai_document_sentiment,
+          r.channel, r.status, r.matched_team_initials, r.matched_team_email,
+          r.match_strategy, r.document_emotion_json,
+          s.summary_text
+        FROM [dbo].[dubber_recordings] r WITH (NOLOCK)
+        LEFT JOIN [dbo].[dubber_recording_summaries] s WITH (NOLOCK)
+          ON r.recording_id = s.recording_id AND s.summary_source = 'dubber_ai'
+        ORDER BY r.start_time_utc DESC
+      `);
+      return Array.isArray(result.recordset) ? result.recordset : [];
+    });
+
+    if (!recordings.length) return [];
+
+    // Pull all transcript sentences in one query
+    const transcriptRows = await withRequest(instrConnStr, async (request) => {
+      const result = await request.query(`
+        SELECT recording_id, sentence_index, speaker, content, sentiment
+        FROM [dbo].[dubber_transcript_sentences] WITH (NOLOCK)
+        ORDER BY recording_id, sentence_index
+      `);
+      return Array.isArray(result.recordset) ? result.recordset : [];
+    });
+
+    const transcriptMap = new Map();
+    for (const row of transcriptRows) {
+      if (!transcriptMap.has(row.recording_id)) transcriptMap.set(row.recording_id, []);
+      transcriptMap.get(row.recording_id).push({
+        sentence_index: row.sentence_index,
+        speaker: row.speaker || null,
+        content: row.content || '',
+        sentiment: row.sentiment != null ? Number(row.sentiment) : null,
+      });
+    }
+
+    let enquiries = [];
+    if (coreConnStr) {
+      try {
+        enquiries = await withRequest(coreConnStr, async (request) => {
+          const result = await request.query(`
+            SELECT ID, First_Name, Last_Name, Phone_Number, Area_of_Work
+            FROM [dbo].[enquiries] WITH (NOLOCK)
+            WHERE Phone_Number IS NOT NULL AND LEN(Phone_Number) > 6
+          `);
+          return Array.isArray(result.recordset) ? result.recordset : [];
+        });
+      } catch { /* non-fatal */ }
+    }
+
+    const normDigits = (raw) => {
+      if (!raw) return '';
+      let d = raw.replace(/\D/g, '');
+      if (d.startsWith('44')) d = d.slice(2);
+      if (d.startsWith('0')) d = d.slice(1);
+      return d;
+    };
+
+    const phoneMap = new Map();
+    const nameMap = new Map();
+    for (const e of enquiries) {
+      const entry = {
+        name: [e.First_Name, e.Last_Name].filter(Boolean).join(' '),
+        id: e.ID,
+        aow: e.Area_of_Work,
+      };
+      const nd = normDigits(e.Phone_Number);
+      if (nd.length >= 7) phoneMap.set(nd, entry);
+      if (entry.name) nameMap.set(entry.name.toLowerCase(), entry);
+    }
+
+    // Helper: detect if a string looks like a phone number (digits, +, spaces, dashes)
+    const looksLikePhone = (s) => s && /^\+?[\d\s\-().]{7,}$/.test(s.trim());
+
+    return recordings.map((r) => {
+      const is_internal = !!(r.matched_team_initials && r.match_strategy === 'internal');
+
+      // Pick whichever party field contains a phone number
+      const candidates = [r.from_party, r.to_party, r.from_label, r.to_label].filter(Boolean);
+      const phoneCandidates = candidates.filter(looksLikePhone);
+      const nameCandidates = candidates.filter(c => !looksLikePhone(c));
+
+      let match;
+      for (const p of phoneCandidates) {
+        const nd = normDigits(p);
+        if (nd.length >= 7) { match = phoneMap.get(nd); if (match) break; }
+      }
+      if (!match) {
+        for (const n of nameCandidates) {
+          match = nameMap.get(n.toLowerCase().trim());
+          if (match) break;
+        }
+      }
+      return {
+        recording_id: r.recording_id,
+        from_party: r.from_party, from_label: r.from_label,
+        to_party: r.to_party, to_label: r.to_label,
+        call_type: r.call_type, recording_type: r.recording_type || null,
+        duration_seconds: r.duration_seconds,
+        start_time_utc: r.start_time_utc,
+        document_sentiment_score: r.document_sentiment_score,
+        ai_document_sentiment: r.ai_document_sentiment,
+        channel: r.channel, status: r.status,
+        matched_team_initials: r.matched_team_initials,
+        matched_team_email: r.matched_team_email,
+        match_strategy: r.match_strategy,
+        document_emotion_json: r.document_emotion_json,
+        is_internal, resolved_name: match?.name || null,
+        enquiry_ref: match?.id ? String(match.id) : null,
+        area_of_work: match?.aow || null,
+        summary_text: r.summary_text || null,
+        transcript: transcriptMap.get(r.recording_id) || [],
+      };
+    });
+  } catch (error) {
+    log.error('❌ DubberCalls fetch error:', error);
+    return [];
+  }
 }

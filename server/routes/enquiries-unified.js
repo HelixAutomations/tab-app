@@ -88,6 +88,48 @@ const mergeIfBlank = (target, targetField, source, sourceField = targetField) =>
   }
 };
 
+const normaliseOperationalStage = (raw) => {
+  const stage = String(raw || '').trim().toLowerCase();
+  if (!stage) return '';
+  if (stage.includes('proof-of-id') || stage.includes('poid') || stage.includes('complete')) return 'complete';
+  if (stage.includes('instruct') || stage.includes('instruction') || stage.includes('actioned')) return 'instructed';
+  if (stage.includes('pitch')) return 'pitched';
+  if (stage.includes('claim') || stage.includes('follow up')) return 'claimed';
+  if (stage.includes('new') || stage.includes('enquiry') || stage.includes('initial')) return 'enquiry';
+  if (stage.includes('conflict') || stage.includes('closed') || stage.includes('rejected')) return 'closed';
+  return stage;
+};
+
+const operationalStageRank = (raw) => {
+  switch (normaliseOperationalStage(raw)) {
+    case 'complete':
+      return 5;
+    case 'instructed':
+      return 4;
+    case 'pitched':
+      return 3;
+    case 'claimed':
+      return 2;
+    case 'enquiry':
+      return 1;
+    default:
+      return 0;
+  }
+};
+
+const mergeMoreAdvancedStage = (target, source, targetField = 'stage', sourceField = 'stage') => {
+  if (!target || !source) return;
+
+  const targetValue = target[targetField];
+  const sourceValue = source[sourceField];
+  const sourceRank = operationalStageRank(sourceValue);
+  const targetRank = operationalStageRank(targetValue);
+
+  if (sourceRank > targetRank && String(sourceValue || '').trim()) {
+    target[targetField] = sourceValue;
+  }
+};
+
 const annotateProcessingIdentity = (record, { processingEnquiryId, processingSource, legacyEnquiryId, sourcePolicy, sourceBias, processingApproach }) => {
   record.processingEnquiryId = processingEnquiryId;
   record.processingSource = processingSource;
@@ -695,10 +737,8 @@ async function performUnifiedEnquiriesQuery(queryParams) {
             enquiry.poc = paired.poc;
             enquiry.Point_of_Contact = paired.poc;
           }
-          // Also merge stage and claim if the instructions record is more advanced
-          if (paired.stage && !enquiry.stage) {
-            enquiry.stage = paired.stage;
-          }
+          // Prefer the more advanced operational stage from instructions when legacy tags are generic/stale.
+          mergeMoreAdvancedStage(enquiry, paired);
           if (paired.claim && !enquiry.claim) {
             enquiry.claim = paired.claim;
           }
@@ -1540,7 +1580,10 @@ router.delete('/:id', async (req, res) => {
     try {
       clearUnifiedMemoryCache();
       await deleteCachePattern(`${CACHE_CONFIG.PREFIXES.UNIFIED}:*`);
-      log.info('🗑️  Cache cleared after deletion');
+      await deleteCachePattern('homeEnquiries*');
+      await deleteCachePattern('homeEnquiriesDetails*');
+      try { require('./home-enquiries').clearHomeMemoryCache(); } catch (_) { /* safe */ }
+      log.info('🗑️  Cache cleared after deletion (including home memory cache)');
     } catch (cacheError) {
       log.warn('⚠️  Failed to clear cache after deletion:', cacheError);
     }
@@ -1554,7 +1597,12 @@ router.delete('/:id', async (req, res) => {
     log.info('✅', message);
 
     try {
-      broadcastEnquiriesChanged({ changeType: 'delete', enquiryId: String(enquiryId) });
+      const deletedIds = Array.from(new Set([
+        String(enquiryId || '').trim(),
+        String(legacyIdToDelete || '').trim(),
+        String(instructionsIdToDelete || '').trim(),
+      ].filter(Boolean)));
+      broadcastEnquiriesChanged({ changeType: 'delete', enquiryId: String(enquiryId), deletedIds });
     } catch { /* non-blocking */ }
 
     res.json({

@@ -17,6 +17,34 @@ export interface AiFillRequest {
   handlerRate?: string;
 }
 
+export interface CclServiceRunRequest extends AiFillRequest {
+  draftJson?: Record<string, string>;
+  stage?: string;
+  skipCompilePersistence?: boolean;
+}
+
+export interface CclCompileSummary {
+  sourceCount: number;
+  readyCount: number;
+  limitedCount: number;
+  missingCount: number;
+  missingFlagsCount: number;
+  contextFieldCount: number;
+  snippetCount: number;
+}
+
+export interface CclCompileResponse {
+  ok: boolean;
+  trackingId: string;
+  traceId?: number | null;
+  createdAt?: string;
+  durationMs: number;
+  preview: ContextPreviewResponse;
+  sourceCoverage: Array<{ key: string; label: string; status: string; summary: string }>;
+  missingDataFlags: Array<{ key: string; label: string; detail?: string }>;
+  summary: CclCompileSummary;
+}
+
 export interface AiDebugTrace {
   trackingId?: string;
   deployment?: string;
@@ -49,6 +77,47 @@ export interface AiFillResponse {
   userPrompt?: string;
   systemPrompt?: string;
   debug?: AiDebugTrace;
+}
+
+export interface CclServiceRunResponse {
+  ok: boolean;
+  matterId: string;
+  url?: string;
+  blobUrl?: string;
+  fields: Record<string, string>;
+  fieldSummary?: {
+    populated?: number;
+    missing?: number;
+    populatedKeys?: string[];
+  };
+  unresolvedPlaceholders?: string[];
+  unresolvedCount?: number;
+  promptVersion?: string;
+  templateVersion?: string;
+  preview?: ContextPreviewResponse;
+  compile?: CclCompileResponse;
+  ai: AiFillResponse & {
+    aiTraceId?: number | null;
+    promptVersion?: string;
+  };
+  provenance?: {
+    compile?: {
+      trackingId?: string | null;
+      traceId?: number | null;
+      durationMs?: number | null;
+      createdAt?: string | null;
+      summary?: CclCompileSummary;
+    };
+    ai?: {
+      trackingId?: string | null;
+      aiTraceId?: number | null;
+      confidence?: string | null;
+      source?: string | null;
+      durationMs?: number | null;
+      fallbackReason?: string | null;
+    };
+  };
+  error?: string;
 }
 
 export interface AiFeedbackRequest {
@@ -91,6 +160,42 @@ export async function fetchAiFill(request: AiFillRequest): Promise<AiFillRespons
   const data = await readJsonResponse<AiFillResponse>(res);
   if (!data) {
     throw new Error('AI fill returned an invalid response.');
+  }
+  return data;
+}
+
+export async function runCclService(request: CclServiceRunRequest): Promise<CclServiceRunResponse> {
+  const res = await fetch('/api/ccl/service/run', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  });
+
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res, `CCL service run failed: ${res.status} ${res.statusText}`));
+  }
+
+  const data = await readJsonResponse<CclServiceRunResponse>(res);
+  if (!data) {
+    throw new Error('CCL service run returned an invalid response.');
+  }
+  return data;
+}
+
+export async function fetchCclCompile(request: AiFillRequest): Promise<{ ok: boolean; matterId: string; compile: CclCompileResponse }> {
+  const res = await fetch('/api/ccl/service/compile', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  });
+
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res, `CCL compile failed: ${res.status} ${res.statusText}`));
+  }
+
+  const data = await readJsonResponse<{ ok: boolean; matterId: string; compile: CclCompileResponse }>(res);
+  if (!data) {
+    throw new Error('CCL compile returned an invalid response.');
   }
   return data;
 }
@@ -709,12 +814,12 @@ export interface CclApprovalResponse {
 }
 
 /**
- * Approve a CCL (transitions draft → approved or approved → uploaded).
+ * Advance a CCL lifecycle state.
  * The Hub is the gatekeeper — this is the only way to advance CCL status.
  */
 export async function approveCcl(
   matterId: string,
-  targetStatus: 'approved' | 'uploaded' = 'approved',
+  targetStatus: 'pressure-tested' | 'approved' | 'uploaded' = 'approved',
 ): Promise<CclApprovalResponse> {
   try {
     const res = await fetch(`/api/ccl/${encodeURIComponent(matterId)}/approve`, {

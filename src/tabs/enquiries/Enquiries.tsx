@@ -522,7 +522,14 @@ interface EnquiriesProps {
   teamData?: TeamData[] | null;
   onRefreshEnquiries?: () => Promise<void>;
   onOptimisticClaim?: (enquiryId: string, claimerEmail: string) => void;
-  subscribeToEnquiryStream?: (listener: (event: { changeType: string; enquiryId: string; claimedBy?: string; claimedAt?: string | null; record?: Record<string, unknown> }) => void) => () => void;
+  subscribeToEnquiryStream?: (listener: (event: {
+    changeType: string;
+    enquiryId: string;
+    claimedBy?: string;
+    claimedAt?: string | null;
+    deletedIds?: string[];
+    record?: Record<string, unknown>;
+  }) => void) => () => void;
   instructionData?: any[]; // For detecting promoted enquiries
   featureToggles?: Record<string, boolean>;
   isActive?: boolean; // Whether this tab is currently active
@@ -530,6 +537,7 @@ interface EnquiriesProps {
   onTeamWideEnquiriesLoaded?: (enquiries: Enquiry[]) => void;
   pendingEnquiryId?: string | null;
   pendingEnquirySubTab?: string | null;
+  pendingEnquiryPitchScenario?: string | null;
   onPendingEnquiryHandled?: () => void;
 }
 
@@ -932,6 +940,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   onTeamWideEnquiriesLoaded,
   pendingEnquiryId,
   pendingEnquirySubTab,
+  pendingEnquiryPitchScenario,
   onPendingEnquiryHandled,
 }) => {
   const isLocalDevHost = typeof window !== 'undefined'
@@ -2724,8 +2733,15 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       }
 
       if (changeType === 'delete' && enquiryId) {
+        const deletedIds = Array.isArray(event.deletedIds)
+          ? event.deletedIds.map((value: unknown) => String(value || '').trim()).filter(Boolean)
+          : [];
+        const candidateIds = new Set<string>([
+          String(enquiryId || '').trim(),
+          ...deletedIds,
+        ]);
         // Remove from all local datasets — instant
-        const removeEnquiry = (enq: NormalizedEnquiry) => String(enq.ID) !== String(enquiryId);
+        const removeEnquiry = (enq: NormalizedEnquiry) => !Array.from(candidateIds).some((candidateId) => enquiryReferencesId(enq, candidateId));
         setAllEnquiries(prev => prev.filter(removeEnquiry));
         setDisplayEnquiries(prev => prev.filter(removeEnquiry));
         setTeamWideEnquiries(prev => prev.filter(removeEnquiry));
@@ -4621,8 +4637,10 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     if (found) {
       setSelectedEnquiry(found);
       if (pendingEnquirySubTab === 'Pitch') {
+        setSelectedPitchScenario(pendingEnquiryPitchScenario || undefined);
         setActiveSubTab('Pitch');
       } else {
+        setSelectedPitchScenario(undefined);
         setActiveSubTab('Timeline');
         // Check for timeline item stored by App.tsx handler
         const navTimelineItem = localStorage.getItem('navigateToTimelineItem');
@@ -4633,7 +4651,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       }
       onPendingEnquiryHandled?.();
     }
-  }, [isActive, pendingEnquiryId, pendingEnquirySubTab, displayEnquiries, onPendingEnquiryHandled]);
+    }, [isActive, pendingEnquiryId, pendingEnquiryPitchScenario, pendingEnquirySubTab, displayEnquiries, onPendingEnquiryHandled]);
 
   const ensureDemoEnquiryPresent = useCallback(() => {
     const currentUserEmail = userData && userData[0] && userData[0].Email

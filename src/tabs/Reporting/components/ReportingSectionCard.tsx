@@ -21,14 +21,14 @@ const enter = keyframes({
 
 const cardClass = (dark: boolean, variant: string, delay: number) => mergeStyles({
   background: dark
-    ? `linear-gradient(90deg, ${colours.dark.sectionBackground} 0%, ${colours.dark.cardBackground} 100%)`
-    : `linear-gradient(90deg, ${colours.light.sectionBackground} 0%, ${colours.grey} 140%)`,
-  border: `1px solid ${dark ? `${colours.highlight}2B` : `${colours.highlight}1A`}`,
-  borderRadius: 8,
+    ? 'rgba(10, 28, 50, 0.95)'
+    : 'rgba(244, 244, 246, 0.96)',
+  border: `1px solid ${dark ? 'rgba(75, 85, 99, 0.38)' : 'rgba(107, 107, 107, 0.14)'}`,
+  borderRadius: 0,
   padding: variant === 'minimal' ? '12px' : '16px',
   boxShadow: dark
-    ? '0 2px 8px rgba(0,0,0,0.15), 0 1px 2px rgba(0,0,0,0.08)'
-    : '0 2px 8px rgba(0,0,0,0.03), 0 1px 2px rgba(0,0,0,0.01)',
+    ? '0 4px 16px rgba(0, 0, 0, 0.4)'
+    : '0 3px 10px rgba(6, 23, 51, 0.08)',
   display: 'flex',
   flexDirection: 'column',
   gap: 12,
@@ -39,8 +39,8 @@ const cardClass = (dark: boolean, variant: string, delay: number) => mergeStyles
   '&:hover': {
     transform: 'translateY(-2px)',
     boxShadow: dark
-      ? '0 4px 16px rgba(0,0,0,0.2), 0 2px 4px rgba(0,0,0,0.1)'
-      : '0 4px 16px rgba(0,0,0,0.05), 0 2px 4px rgba(0,0,0,0.02)'
+      ? '0 6px 20px rgba(0, 0, 0, 0.5)'
+      : '0 6px 16px rgba(6, 23, 51, 0.1)'
   }
 });
 

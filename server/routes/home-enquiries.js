@@ -37,6 +37,7 @@ const memoryCache = new Map();
 // De-dup concurrent fetches for the same cache key.
 // Prevents duplicate SQL queries when multiple requests hit the same cache miss.
 const inflightRequests = new Map();
+let enquiryFollowUpTableReady = null;
 
 const resolveUserOverride = (emailRaw, initialsRaw) => {
   const email = (emailRaw || '').trim().toLowerCase();
@@ -66,18 +67,343 @@ const dedupeDetailRecords = (records) => {
   });
 };
 
+const getDetailRecordLookupIds = (record) => Array.from(new Set([
+  record?.enquiryId,
+  record?.id,
+  record?.processingEnquiryId,
+  record?.pitchEnquiryId,
+  record?.legacyEnquiryId,
+].map((value) => String(value || '').trim()).filter(Boolean)));
+
+const normalizeFollowUpChannel = (value) => {
+  const channel = String(value || '').trim().toLowerCase();
+  if (channel === 'email' || channel === 'phone') return channel;
+  return null;
+};
+
+async function ensureEnquiryFollowUpsTable(connectionString) {
+  if (!connectionString) return false;
+  if (enquiryFollowUpTableReady === true) return true;
+
+  try {
+    await withRequest(connectionString, async (request) => {
+      await request.query(`
+        IF OBJECT_ID(N'dbo.EnquiryFollowUps', N'U') IS NULL
+        BEGIN
+          CREATE TABLE dbo.EnquiryFollowUps (
+            FollowUpId INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+            EnquiryId NVARCHAR(100) NOT NULL,
+            Email NVARCHAR(255) NULL,
+            Channel NVARCHAR(20) NOT NULL,
+            RecordedAt DATETIME2(0) NOT NULL CONSTRAINT DF_EnquiryFollowUps_RecordedAt DEFAULT SYSDATETIME(),
+            RecordedBy NVARCHAR(255) NULL,
+            Notes NVARCHAR(500) NULL
+          );
+
+          CREATE INDEX IX_EnquiryFollowUps_EnquiryId ON dbo.EnquiryFollowUps (EnquiryId, RecordedAt DESC);
+          CREATE INDEX IX_EnquiryFollowUps_Email ON dbo.EnquiryFollowUps (Email, RecordedAt DESC);
+        END
+      `);
+    });
+
+    enquiryFollowUpTableReady = true;
+    return true;
+  } catch (err) {
+    enquiryFollowUpTableReady = false;
+    log.error('[home-enquiries] Failed to ensure EnquiryFollowUps table:', err.message);
+    return false;
+  }
+}
+
+const combinePitchDateTime = (pitchedDate, pitchedTime) => {
+  if (!pitchedDate) return null;
+  const date = pitchedDate instanceof Date ? new Date(pitchedDate) : new Date(String(pitchedDate));
+  if (Number.isNaN(date.getTime())) return null;
+
+  if (pitchedTime) {
+    const time = pitchedTime instanceof Date ? new Date(pitchedTime) : new Date(String(pitchedTime));
+    if (!Number.isNaN(time.getTime())) {
+      date.setHours(time.getHours(), time.getMinutes(), time.getSeconds(), time.getMilliseconds());
+    }
+  }
+
+  return date.toISOString();
+};
+
+async function queryLatestPitchDetails(connectionString, records) {
+  if (!connectionString || !Array.isArray(records) || records.length === 0) {
+    return { byProspectId: new Map(), byEmail: new Map() };
+  }
+
+  const chunkValues = (values, chunkSize = 900) => {
+    const chunks = [];
+    for (let index = 0; index < values.length; index += chunkSize) {
+      chunks.push(values.slice(index, index + chunkSize));
+    }
+    return chunks;
+  };
+
+  const mergePitchMaps = (target, source) => {
+    for (const [key, value] of source.entries()) {
+      if (!target.has(key)) target.set(key, value);
+    }
+  };
+
+  const runPitchLookupChunk = async (prospectIdChunk, emailChunk) => withRequest(connectionString, async (request) => {
+    const filters = [];
+
+    if (prospectIdChunk.length > 0) {
+      const prospectParams = prospectIdChunk.map((prospectId, index) => {
+        request.input(`pitchPid${index}`, sql.NVarChar(100), prospectId);
+        return `@pitchPid${index}`;
+      });
+      filters.push(`CAST(d.ProspectId AS NVARCHAR(100)) IN (${prospectParams.join(',')})`);
+    }
+
+    if (emailChunk.length > 0) {
+      const emailParams = emailChunk.map((email, index) => {
+        request.input(`pitchEmail${index}`, sql.NVarChar(255), email);
+        return `@pitchEmail${index}`;
+      });
+      filters.push(`LOWER(LTRIM(RTRIM(d.LeadClientEmail))) IN (${emailParams.join(',')})`);
+    }
+
+    const result = await request.query(`
+      SELECT
+        d.DealId,
+        CAST(d.ProspectId AS NVARCHAR(100)) AS ProspectId,
+        LOWER(LTRIM(RTRIM(d.LeadClientEmail))) AS LeadClientEmail,
+        d.PitchedBy,
+        d.PitchedDate,
+        d.PitchedTime,
+        d.InstructionRef,
+        d.Status,
+        pc.ScenarioId
+      FROM [instructions].[dbo].[Deals] d
+      LEFT JOIN [instructions].[dbo].[PitchContent] pc ON pc.DealId = d.DealId
+      WHERE (${filters.join(' OR ')})
+        AND d.PitchedDate IS NOT NULL
+      ORDER BY d.PitchedDate DESC, d.PitchedTime DESC, d.DealId DESC
+    `);
+
+    const byProspectId = new Map();
+    const byEmail = new Map();
+    for (const row of result.recordset || []) {
+      const pitchEvidence = {
+        pitchDealId: row.DealId ? String(row.DealId) : undefined,
+        pitchedBy: row.PitchedBy ? String(row.PitchedBy).trim() : undefined,
+        pitchedAt: combinePitchDateTime(row.PitchedDate, row.PitchedTime),
+        pitchInstructionRef: row.InstructionRef ? String(row.InstructionRef).trim() : undefined,
+        pitchStatus: row.Status ? String(row.Status).trim() : undefined,
+        pitchScenarioId: row.ScenarioId ? String(row.ScenarioId).trim() : undefined,
+      };
+
+      const prospectId = String(row.ProspectId || '').trim();
+      const email = String(row.LeadClientEmail || '').trim().toLowerCase();
+
+      if (prospectId && !byProspectId.has(prospectId)) {
+        byProspectId.set(prospectId, pitchEvidence);
+      }
+      if (email && !byEmail.has(email)) {
+        byEmail.set(email, pitchEvidence);
+      }
+    }
+
+    return { byProspectId, byEmail };
+  });
+
+  const prospectIds = [...new Set(records.flatMap((record) => Array.isArray(record?.prospectIds)
+    ? record.prospectIds.map((value) => String(value || '').trim()).filter(Boolean)
+    : []))];
+  const emails = [...new Set(records
+    .map((record) => String(record?.email || '').trim().toLowerCase())
+    .filter(Boolean))];
+
+  if (prospectIds.length === 0 && emails.length === 0) {
+    return { byProspectId: new Map(), byEmail: new Map() };
+  }
+
+  try {
+    const byProspectId = new Map();
+    const byEmail = new Map();
+    const prospectChunks = chunkValues(prospectIds);
+    const emailChunks = chunkValues(emails);
+
+    for (const prospectChunk of prospectChunks) {
+      const lookup = await runPitchLookupChunk(prospectChunk, []);
+      mergePitchMaps(byProspectId, lookup.byProspectId);
+      mergePitchMaps(byEmail, lookup.byEmail);
+    }
+
+    for (const emailChunk of emailChunks) {
+      const lookup = await runPitchLookupChunk([], emailChunk);
+      mergePitchMaps(byProspectId, lookup.byProspectId);
+      mergePitchMaps(byEmail, lookup.byEmail);
+    }
+
+    return { byProspectId, byEmail };
+  } catch (err) {
+    log.warn('[home-enquiries] Latest pitch detail query failed:', err.message);
+    return { byProspectId: new Map(), byEmail: new Map() };
+  }
+}
+
+function applyPitchDetailsToRecords(records, pitchLookup) {
+  if (!Array.isArray(records) || records.length === 0) return [];
+  const byProspectId = pitchLookup?.byProspectId || new Map();
+  const byEmail = pitchLookup?.byEmail || new Map();
+
+  return records.map((record) => {
+    const prospectIds = Array.isArray(record?.prospectIds)
+      ? record.prospectIds.map((value) => String(value || '').trim()).filter(Boolean)
+      : [];
+    const matchedByProspectId = prospectIds
+      .map((prospectId) => byProspectId.get(prospectId))
+      .find(Boolean);
+    const matchedPitch = matchedByProspectId
+      || byEmail.get(String(record?.email || '').trim().toLowerCase());
+
+    if (!matchedPitch) {
+      return record;
+    }
+
+    return {
+      ...record,
+      ...matchedPitch,
+    };
+  });
+}
+
+async function queryFollowUpDetails(connectionString, records) {
+  if (!connectionString || !Array.isArray(records) || records.length === 0) {
+    return { byId: new Map(), byEmail: new Map() };
+  }
+
+  const recordIds = [...new Set(records.flatMap((record) => getDetailRecordLookupIds(record)))];
+  const emails = [...new Set(records
+    .map((record) => String(record?.email || '').trim().toLowerCase())
+    .filter(Boolean))];
+
+  if (recordIds.length === 0 && emails.length === 0) {
+    return { byId: new Map(), byEmail: new Map() };
+  }
+
+  const tableReady = await ensureEnquiryFollowUpsTable(connectionString);
+  if (!tableReady) {
+    return { byId: new Map(), byEmail: new Map() };
+  }
+
+  try {
+    return await withRequest(connectionString, async (request) => {
+      const filters = [];
+
+      if (recordIds.length > 0) {
+        const idParams = recordIds.map((value, index) => {
+          request.input(`followUpId${index}`, sql.NVarChar(100), value);
+          return `@followUpId${index}`;
+        });
+        filters.push(`EnquiryId IN (${idParams.join(',')})`);
+      }
+
+      if (emails.length > 0) {
+        const emailParams = emails.map((value, index) => {
+          request.input(`followUpEmail${index}`, sql.NVarChar(255), value);
+          return `@followUpEmail${index}`;
+        });
+        filters.push(`LOWER(LTRIM(RTRIM(Email))) IN (${emailParams.join(',')})`);
+      }
+
+      const result = await request.query(`
+        SELECT
+          EnquiryId,
+          LOWER(LTRIM(RTRIM(Email))) AS Email,
+          LOWER(LTRIM(RTRIM(Channel))) AS Channel,
+          RecordedAt,
+          RecordedBy
+        FROM dbo.EnquiryFollowUps
+        WHERE ${filters.join(' OR ')}
+        ORDER BY RecordedAt DESC, FollowUpId DESC
+      `);
+
+      const byId = new Map();
+      const byEmail = new Map();
+
+      const mergeRow = (map, key, row) => {
+        if (!key) return;
+        const current = map.get(key) || {
+          totalCount: 0,
+          emailCount: 0,
+          phoneCount: 0,
+          lastFollowUpAt: undefined,
+          lastChannel: undefined,
+          lastRecordedBy: undefined,
+        };
+
+        current.totalCount += 1;
+        if (row.Channel === 'email') current.emailCount += 1;
+        if (row.Channel === 'phone') current.phoneCount += 1;
+
+        if (!current.lastFollowUpAt) {
+          current.lastFollowUpAt = row.RecordedAt instanceof Date ? row.RecordedAt.toISOString() : new Date(row.RecordedAt).toISOString();
+          current.lastChannel = row.Channel || undefined;
+          current.lastRecordedBy = row.RecordedBy ? String(row.RecordedBy).trim() : undefined;
+        }
+
+        map.set(key, current);
+      };
+
+      for (const row of result.recordset || []) {
+        const enquiryId = String(row.EnquiryId || '').trim();
+        const email = String(row.Email || '').trim().toLowerCase();
+        mergeRow(byId, enquiryId, row);
+        mergeRow(byEmail, email, row);
+      }
+
+      return { byId, byEmail };
+    });
+  } catch (err) {
+    log.warn('[home-enquiries] Follow-up detail query failed:', err.message);
+    return { byId: new Map(), byEmail: new Map() };
+  }
+}
+
+function applyFollowUpDetailsToRecords(records, followUpLookup) {
+  if (!Array.isArray(records) || records.length === 0) return [];
+  const byId = followUpLookup?.byId || new Map();
+  const byEmail = followUpLookup?.byEmail || new Map();
+
+  return records.map((record) => {
+    const matchedById = getDetailRecordLookupIds(record)
+      .map((identifier) => byId.get(identifier))
+      .find(Boolean);
+    const matched = matchedById || byEmail.get(String(record?.email || '').trim().toLowerCase());
+
+    if (!matched) {
+      return record;
+    }
+
+    return {
+      ...record,
+      followUpSummary: matched,
+    };
+  });
+}
+
 const toIsoBoundary = (date) => {
   if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
   return date.toISOString();
 };
 
-async function fetchUnifiedDetailRecords(email, initials, rangeStart, rangeEnd, limit) {
+async function fetchUnifiedDetailRecords(email, initials, rangeStart, rangeEnd, limit, options = {}) {
+  const fetchAll = options.fetchAll === true;
+  const includeTeamInbox = options.includeTeamInbox === true;
   const result = await performUnifiedEnquiriesQuery({
     email,
     initials,
     sourcePolicy: 'operational',
-    includeTeamInbox: 'false',
+    includeTeamInbox: includeTeamInbox ? 'true' : 'false',
     processingApproach: 'unified',
+    fetchAll: fetchAll ? 'true' : 'false',
     dateFrom: toIsoBoundary(rangeStart),
     dateTo: toIsoBoundary(rangeEnd),
     limit: String(Math.max(limit, 200)),
@@ -269,6 +595,8 @@ router.get('/details', async (req, res) => {
   const period = String(req.query.period || '').trim();
   const limit = Math.min(Math.max(Number(req.query.limit) || 50, 10), 500);
   const includePrevious = String(req.query.includePrevious || 'true').trim().toLowerCase() !== 'false';
+  const fetchAll = String(req.query.fetchAll || 'false').trim().toLowerCase() === 'true';
+  const includeTeamInbox = String(req.query.includeTeamInbox || 'false').trim().toLowerCase() === 'true';
 
   if (!email && !initials) {
     return res.status(400).json({ error: 'email or initials query parameter required' });
@@ -278,7 +606,7 @@ router.get('/details', async (req, res) => {
     return res.status(400).json({ error: 'period must be today, weekToDate, monthToDate, or yearToDate' });
   }
 
-  const cacheKey = generateCacheKey('homeEnquiriesDetails', `${email || initials}:${period}:${limit}:${includePrevious ? 'with-prev' : 'current-only'}`);
+  const cacheKey = generateCacheKey('homeEnquiriesDetails', `${email || initials}:${period}:${limit}:${includePrevious ? 'with-prev' : 'current-only'}:${fetchAll ? 'all' : 'scoped'}:${includeTeamInbox ? 'team' : 'no-team'}`);
 
   try {
     const cached = await getCached(cacheKey);
@@ -287,6 +615,7 @@ router.get('/details', async (req, res) => {
         operation: 'details',
         period,
         includePrevious: includePrevious ? 'true' : 'false',
+        fetchAll: fetchAll ? 'true' : 'false',
         cacheState: 'fresh-hit',
       }, {
         currentCount: Number(cached.data?.current?.records?.length || 0),
@@ -304,27 +633,46 @@ router.get('/details', async (req, res) => {
       const inFlight = (async () => {
         const ranges = buildPeriodRanges(period);
         const [current, previous] = await Promise.all([
-          fetchUnifiedDetailRecords(email, initials, ranges.currentStart, ranges.currentEnd, limit),
+          fetchUnifiedDetailRecords(email, initials, ranges.currentStart, ranges.currentEnd, limit, { fetchAll, includeTeamInbox }),
           includePrevious
-            ? fetchUnifiedDetailRecords(email, initials, ranges.previousStart, ranges.previousEnd, limit)
+            ? fetchUnifiedDetailRecords(email, initials, ranges.previousStart, ranges.previousEnd, limit, { fetchAll, includeTeamInbox })
             : Promise.resolve([]),
         ]);
 
         const dedupedCurrent = dedupeDetailRecords(current);
         const dedupedPrevious = includePrevious ? dedupeDetailRecords(previous) : [];
+        const pitchLookup = await queryLatestPitchDetails(
+          process.env.INSTRUCTIONS_SQL_CONNECTION_STRING,
+          [...dedupedCurrent, ...dedupedPrevious],
+        );
+        const followUpLookup = await queryFollowUpDetails(
+          process.env.SQL_CONNECTION_STRING,
+          [...dedupedCurrent, ...dedupedPrevious],
+        );
+        const enrichedCurrent = applyFollowUpDetailsToRecords(
+          applyPitchDetailsToRecords(dedupedCurrent, pitchLookup),
+          followUpLookup,
+        );
+        const enrichedPrevious = includePrevious
+          ? applyFollowUpDetailsToRecords(
+              applyPitchDetailsToRecords(dedupedPrevious, pitchLookup),
+              followUpLookup,
+            )
+          : [];
 
         return {
           period,
           limit,
           currentRange: ranges.currentLabel,
           previousRange: includePrevious ? ranges.previousLabel : undefined,
-          current: { records: dedupedCurrent },
-          previous: { records: dedupedPrevious },
+          current: { records: enrichedCurrent },
+          previous: { records: enrichedPrevious },
           filters: {
             email: email || undefined,
             initials: initials || undefined,
-            includeTeamInbox: false,
+            includeTeamInbox,
             includePrevious,
+            fetchAll,
             overridden: overridden || undefined,
           },
         };
@@ -341,13 +689,14 @@ router.get('/details', async (req, res) => {
       operation: 'details',
       period,
       includePrevious: includePrevious ? 'true' : 'false',
+      fetchAll: fetchAll ? 'true' : 'false',
       cacheState: 'fresh-miss',
     }, {
-      currentCount: Number(dedupedCurrent.length || 0),
-      previousCount: Number(dedupedPrevious.length || 0),
+      currentCount: Number(payload?.current?.records?.length || 0),
+      previousCount: Number(payload?.previous?.records?.length || 0),
     });
 
-    annotate(res, { source: 'sql', note: `${dedupedCurrent.length} current records` });
+    annotate(res, { source: 'sql', note: `${Number(payload?.current?.records?.length || 0)} current records` });
     return res.json({ ...payload, cached: false, stale: false });
   } catch (err) {
     log.error('[home-enquiries] Details fetch failed:', err.message);
@@ -355,6 +704,7 @@ router.get('/details', async (req, res) => {
       operation: 'details',
       period,
       includePrevious: includePrevious ? 'true' : 'false',
+      fetchAll: fetchAll ? 'true' : 'false',
       phase: 'primary-fetch',
     });
 
@@ -366,6 +716,7 @@ router.get('/details', async (req, res) => {
           operation: 'details',
           period,
           includePrevious: includePrevious ? 'true' : 'false',
+          fetchAll: fetchAll ? 'true' : 'false',
           cacheState: 'stale-fallback',
           primaryFailed: 'true',
         }, {
@@ -379,6 +730,103 @@ router.get('/details', async (req, res) => {
     }
 
     return res.status(500).json({ error: err.message || 'Failed to fetch details' });
+  }
+});
+
+router.post('/follow-up', async (req, res) => {
+  const startedAt = Date.now();
+  const channel = normalizeFollowUpChannel(req.body?.channel);
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  const lookupIds = Array.from(new Set([
+    req.body?.enquiryId,
+    req.body?.id,
+    req.body?.processingEnquiryId,
+    req.body?.pitchEnquiryId,
+    req.body?.legacyEnquiryId,
+  ].map((value) => String(value || '').trim()).filter(Boolean)));
+  const enquiryId = lookupIds[0] || email;
+  const recordedBy = String(req.body?.recordedBy || req.body?.initials || '').trim();
+  const notes = String(req.body?.notes || '').trim().slice(0, 500);
+  const connectionString = process.env.SQL_CONNECTION_STRING;
+
+  if (!channel) {
+    return res.status(400).json({ error: 'channel must be email or phone' });
+  }
+
+  if (!enquiryId) {
+    return res.status(400).json({ error: 'enquiryId or email is required' });
+  }
+
+  trackEvent('Home.Enquiries.FollowUp.Started', {
+    operation: 'follow-up',
+    triggeredBy: 'home-dashboard',
+    channel,
+    enquiryId,
+    recordedBy: recordedBy || '',
+  });
+
+  try {
+    if (!connectionString) {
+      throw new Error('SQL_CONNECTION_STRING is not configured');
+    }
+
+    const tableReady = await ensureEnquiryFollowUpsTable(connectionString);
+    if (!tableReady) {
+      throw new Error('Enquiry follow-up persistence is unavailable');
+    }
+
+    await withRequest(connectionString, async (request) => {
+      await request
+        .input('EnquiryId', sql.NVarChar(100), enquiryId)
+        .input('Email', sql.NVarChar(255), email || null)
+        .input('Channel', sql.NVarChar(20), channel)
+        .input('RecordedBy', sql.NVarChar(255), recordedBy || null)
+        .input('Notes', sql.NVarChar(500), notes || null)
+        .query(`
+          INSERT INTO dbo.EnquiryFollowUps (EnquiryId, Email, Channel, RecordedBy, Notes)
+          VALUES (@EnquiryId, @Email, @Channel, @RecordedBy, @Notes)
+        `);
+    });
+
+    const followUpLookup = await queryFollowUpDetails(connectionString, [{
+      enquiryId,
+      id: req.body?.id,
+      processingEnquiryId: req.body?.processingEnquiryId,
+      pitchEnquiryId: req.body?.pitchEnquiryId,
+      legacyEnquiryId: req.body?.legacyEnquiryId,
+      email,
+    }]);
+
+    const followUpSummary = lookupIds
+      .map((value) => followUpLookup.byId.get(value))
+      .find(Boolean)
+      || followUpLookup.byId.get(enquiryId)
+      || followUpLookup.byEmail.get(email)
+      || null;
+
+    trackRouteCompleted('Home.Enquiries.FollowUp', startedAt, {
+      operation: 'follow-up',
+      enquiryId,
+      channel,
+      recordedBy: recordedBy || '',
+    }, {
+      totalCount: Number(followUpSummary?.totalCount || 0),
+    });
+
+    return res.json({
+      ok: true,
+      enquiryId,
+      channel,
+      followUpSummary,
+    });
+  } catch (err) {
+    trackRouteFailed('Home.Enquiries.FollowUp', startedAt, err, {
+      operation: 'follow-up',
+      enquiryId,
+      channel: channel || '',
+      recordedBy: recordedBy || '',
+    });
+    return res.status(500).json({ error: err.message || 'Failed to record follow-up' });
   }
 });
 
@@ -638,4 +1086,53 @@ async function setCached(key, data) {
   }
 }
 
+function clearHomeMemoryCache() {
+  memoryCache.clear();
+}
+
+/**
+ * POST /api/home-enquiries/pitch-lookup
+ *
+ * Lightweight endpoint: given prospect IDs and/or emails,
+ * return pitch evidence from the Deals table.  Used by the client to enrich
+ * seeded enquiry records that the user-scoped detail fetch doesn't cover.
+ *
+ * Body: { prospectIds: string[], emails: string[] }
+ */
+router.post('/pitch-lookup', express.json(), async (req, res) => {
+  const instructionsConnStr = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
+  if (!instructionsConnStr) {
+    return res.json({ byProspectId: {}, byEmail: {} });
+  }
+
+  const prospectIds = Array.isArray(req.body?.prospectIds)
+    ? req.body.prospectIds.map((s) => String(s).trim()).filter(Boolean)
+    : [];
+  const emails = Array.isArray(req.body?.emails)
+    ? req.body.emails.map((s) => String(s).trim().toLowerCase()).filter(Boolean)
+    : [];
+
+  if (prospectIds.length === 0 && emails.length === 0) {
+    return res.json({ byProspectId: {}, byEmail: {} });
+  }
+
+  try {
+    // Build pseudo-records that queryLatestPitchDetails expects
+    const pseudoRecords = [
+      ...prospectIds.map((pid) => ({ prospectIds: [pid], email: undefined })),
+      ...emails.map((email) => ({ prospectIds: [], email })),
+    ];
+    const lookup = await queryLatestPitchDetails(instructionsConnStr, pseudoRecords);
+    const byProspectId = Object.fromEntries(lookup.byProspectId);
+    const byEmail = Object.fromEntries(lookup.byEmail);
+
+    annotate(res, { source: 'live', note: `pitch-lookup pids=${prospectIds.length} emails=${emails.length}` });
+    return res.json({ byProspectId, byEmail });
+  } catch (err) {
+    log.warn('[home-enquiries] Pitch lookup failed:', err.message);
+    return res.json({ byProspectId: {}, byEmail: {} });
+  }
+});
+
 module.exports = router;
+module.exports.clearHomeMemoryCache = clearHomeMemoryCache;

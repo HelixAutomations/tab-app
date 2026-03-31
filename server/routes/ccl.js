@@ -5,6 +5,7 @@ const sql = require('mssql');
 const { generateWordFromJson } = require('../utils/wordGenerator.js');
 const {
     saveCclContent,
+    saveCclAiTrace,
     markCclUploaded,
     updateCclStatus,
     getLatestCclContent,
@@ -194,28 +195,43 @@ async function mergeMatterFields(matterId, payload) {
         const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
         flat.letter_date = `${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()}`;
     }
-    flat.name_of_person_handling_matter = flat.team_assignments?.fee_earner || '';
+    // Handler name: prefer team_assignments, fall back to draft fields (AI-first flow)
+    const handlerCandidate = flat.team_assignments?.fee_earner || flat.name_of_person_handling_matter || flat.handlerName || '';
+    flat.name_of_person_handling_matter = handlerCandidate;
 
-    const feeUser = findUserByName(flat.team_assignments?.fee_earner);
-    flat.status = feeUser?.Role || '';
-    flat.email = feeUser?.Email || '';
-    flat.fee_earner_email = feeUser?.Email || '';
-    flat.fee_earner_phone = feeUser?.Phone || '';
-    flat.fee_earner_postal_address = feeUser?.Address || '';
+    const feeUser = findUserByName(handlerCandidate);
+    flat.status = feeUser?.Role || flat.status || flat.handlerRole || '';
+    flat.email = feeUser?.Email || flat.email || flat.fee_earner_email || '';
+    flat.fee_earner_email = feeUser?.Email || flat.fee_earner_email || flat.email || '';
+    flat.fee_earner_phone = feeUser?.Phone || flat.fee_earner_phone || '';
+    flat.fee_earner_postal_address = feeUser?.Address || flat.fee_earner_postal_address || '';
 
     // Set hourly rate based on role
     const rateMap = { Partner: '395', 'Senior Partner': '395', 'Senior Associate': '395', Associate: '325', Solicitor: '285', Consultant: '395', 'Trainee Solicitor': '195' };
-    if (!flat.handler_hourly_rate) flat.handler_hourly_rate = rateMap[flat.status] || '395';
+    if (!flat.handler_hourly_rate) flat.handler_hourly_rate = rateMap[flat.status] || flat.handlerRate || '395';
 
     const helpers = [
-        flat.team_assignments?.fee_earner,
+        flat.team_assignments?.fee_earner || handlerCandidate,
         flat.team_assignments?.originating_solicitor,
         flat.team_assignments?.supervising_partner
     ].filter(Boolean);
+    // If we only have the handler (no team_assignments), add other team members as backup contacts
+    if (helpers.length <= 1 && handlerCandidate) {
+        const otherMembers = (localUsers || [])
+            .filter(u => {
+                const name = u['Full Name'] || `${u.First || ''} ${u.Last || ''}`.trim();
+                return name && name.toLowerCase() !== handlerCandidate.toLowerCase();
+            })
+            .slice(0, 2);
+        otherMembers.forEach(u => {
+            const name = u['Full Name'] || `${u.First || ''} ${u.Last || ''}`.trim();
+            if (name && !helpers.includes(name)) helpers.push(name);
+        });
+    }
     flat.names_and_contact_details_of_other_members_of_staff_who_can_help_with_queries = helpers.map(n => {
         const u = findUserByName(n);
-        return u ? `${n} <${u.Email}>` : n;
-    }).join(', ');
+        return u ? `${n} (${u.Role || ''}) — ${u.Email || ''}`.replace(/\(\)\s*—\s*/, '').trim() : n;
+    }).join('\n');
 
     if (!flat.identify_the_other_party_eg_your_opponents) {
         const opp = flat.opponents?.[0];
@@ -225,7 +241,7 @@ async function mergeMatterFields(matterId, payload) {
     flat.name_of_handler = flat.name_of_person_handling_matter;
     flat.handler = flat.name_of_person_handling_matter;
 
-    // Resolve supervising partner first name → full name using team data
+    // Resolve supervising partner: prefer team_assignments, fall back to draft, then find a partner in team data
     let supervisingName = flat.team_assignments?.supervising_partner || flat.name || '';
     if (supervisingName && !supervisingName.includes(' ')) {
         const supMatch = (localUsers || []).find(u => {
@@ -233,6 +249,14 @@ async function mergeMatterFields(matterId, payload) {
             return first.toLowerCase() === supervisingName.toLowerCase();
         });
         if (supMatch) supervisingName = supMatch['Full Name'] || `${supMatch.First} ${supMatch.Last}`.trim() || supervisingName;
+    }
+    // If still no supervisor, find any partner in the team data
+    if (!supervisingName) {
+        const partnerUser = (localUsers || []).find(u => {
+            const role = String(u.Role || '').toLowerCase();
+            return role === 'partner' || role === 'senior partner';
+        });
+        if (partnerUser) supervisingName = partnerUser['Full Name'] || `${partnerUser.First || ''} ${partnerUser.Last || ''}`.trim();
     }
     flat.name = supervisingName;
 
@@ -475,6 +499,71 @@ function normalizeTraceConfidence(value) {
     return 'none';
 }
 
+function toTimestamp(value) {
+    if (!value) return 0;
+    const timestamp = Date.parse(String(value));
+    return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function buildCompileSummary(preview, sourceCoverage, missingDataFlags) {
+    const coverage = Array.isArray(sourceCoverage) ? sourceCoverage : [];
+    return {
+        sourceCount: Array.isArray(preview?.dataSources) ? preview.dataSources.length : 0,
+        readyCount: coverage.filter((item) => item?.status === 'ready').length,
+        limitedCount: coverage.filter((item) => item?.status === 'limited').length,
+        missingCount: coverage.filter((item) => item?.status === 'missing').length,
+        missingFlagsCount: Array.isArray(missingDataFlags) ? missingDataFlags.length : 0,
+        contextFieldCount: preview?.contextFields ? Object.keys(preview.contextFields).length : 0,
+        snippetCount: preview?.snippets ? Object.keys(preview.snippets).length : 0,
+    };
+}
+
+async function compileCclContext(input, actor = 'system', options = {}) {
+    const { persist = true } = options;
+    const trackingId = Math.random().toString(36).slice(2, 10);
+    const startMs = Date.now();
+    const preview = await previewCclContext(input);
+    const sourceCoverage = buildSourceCoverage(preview);
+    const missingDataFlags = buildMissingDataFlags(preview);
+    const summary = buildCompileSummary(preview, sourceCoverage, missingDataFlags);
+    const durationMs = Date.now() - startMs;
+
+    let traceId = null;
+    if (persist) {
+        try {
+            traceId = await saveCclAiTrace({
+                matterId: input.matterId,
+                trackingId,
+                aiStatus: 'compiled',
+                model: 'context-preview',
+                durationMs,
+                userPrompt: preview.userPrompt,
+                userPromptLength: preview.userPromptLength,
+                aiOutputJson: { summary, sourceCoverage, missingDataFlags },
+                generatedFieldCount: 0,
+                dataSourcesJson: preview.dataSources || [],
+                contextFieldsJson: preview.contextFields || {},
+                contextSnippetsJson: preview.snippets || {},
+                createdBy: actor,
+            });
+        } catch (err) {
+            console.warn('[ccl] compile trace persist failed:', err.message);
+        }
+    }
+
+    return {
+        ok: true,
+        trackingId,
+        traceId,
+        createdAt: new Date().toISOString(),
+        durationMs,
+        preview,
+        sourceCoverage,
+        missingDataFlags,
+        summary,
+    };
+}
+
 function deriveAttentionReason({ stage, fieldSummary, confidence }) {
     if (stage !== 'generated') {
         return 'none';
@@ -491,9 +580,11 @@ function deriveAttentionReason({ stage, fieldSummary, confidence }) {
     return 'none';
 }
 
-function deriveServiceStatus({ latestContent, fieldSummary, matterCclDate, latestTrace }) {
+function deriveServiceStatus({ latestContent, fieldSummary, matterCclDate, latestTrace, latestCompileTrace = null }) {
     const status = String(latestContent?.Status || '').toLowerCase();
     const confidence = normalizeTraceConfidence(latestTrace?.Confidence || latestTrace?.confidence);
+    const latestContentAt = Math.max(toTimestamp(latestContent?.CreatedAt), toTimestamp(latestContent?.UpdatedAt));
+    const latestCompileAt = Math.max(toTimestamp(latestCompileTrace?.CreatedAt), toTimestamp(latestCompileTrace?.createdAt));
 
     let key = 'pending';
     let label = 'Pending';
@@ -506,6 +597,18 @@ function deriveServiceStatus({ latestContent, fieldSummary, matterCclDate, lates
     } else if (status === 'approved' || status === 'final') {
         key = 'reviewed';
         label = 'Reviewed';
+        tone = 'accent';
+    } else if (status === 'pressure-tested' || status === 'pressure_tested' || status === 'pressuretested') {
+        key = 'pressure-tested';
+        label = 'Pressure tested';
+        tone = 'accent';
+    } else if (latestCompileAt > latestContentAt && status !== 'approved' && status !== 'final') {
+        key = 'compiled';
+        label = 'Compiled';
+        tone = 'accent';
+    } else if (!latestContent && latestCompileAt > 0) {
+        key = 'compiled';
+        label = 'Compiled';
         tone = 'accent';
     } else if (latestContent || fieldSummary.populated > 0) {
         key = 'generated';
@@ -702,6 +805,7 @@ router.post('/service/run', async (req, res) => {
         handlerRole,
         handlerRate,
         stage,
+        skipCompilePersistence = false,
     } = req.body || {};
 
     if (!matterId) {
@@ -718,7 +822,7 @@ router.post('/service/run', async (req, res) => {
     });
 
     try {
-        const preview = await previewCclContext({
+        const compile = await compileCclContext({
             matterId,
             instructionRef,
             practiceArea,
@@ -729,7 +833,8 @@ router.post('/service/run', async (req, res) => {
             handlerName,
             handlerRole,
             handlerRate,
-        });
+        }, user, { persist: !skipCompilePersistence });
+        const preview = compile.preview;
 
         const aiResult = await runCclAiFill({
             matterId,
@@ -745,8 +850,13 @@ router.post('/service/run', async (req, res) => {
         }, user);
 
         const mergedDraft = mergeDraftWithAiFields(draftJson, aiResult.fields || {});
-        const missingDataFlags = buildMissingDataFlags(preview);
-        const sourceCoverage = buildSourceCoverage(preview);
+        // Inject handler context so mergeMatterFields can populate personnel fields
+        // even when team_assignments is absent (common in the AI-first flow)
+        if (handlerName && !mergedDraft.name_of_person_handling_matter) mergedDraft.name_of_person_handling_matter = handlerName;
+        if (handlerRole && !mergedDraft.status) mergedDraft.status = handlerRole;
+        if (handlerRate && !mergedDraft.handler_hourly_rate) mergedDraft.handler_hourly_rate = handlerRate;
+        const missingDataFlags = compile.missingDataFlags;
+        const sourceCoverage = compile.sourceCoverage;
         const provenance = {
             serviceVersion: 'ccl-service-v1',
             promptVersion: aiResult.promptVersion || CCL_PROMPT_VERSION,
@@ -758,6 +868,13 @@ router.post('/service/run', async (req, res) => {
             workbenchStage: stage || '',
             contextFields: preview.contextFields || {},
             contextSnippets: preview.snippets || {},
+            compile: {
+                trackingId: compile.trackingId,
+                traceId: compile.traceId,
+                durationMs: compile.durationMs,
+                createdAt: compile.createdAt,
+                summary: compile.summary,
+            },
             ai: {
                 source: aiResult.source || '',
                 confidence: aiResult.confidence || '',
@@ -802,6 +919,7 @@ router.post('/service/run', async (req, res) => {
             promptVersion: aiResult.promptVersion || CCL_PROMPT_VERSION,
             templateVersion: CCL_TEMPLATE_VERSION,
             preview,
+            compile,
             ai: aiResult,
             provenance,
         });
@@ -810,6 +928,64 @@ router.post('/service/run', async (req, res) => {
         trackException(err, { operation: 'CCL.Service.Run', matterId: String(matterId), triggeredBy: user });
         trackEvent('CCL.Service.Run.Failed', { matterId: String(matterId), triggeredBy: user, error: err.message });
         return res.status(500).json({ ok: false, error: 'Failed to run CCL service' });
+    }
+});
+
+router.post('/service/compile', async (req, res) => {
+    const {
+        matterId,
+        instructionRef,
+        practiceArea,
+        description,
+        clientName,
+        opponent,
+        enquiryNotes,
+        handlerName,
+        handlerRole,
+        handlerRate,
+    } = req.body || {};
+
+    if (!matterId) {
+        return res.status(400).json({ ok: false, error: 'matterId is required' });
+    }
+
+    const actor = resolveRequestActor(req);
+    const startMs = Date.now();
+    trackEvent('CCL.Service.Compile.Started', {
+        matterId: String(matterId),
+        instructionRef: String(instructionRef || ''),
+        triggeredBy: actor,
+    });
+
+    try {
+        const compile = await compileCclContext({
+            matterId,
+            instructionRef,
+            practiceArea,
+            description,
+            clientName,
+            opponent,
+            enquiryNotes,
+            handlerName,
+            handlerRole,
+            handlerRate,
+        }, actor, { persist: true });
+
+        const durationMs = Date.now() - startMs;
+        trackEvent('CCL.Service.Compile.Completed', {
+            matterId: String(matterId),
+            triggeredBy: actor,
+            durationMs: String(durationMs),
+            sourceCount: String(compile.summary.sourceCount || 0),
+            readyCount: String(compile.summary.readyCount || 0),
+        });
+        trackMetric('CCL.Service.Compile.Duration', durationMs, { matterId: String(matterId) });
+        return res.json({ ok: true, matterId, compile });
+    } catch (err) {
+        console.error('[ccl] service compile failed:', err.message);
+        trackException(err, { operation: 'CCL.Service.Compile', matterId: String(matterId), triggeredBy: actor });
+        trackEvent('CCL.Service.Compile.Failed', { matterId: String(matterId), triggeredBy: actor, error: err.message });
+        return res.status(500).json({ ok: false, error: 'Failed to compile CCL context' });
     }
 });
 
@@ -857,7 +1033,8 @@ router.get('/:matterId/workbench', async (req, res) => {
             handlerRate,
         }).catch(() => null);
 
-        const latestTrace = traces?.[0] || null;
+        const latestTrace = traces?.find((trace) => ['complete', 'partial', 'fallback'].includes(String(trace?.AiStatus || '').toLowerCase())) || null;
+        const latestCompileTrace = traces?.find((trace) => String(trace?.AiStatus || '').toLowerCase() === 'compiled') || null;
         const latestFields = draft || safeParseJson(latestContent?.FieldsJson, {}) || {};
         const provenance = safeParseJson(latestContent?.ProvenanceJson, {}) || {};
         const traceContextFields = safeParseJson(latestTrace?.ContextFieldsJson, {}) || {};
@@ -868,7 +1045,7 @@ router.get('/:matterId/workbench', async (req, res) => {
             const val = String(latestFields[key] || '').trim();
             if (val) fieldValues[key] = val.length > 300 ? val.slice(0, 300) + '…' : val;
         }
-        const serviceStatus = deriveServiceStatus({ latestContent, fieldSummary, matterCclDate: cclDate, latestTrace });
+        const serviceStatus = deriveServiceStatus({ latestContent, fieldSummary, matterCclDate: cclDate, latestTrace, latestCompileTrace });
         const sourcePreview = preview || {
             dataSources: provenance.dataSources || safeParseJson(latestTrace?.DataSourcesJson, []) || [],
             contextFields: provenance.contextFields || traceContextFields,
@@ -903,6 +1080,14 @@ router.get('/:matterId/workbench', async (req, res) => {
                 confidence: serviceStatus.confidence,
                 fieldSummary,
                 documentUrl: fs.existsSync(filePath(matterId)) ? `/ccls/${matterId}.docx` : null,
+                compiledAt: provenance.compile?.createdAt || latestCompileTrace?.CreatedAt || null,
+            },
+            compile: {
+                trackingId: provenance.compile?.trackingId || latestCompileTrace?.TrackingId || null,
+                traceId: provenance.compile?.traceId || latestCompileTrace?.CclAiTraceId || null,
+                createdAt: provenance.compile?.createdAt || latestCompileTrace?.CreatedAt || null,
+                durationMs: provenance.compile?.durationMs || latestCompileTrace?.DurationMs || null,
+                summary: provenance.compile?.summary || buildCompileSummary(sourcePreview, sourceCoverage, missingDataFlags),
             },
             prompt: {
                 version: provenance.promptVersion || sourcePreview.promptVersion || CCL_PROMPT_VERSION,
@@ -1033,7 +1218,7 @@ router.post('/batch-status', async (req, res) => {
         const result = await request.query(`
                  SELECT c.MatterId, c.Status, c.Version, c.FeeEarner,
                      c.PracticeArea, c.CreatedAt, c.ClientName, c.MatterDescription,
-                     c.FinalizedAt, c.UploadedToClio, c.UploadedToNd, c.FieldsJson,
+                     c.FinalizedAt, c.UploadedToClio, c.UploadedToNd, c.FieldsJson, c.ProvenanceJson,
                      t.Confidence AS TraceConfidence
             FROM CclContent c
                  LEFT JOIN CclAiTrace t ON c.AiTraceId = t.CclAiTraceId
@@ -1043,15 +1228,37 @@ router.post('/batch-status', async (req, res) => {
                 GROUP BY MatterId
             ) latest ON c.MatterId = latest.MatterId AND c.Version = latest.MaxV
         `);
+        const compileRequest = pool.request();
+        const compilePlaceholders = ids.map((id, i) => {
+            compileRequest.input(`cm${i}`, sql.NVarChar(50), String(id));
+            return `@cm${i}`;
+        });
+        const compileResult = await compileRequest.query(`
+            SELECT MatterId, TrackingId, CclAiTraceId, CreatedAt
+            FROM (
+                SELECT MatterId, TrackingId, CclAiTraceId, CreatedAt,
+                    ROW_NUMBER() OVER (PARTITION BY MatterId ORDER BY CreatedAt DESC, CclAiTraceId DESC) AS rn
+                FROM CclAiTrace
+                WHERE MatterId IN (${compilePlaceholders.join(',')})
+                  AND AiStatus = 'compiled'
+            ) ranked
+            WHERE rn = 1
+        `);
+        const latestCompileTraceByMatter = compileResult.recordset.reduce((acc, row) => {
+            acc[row.MatterId] = row;
+            return acc;
+        }, {});
         const results = {};
         for (const row of result.recordset) {
             const fields = safeParseJson(row.FieldsJson, {});
+            const provenance = safeParseJson(row.ProvenanceJson, {}) || {};
             const fieldSummary = buildFieldSummary(fields || {});
             const derivedStatus = deriveServiceStatus({
                 latestContent: row,
                 fieldSummary,
                 matterCclDate: null,
                 latestTrace: { Confidence: row.TraceConfidence || null },
+                latestCompileTrace: latestCompileTraceByMatter[row.MatterId] || null,
             });
             results[row.MatterId] = {
                 status: derivedStatus.key,
@@ -1067,6 +1274,7 @@ router.post('/batch-status', async (req, res) => {
                 clientName: row.ClientName,
                 matterDescription: row.MatterDescription,
                 createdAt: row.CreatedAt,
+                compiledAt: provenance.compile?.createdAt || latestCompileTraceByMatter[row.MatterId]?.CreatedAt || null,
                 generatedAt: row.CreatedAt,
                 finalizedAt: row.FinalizedAt || null,
                 reviewedAt: row.FinalizedAt || null,
@@ -1074,6 +1282,30 @@ router.post('/batch-status', async (req, res) => {
                 uploadedToClio: !!row.UploadedToClio,
                 uploadedToNd: !!row.UploadedToNd,
                 unresolvedCount: fieldSummary.missing,
+                compileSummary: provenance.compile?.summary || null,
+            };
+        }
+        const matterIdsWithContent = new Set(Object.keys(results));
+        for (const [matterId, compileTrace] of Object.entries(latestCompileTraceByMatter)) {
+            if (matterIdsWithContent.has(matterId)) continue;
+            results[matterId] = {
+                status: 'compiled',
+                rawStatus: 'compiled',
+                stage: 'compiled',
+                label: 'Compiled',
+                needsAttention: false,
+                attentionReason: 'none',
+                confidence: 'none',
+                version: 0,
+                createdAt: compileTrace.CreatedAt || null,
+                compiledAt: compileTrace.CreatedAt || null,
+                generatedAt: null,
+                finalizedAt: null,
+                reviewedAt: null,
+                sentAt: null,
+                uploadedToClio: false,
+                uploadedToNd: false,
+                unresolvedCount: 0,
             };
         }
         trackEvent('CCL.BatchStatus', { count: String(ids.length), found: String(Object.keys(results).length) });

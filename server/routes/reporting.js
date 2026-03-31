@@ -59,10 +59,10 @@ const datasetFetchers = {
     return cachedFetch(key, () => fetchRecoveredFees({ connectionString }), 120, bypassCache);
   },
   // 2 min - per-user summary; include user in key (kept short for near-realtime Home card)
-  recoveredFeesSummary: ({ connectionString, entraId, clioId, bypassCache }) => {
-    const who = entraId || (typeof clioId === 'number' ? `clio:${clioId}` : 'anon');
+  recoveredFeesSummary: ({ connectionString, entraId, clioId, bypassCache, firm }) => {
+    const who = firm ? 'firm' : (entraId || (typeof clioId === 'number' ? `clio:${clioId}` : 'anon'));
     const key = generateCacheKey('rpt', 'recoveredFeesSummary', who);
-    return cachedFetch(key, () => fetchRecoveredFeesSummary({ connectionString, entraId, clioId }), 120, bypassCache);
+    return cachedFetch(key, () => fetchRecoveredFeesSummary({ connectionString, entraId, clioId, firm }), 120, bypassCache);
   },
   // 5 min - current week WIP from Clio; user-specific when entraId provided
   wipClioCurrentWeek: ({ connectionString, entraId, bypassCache }) => {
@@ -83,6 +83,11 @@ const datasetFetchers = {
   instructions: ({ connectionString, bypassCache }) => {
     const key = generateCacheKey('rpt', 'instructions');
     return cachedFetch(key, () => fetchInstructions({ connectionString }), 900, bypassCache);
+  },
+  // 5 min - Dubber call recordings for Calls Report
+  dubberCalls: ({ bypassCache }) => {
+    const key = generateCacheKey('rpt', 'dubberCalls');
+    return cachedFetch(key, () => fetchDubberCalls(), 300, bypassCache);
   },
 };
 
@@ -106,6 +111,7 @@ router.get('/management-datasets', async (req, res) => {
     : null;
   const clioId = Number.isNaN(clioIdCandidate ?? NaN) ? null : clioIdCandidate;
   const bypassCache = String(req.query.bypassCache || '').toLowerCase() === 'true';
+  const firm = String(req.query.firm || '').toLowerCase() === 'true';
 
   const cacheKey = `${entraId || 'anon'}|${requestedDatasets.join(',')}`;
   const cachedEntry = cache.get(cacheKey);
@@ -127,7 +133,7 @@ router.get('/management-datasets', async (req, res) => {
     const fetcher = datasetFetchers[datasetKey];
     if (!fetcher) return;
     try {
-      responsePayload[datasetKey] = await fetcher({ connectionString, entraId, clioId, bypassCache });
+      responsePayload[datasetKey] = await fetcher({ connectionString, entraId, clioId, bypassCache, firm });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error(`Reporting dataset fetch failed for ${datasetKey}:`, message);
@@ -141,7 +147,7 @@ router.get('/management-datasets', async (req, res) => {
     const fetcher = datasetFetchers[datasetKey];
     if (!fetcher) continue;
     try {
-      responsePayload[datasetKey] = await fetcher({ connectionString, entraId, clioId, bypassCache });
+      responsePayload[datasetKey] = await fetcher({ connectionString, entraId, clioId, bypassCache, firm });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error(`Reporting dataset fetch failed for ${datasetKey}:`, message);
@@ -589,9 +595,16 @@ async function getClioCredentialsCached() {
   return credentials;
 }
 
-async function getClioAccessToken() {
+async function getClioAccessToken(forceRefresh = false) {
   const cacheKey = 'clio:accessToken';
   
+  // If forcing refresh, clear caches first
+  if (forceRefresh) {
+    cache.delete(cacheKey);
+    const rc = await getRedisClient();
+    if (rc) { try { await rc.del(generateCacheKey('rpt', cacheKey)); } catch { /* ignore */ } }
+  }
+
   // Check Redis first, then fallback to in-memory cache
   const redisClient = await getRedisClient();
   if (redisClient) {
@@ -685,7 +698,7 @@ async function fetchWipClioCurrentWeek({ connectionString, entraId }) {
   // Fetch user-specific current week activities and return structured daily data
   const startedAt = Date.now();
   try {
-    const accessToken = await getClioAccessToken();
+    let accessToken = await getClioAccessToken();
     
     // Get user's Clio ID if entraId is provided
     let userClioId = null;
@@ -722,9 +735,18 @@ async function fetchWipClioCurrentWeek({ connectionString, entraId }) {
     
     console.log(`[WipClio] Fetching ${userClioId ? `user ${userClioId}` : 'TEAM-WIDE'} activities from ${startDate} to ${endDate}`);
     
-    // Fetch activities from Clio API
+    // Fetch activities from Clio API with 401 retry
     // Pass userClioId to filter at API level (more efficient than post-filtering)
-    let activities = await fetchAllClioActivities(startDate, endDate, accessToken, userClioId);
+    let activities;
+    try {
+      activities = await fetchAllClioActivities(startDate, endDate, accessToken, userClioId);
+    } catch (err) {
+      const is401 = String(err?.message || '').includes('401');
+      if (!is401) throw err;
+      console.log('[WipClio] Clio 401 detected; refreshing access token...');
+      accessToken = await getClioAccessToken(true);
+      activities = await fetchAllClioActivities(startDate, endDate, accessToken, userClioId);
+    }
     
     // Log the results
     if (userClioId) {
@@ -936,41 +958,46 @@ async function fetchRecoveredFees({ connectionString }) {
   });
 }
 
-async function fetchRecoveredFeesSummary({ connectionString, entraId, clioId }) {
-  let effectiveClioId = typeof clioId === 'number' ? clioId : null;
+async function fetchRecoveredFeesSummary({ connectionString, entraId, clioId, firm }) {
+  // Firm-wide mode: skip user resolution and query all collected time
+  if (firm) {
+    console.log('[RecoveredFees] Firm-wide query (no user filter)');
+  } else {
+    var effectiveClioId = typeof clioId === 'number' ? clioId : null;
 
-  if (!effectiveClioId && entraId && connectionString) {
-    try {
-      const userData = await withRequest(connectionString, async (request, sqlClient) => {
-        request.input('entraId', sqlClient.NVarChar, entraId);
-        const result = await request.query(`
-          SELECT [Clio ID]
-          FROM [dbo].[team]
-          WHERE [Entra ID] = @entraId
-        `);
-        return Array.isArray(result.recordset) ? result.recordset : [];
-      });
-      const resolved = userData?.[0]?.['Clio ID'];
-      if (resolved != null) {
-        const parsed = Number(resolved);
-        if (!Number.isNaN(parsed)) {
-          effectiveClioId = parsed;
+    if (!effectiveClioId && entraId && connectionString) {
+      try {
+        const userData = await withRequest(connectionString, async (request, sqlClient) => {
+          request.input('entraId', sqlClient.NVarChar, entraId);
+          const result = await request.query(`
+            SELECT [Clio ID]
+            FROM [dbo].[team]
+            WHERE [Entra ID] = @entraId
+          `);
+          return Array.isArray(result.recordset) ? result.recordset : [];
+        });
+        const resolved = userData?.[0]?.['Clio ID'];
+        if (resolved != null) {
+          const parsed = Number(resolved);
+          if (!Number.isNaN(parsed)) {
+            effectiveClioId = parsed;
+          }
         }
+      } catch (lookupError) {
+        console.warn('Failed to resolve Clio ID for recovered fees summary:', lookupError.message);
       }
-    } catch (lookupError) {
-      console.warn('Failed to resolve Clio ID for recovered fees summary:', lookupError.message);
     }
-  }
 
-  if (!effectiveClioId) {
-    console.log('[RecoveredFees] No Clio ID found, returning zeros');
-    return {
-      currentMonthTotal: 0,
-      previousMonthTotal: 0,
-    };
-  }
+    if (!effectiveClioId) {
+      console.log('[RecoveredFees] No Clio ID found, returning zeros');
+      return {
+        currentMonthTotal: 0,
+        previousMonthTotal: 0,
+      };
+    }
 
-  console.log(`[RecoveredFees] Querying for Clio ID: ${effectiveClioId}`);
+    console.log(`[RecoveredFees] Querying for Clio ID: ${effectiveClioId}`);
+  }
 
   const now = new Date();
   const currentStart = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -986,11 +1013,14 @@ async function fetchRecoveredFeesSummary({ connectionString, entraId, clioId }) 
   console.log(`[RecoveredFees] Date ranges: Current=${formatDateOnly(currentStart)} to ${formatDateOnly(currentEnd)}, Prev=${formatDateOnly(previousStart)} to ${formatDateOnly(previousEnd)}`);
 
   return withRequest(connectionString, async (request, sqlClient) => {
-    request.input('userId', sqlClient.Int, effectiveClioId);
     request.input('prevStart', sqlClient.Date, formatDateOnly(previousStart));
     request.input('prevEnd', sqlClient.Date, formatDateOnly(previousEnd));
     request.input('currentStart', sqlClient.Date, formatDateOnly(currentStart));
     request.input('currentEnd', sqlClient.Date, formatDateOnly(currentEnd));
+
+    if (!firm) {
+      request.input('userId', sqlClient.Int, effectiveClioId);
+    }
 
     const result = await request.query(`
       SELECT
@@ -998,7 +1028,7 @@ async function fetchRecoveredFeesSummary({ connectionString, entraId, clioId }) 
         SUM(CASE WHEN payment_date BETWEEN @prevStart AND @prevEnd THEN payment_allocated ELSE 0 END) AS prev_total
       FROM [dbo].[collectedTime]
       WHERE payment_date BETWEEN @prevStart AND @currentEnd
-        AND user_id = @userId
+        ${firm ? '' : 'AND user_id = @userId'}
     `);
 
     const record = Array.isArray(result.recordset) && result.recordset.length > 0
@@ -1011,7 +1041,7 @@ async function fetchRecoveredFeesSummary({ connectionString, entraId, clioId }) 
     const currentHours = 0;
     const previousHours = 0;
 
-    console.log(`[RecoveredFees] Results for Clio ID ${effectiveClioId}: Current=${currentTotal} (${currentHours}h), Previous=${previousTotal} (${previousHours}h)`);
+    console.log(`[RecoveredFees] Results${firm ? ' (FIRM)' : ` for Clio ID ${effectiveClioId}`}: Current=${currentTotal} (${currentHours}h), Previous=${previousTotal} (${previousHours}h)`);
 
     return {
       currentMonthTotal: currentTotal,
@@ -1184,6 +1214,168 @@ async function fetchInstructions({ connectionString }) {
     });
   } catch (error) {
     console.error('[Reporting] Instructions fetch error:', error);
+    return [];
+  }
+}
+
+/**
+ * Fetch Dubber call recordings with enquiry cross-reference and summaries.
+ * Queries Instructions DB (dubber_recordings, dubber_recording_summaries)
+ * and Core Data DB (enquiries) for phone-based matching.
+ */
+async function fetchDubberCalls() {
+  const instrConnStr = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
+  const coreConnStr = process.env.SQL_CONNECTION_STRING;
+  if (!instrConnStr) return [];
+
+  try {
+    // 1) Pull recordings + summaries from Instructions DB
+    const recordings = await withRequest(instrConnStr, async (request) => {
+      const result = await request.query(`
+        SELECT
+          r.recording_id,
+          r.from_party,
+          r.from_label,
+          r.to_party,
+          r.to_label,
+          r.call_type,
+          r.recording_type,
+          r.duration_seconds,
+          r.start_time_utc,
+          r.document_sentiment_score,
+          r.ai_document_sentiment,
+          r.channel,
+          r.status,
+          r.matched_team_initials,
+          r.matched_team_email,
+          r.match_strategy,
+          r.document_emotion_json,
+          s.summary_text
+        FROM [dbo].[dubber_recordings] r WITH (NOLOCK)
+        LEFT JOIN [dbo].[dubber_recording_summaries] s WITH (NOLOCK)
+          ON r.recording_id = s.recording_id AND s.summary_source = 'dubber_ai'
+        ORDER BY r.start_time_utc DESC
+      `);
+      return Array.isArray(result.recordset) ? result.recordset : [];
+    });
+
+    if (!recordings.length) return [];
+
+    // 1b) Pull all transcript sentences in one query
+    const transcriptRows = await withRequest(instrConnStr, async (request) => {
+      const result = await request.query(`
+        SELECT recording_id, sentence_index, speaker, content, sentiment
+        FROM [dbo].[dubber_transcript_sentences] WITH (NOLOCK)
+        ORDER BY recording_id, sentence_index
+      `);
+      return Array.isArray(result.recordset) ? result.recordset : [];
+    });
+
+    // Build recording_id → sentences lookup
+    const transcriptMap = new Map();
+    for (const row of transcriptRows) {
+      if (!transcriptMap.has(row.recording_id)) transcriptMap.set(row.recording_id, []);
+      transcriptMap.get(row.recording_id).push({
+        sentence_index: row.sentence_index,
+        speaker: row.speaker || null,
+        content: row.content || '',
+        sentiment: row.sentiment != null ? Number(row.sentiment) : null,
+      });
+    }
+
+    // 2) Pull Core Data enquiries for phone cross-referencing
+    let enquiries = [];
+    if (coreConnStr) {
+      try {
+        enquiries = await withRequest(coreConnStr, async (request) => {
+          const result = await request.query(`
+            SELECT ID, First_Name, Last_Name, Phone_Number, Area_of_Work
+            FROM [dbo].[enquiries] WITH (NOLOCK)
+            WHERE Phone_Number IS NOT NULL AND LEN(Phone_Number) > 6
+          `);
+          return Array.isArray(result.recordset) ? result.recordset : [];
+        });
+      } catch { /* non-fatal — proceed without enquiry matches */ }
+    }
+
+    // 3) Build normalised phone → enquiry lookup
+    const normDigits = (raw) => {
+      if (!raw) return '';
+      let d = raw.replace(/\D/g, '');
+      if (d.startsWith('44')) d = d.slice(2);
+      if (d.startsWith('0')) d = d.slice(1);
+      return d;
+    };
+
+    const phoneMap = new Map();
+    const nameMap = new Map();
+    for (const e of enquiries) {
+      const entry = {
+        name: [e.First_Name, e.Last_Name].filter(Boolean).join(' '),
+        id: e.ID,
+        aow: e.Area_of_Work,
+      };
+      const nd = normDigits(e.Phone_Number);
+      if (nd.length >= 7) phoneMap.set(nd, entry);
+      if (entry.name) nameMap.set(entry.name.toLowerCase(), entry);
+    }
+
+    // 4) Enrich recordings
+    // Helper: detect if a string looks like a phone number (digits, +, spaces, dashes)
+    const looksLikePhone = (s) => s && /^\+?[\d\s\-().]{7,}$/.test(s.trim());
+
+    return recordings.map((r) => {
+      // Determine if internal (both parties matched to team members or same domain)
+      const is_internal = !!(r.matched_team_initials && r.match_strategy === 'internal');
+
+      // Try phone match — pick whichever party field contains a phone number
+      const candidates = [r.from_party, r.to_party, r.from_label, r.to_label].filter(Boolean);
+      const phoneCandidates = candidates.filter(looksLikePhone);
+      // Also try name-based matching on non-phone candidates
+      const nameCandidates = candidates.filter(c => !looksLikePhone(c));
+
+      let match;
+      // First: try phone number matching
+      for (const p of phoneCandidates) {
+        const nd = normDigits(p);
+        if (nd.length >= 7) { match = phoneMap.get(nd); if (match) break; }
+      }
+      // Fallback: try name matching against enquiry names
+      if (!match) {
+        for (const n of nameCandidates) {
+          match = nameMap.get(n.toLowerCase().trim());
+          if (match) break;
+        }
+      }
+
+      return {
+        recording_id: r.recording_id,
+        from_party: r.from_party,
+        from_label: r.from_label,
+        to_party: r.to_party,
+        to_label: r.to_label,
+        call_type: r.call_type,
+        recording_type: r.recording_type || null,
+        duration_seconds: r.duration_seconds,
+        start_time_utc: r.start_time_utc,
+        document_sentiment_score: r.document_sentiment_score,
+        ai_document_sentiment: r.ai_document_sentiment,
+        channel: r.channel,
+        status: r.status,
+        matched_team_initials: r.matched_team_initials,
+        matched_team_email: r.matched_team_email,
+        match_strategy: r.match_strategy,
+        document_emotion_json: r.document_emotion_json,
+        is_internal,
+        resolved_name: match?.name || null,
+        enquiry_ref: match?.id ? String(match.id) : null,
+        area_of_work: match?.aow || null,
+        summary_text: r.summary_text || null,
+        transcript: transcriptMap.get(r.recording_id) || [],
+      };
+    });
+  } catch (error) {
+    console.error('[Reporting] DubberCalls fetch error:', error);
     return [];
   }
 }

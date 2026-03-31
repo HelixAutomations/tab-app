@@ -42,8 +42,36 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
   // Only the initial skeleton→live transition gets staggered chip animation;
   // subsequent list updates (new actions arriving) render without replaying it.
   const hasRenderedLive = useRef(false);
+  const sectionRef = useRef<HTMLDivElement | null>(null);
+  const [layoutMode, setLayoutMode] = useState<'flow' | 'split' | 'stacked' | 'single'>('flow');
 
   const actions = immediateActionsList;
+
+  useEffect(() => {
+    const element = sectionRef.current;
+    if (!element) return undefined;
+
+    const updateLayout = (width: number) => {
+      if (width <= 430) {
+        setLayoutMode('single');
+      } else if (width <= 720) {
+        setLayoutMode('stacked');
+      } else if (width <= 980) {
+        setLayoutMode('split');
+      } else {
+        setLayoutMode('flow');
+      }
+    };
+
+    updateLayout(element.getBoundingClientRect().width);
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        updateLayout(entry.contentRect.width);
+      }
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
 
   // Progressive display: show chips the moment they exist, don't wait for
   // all deps to finish. Skeletons only when the list is empty AND still loading.
@@ -72,6 +100,14 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
   const showSkeletons = !hasActions && stillLoading;
   // Show chips whenever they exist — even if more data is still loading
   const showChips = hasActions;
+  const shouldWrapChipText = layoutMode === 'stacked' || layoutMode === 'single';
+  const chipGridTemplateColumns = layoutMode === 'single'
+    ? '1fr'
+    : layoutMode === 'stacked'
+      ? 'repeat(2, minmax(0, 1fr))'
+      : layoutMode === 'split'
+        ? 'repeat(auto-fit, minmax(220px, 1fr))'
+        : 'repeat(auto-fit, minmax(180px, 1fr))';
 
   // Toggle collapse and persist
   const toggleCollapse = () => {
@@ -117,65 +153,66 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
 
   return (
     <Section isDark={isDark} seamless={seamless} highlighted={highlighted}>
-      <HeaderRow>
-        <CollapseChevron 
-          isCollapsed={isCollapsed} 
-          onClick={toggleCollapse} 
-          isDark={isDark}
-          accent={interactiveAccent}
-          hoverBg={interactiveHoverBg}
-        />
-        {actions.length > 0 && <CountBadge isDark={isDark}>{totalCount}</CountBadge>}
-        {!immediateActionsReady && <Spinner isDark={isDark} />}
-        {showSuccess && <SuccessCheck />}
-      </HeaderRow>
+      <div ref={sectionRef} className={`iab-shell iab-shell-${layoutMode}`} style={{ width: '100%', minWidth: 0 }}>
+        <HeaderRow layoutMode={layoutMode}>
+          <CollapseChevron 
+            isCollapsed={isCollapsed} 
+            onClick={toggleCollapse} 
+            isDark={isDark}
+            accent={interactiveAccent}
+            hoverBg={interactiveHoverBg}
+          />
+          {actions.length > 0 && <CountBadge isDark={isDark}>{totalCount}</CountBadge>}
+          {!immediateActionsReady && <Spinner isDark={isDark} />}
+          {showSuccess && <SuccessCheck />}
+        </HeaderRow>
 
-      {!isCollapsed && (
-        <div className="iab-chip-grid" style={{ 
-          display: 'flex', 
-          alignItems: 'stretch',
-          flexWrap: 'wrap',
-          width: '100%',
-          minHeight: 32,
-          minWidth: 0,
-          gap: 6,
-          paddingLeft: 6,
-          paddingTop: 2,
-          position: 'relative',
-          transition: 'opacity 0.18s ease',
-        }}>
-          {showSkeletons && (
-            <>
-              <SkeletonChip isDark={isDark} />
-              <SkeletonChip isDark={isDark} />
-              <SkeletonChip isDark={isDark} />
-            </>
-          )}
+        {!isCollapsed && (
+          <div className={`iab-chip-grid iab-chip-grid-${layoutMode}`} style={{ 
+            display: 'grid',
+            gridTemplateColumns: chipGridTemplateColumns,
+            alignItems: 'stretch',
+            width: '100%',
+            minHeight: 32,
+            minWidth: 0,
+            gap: layoutMode === 'flow' ? 6 : 8,
+            paddingLeft: 0,
+            paddingTop: layoutMode === 'flow' ? 2 : 4,
+            position: 'relative',
+            transition: 'opacity 0.18s ease',
+          }}>
+            {showSkeletons && (
+              <>
+                <SkeletonChip isDark={isDark} />
+                <SkeletonChip isDark={isDark} />
+                <SkeletonChip isDark={isDark} />
+              </>
+            )}
 
-          {showChips && actions.map((action, idx) => {
-            // Animate only the very first skeleton→live transition;
-            // subsequent list updates render instantly without replaying.
-            const shouldAnimate = !hasRenderedLive.current;
-            return (
-            <div 
-              key={`${action.title}-${idx}`} 
-              style={{ position: 'relative', animation: shouldAnimate ? `iabChipIn 0.22s ease ${idx * 0.035}s both` : 'none' }}
-            >
-              <ImmediateActionChip
-                title={action.title}
-                icon={action.icon}
-                category={action.category}
-                count={action.count}
-                totalCount={action.totalCount}
-                onClick={action.onClick}
-                disabled={action.disabled}
-                isDarkMode={isDark}
-              />
-            </div>
-            );
-          })}
-        </div>
-      )}
+            {showChips && actions.map((action, idx) => {
+              const shouldAnimate = !hasRenderedLive.current;
+              return (
+              <div 
+                key={`${action.title}-${idx}`} 
+                style={{ position: 'relative', minWidth: 0, animation: shouldAnimate ? `iabChipIn 0.22s ease ${idx * 0.035}s both` : 'none' }}
+              >
+                <ImmediateActionChip
+                  title={action.title}
+                  icon={action.icon}
+                  category={action.category}
+                  count={action.count}
+                  totalCount={action.totalCount}
+                  onClick={action.onClick}
+                  disabled={action.disabled}
+                  isDarkMode={isDark}
+                  allowWrap={shouldWrapChipText}
+                />
+              </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </Section>
   );
 };
@@ -206,9 +243,9 @@ const Section: React.FC<{ isDark: boolean; seamless?: boolean; highlighted?: boo
   <section style={{
     padding: seamless ? '4px 0 6px' : quiet ? '4px 0 6px' : '4px 0 6px',
     minHeight: quiet ? 40 : 56,
-    background: isDark ? colours.websiteBlue : colours.light.background,
+    background: isDark ? 'rgba(6, 23, 51, 0.55)' : '#FFFFFF',
     border: 'none',
-    borderBottom: `1px solid ${isDark ? 'rgba(75, 85, 99, 0.22)' : 'rgba(6, 23, 51, 0.06)'}`,
+    borderBottom: `1px solid ${isDark ? 'rgba(54, 144, 206, 0.08)' : 'rgba(13, 47, 96, 0.08)'}`,
     boxShadow: 'none',
     paddingInline: quiet ? '10px' : '12px',
     marginBottom: 0,
@@ -218,14 +255,15 @@ const Section: React.FC<{ isDark: boolean; seamless?: boolean; highlighted?: boo
   </section>
 );
 
-const HeaderRow: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+const HeaderRow: React.FC<{ children: React.ReactNode; layoutMode: 'flow' | 'split' | 'stacked' | 'single' }> = ({ children, layoutMode }) => (
   <div style={{
     display: 'flex',
     alignItems: 'center',
+    flexWrap: layoutMode === 'single' ? 'wrap' : 'nowrap',
     gap: 6,
     width: '100%',
     minWidth: 0,
-    marginBottom: 1,
+    marginBottom: layoutMode === 'flow' ? 1 : 3,
   }}>
     {children}
   </div>
@@ -364,16 +402,18 @@ if (typeof document !== 'undefined' && !document.head.querySelector(`style[data-
       to { opacity: 1; }
     }
     .iab-chip-grid > div {
-      flex: 1 1 180px;
       min-width: 0;
-      max-width: 260px;
+    }
+    .iab-shell-stacked .iab-chip-grid,
+    .iab-shell-single .iab-chip-grid {
+      align-items: stretch;
     }
     @media (max-width: 640px) {
-      .iab-chip-grid { gap: 4px !important; padding-left: 8px !important; }
-      .iab-chip-grid > div { flex: 1 1 100% !important; min-width: 0 !important; max-width: none !important; }
+      .iab-chip-grid { gap: 6px !important; }
+      .iab-chip-grid > div { min-width: 0 !important; max-width: none !important; }
     }
     @media (max-width: 420px) {
-      .iab-chip-grid > div { flex: 1 1 100% !important; }
+      .iab-chip-grid { grid-template-columns: 1fr !important; }
     }
   `;
   document.head.appendChild(s);

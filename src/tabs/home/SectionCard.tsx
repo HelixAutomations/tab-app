@@ -34,24 +34,24 @@ const baseClass = (isDark: boolean, variant: string, animationDelay: number) => 
   // Dark: solid brand surfaces. Light: helix grey cards on white canvas.
   background: isDark
     ? (variant === 'minimal'
-      ? colours.dark.background
-      : colours.dark.sectionBackground)
+      ? 'rgba(6, 23, 51, 0.55)'
+      : 'rgba(6, 23, 51, 0.55)')
     : (variant === 'minimal'
       ? '#FFFFFF'
-      : colours.grey),
+      : '#FFFFFF'),
   padding: variant === 'minimal' ? '12px' : '18px',
   borderRadius: '2px',
   border: isDark
-    ? `1px solid rgba(54, 144, 206, 0.18)`
-    : 'none',
+    ? `1px solid rgba(54, 144, 206, 0.08)`
+    : `1px solid rgba(13, 47, 96, 0.08)`,
   borderLeft: isDark
     ? undefined
-    : `4px solid ${colours.highlightBlue}`,
+    : undefined,
   boxShadow: isDark
     ? (variant === 'elevated'
-      ? '0 4px 20px rgba(0,0,0,0.5)'
-      : '0 2px 12px rgba(0,0,0,0.4)')
-    : 'none',
+      ? '0 4px 16px rgba(0,0,0,0.3), 0 0 0 1px rgba(135,243,243,0.08)'
+      : 'none')
+    : 'inset 0 0 0 1px rgba(13,47,96,0.06), 0 1px 4px rgba(13,47,96,0.04)',
   width: '100%',
   display: 'flex',
   flexDirection: 'column',
@@ -74,13 +74,13 @@ const baseClass = (isDark: boolean, variant: string, animationDelay: number) => 
   } : {}),
   '&:hover': isDark
     ? {
-      borderColor: 'rgba(54, 144, 206, 0.3)',
+      borderColor: 'rgba(135, 243, 243, 0.18)',
       boxShadow: variant === 'elevated'
-        ? '0 6px 28px rgba(0,0,0,0.5)'
-        : '0 4px 20px rgba(0,0,0,0.45)',
+        ? '0 4px 16px rgba(0,0,0,0.3), 0 0 0 1px rgba(135,243,243,0.08)'
+        : '0 4px 16px rgba(0,0,0,0.3), 0 0 0 1px rgba(135,243,243,0.08)',
     }
     : {
-      boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+      boxShadow: '0 4px 16px rgba(13,47,96,0.10), inset 0 0 0 1px rgba(13,47,96,0.10)',
     },
 });
 

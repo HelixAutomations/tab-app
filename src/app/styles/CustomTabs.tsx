@@ -23,6 +23,7 @@ import { canSeePrivateHubControls, isAdminUser } from '../../app/admin';
 interface CustomTabsProps {
   selectedKey: string;
   onTabSelect: (key: string) => void;
+  onTabWarm?: (key: string) => void;
   tabs: Tab[];
   ariaLabel?: string;
   onHomeClick: () => void;
@@ -55,6 +56,7 @@ interface CustomTabsProps {
 const CustomTabs: React.FC<CustomTabsProps> = ({
   selectedKey,
   onTabSelect,
+  onTabWarm,
   tabs,
   ariaLabel,
   onHomeClick,
@@ -275,6 +277,8 @@ const CustomTabs: React.FC<CustomTabsProps> = ({
                 role="tab"
                 aria-selected={active}
                 onClick={() => handleTabClick(tab)}
+                onMouseEnter={() => onTabWarm?.(tab.key)}
+                onFocus={() => onTabWarm?.(tab.key)}
                 title={tab.text}
                 className={`custom-tab-btn${active ? ' custom-tab-active' : ''}`}
                 style={{

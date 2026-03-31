@@ -1,7 +1,6 @@
 const express = require('express');
-const sql = require('mssql');
 const { trackEvent, trackException } = require('../utils/appInsights');
-const { withRequest } = require('../utils/db');
+const { sql, getPool, withRequest } = require('../utils/db');
 const { getCache, setCache, generateCacheKey, deleteCache } = require('../utils/redisClient');
 
 const router = express.Router();
@@ -15,6 +14,14 @@ async function invalidateV2Cache() {
     await deleteCache([v2CacheKey('mtd'), v2CacheKey('week'), v2CacheKey('today')]);
   } catch { /* non-critical */ }
 }
+
+const serialiseTransactionV2Row = (row) => ({
+  ...row,
+  transaction_date: row?.transaction_date ? new Date(row.transaction_date).toISOString() : null,
+  created_at: row?.created_at ? new Date(row.created_at).toISOString() : null,
+  updated_at: row?.updated_at ? new Date(row.updated_at).toISOString() : null,
+  approved_at: row?.approved_at ? new Date(row.approved_at).toISOString() : null,
+});
 
 /**
  * GET /api/transactions-v2
@@ -67,13 +74,7 @@ router.get('/', async (req, res) => {
       return request.query(query);
     });
 
-    const items = (result.recordset || []).map(row => ({
-      ...row,
-      transaction_date: row.transaction_date ? new Date(row.transaction_date).toISOString() : null,
-      created_at: row.created_at ? new Date(row.created_at).toISOString() : null,
-      updated_at: row.updated_at ? new Date(row.updated_at).toISOString() : null,
-      approved_at: row.approved_at ? new Date(row.approved_at).toISOString() : null,
-    }));
+    const items = (result.recordset || []).map(serialiseTransactionV2Row);
 
     const response = { success: true, items, count: items.length };
     setCache(cacheKey, response, V2_CACHE_TTL).catch(() => {});
@@ -185,6 +186,157 @@ router.post('/', async (req, res) => {
     trackException(error, { operation: 'TransactionsV2.Create', phase: 'insert' });
     trackEvent('TransactionsV2.CreateFailed', { error: error.message });
     res.status(500).json({ error: 'Failed to create transaction' });
+  }
+});
+
+/**
+ * POST /api/transactions-v2/:id/convert-to-request
+ * Convert an aged debt suggestion into a live pending transfer request.
+ * Body: { userInitials }
+ */
+router.post('/:id/convert-to-request', async (req, res) => {
+  let transaction;
+
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) return res.status(400).json({ error: 'Invalid transaction ID' });
+
+    const { userInitials } = req.body || {};
+    if (!userInitials) {
+      return res.status(400).json({ error: 'userInitials is required' });
+    }
+
+    trackEvent('TransactionsV2.DebtConvertStarted', { id: String(id), userInitials });
+
+    const connStr = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
+    if (!connStr) return res.status(500).json({ error: 'Missing database connection' });
+
+    const pool = await getPool(connStr);
+    transaction = new sql.Transaction(pool);
+    await transaction.begin();
+
+    const debtResult = await new sql.Request(transaction)
+      .input('id', sql.Int, id)
+      .query(`
+        SELECT TOP 1 *
+        FROM transactions_v2
+        WHERE id = @id AND source_type = 'aged_debt'
+      `);
+
+    const debt = debtResult.recordset?.[0];
+    if (!debt) {
+      await transaction.rollback();
+      return res.status(404).json({ error: 'Aged debt record not found' });
+    }
+
+    const debtStatus = String(debt.lifecycle_status || 'pending').toLowerCase();
+    if (!['pending', 'rejected'].includes(debtStatus)) {
+      await transaction.rollback();
+      return res.status(409).json({ error: 'This aged debt has already been actioned' });
+    }
+
+    const now = new Date();
+    const requestNotes = [
+      debt.notes,
+      `Converted from aged debt #${id} by ${userInitials}`,
+    ].filter(Boolean).join(' | ');
+    const debtActionNotes = [
+      debt.action_notes,
+      `Queued as transfer request by ${userInitials}`,
+    ].filter(Boolean).join(' | ');
+
+    const insertResult = await new sql.Request(transaction)
+      .input('sourceType', sql.NVarChar, 'aged_debt_request')
+      .input('matterRef', sql.NVarChar, debt.matter_ref)
+      .input('matterDescription', sql.NVarChar, debt.matter_description || null)
+      .input('feeEarner', sql.NVarChar, debt.fee_earner || null)
+      .input('amount', sql.Decimal(18, 2), debt.amount)
+      .input('transactionDate', sql.Date, now)
+      .input('transactionTime', sql.Time, null)
+      .input('fromClient', sql.Bit, debt.from_client ? 1 : 0)
+      .input('moneySender', sql.NVarChar, debt.money_sender || null)
+      .input('transactionType', sql.NVarChar, debt.transaction_type || 'receipt')
+      .input('createdBy', sql.NVarChar, userInitials)
+      .input('notes', sql.NVarChar, requestNotes || null)
+      .input('actionNotes', sql.NVarChar, `Created from aged debt #${id}`)
+      .input('matterId', sql.Int, debt.matter_id || null)
+      .input('instructionRef', sql.NVarChar, debt.instruction_ref || null)
+      .input('vatAmount', sql.Decimal(18, 2), debt.vat_amount || null)
+      .input('cardId', sql.NVarChar, debt.card_id || null)
+      .input('acid', sql.NVarChar, debt.acid || null)
+      .input('collaborators', sql.NVarChar, debt.collaborators || null)
+      .input('debitAccount', sql.NVarChar, debt.debit_account || null)
+      .input('payeeName', sql.NVarChar, debt.payee_name || null)
+      .input('paymentReference', sql.NVarChar, debt.payment_reference || null)
+      .input('sortCode', sql.NVarChar, debt.sort_code || null)
+      .input('accountNumber', sql.NVarChar, debt.account_number || null)
+      .input('bankVerified', sql.Bit, debt.bank_verified != null ? (debt.bank_verified ? 1 : 0) : null)
+      .input('invoiceNumber', sql.NVarChar, debt.invoice_number || null)
+      .input('clientId', sql.Int, debt.client_id || null)
+      .input('clientFirstName', sql.NVarChar, debt.client_first_name || null)
+      .input('clientLastName', sql.NVarChar, debt.client_last_name || null)
+      .input('clientEmail', sql.NVarChar, debt.client_email || null)
+      .input('companyName', sql.NVarChar, debt.company_name || null)
+      .query(`
+        INSERT INTO transactions_v2 (
+          source_type, matter_ref, matter_description, fee_earner,
+          amount, transaction_date, transaction_time, from_client, money_sender,
+          transaction_type, lifecycle_status, created_by, notes, action_notes,
+          matter_id, instruction_ref, vat_amount, card_id, acid,
+          collaborators, debit_account, payee_name, payment_reference,
+          sort_code, account_number, bank_verified, invoice_number,
+          client_id, client_first_name, client_last_name, client_email, company_name
+        )
+        OUTPUT INSERTED.*
+        VALUES (
+          @sourceType, @matterRef, @matterDescription, @feeEarner,
+          @amount, @transactionDate, @transactionTime, @fromClient, @moneySender,
+          @transactionType, 'pending', @createdBy, @notes, @actionNotes,
+          @matterId, @instructionRef, @vatAmount, @cardId, @acid,
+          @collaborators, @debitAccount, @payeeName, @paymentReference,
+          @sortCode, @accountNumber, @bankVerified, @invoiceNumber,
+          @clientId, @clientFirstName, @clientLastName, @clientEmail, @companyName
+        )
+      `);
+
+    const updateDebtResult = await new sql.Request(transaction)
+      .input('id', sql.Int, id)
+      .input('newStatus', sql.NVarChar, 'converted_to_request')
+      .input('approvedBy', sql.NVarChar, userInitials)
+      .input('actionNotes', sql.NVarChar, debtActionNotes)
+      .query(`
+        UPDATE transactions_v2
+        SET lifecycle_status = @newStatus,
+            approved_by = @approvedBy,
+            approved_at = GETUTCDATE(),
+            updated_at = GETUTCDATE(),
+            action_notes = @actionNotes
+        OUTPUT INSERTED.*
+        WHERE id = @id AND source_type = 'aged_debt'
+      `);
+
+    await transaction.commit();
+
+    const transfer = serialiseTransactionV2Row(insertResult.recordset?.[0]);
+    const updatedDebt = serialiseTransactionV2Row(updateDebtResult.recordset?.[0]);
+
+    trackEvent('TransactionsV2.DebtConvertCompleted', {
+      id: String(id),
+      userInitials,
+      transferId: String(transfer?.id || ''),
+      matterRef: debt.matter_ref || '',
+    });
+
+    invalidateV2Cache();
+    res.json({ success: true, transfer, debt: updatedDebt });
+  } catch (error) {
+    if (transaction) {
+      try { await transaction.rollback(); } catch (_) { /* already rolled back */ }
+    }
+
+    trackException(error, { operation: 'TransactionsV2.DebtConvert', id: req.params.id, phase: 'convert' });
+    trackEvent('TransactionsV2.DebtConvertFailed', { id: req.params.id, error: error.message });
+    res.status(500).json({ error: 'Failed to convert aged debt to transfer request' });
   }
 });
 
@@ -327,11 +479,7 @@ router.get('/debts', async (req, res) => {
       return request.query(query);
     });
 
-    const items = (result.recordset || []).map(row => ({
-      ...row,
-      transaction_date: row.transaction_date ? new Date(row.transaction_date).toISOString() : null,
-      created_at: row.created_at ? new Date(row.created_at).toISOString() : null,
-    }));
+    const items = (result.recordset || []).map(serialiseTransactionV2Row);
 
     res.json({ success: true, items, count: items.length });
   } catch (error) {

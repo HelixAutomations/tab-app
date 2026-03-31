@@ -31,6 +31,15 @@ interface LocalDevSectionProps {
     onOpenDemoMatter?: (showCcl?: boolean) => void;
 }
 
+interface CompactFeatureToggle {
+    key: string;
+    label: string;
+    hint: string;
+    enabled: boolean;
+    accent: string;
+    onClick: () => void;
+}
+
 const LocalDevSection: React.FC<LocalDevSectionProps> = ({
     tokens,
     onFeatureToggle,
@@ -89,6 +98,45 @@ const LocalDevSection: React.FC<LocalDevSectionProps> = ({
         toggleRow, actionBtn, toggleSwitch, toggleKnob,
         applyRowHover, resetRowHover, showToast,
     } = tokens;
+
+    const homeSurfaceToggles: CompactFeatureToggle[] = onFeatureToggle ? [
+        {
+            key: 'showAttendance',
+            label: 'Attendance',
+            hint: 'Home team strip',
+            enabled: !!featureToggles.showAttendance,
+            accent: colours.green,
+            onClick: () => {
+                const next = !featureToggles.showAttendance;
+                onFeatureToggle('showAttendance', next);
+                showToast(next ? 'Attendance visible' : 'Attendance hidden', next ? 'success' : 'warning');
+            },
+        },
+        {
+            key: 'showHomeOpsCclDates',
+            label: 'Show CCL',
+            hint: 'Home ops dates box',
+            enabled: !!featureToggles.showHomeOpsCclDates,
+            accent: isDarkMode ? colours.accent : colours.blue,
+            onClick: () => {
+                const next = !featureToggles.showHomeOpsCclDates;
+                onFeatureToggle('showHomeOpsCclDates', next);
+                showToast(next ? 'Home CCL dates visible' : 'Home CCL dates hidden', next ? 'success' : 'warning');
+            },
+        },
+        {
+            key: 'forceShowOpsQueue',
+            label: 'Ops Queue',
+            hint: 'Override role gate',
+            enabled: !!featureToggles.forceShowOpsQueue,
+            accent: colours.cta,
+            onClick: () => {
+                const next = !featureToggles.forceShowOpsQueue;
+                onFeatureToggle('forceShowOpsQueue', next);
+                showToast(next ? 'Ops queue forced visible' : 'Ops queue role-gated', next ? 'success' : 'warning');
+            },
+        },
+    ] : [];
 
     return (
         <div style={{
@@ -317,56 +365,81 @@ const LocalDevSection: React.FC<LocalDevSectionProps> = ({
                         </div>
                     )}
 
-                    {/* Show Attendance */}
-                    {onFeatureToggle && (
-                        <div
-                            style={toggleRow}
-                            onMouseEnter={(e) => applyRowHover(e.currentTarget)}
-                            onMouseLeave={(e) => resetRowHover(e.currentTarget)}
-                            onClick={() => {
-                                const next = !featureToggles.showAttendance;
-                                onFeatureToggle('showAttendance', next);
-                                showToast(next ? 'Attendance visible' : 'Attendance hidden', next ? 'success' : 'warning');
-                            }}
-                        >
-                            <div>
-                                <div style={{ fontSize: 12, fontWeight: 500, color: textPrimary, display: 'flex', alignItems: 'center', gap: 6 }}>
-                                    Show Attendance
-                                    {featureToggles.showAttendance && (
-                                        <span style={{ fontSize: 9, background: textMuted, color: bg, padding: '1px 5px', borderRadius: '2px', fontWeight: 700 }}>ON</span>
-                                    )}
-                                </div>
-                                <div style={{ fontSize: 10, color: textMuted, marginTop: 2 }}>Toggle attendance section on Home</div>
+                    {homeSurfaceToggles.length > 0 && (
+                        <div style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 6,
+                            padding: '8px 10px 10px',
+                            border: `1px solid ${isDarkMode ? colours.dark.border : colours.highlightNeutral}`,
+                            background: isDarkMode ? 'rgba(13, 47, 96, 0.14)' : 'rgba(54, 144, 206, 0.035)',
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                                <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: textMuted }}>
+                                    Home realtime controls
+                                </span>
+                                <span style={{ fontSize: 10, color: textMuted }}>
+                                    {homeSurfaceToggles.filter(toggle => toggle.enabled).length}/{homeSurfaceToggles.length} live
+                                </span>
                             </div>
-                            <div style={toggleSwitch(!!featureToggles.showAttendance)}>
-                                <div style={toggleKnob(!!featureToggles.showAttendance)} />
-                            </div>
-                        </div>
-                    )}
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(112px, 1fr))', gap: 6 }}>
+                                {homeSurfaceToggles.map((toggle) => {
+                                    const activeBackground = isDarkMode ? `${toggle.accent}18` : `${toggle.accent}0f`;
+                                    const activeBorder = isDarkMode ? `${toggle.accent}44` : `${toggle.accent}33`;
 
-                    {/* Show Ops Queue */}
-                    {onFeatureToggle && (
-                        <div
-                            style={toggleRow}
-                            onMouseEnter={(e) => applyRowHover(e.currentTarget)}
-                            onMouseLeave={(e) => resetRowHover(e.currentTarget)}
-                            onClick={() => {
-                                const next = !featureToggles.forceShowOpsQueue;
-                                onFeatureToggle('forceShowOpsQueue', next);
-                                showToast(next ? 'Ops queue forced visible' : 'Ops queue role-gated', next ? 'success' : 'warning');
-                            }}
-                        >
-                            <div>
-                                <div style={{ fontSize: 12, fontWeight: 500, color: textPrimary, display: 'flex', alignItems: 'center', gap: 6 }}>
-                                    Force Ops Queue
-                                    {featureToggles.forceShowOpsQueue && (
-                                        <span style={{ fontSize: 9, background: textMuted, color: bg, padding: '1px 5px', borderRadius: '2px', fontWeight: 700 }}>ON</span>
-                                    )}
-                                </div>
-                                <div style={{ fontSize: 10, color: textMuted, marginTop: 2 }}>Show ops queue regardless of role</div>
-                            </div>
-                            <div style={toggleSwitch(!!featureToggles.forceShowOpsQueue)}>
-                                <div style={toggleKnob(!!featureToggles.forceShowOpsQueue)} />
+                                    return (
+                                        <button
+                                            key={toggle.key}
+                                            onClick={toggle.onClick}
+                                            style={{
+                                                ...actionBtn,
+                                                width: '100%',
+                                                minHeight: 66,
+                                                padding: '10px 11px',
+                                                alignItems: 'flex-start',
+                                                justifyContent: 'space-between',
+                                                gap: 8,
+                                                background: toggle.enabled ? activeBackground : actionBtn.background,
+                                                border: `1px solid ${toggle.enabled ? activeBorder : isDarkMode ? colours.dark.border : colours.highlightNeutral}`,
+                                                boxShadow: toggle.enabled ? `0 8px 18px ${toggle.accent}18` : 'none',
+                                                transition: 'transform 0.16s ease, border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease',
+                                            }}
+                                            onMouseEnter={(e) => {
+                                                e.currentTarget.style.transform = 'translateY(-1px)';
+                                                e.currentTarget.style.boxShadow = toggle.enabled ? `0 10px 22px ${toggle.accent}22` : (isDarkMode ? '0 8px 16px rgba(0, 0, 0, 0.22)' : '0 8px 16px rgba(6, 23, 51, 0.08)');
+                                            }}
+                                            onMouseLeave={(e) => {
+                                                e.currentTarget.style.transform = 'translateY(0)';
+                                                e.currentTarget.style.boxShadow = toggle.enabled ? `0 8px 18px ${toggle.accent}18` : 'none';
+                                            }}
+                                        >
+                                            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, width: '100%' }}>
+                                                <div style={{ minWidth: 0 }}>
+                                                    <div style={{ fontSize: 12, fontWeight: 600, color: textPrimary, lineHeight: 1.2 }}>{toggle.label}</div>
+                                                    <div style={{ fontSize: 10, color: textMuted, marginTop: 4, lineHeight: 1.3 }}>{toggle.hint}</div>
+                                                </div>
+                                                <span style={{
+                                                    width: 8,
+                                                    height: 8,
+                                                    borderRadius: '50%',
+                                                    flexShrink: 0,
+                                                    background: toggle.enabled ? toggle.accent : textMuted,
+                                                    boxShadow: toggle.enabled ? `0 0 8px ${toggle.accent}66` : 'none',
+                                                    marginTop: 2,
+                                                }} />
+                                            </div>
+                                            <span style={{
+                                                fontSize: 9,
+                                                fontWeight: 700,
+                                                letterSpacing: '0.08em',
+                                                textTransform: 'uppercase',
+                                                color: toggle.enabled ? toggle.accent : textMuted,
+                                            }}>
+                                                {toggle.enabled ? 'On' : 'Off'}
+                                            </span>
+                                        </button>
+                                    );
+                                })}
                             </div>
                         </div>
                     )}

@@ -22,10 +22,14 @@ const normalizeUnifiedEnquiry = (enquiry) => {
   const parsedDate = parseDateValue(enquiry?.Touchpoint_Date || enquiry?.Date_Created || enquiry?.datetime);
   if (!parsedDate) return null;
 
+  const processingEnquiryId = String(enquiry?.processingEnquiryId || '').trim() || undefined;
+  const displayId = String(enquiry?.ID || enquiry?.id || '').trim() || undefined;
+  const pitchEnquiryId = String(enquiry?.pitchEnquiryId || '').trim() || undefined;
+  const legacyEnquiryId = String(enquiry?.legacyEnquiryId || enquiry?.acid || '').trim() || undefined;
+
   const identifier = String(
-    enquiry?.processingEnquiryId
-    || enquiry?.ID
-    || enquiry?.id
+    processingEnquiryId
+    || displayId
     || ''
   ).trim();
 
@@ -43,6 +47,10 @@ const normalizeUnifiedEnquiry = (enquiry) => {
 
   return {
     identifier,
+    processingEnquiryId,
+    displayId,
+    pitchEnquiryId,
+    legacyEnquiryId,
     date: parsedDate,
     dateIso: parsedDate.toISOString(),
     dateOnly: parsedDate.toISOString().slice(0, 10),
@@ -217,8 +225,11 @@ const projectHomeSummaryFromUnifiedEnquiries = (enquiries, pitchedProspectIds = 
 
 const projectHomeDetailRecordsFromUnifiedEnquiries = (enquiries, limit = 50) => normalizeUnifiedEnquiriesForHome(enquiries)
   .map((record) => ({
-    id: record.identifier || undefined,
+    id: record.displayId || record.identifier || undefined,
     enquiryId: record.identifier || undefined,
+    processingEnquiryId: record.processingEnquiryId,
+    pitchEnquiryId: record.pitchEnquiryId,
+    legacyEnquiryId: record.legacyEnquiryId,
     date: record.dateIso,
     poc: record.poc,
     aow: record.aow,
@@ -232,6 +243,7 @@ const projectHomeDetailRecordsFromUnifiedEnquiries = (enquiries, limit = 50) => 
     teamsClaimed: record.teamsClaimed,
     teamsLink: record.teamsLink,
     email: record.email,
+    prospectIds: record.prospectIds,
   }))
   .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
   .slice(0, limit);

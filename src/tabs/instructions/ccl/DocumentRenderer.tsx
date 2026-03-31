@@ -1,4 +1,5 @@
 import React from 'react';
+import { colours } from '../../../app/styles/colours';
 
 function autoSizeTextarea(element: HTMLTextAreaElement | null) {
     if (!element) return;
@@ -34,6 +35,14 @@ interface DocumentRendererProps {
     contentPaddingX?: number;
     /** Vertical content padding for top/bottom of each page. */
     contentPaddingY?: { top: number; bottom: number };
+    /** Optional header rendered inside page 1 before document content. */
+    firstPageHeader?: React.ReactNode;
+    /** Optional footer rendered inside page 1 above the page number box. */
+    firstPageFooter?: React.ReactNode;
+    /** Current page in the preview viewport. */
+    currentPageNumber?: number;
+    /** Page currently hovered from the navigator overlay. */
+    hoveredPageNumber?: number | null;
 }
 
 interface RenderContext {
@@ -382,11 +391,11 @@ function renderSectionContent(lines: string[], sectionKey: string, context: Rend
                 <div
                     key={`${sectionKey}-heading-${idx}`}
                     style={{
-                        fontSize: isSubsection ? 13 : 15,
+                        fontSize: isSubsection ? 11.5 : 12.5,
                         fontWeight: 700,
                         color: '#0D2F60',
-                        lineHeight: isSubsection ? 1.4 : 1.45,
-                        margin: isSubsection ? '8px 0 3px' : '6px 0 4px',
+                        lineHeight: isSubsection ? 1.28 : 1.32,
+                        margin: isSubsection ? '6px 0 2px' : '5px 0 3px',
                     }}
                 >
                     {sectionMatch[1]} {renderInlineContent(sectionMatch[2], `${sectionKey}-heading-text-${idx}`, context)}
@@ -403,9 +412,9 @@ function renderSectionContent(lines: string[], sectionKey: string, context: Rend
                 idx++;
             }
             elements.push(
-                <ul key={`${sectionKey}-bullets-${idx}`} style={{ margin: '6px 0 10px 8px', paddingLeft: 20, listStyleType: 'disc' }}>
+                <ul key={`${sectionKey}-bullets-${idx}`} style={{ margin: '4px 0 8px 6px', paddingLeft: 18, listStyleType: 'disc' }}>
                     {bullets.map((bullet, bulletIdx) => (
-                        <li key={bulletIdx} style={{ marginBottom: 5, lineHeight: 1.7 }}>
+                        <li key={bulletIdx} style={{ marginBottom: 3, lineHeight: 1.45 }}>
                             {renderInlineContent(bullet, `${sectionKey}-bullet-${bulletIdx}`, context)}
                         </li>
                     ))}
@@ -444,14 +453,14 @@ function renderSectionContent(lines: string[], sectionKey: string, context: Rend
                 }
                 if (items.length > 0) {
                     elements.push(
-                        <div key={`${sectionKey}-checklist-${idx}`} style={{ margin: '8px 0 12px', display: 'grid', gap: 6 }}>
+                        <div key={`${sectionKey}-checklist-${idx}`} style={{ margin: '6px 0 10px', display: 'grid', gap: 5 }}>
                             {items.map((item, ci) => (
                                 <div key={ci} style={{
                                     display: 'flex', gap: 10, alignItems: 'flex-start',
-                                    padding: '10px 14px',
+                                    padding: '8px 12px',
                                     background: '#f8fafc',
                                     borderLeft: '3px solid #3690CE',
-                                    fontSize: 12, lineHeight: 1.6,
+                                    fontSize: 11.25, lineHeight: 1.45,
                                 }}>
                                     <span style={{
                                         flexShrink: 0, marginTop: 3,
@@ -486,11 +495,11 @@ function renderSectionContent(lines: string[], sectionKey: string, context: Rend
             if (rows.length > 0) {
                 const [header, ...body] = rows;
                 elements.push(
-                    <table key={`${sectionKey}-table-${idx}`} style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, margin: '10px 0 14px 0', fontSize: 12, color: '#0f172a', border: '1px solid rgba(13,47,96,0.10)' }}>
+                    <table key={`${sectionKey}-table-${idx}`} style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, margin: '8px 0 10px 0', fontSize: 11.25, color: '#0f172a', border: '1px solid rgba(13,47,96,0.10)' }}>
                         <thead>
                             <tr>
                                 {header.map((cell, cellIdx) => (
-                                    <th key={cellIdx} style={{ textAlign: 'left', padding: '9px 12px', borderBottom: '1px solid rgba(13,47,96,0.12)', fontWeight: 700, fontSize: 10, color: '#0D2F60', textTransform: 'uppercase', letterSpacing: '0.05em', background: 'rgba(214,232,255,0.55)' }}>
+                                    <th key={cellIdx} style={{ textAlign: 'left', padding: '7px 10px', borderBottom: '1px solid rgba(13,47,96,0.12)', fontWeight: 700, fontSize: 9.5, color: '#0D2F60', textTransform: 'uppercase', letterSpacing: '0.05em', background: 'rgba(214,232,255,0.55)' }}>
                                         {renderTableCellContent(cell, `${sectionKey}-th-${cellIdx}`, context)}
                                     </th>
                                 ))}
@@ -501,7 +510,7 @@ function renderSectionContent(lines: string[], sectionKey: string, context: Rend
                                 {body.map((row, rowIdx) => (
                                     <tr key={rowIdx} style={{ background: rowIdx % 2 === 0 ? 'rgba(255,255,255,0.98)' : 'rgba(246,250,255,0.95)' }}>
                                         {row.map((cell, cellIdx) => (
-                                            <td key={cellIdx} style={{ padding: '8px 12px', borderBottom: rowIdx === body.length - 1 ? 'none' : '1px solid rgba(226,232,240,0.9)', verticalAlign: 'top', color: '#0f172a', lineHeight: 1.55 }}>
+                                            <td key={cellIdx} style={{ padding: '7px 10px', borderBottom: rowIdx === body.length - 1 ? 'none' : '1px solid rgba(226,232,240,0.9)', verticalAlign: 'top', color: '#0f172a', lineHeight: 1.42 }}>
                                                 {renderTableCellContent(cell, `${sectionKey}-td-${rowIdx}-${cellIdx}`, context)}
                                             </td>
                                         ))}
@@ -530,14 +539,14 @@ function renderSectionContent(lines: string[], sectionKey: string, context: Rend
             }
             if (items.length > 0) {
                 elements.push(
-                    <div key={`${sectionKey}-standalone-cb-${idx}`} style={{ margin: '8px 0 12px', display: 'grid', gap: 6 }}>
+                    <div key={`${sectionKey}-standalone-cb-${idx}`} style={{ margin: '6px 0 10px', display: 'grid', gap: 5 }}>
                         {items.map((item, ci) => (
                             <div key={ci} style={{
                                 display: 'flex', gap: 10, alignItems: 'flex-start',
-                                padding: '10px 14px',
+                                padding: '8px 12px',
                                 background: '#f8fafc',
                                 borderLeft: '3px solid #3690CE',
-                                fontSize: 12, lineHeight: 1.6,
+                                fontSize: 11.25, lineHeight: 1.45,
                             }}>
                                 <span style={{
                                     flexShrink: 0, marginTop: 3,
@@ -570,7 +579,7 @@ function renderSectionContent(lines: string[], sectionKey: string, context: Rend
         }
         if (paragraphLines.length > 0) {
             elements.push(
-                <div key={`${sectionKey}-p-${idx}`} style={{ margin: '0 0 10px 0', lineHeight: 1.7, whiteSpace: 'pre-wrap', textAlign: 'justify', textJustify: 'inter-word' }}>
+                <div key={`${sectionKey}-p-${idx}`} style={{ margin: '0 0 7px 0', lineHeight: 1.42, whiteSpace: 'pre-wrap', textAlign: 'justify', textJustify: 'inter-word' }}>
                     {renderInlineContent(paragraphLines.join('\n'), `${sectionKey}-p-${idx}`, context)}
                 </div>
             );
@@ -580,7 +589,7 @@ function renderSectionContent(lines: string[], sectionKey: string, context: Rend
     return elements;
 }
 
-export const DocumentRenderer = ({ template, fieldValues, interactiveFieldKeys = [], activeFieldKey = null, placeholderLabels, onFieldClick, editableFieldKey = null, onFieldValueChange, fieldStates, fieldElementRefs, rootRef, pageBreaks, totalPages, contentPaddingX = 52, contentPaddingY }: DocumentRendererProps) => {
+export const DocumentRenderer = ({ template, fieldValues, interactiveFieldKeys = [], activeFieldKey = null, placeholderLabels, onFieldClick, editableFieldKey = null, onFieldValueChange, fieldStates, fieldElementRefs, rootRef, pageBreaks, totalPages, contentPaddingX = 52, contentPaddingY, firstPageHeader, firstPageFooter, currentPageNumber, hoveredPageNumber = null }: DocumentRendererProps) => {
     const sections = buildDocumentSections(template);
     const context: RenderContext = {
         fieldValues,
@@ -624,47 +633,101 @@ export const DocumentRenderer = ({ template, fieldValues, interactiveFieldKeys =
         return (
             <div ref={rootRef}>
                 {pages.map((page, pageIdx) => (
+                    (() => {
+                        const isCurrentPage = currentPageNumber === page.pageNumber;
+                        const isHoveredPage = hoveredPageNumber === page.pageNumber;
+                        const hasHoverTarget = hoveredPageNumber !== null;
+                        const pageBoxShadow = isHoveredPage
+                            ? '0 14px 32px rgba(13,47,96,0.16), 0 0 0 1px rgba(54,144,206,0.14)'
+                            : isCurrentPage
+                                ? '0 8px 20px rgba(13,47,96,0.12), 0 0 0 1px rgba(54,144,206,0.10)'
+                                : '0 1px 3px rgba(0,0,0,0.12), 0 4px 12px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.04)';
+                        const pageOpacity = hasHoverTarget ? (isHoveredPage || isCurrentPage ? 1 : 0.86) : 1;
+                        const pageTransform = isHoveredPage ? 'translateY(-2px)' : 'translateY(0)';
+                        return (
                     <div
                         key={`page-${page.pageNumber}`}
                         data-page-number={page.pageNumber}
                         style={{
                             background: '#ffffff',
-                            boxShadow: '0 1px 3px rgba(0,0,0,0.12), 0 4px 12px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.04)',
+                            boxShadow: pageBoxShadow,
                             padding: `${padY.top}px ${contentPaddingX}px ${padY.bottom}px`,
                             marginBottom: pageIdx < pages.length - 1 ? 24 : 0,
                             position: 'relative',
+                            width: '100%',
+                            aspectRatio: '210 / 297',
                             minHeight: 400,
+                            overflow: 'hidden',
+                            opacity: pageOpacity,
+                            transform: pageTransform,
+                            transition: 'box-shadow 0.16s ease, opacity 0.16s ease, transform 0.16s ease',
                         }}
                     >
+                        {(isHoveredPage || isCurrentPage) && (
+                            <div style={{
+                                position: 'absolute',
+                                top: 0,
+                                left: 0,
+                                right: 0,
+                                height: 4,
+                                background: isHoveredPage ? colours.highlight : 'rgba(54,144,206,0.42)',
+                            }} />
+                        )}
+                        {page.pageNumber === 1 && firstPageHeader && (
+                            <div style={{ marginBottom: 18 }}>
+                                {firstPageHeader}
+                            </div>
+                        )}
                         {sections.slice(page.startIdx, page.endIdx + 1).map((section, localIdx) => {
                             const sectionIdx = page.startIdx + localIdx;
                             const firstLine = section.lines.find((l) => l.trim());
                             const isTopLevelSection = firstLine ? topLevelSectionRe.test(firstLine.trimEnd()) : false;
                             return (
                                 <React.Fragment key={section.id}>
-                                    <div data-section-idx={sectionIdx} style={{ marginBottom: isTopLevelSection ? 22 : 14, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                                    <div data-section-idx={sectionIdx} style={{ marginBottom: isTopLevelSection ? 16 : 10, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                                         {renderSectionContent(section.lines, `section-${sectionIdx}`, context)}
                                     </div>
                                 </React.Fragment>
                             );
                         })}
+                        {page.pageNumber === 1 && firstPageFooter && (
+                            <div style={{
+                                position: 'absolute',
+                                left: contentPaddingX,
+                                right: contentPaddingX,
+                                bottom: 46,
+                            }}>
+                                {firstPageFooter}
+                            </div>
+                        )}
                         {/* Page number footer */}
                         <span style={{
                             position: 'absolute',
                             bottom: 18,
-                            left: 0,
-                            right: 0,
-                            textAlign: 'center',
-                            fontSize: 9,
-                            color: '#b0b7c0',
-                            fontWeight: 500,
-                            letterSpacing: '0.06em',
-                            fontFamily: "'Raleway', Arial, sans-serif",
+                            right: contentPaddingX,
                             userSelect: 'none',
                         }}>
-                            Page {page.pageNumber} of {effectiveTotalPages}
+                            <span style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                width: 26,
+                                height: 26,
+                                border: '1px solid rgba(13,47,96,0.14)',
+                                borderRadius: 0,
+                                fontSize: 8,
+                                color: colours.greyText,
+                                fontWeight: 700,
+                                letterSpacing: '0.06em',
+                                fontFamily: "'Raleway', Arial, sans-serif",
+                                background: colours.grey,
+                            }}>
+                                {page.pageNumber}
+                            </span>
                         </span>
                     </div>
+                        );
+                    })()
                 ))}
             </div>
         );

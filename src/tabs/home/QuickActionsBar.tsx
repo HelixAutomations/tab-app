@@ -208,12 +208,12 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
           padding: isCompact ? '4px 10px' : '4px 20px',
           minHeight: isCompact ? 30 : 32,
           background: isDarkMode
-              ? colours.darkBlue
+              ? 'rgba(6, 23, 51, 0.55)'
             : 'rgba(255, 255, 255, 0.88)',
           backdropFilter: 'blur(20px) saturate(1.5)',
           WebkitBackdropFilter: 'blur(20px) saturate(1.5)',
           borderTop: 'none',
-          borderBottom: `0.5px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.06)'}`,
+          borderBottom: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(13, 47, 96, 0.08)'}`,
           width: '100%',
           boxSizing: 'border-box',
         }}
@@ -246,11 +246,11 @@ const QuickActionsBar: React.FC<QuickActionsBarProps> = ({
         padding: isCompact ? '4px 10px' : '4px 20px',
         minHeight: isCompact ? 30 : 32,
         background: isDarkMode
-            ? colours.darkBlue
+            ? 'rgba(6, 23, 51, 0.55)'
           : 'rgba(255, 255, 255, 0.88)',
         backdropFilter: 'blur(20px) saturate(1.5)',
         WebkitBackdropFilter: 'blur(20px) saturate(1.5)',
-        borderBottom: `0.5px solid ${isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.06)'}`,
+        borderBottom: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(13, 47, 96, 0.08)'}`,
         position: 'relative',
         width: '100%',
         boxSizing: 'border-box',

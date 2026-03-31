@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useCallback } from 'react';
 import { FiUsers, FiMonitor, FiChevronRight, FiCheck, FiX } from 'react-icons/fi';
 import type { AnnualLeaveRecord } from '../../app/functionality/types';
+import { colours } from '../../app/styles/colours';
 
 /**
  * TeamInsight — unified "who's where + who's off" panel for the Home page.
@@ -310,27 +311,27 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
   }, [modalPerson, onConfirmAttendance, currentWeekStart, nextWeekStartStr, modalThisWeek, modalNextWeek, onShowToast]);
 
   /* —— palette (shared) —— */
-  const panelBg      = isDarkMode ? 'var(--helix-website-blue)' : 'var(--surface-section)';
-  const panelBgHov   = isDarkMode ? 'rgba(6, 23, 51, 0.5)' : 'var(--surface-card-hover)';
-  const panelBorder  = isDarkMode ? 'rgba(75, 85, 99, 0.4)' : 'var(--border-strong)';
+  const panelBg      = isDarkMode ? 'rgba(6, 23, 51, 0.55)' : '#FFFFFF';
+  const panelBgHov   = isDarkMode ? 'rgba(12, 36, 64, 0.72)' : 'rgba(13, 47, 96, 0.03)';
+  const panelBorder  = isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(13, 47, 96, 0.08)';
 
   // Tiles & badges — brand navy fills + highlight blue borders (no teal accent washes)
-  const tileBg       = isDarkMode ? 'rgba(6, 23, 51, 0.5)' : 'rgba(54, 144, 206, 0.04)';
-  const tileBgHov    = isDarkMode ? 'rgba(13, 47, 96, 0.5)' : 'rgba(54, 144, 206, 0.08)';
-  const tileBorder   = isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.1)';
+  const tileBg       = isDarkMode ? 'rgba(8, 28, 48, 0.72)' : 'rgba(13, 47, 96, 0.03)';
+  const tileBgHov    = isDarkMode ? 'rgba(12, 36, 64, 0.82)' : 'rgba(54, 144, 206, 0.06)';
+  const tileBorder   = isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(13, 47, 96, 0.08)';
   const tileBdrHov   = isDarkMode ? 'rgba(54, 144, 206, 0.45)' : 'rgba(54, 144, 206, 0.3)';
   // Initials squares — solid brand surface (EnquiriesReport pattern)
-  const badgeBg      = isDarkMode ? '#051525' : '#F4F4F6';
+  const badgeBg      = isDarkMode ? 'rgba(8, 28, 48, 0.92)' : '#F4F4F6';
 
-  const textLabel    = isDarkMode ? '#ffffff' : 'var(--text-primary)';
-  const textBody     = isDarkMode ? 'rgba(255, 255, 255, 0.8)' : 'var(--text-body)';
-  const textMuted    = isDarkMode ? 'rgba(255, 255, 255, 0.5)' : 'var(--text-muted)';
+  const textLabel    = isDarkMode ? colours.dark.text : 'var(--text-primary)';
+  const textBody     = isDarkMode ? '#d1d5db' : 'var(--text-body)';
+  const textMuted    = isDarkMode ? colours.subtleGrey : 'var(--text-muted)';
   const accentColor  = 'var(--text-accent)';
-  const sectionDivider = isDarkMode ? 'rgba(75, 85, 99, 0.25)' : 'rgba(0, 0, 0, 0.06)';
+  const sectionDivider = isDarkMode ? 'rgba(255, 255, 255, 0.04)' : 'rgba(13, 47, 96, 0.05)';
   const skeletonStrong = isDarkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(13, 47, 96, 0.07)';
   const skeletonSoft = isDarkMode ? 'rgba(255, 255, 255, 0.04)' : 'rgba(13, 47, 96, 0.05)';
-  const skeletonTileBg = isDarkMode ? 'rgba(6, 23, 51, 0.7)' : 'rgba(13, 47, 96, 0.05)';
-  const skeletonTileBorder = isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(54, 144, 206, 0.10)';
+  const skeletonTileBg = isDarkMode ? 'rgba(8, 28, 48, 0.8)' : 'rgba(13, 47, 96, 0.05)';
+  const skeletonTileBorder = isDarkMode ? 'rgba(54, 144, 206, 0.12)' : 'rgba(13, 47, 96, 0.08)';
 
   const renderSkeletonLine = (width: number | string, height: number, delay = 0) => (
     <div
@@ -398,13 +399,13 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
     </div>
   );
   // Section hover — brand navy lift, not teal wash
-  const sectionHoverBg = isDarkMode ? 'rgba(13, 47, 96, 0.28)' : 'rgba(54, 144, 206, 0.06)';
-  const sectionHoverRing = isDarkMode ? 'rgba(54, 144, 206, 0.5)' : 'rgba(54, 144, 206, 0.35)';
+  const sectionHoverBg = isDarkMode ? 'rgba(12, 36, 64, 0.72)' : 'rgba(54, 144, 206, 0.04)';
+  const sectionHoverRing = isDarkMode ? 'rgba(135, 243, 243, 0.18)' : 'rgba(13, 47, 96, 0.14)';
   const sectionHoverShadow = isDarkMode
-    ? 'inset 0 0 0 1px rgba(54, 144, 206, 0.3), 0 4px 14px rgba(0, 0, 0, 0.3)'
-    : 'inset 0 0 0 1px rgba(54, 144, 206, 0.22), 0 2px 10px rgba(6, 23, 51, 0.08)';
+    ? 'inset 0 0 0 1px rgba(135, 243, 243, 0.08), 0 4px 16px rgba(0, 0, 0, 0.3)'
+    : 'inset 0 0 0 1px rgba(13, 47, 96, 0.08), 0 1px 4px rgba(13, 47, 96, 0.04)';
   const selectedBorder = isDarkMode ? 'rgba(54, 144, 206, 0.6)' : 'rgba(54, 144, 206, 0.5)';
-  const selectedBg     = isDarkMode ? 'rgba(13, 47, 96, 0.5)' : 'rgba(54, 144, 206, 0.12)';
+  const selectedBg     = isDarkMode ? 'rgba(12, 36, 64, 0.82)' : 'rgba(54, 144, 206, 0.08)';
 
   /* ═══════════════════════════════════════════════════════
    * SECTION 1: ATTENDANCE DATA

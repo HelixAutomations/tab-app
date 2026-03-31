@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { FiCheckCircle, FiAlertCircle, FiCalendar, FiArrowUpRight, FiExternalLink, FiSearch, FiChevronDown, FiArrowRight, FiCreditCard } from 'react-icons/fi';
+import { FiCheck, FiCheckCircle, FiAlertCircle, FiBriefcase, FiCalendar, FiArrowUpRight, FiExternalLink, FiSearch, FiChevronDown, FiArrowRight, FiCreditCard, FiPhone, FiClock } from 'react-icons/fi';
 import { SiAsana, SiStripe } from 'react-icons/si';
 import { colours } from '../../app/styles/colours';
 
@@ -118,6 +118,34 @@ interface RecentApproval {
   LastName: string | null;
 }
 
+interface QueueStatusSegment {
+  key: string;
+  label: string;
+}
+
+const TXN_V1_STATUS_SEGMENTS: QueueStatusSegment[] = [
+  { key: 'requested', label: 'Pending' },
+  { key: 'transfer', label: 'Approved' },
+  { key: 'leave_in_client', label: 'Left in client' },
+  { key: 'processed', label: 'Processed' },
+];
+
+const TXN_V2_STATUS_SEGMENTS: QueueStatusSegment[] = [
+  { key: 'pending', label: 'Pending' },
+  { key: 'approved', label: 'Approved' },
+  { key: 'left_in_client', label: 'Left in client' },
+  { key: 'rejected', label: 'Rejected' },
+];
+
+const DEBT_STATUS_SEGMENTS: QueueStatusSegment[] = [
+  { key: 'pending', label: 'Pending' },
+  { key: 'rejected', label: 'Review' },
+  { key: 'converted_to_request', label: 'Queued' },
+  { key: 'approved', label: 'Approved' },
+  { key: 'left_in_client', label: 'Left in client' },
+  { key: 'transferred', label: 'Settled' },
+];
+
 interface StripeRecentItem {
   id: string;
   paymentIntentId: string;
@@ -135,6 +163,26 @@ interface StripeRecentItem {
   helixContact: string | null;
   paymentMethod: string | null;
   paymentReference: string | null;
+}
+
+interface DubberCallItem {
+  recording_id: string;
+  from_party: string | null;
+  from_label: string | null;
+  to_party: string | null;
+  to_label: string | null;
+  call_type: string | null;
+  duration_seconds: number | null;
+  start_time_utc: string;
+  document_sentiment_score: number | null;
+  ai_document_sentiment: string | null;
+  channel: string | null;
+  status: string | null;
+  matched_team_initials: string | null;
+  matched_team_email: string | null;
+  match_strategy: string | null;
+  document_emotion_json: string | null;
+  is_internal?: boolean;
 }
 
 interface OperationsLookupResult {
@@ -165,6 +213,8 @@ interface OperationsQueueProps {
   isV2User?: boolean;
   /** Dev owner (LZ) — sees all data (all FEs, all debts) */
   isDevOwner?: boolean;
+  /** Home dev toggle for the temporary CCL dates box */
+  showHomeOpsCclDates?: boolean;
 }
 
 // ─── Demo data ──────────────────────────────────────────────────────────────
@@ -446,9 +496,51 @@ const shortDate = (iso: string | null): string => {
   return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 };
 
+const getDebtStageMeta = (status: string | null, isDarkMode: boolean) => {
+  const debtNeutralColour = isDarkMode ? colours.subtleGrey : colours.greyText;
+  const debtStageMap: Record<string, { label: string; colour: string }> = {
+    pending: { label: 'Pending', colour: isDarkMode ? colours.accent : colours.highlight },
+    approved: { label: 'Approved', colour: colours.green },
+    transferred: { label: 'Settled', colour: colours.blue },
+    left_in_client: { label: 'Left in client', colour: debtNeutralColour },
+    converted_to_request: { label: 'Transfer requested', colour: isDarkMode ? colours.accent : colours.highlight },
+    rejected: { label: 'Review', colour: debtNeutralColour },
+  };
+
+  return debtStageMap[status || 'pending'] || debtStageMap.pending;
+};
+
+const getDebtTransferMeta = (item: TransactionV2Item) => {
+  const debtStatus = item.lifecycle_status || 'pending';
+  const supportsTransfer = item.source_type === 'aged_debt';
+  const queueable = supportsTransfer && (debtStatus === 'pending' || debtStatus === 'rejected');
+  const transferableAmount = queueable ? Number(item.amount || 0) : 0;
+  const sourceLabel = supportsTransfer ? 'Aged debt' : (item.source_type || 'Debt').replace(/_/g, ' ');
+
+  let actionLabel = 'Review only';
+  if (queueable) {
+    actionLabel = debtStatus === 'rejected' ? 'Requeue transfer' : 'Queue transfer';
+  } else if (debtStatus === 'converted_to_request') {
+    actionLabel = 'Queued to transfers';
+  } else if (debtStatus === 'approved') {
+    actionLabel = 'Approved';
+  } else if (debtStatus === 'left_in_client') {
+    actionLabel = 'Left in client';
+  } else if (debtStatus === 'transferred') {
+    actionLabel = 'Settled';
+  }
+
+  return {
+    queueable,
+    transferableAmount,
+    sourceLabel,
+    actionLabel,
+  };
+};
+
 // ─── Component ──────────────────────────────────────────────────────────────
 
-const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userInitials, showToast, demoModeEnabled = false, isAdmin = false, isV2User = false, isDevOwner = false }) => {
+const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userInitials, showToast, demoModeEnabled = false, isAdmin = false, isV2User = false, isDevOwner = false, showHomeOpsCclDates = false }) => {
   // Bank transfer state
   const [bankPending, setBankPending] = useState<BankTransferItem[]>([]);
   const [recent, setRecent] = useState<RecentApproval[]>([]);
@@ -469,6 +561,7 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
   const [txnV2StatusFilter, setTxnV2StatusFilter] = useState<'all' | 'pending' | 'approved' | 'left_in_client' | 'rejected'>('all');
   const [actioningV2Id, setActioningV2Id] = useState<number | null>(null);
   const [confirmingV2, setConfirmingV2] = useState<TransactionV2Item | null>(null);
+  const [convertingDebtId, setConvertingDebtId] = useState<number | null>(null);
 
   // User-specific aged debts
   const [userDebts, setUserDebts] = useState<TransactionV2Item[]>([]);
@@ -502,6 +595,9 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
   const [hoveredSection, setHoveredSection] = useState<string | null>(null);
   const [showPaymentsLedger, setShowPaymentsLedger] = useState(true);
 
+  // Dubber recent calls state (admin stream only — users get CallTicketsStrip)
+  const [recentCalls, setRecentCalls] = useState<DubberCallItem[]>([]);
+
   // Cross-operations lookup state
   const [paymentQuery, setPaymentQuery] = useState('');
   const [lookupResults, setLookupResults] = useState<OperationsLookupResult[]>([]);
@@ -528,7 +624,7 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
   const fetchQueue = useCallback(async () => {
     if (demoModeActive) {
       setBankPending(DEMO_BANK_ITEMS);
-      setCclPending(DEMO_CCL_ITEMS);
+      setCclPending(showHomeOpsCclDates ? DEMO_CCL_ITEMS : []);
       setTxnPending(DEMO_TXN_ITEMS);
       setRecent(DEMO_RECENT_ITEMS);
       setTxnV2Pending(DEMO_V2_ITEMS);
@@ -543,7 +639,7 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
       const [bankRes, recentRes, cclRes, txnRes, asanaRes, stripeRes] = await Promise.all([
         fetch('/api/ops-queue/pending').catch(() => null),
         fetch('/api/ops-queue/recent').catch(() => null),
-        fetch('/api/ops-queue/ccl-dates-pending').catch(() => null),
+        showHomeOpsCclDates ? fetch('/api/ops-queue/ccl-dates-pending').catch(() => null) : Promise.resolve(null),
         fetch('/api/ops-queue/transactions-pending?range=mtd').catch(() => null),
         fetch('/api/ops-queue/asana-account-tasks').catch(() => null),
         fetch('/api/ops-queue/stripe-recent').catch(() => null),
@@ -561,6 +657,8 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
       if (cclRes?.ok) {
         const data = await cclRes.json();
         setCclPending(data.items || []);
+      } else if (!showHomeOpsCclDates) {
+        setCclPending([]);
       }
       if (txnRes?.ok) {
         const data = await txnRes.json();
@@ -577,6 +675,17 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
       if (stripeRes?.ok) {
         const data = await stripeRes.json();
         setStripeRecent(data.items || []);
+      }
+
+      // Dubber team call stream — admin only, non-blocking
+      if (isAdmin) {
+        try {
+          const dubberRes = await fetch('/api/dubberCalls/recent?limit=12');
+          if (dubberRes?.ok) {
+            const dubberData = await dubberRes.json();
+            setRecentCalls(dubberData.recordings || []);
+          }
+        } catch { /* silent — calls are supplementary */ }
       }
 
       // V2 transactions — parallel, independent of V1
@@ -604,7 +713,13 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
     } finally {
       setIsLoading(false);
     }
-  }, [demoModeActive, isV2User, isDevOwner]);
+  }, [demoModeActive, isV2User, isDevOwner, showHomeOpsCclDates]);
+
+  useEffect(() => {
+    if (!showHomeOpsCclDates) {
+      setCclPending([]);
+    }
+  }, [showHomeOpsCclDates]);
 
   useEffect(() => {
     fetchQueue();
@@ -677,10 +792,16 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
     if (knownV2IdsRef.current.size === 0 && txnV2Pending.length > 0) {
       txnV2Pending.forEach(i => knownV2IdsRef.current.add(i.id));
     }
-    const interval = setInterval(pollV2, 15_000);
+    // Visibility-aware polling — pause when tab/document is hidden
+    let interval: ReturnType<typeof setInterval> | null = null;
+    const start = () => { if (!interval) interval = setInterval(pollV2, 15_000); };
+    const stop = () => { if (interval) { clearInterval(interval); interval = null; } };
+    const onVisibility = () => { document.hidden ? stop() : start(); };
+    if (!document.hidden) start();
+    document.addEventListener('visibilitychange', onVisibility);
     return () => {
-      clearInterval(interval);
-      // Cleanup timers
+      stop();
+      document.removeEventListener('visibilitychange', onVisibility);
       for (const t of newV2TimersRef.current.values()) clearTimeout(t);
       newV2TimersRef.current.clear();
     };
@@ -840,6 +961,109 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
       setActioningV2Id(null);
     }
   }, [showToast, userInitials]);
+
+  const handleConvertDebtToRequest = useCallback(async (item: TransactionV2Item) => {
+    const nowIso = new Date().toISOString();
+
+    if (demoModeActive) {
+      const nextId = Math.max(0, ...txnV2Pending.map(txn => txn.id)) + 1;
+      const newTransfer: TransactionV2Item = {
+        ...item,
+        id: nextId,
+        source_type: 'aged_debt_request',
+        lifecycle_status: 'pending',
+        transaction_date: nowIso,
+        transaction_time: null,
+        created_by: userInitials,
+        created_at: nowIso,
+        updated_at: nowIso,
+        approved_by: null,
+        approved_at: null,
+        action_notes: `Created from aged debt #${item.id}`,
+        notes: [item.notes, `Converted from aged debt #${item.id} by ${userInitials}`].filter(Boolean).join(' | ') || null,
+        external_task_id: null,
+        external_task_url: null,
+      };
+
+      const updatedDebt: TransactionV2Item = {
+        ...item,
+        lifecycle_status: 'converted_to_request',
+        approved_by: userInitials,
+        approved_at: nowIso,
+        updated_at: nowIso,
+        action_notes: [item.action_notes, `Queued as transfer request by ${userInitials}`].filter(Boolean).join(' | '),
+      };
+
+      knownV2IdsRef.current.add(newTransfer.id);
+      setTxnVersion('v2');
+      setTxnV2Pending(prev => [newTransfer, ...prev]);
+      setUserDebts(prev => prev.map(debt => debt.id === item.id ? updatedDebt : debt));
+      setSelectedDebtItem(current => current?.id === item.id ? updatedDebt : current);
+      setExpandedId(`v2-${newTransfer.id}`);
+      setNewV2Ids(prev => new Set(prev).add(newTransfer.id));
+      const existing = newV2TimersRef.current.get(newTransfer.id);
+      if (existing) clearTimeout(existing);
+      const timer = setTimeout(() => {
+        setNewV2Ids(prev => {
+          const next = new Set(prev);
+          next.delete(newTransfer.id);
+          return next;
+        });
+        newV2TimersRef.current.delete(newTransfer.id);
+      }, 1200);
+      newV2TimersRef.current.set(newTransfer.id, timer);
+      showToast(`Queued transfer request for ${item.matter_ref}`, 'success');
+      return;
+    }
+
+    setConvertingDebtId(item.id);
+    try {
+      const res = await fetch(`/api/transactions-v2/${item.id}/convert-to-request`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userInitials }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to queue transfer request');
+      }
+
+      const data = await res.json();
+      const transfer: TransactionV2Item | undefined = data.transfer;
+      const updatedDebt: TransactionV2Item | undefined = data.debt;
+
+      if (transfer) {
+        knownV2IdsRef.current.add(transfer.id);
+        setTxnVersion('v2');
+        setTxnV2Pending(prev => [transfer, ...prev.filter(txn => txn.id !== transfer.id)]);
+        setExpandedId(`v2-${transfer.id}`);
+        setNewV2Ids(prev => new Set(prev).add(transfer.id));
+        const existing = newV2TimersRef.current.get(transfer.id);
+        if (existing) clearTimeout(existing);
+        const timer = setTimeout(() => {
+          setNewV2Ids(prev => {
+            const next = new Set(prev);
+            next.delete(transfer.id);
+            return next;
+          });
+          newV2TimersRef.current.delete(transfer.id);
+        }, 1200);
+        newV2TimersRef.current.set(transfer.id, timer);
+      }
+
+      if (updatedDebt) {
+        setUserDebts(prev => prev.map(debt => debt.id === updatedDebt.id ? updatedDebt : debt));
+        setSelectedDebtItem(current => current?.id === updatedDebt.id ? updatedDebt : current);
+      }
+
+      showToast(`Queued transfer request for ${item.matter_ref}`, 'success');
+    } catch (e: any) {
+      showToast(e.message || 'Failed to queue transfer request', 'error');
+    } finally {
+      setConvertingDebtId(null);
+    }
+  }, [demoModeActive, showToast, txnV2Pending, userInitials]);
 
   const jumpToLookupResult = useCallback((result: OperationsLookupResult) => {
     setTxnVersion('v2');
@@ -1034,7 +1258,7 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
   const filteredDebts = useMemo(() => {
     const activeDebts = userDebts.filter(item => {
       const debtStatus = item.lifecycle_status || 'pending';
-      return debtStatus === 'pending' || debtStatus === 'rejected';
+      return debtStatus === 'pending' || debtStatus === 'rejected' || debtStatus === 'converted_to_request';
     });
     if (!isAdmin) {
       return activeDebts.filter(item => (item.fee_earner || '').toUpperCase() === userInitials.toUpperCase());
@@ -1045,7 +1269,7 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
   const resolvedDebtTransfers = useMemo(() => {
     const actionedDebts = userDebts.filter(item => {
       const debtStatus = item.lifecycle_status || 'pending';
-      return debtStatus !== 'pending' && debtStatus !== 'rejected';
+      return debtStatus === 'approved' || debtStatus === 'left_in_client' || debtStatus === 'transferred';
     });
     if (!isAdmin) {
       return actionedDebts.filter(item => (item.fee_earner || '').toUpperCase() === userInitials.toUpperCase());
@@ -1219,6 +1443,7 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
         approved: { label: 'Approved', colour: colours.green },
         transferred: { label: 'Settled', colour: colours.blue },
         left_in_client: { label: 'Left in client', colour: isDarkMode ? colours.subtleGrey : colours.greyText },
+        converted_to_request: { label: 'Transfer requested', colour: isDarkMode ? colours.accent : colours.highlight },
         rejected: { label: 'Written off', colour: debtNeutralColour },
       };
       const stage = debtStageMap[item.lifecycle_status || 'pending'] || debtStageMap.pending;
@@ -1251,49 +1476,33 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
     setPaymentSearching(false);
   }, [filteredDebts, filteredStripeRecent, isDarkMode, lookupTxnV2Items, paymentQuery]);
 
-  // Fallback hint: when today is empty, suggest yesterday (or last Friday on Monday)
+  // Fallback hint: when today is empty, automatically show yesterday, then week.
   const txnFallbackHint = useMemo(() => {
     if (txnRange !== 'today') return null;
-    // Check the active version's emptiness
     if (txnVersion === 'v2' ? filteredTxnV2.length > 0 : filteredTxn.length > 0) return null;
-    // Count yesterday from both V1 + V2 sources
+
     const countInRange = (items: { transaction_date?: string | null }[], start: Date, end: Date) =>
       items.filter(item => {
         if (!item.transaction_date) return false;
         const d = new Date(item.transaction_date);
         return d >= start && d <= end;
       }).length;
+
     const yesterdayCount = countInRange(txnPending, rangeFilter.yesterdayStart, rangeFilter.yesterdayEnd)
       + countInRange(txnV2Pending, rangeFilter.yesterdayStart, rangeFilter.yesterdayEnd);
-    if (rangeFilter.isMonday) {
-      // On Monday, check Friday
-      const fridayCount = countInRange(txnPending, rangeFilter.lastFridayStart, rangeFilter.lastFridayEnd)
-        + countInRange(txnV2Pending, rangeFilter.lastFridayStart, rangeFilter.lastFridayEnd);
-      if (fridayCount > 0) return { label: `View Friday's (${fridayCount})`, range: 'lastWeek' as const };
-    }
-    if (yesterdayCount > 0) return { label: `View yesterday's (${yesterdayCount})`, range: 'yesterday' as const };
+
+    const weekCount = countInRange(txnPending, rangeFilter.thisMonday, new Date())
+      + countInRange(txnV2Pending, rangeFilter.thisMonday, new Date());
+
+    if (yesterdayCount > 0) return { label: `Auto showing Yesterday (${yesterdayCount})`, range: 'yesterday' as const };
+    if (weekCount > 0) return { label: `Auto showing Week (${weekCount})`, range: 'week' as const };
     return null;
   }, [txnRange, filteredTxn.length, filteredTxnV2.length, txnPending, txnV2Pending, rangeFilter, txnVersion]);
 
   const txnFallbackItems = useMemo(() => {
     if (!txnFallbackHint) return [];
     let items: typeof txnPending;
-    if (txnFallbackHint.range === 'lastWeek' && rangeFilter.isMonday) {
-      items = txnPending.filter(item => {
-        if (!item.transaction_date) return false;
-        const d = new Date(item.transaction_date);
-        return d >= rangeFilter.lastFridayStart && d <= rangeFilter.lastFridayEnd;
-      });
-    } else {
-      items = txnPending.filter(item => {
-        if (!item.transaction_date) return false;
-        const d = new Date(item.transaction_date);
-        if (txnFallbackHint.range === 'yesterday') {
-          return d >= rangeFilter.yesterdayStart && d <= rangeFilter.yesterdayEnd;
-        }
-        return d >= rangeFilter.thisMonday;
-      });
-    }
+    items = txnPending.filter(item => matchesTxnRange(item.transaction_date, txnFallbackHint.range));
     if (!isAdmin) {
       items = items.filter(item => (item.fe || '').toUpperCase() === userInitials.toUpperCase());
     }
@@ -1308,19 +1517,7 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
   const txnV2FallbackItems = useMemo(() => {
     if (!txnFallbackHint) return [];
     let items: typeof txnV2Pending;
-    if (txnFallbackHint.range === 'lastWeek' && rangeFilter.isMonday) {
-      items = txnV2Pending.filter(item => {
-        if (!item.transaction_date) return false;
-        const d = new Date(item.transaction_date);
-        return d >= rangeFilter.lastFridayStart && d <= rangeFilter.lastFridayEnd;
-      });
-    } else {
-      items = txnV2Pending.filter(item => {
-        if (!item.transaction_date) return false;
-        const d = new Date(item.transaction_date);
-        return d >= rangeFilter.yesterdayStart && d <= rangeFilter.yesterdayEnd;
-      });
-    }
+    items = txnV2Pending.filter(item => matchesTxnRange(item.transaction_date, txnFallbackHint.range));
     if (!isAdmin) {
       items = items.filter(item => (item.fee_earner || '').toUpperCase() === userInitials.toUpperCase());
     }
@@ -1394,12 +1591,7 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
     if (!txnFallbackHint) return [];
     return stripeRecent.filter(p => {
       const dateStr = p.createdAt || p.updatedAt;
-      if (!dateStr) return false;
-      const d = new Date(dateStr);
-      if (txnFallbackHint.range === 'lastWeek' && rangeFilter.isMonday) {
-        return d >= rangeFilter.lastFridayStart && d <= rangeFilter.lastFridayEnd;
-      }
-      return d >= rangeFilter.yesterdayStart && d <= rangeFilter.yesterdayEnd;
+      return matchesTxnRange(dateStr, txnFallbackHint.range);
     });
   }, [txnFallbackHint, stripeRecent, rangeFilter]);
 
@@ -1409,10 +1601,10 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
 
   const fallbackPeriodLabel = useMemo(() => {
     if (!txnFallbackHint) return null;
-    if (txnFallbackHint.range === 'lastWeek' && rangeFilter.isMonday) return 'Friday';
     if (txnFallbackHint.range === 'yesterday') return 'Yesterday';
+    if (txnFallbackHint.range === 'week') return 'This week';
     return 'Suggested period';
-  }, [txnFallbackHint, rangeFilter.isMonday]);
+  }, [txnFallbackHint]);
   const fallbackPreviewLabel = fallbackPeriodLabel || 'Suggested period';
   const fallbackPreviewLabelLower = fallbackPreviewLabel.toLowerCase();
 
@@ -1423,6 +1615,44 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
   const renderedTxn = txnPreviewMode ? txnFallbackItems : displayedTxn;
   const renderedTxnV2 = txnV2PreviewMode ? previewTxnV2Items : displayedTxnV2;
   const renderedStripeRecent = paymentsPreviewMode ? stripeFallbackItems : displayedStripeRecent;
+
+  const renderedTxnGroups = useMemo(() => {
+    const activeStatuses = txnV1StatusFilter === 'all'
+      ? TXN_V1_STATUS_SEGMENTS.map(segment => segment.key)
+      : [txnV1StatusFilter];
+
+    return activeStatuses
+      .map(statusKey => ({
+        key: statusKey,
+        label: TXN_V1_STATUS_SEGMENTS.find(segment => segment.key === statusKey)?.label || statusKey,
+        items: renderedTxn.filter(item => (item.status || 'requested') === statusKey),
+      }))
+      .filter(group => group.items.length > 0);
+  }, [renderedTxn, txnV1StatusFilter]);
+
+  const renderedTxnV2Groups = useMemo(() => {
+    const activeStatuses = txnV2StatusFilter === 'all'
+      ? TXN_V2_STATUS_SEGMENTS.map(segment => segment.key)
+      : [txnV2StatusFilter];
+
+    return activeStatuses
+      .map(statusKey => ({
+        key: statusKey,
+        label: TXN_V2_STATUS_SEGMENTS.find(segment => segment.key === statusKey)?.label || statusKey,
+        items: renderedTxnV2.filter(item => (item.lifecycle_status || 'pending') === statusKey),
+      }))
+      .filter(group => group.items.length > 0);
+  }, [renderedTxnV2, txnV2StatusFilter]);
+
+  const renderedDebtGroups = useMemo(() => {
+    return DEBT_STATUS_SEGMENTS
+      .map(segment => ({
+        key: segment.key,
+        label: segment.label,
+        items: filteredDebts.filter(item => (item.lifecycle_status || 'pending') === segment.key),
+      }))
+      .filter(group => group.items.length > 0);
+  }, [filteredDebts]);
 
   // Group Asana tasks by section for expandable breakdown
   const asanaTasksBySection = useMemo(() => {
@@ -1451,8 +1681,9 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
 
   const bankCount = bankPending.length;
   const cclCount = cclWeekFiltered.length;
+  const visibleCclCount = showHomeOpsCclDates ? cclCount : 0;
   const txnCount = displayedTxn.length;
-  const totalPending = bankCount + cclCount + txnCount;
+  const totalPending = bankCount + visibleCclCount + txnCount;
   const recentCount = recent.length;
   const hasFallbackPreview = txnPreviewMode || txnV2PreviewMode || paymentsPreviewMode;
 
@@ -1672,7 +1903,7 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
   }
 
   // Nothing to show — non-admins only care about their own transactions
-  if (isAdmin ? (totalPending === 0 && txnV2Pending.length === 0 && recentCount === 0 && !migrationRequired && !hasFallbackPreview) : (filteredTxn.length === 0 && filteredTxnV2.length === 0 && !hasFallbackPreview)) return null;
+  if (isAdmin ? (totalPending === 0 && txnV2Pending.length === 0 && recentCount === 0 && recentCalls.length === 0 && !migrationRequired && !hasFallbackPreview) : (filteredTxn.length === 0 && filteredTxnV2.length === 0 && !hasFallbackPreview)) return null;
 
   // ─── Card renderer (compact ticket) ────────────────────────────────────
 
@@ -1732,57 +1963,45 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
   };
 
   return (
-    <div style={{
-      background: cardBg,
-      border: `1px solid ${cardBorder}`,
-      boxShadow: cardShadow,
-      fontFamily: "'Raleway', 'Segoe UI', sans-serif",
-      animation: 'opsQReveal 0.28s ease-out both',
-    }}>
-      {/* Header — matches Matters/Enquiries panel header */}
-      <div style={{
-        padding: '7px 12px 5px',
-        background: isDarkMode ? 'rgba(135,243,243,0.04)' : 'rgba(13,47,96,0.03)',
-        borderBottom: `2px solid ${accent}`,
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <FiAlertCircle size={10} color={totalPending > 0 ? colours.orange : colours.green} strokeWidth={2.2} />
-          <span style={{ fontSize: 9, fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.highlight, letterSpacing: '0.3px', lineHeight: 1.1 }}>
-            {isAdmin ? 'Operations' : 'My Transactions'}
-          </span>
-          {isAdmin && totalPending > 0 && (
-            <span style={{ fontSize: 8, color: textMuted, opacity: 0.6, lineHeight: 1.1 }}>{totalPending}</span>
-          )}
-          {demoModeActive && (
-            <span style={{
-              fontSize: 7, fontWeight: 700, color: textMuted,
-              padding: '1px 4px',
-              border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.15)' : 'rgba(13,47,96,0.15)'}`,
-              lineHeight: 1.1,
-            }}>
-              demo
-            </span>
-          )}
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          {isAdmin && recentCount > 0 && (
-            <button
-              onClick={() => setShowRecent(prev => !prev)}
-              style={{
-                background: 'none', border: 'none', cursor: 'pointer',
-                fontSize: 8, color: textMuted, padding: '1px 4px',
-                fontFamily: "'Raleway', 'Segoe UI', sans-serif",
-                lineHeight: 1.1,
-              }}
-            >
-              {showRecent ? 'hide' : `${recentCount} recent`}
-            </button>
-          )}
-        </div>
+    <>
+      <div style={{ fontSize: 11, fontWeight: 600, color: textMuted, padding: '2px 0 3px', letterSpacing: '0.2px', display: 'flex', alignItems: 'center', gap: 4 }}>
+        <SiAsana size={10} color={accent} style={{ flexShrink: 0 }} />
+        {isAdmin ? 'Operations' : 'My Transactions'}
       </div>
+      <div style={{
+        background: cardBg,
+        border: `1px solid ${cardBorder}`,
+        boxShadow: cardShadow,
+        fontFamily: "'Raleway', 'Segoe UI', sans-serif",
+        animation: 'opsQReveal 0.28s ease-out both',
+      }}>
+      {!isAdmin && (
+        <div style={{
+          padding: '7px 12px 6px',
+          background: isDarkMode ? 'rgba(135,243,243,0.03)' : 'rgba(13,47,96,0.025)',
+          borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'}`,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <FiAlertCircle size={10} color={totalPending > 0 ? colours.orange : colours.green} strokeWidth={2.2} />
+            <span style={{ fontSize: 9, fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.highlight, letterSpacing: '0.3px', lineHeight: 1.1 }}>
+              My Transactions
+            </span>
+            {demoModeActive && (
+              <span style={{
+                fontSize: 7, fontWeight: 700, color: textMuted,
+                padding: '1px 4px',
+                border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.15)' : 'rgba(13,47,96,0.15)'}`,
+                lineHeight: 1.1,
+              }}>
+                demo
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
-      {/* ── Accounts pipeline sub-header (matches Matters/Enquiries table header) ── */}
+      {/* ── Accounts pipeline summary row ── */}
       {isAdmin && (
         <div
           onClick={() => setPipelineExpanded(prev => !prev)}
@@ -1858,6 +2077,40 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
             <span style={{ fontSize: 8, color: isDarkMode ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.3)', marginLeft: 'auto', flexShrink: 0 }}>
               {asanaSections.reduce((sum, s) => sum + s.count, 0)} total
             </span>
+          )}
+          {demoModeActive && (
+            <span style={{
+              fontSize: 7,
+              fontWeight: 700,
+              color: textMuted,
+              padding: '1px 4px',
+              border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(13,47,96,0.12)'}`,
+              lineHeight: 1.1,
+              flexShrink: 0,
+            }}>
+              demo
+            </span>
+          )}
+          {recentCount > 0 && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowRecent(prev => !prev);
+              }}
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                fontSize: 8,
+                color: textMuted,
+                padding: '1px 4px',
+                fontFamily: "'Raleway', 'Segoe UI', sans-serif",
+                lineHeight: 1.1,
+                flexShrink: 0,
+              }}
+            >
+              {showRecent ? 'hide' : `${recentCount} recent`}
+            </button>
           )}
         </div>
       )}
@@ -1976,16 +2229,13 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
                                     el.style.right = 'auto';
                                     el.style.left = '0px';
                                   }
-                                  if (rect.bottom > window.innerHeight - 8) {
-                                    el.style.top = `${-(rect.height - 20)}px`;
-                                  }
                                 });
                               }}
                               onClick={e => e.stopPropagation()}
                               style={{
                                 position: 'absolute',
                                 right: -292,
-                                top: -6,
+                                bottom: 0,
                                 zIndex: 250,
                                 background: isDarkMode ? colours.darkBlue : '#fff',
                                 border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)'}`,
@@ -2094,72 +2344,21 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
         </div>
       )}
 
-      {/* ── Bank transfers ─────────────────────────────────────────────────── */}
-      {isAdmin && bankCount > 0 && (
-        <div style={{ marginTop: 10, borderTop: `1px solid ${rowBorder}`, paddingTop: 8 }}>
-          <div style={{ padding: '2px 14px 3px', display: 'flex', alignItems: 'center', gap: 5 }}>
-            <span style={{ width: 4, height: 4, borderRadius: '50%', background: colours.orange, flexShrink: 0 }} />
-            <span style={{ fontSize: 9, fontWeight: 600, color: textMuted, letterSpacing: '0.2px' }}>
-              Bank transfers
-            </span>
-            <span style={{ fontSize: 8, color: textMuted, opacity: 0.5 }}>{bankCount}</span>
-          </div>
-          <div style={{ padding: '2px 14px 6px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 4 }}>
-            {bankPending.map(item => {
-              const clientName = [item.FirstName, item.LastName].filter(Boolean).join(' ') || '—';
-              return renderCard(item.id, colours.orange, clientName, formatAmount(item.amount, item.currency));
-            })}
-          </div>
-          {selectedBank && (
-            <div style={{ padding: '8px 14px 10px', margin: '0 14px 4px', background: hoverBg, border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.12)' : 'rgba(13,47,96,0.08)'}`, borderLeft: `2px solid ${areaColour(selectedBank.area_of_work)}`, animation: 'opsTicketExpand 0.14s ease-out' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                <div style={{ width: 5, height: 5, borderRadius: '50%', background: areaColour(selectedBank.area_of_work), flexShrink: 0 }} />
-                <span style={{ fontSize: 10, color: textBody }}>{selectedBank.instruction_ref}</span>
-                <span style={{ opacity: 0.3, color: textMuted }}>·</span>
-                <span style={{ fontSize: 10, color: textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {selectedBank.service_description || selectedBank.area_of_work || ''}
-                </span>
-                {selectedBank.HelixContact && <span style={{ fontSize: 10, color: textMuted, flexShrink: 0 }}>· {selectedBank.HelixContact}</span>}
-              </div>
-              <div style={{ fontSize: 10, color: textMuted, marginBottom: 8 }}>
-                Approve transfer of <span style={{ fontWeight: 600, color: textPrimary }}>{formatAmount(selectedBank.amount, selectedBank.currency)}</span> to office account
-              </div>
-              <button
-                onClick={(e) => { e.stopPropagation(); handleBankApprove(selectedBank.id, selectedBank.instruction_ref); }}
-                disabled={actioningId === selectedBank.id}
-                style={{
-                  background: isDarkMode ? 'rgba(32, 178, 108, 0.08)' : 'rgba(32, 178, 108, 0.06)',
-                  border: `1px solid ${isDarkMode ? 'rgba(32, 178, 108, 0.28)' : 'rgba(32, 178, 108, 0.2)'}`,
-                  borderRadius: 0, padding: '5px 14px',
-                  cursor: actioningId === selectedBank.id ? 'wait' : 'pointer',
-                  display: 'inline-flex', alignItems: 'center', gap: 5,
-                  fontSize: 10, fontWeight: 600, color: colours.green,
-                  fontFamily: "'Raleway', 'Segoe UI', sans-serif",
-                  transition: 'all 0.15s ease', opacity: actioningId === selectedBank.id ? 0.5 : 1,
-                }}
-                onMouseEnter={e => { if (actioningId !== selectedBank.id) { e.currentTarget.style.background = isDarkMode ? 'rgba(32, 178, 108, 0.14)' : 'rgba(32, 178, 108, 0.1)'; } }}
-                onMouseLeave={e => { e.currentTarget.style.background = isDarkMode ? 'rgba(32, 178, 108, 0.08)' : 'rgba(32, 178, 108, 0.06)'; }}
-              >
-                <FiCheckCircle size={10} />
-                {actioningId === selectedBank.id ? 'Approving…' : 'Approve'}
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-
       {/* ── Transaction approvals ──────────────────────────────────────────── */}
       {(isAdmin ? (txnPending.length > 0 || txnV2Pending.length > 0 || hasFallbackPreview) : (filteredTxn.length > 0 || filteredTxnV2.length > 0 || hasFallbackPreview)) && (
-        <div style={{ paddingTop: 8 }}>
+        <div>
           <div style={{
             padding: '6px 14px 7px',
             display: 'flex',
             alignItems: 'center',
-            gap: 4,
+            alignContent: 'center',
+            gap: 3,
             flexWrap: 'wrap',
-            borderTop: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(13,47,96,0.03)'}`,
-            borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.07)' : 'rgba(13,47,96,0.07)'}`,
-            background: isDarkMode ? 'rgba(2, 6, 23, 0.24)' : 'rgba(244, 244, 246, 0.52)',
+            minHeight: 36,
+            boxSizing: 'border-box',
+            borderTop: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(13,47,96,0.05)'}`,
+            borderBottom: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.09)' : 'rgba(13,47,96,0.09)'}`,
+            background: isDarkMode ? 'rgba(2, 6, 23, 0.36)' : 'rgba(244, 244, 246, 0.62)',
             marginBottom: 8,
           }}>
             {(['today', 'yesterday', 'week', 'lastWeek', 'mtd'] as const).map(r => {
@@ -2176,7 +2375,7 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
               const isActive = txnRange === r;
               const isCued = !isActive && txnFallbackHint && (
                 (r === 'yesterday' && txnFallbackHint.range === 'yesterday') ||
-                (r === 'lastWeek' && txnFallbackHint.range === 'lastWeek')
+                (r === 'week' && txnFallbackHint.range === 'week')
               );
               const cuedCount = isCued ? txnFallbackHint!.label.match(/\((\d+)\)/)?.[1] : null;
               return (
@@ -2184,19 +2383,23 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
                   key={r}
                   onClick={() => setTxnRange(r)}
                   style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
                     background: isActive
-                      ? (isDarkMode ? 'rgba(54, 144, 206, 0.18)' : 'rgba(13, 47, 96, 0.08)')
-                      : 'transparent',
-                    border: `1px solid ${isActive ? (isDarkMode ? 'rgba(54, 144, 206, 0.3)' : 'rgba(13, 47, 96, 0.12)') : 'rgba(0,0,0,0)'}`,
+                      ? (isDarkMode ? 'rgba(54, 144, 206, 0.22)' : 'rgba(13, 47, 96, 0.1)')
+                      : (isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(13,47,96,0.03)'),
+                    border: `1px solid ${isActive ? (isDarkMode ? 'rgba(54, 144, 206, 0.4)' : 'rgba(13, 47, 96, 0.18)') : (isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(13,47,96,0.08)')}`,
                     cursor: 'pointer',
-                    padding: '3px 7px',
+                    padding: '3px 8px',
                     fontSize: 9,
-                    fontWeight: isActive || isCued ? 700 : 500,
+                    fontWeight: isActive ? 700 : isCued ? 700 : 600,
                     color: isActive ? accent : isCued ? accent : textMuted,
                     fontFamily: "'Raleway', 'Segoe UI', sans-serif",
                     transition: 'all 0.12s ease',
                     letterSpacing: '0.2px',
                     lineHeight: 1.2,
+                    minHeight: 22,
                     animation: isCued ? 'opsCuePulse 2.5s ease-in-out infinite' : undefined,
                   }}
                 >
@@ -2211,20 +2414,25 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
                     key={v}
                     onClick={() => setTxnVersion(v)}
                     style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
                       background: txnVersion === v
                         ? (isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(13, 47, 96, 0.08)')
                         : 'transparent',
                       border: `1px solid ${txnVersion === v ? (isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(13, 47, 96, 0.12)') : 'transparent'}`,
                       borderRadius: 0,
-                      padding: '2px 6px',
+                      padding: '3px 8px',
                       cursor: 'pointer',
-                      fontSize: 8,
-                      fontWeight: txnVersion === v ? 700 : 500,
+                      fontSize: 9,
+                      fontWeight: txnVersion === v ? 700 : 600,
                       color: txnVersion === v ? accent : textMuted,
                       fontFamily: "'Raleway', 'Segoe UI', sans-serif",
                       textTransform: 'uppercase' as const,
-                      letterSpacing: '0.3px',
+                      letterSpacing: '0.2px',
                       transition: 'all 0.12s ease',
+                      minHeight: 22,
+                      lineHeight: 1.2,
                       opacity: txnVersion === v ? 1 : 0.5,
                     }}
                   >
@@ -2235,145 +2443,215 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
             )}
           </div>
 
-          <div style={{
-            padding: '0 14px 8px',
-            display: 'flex',
-            alignItems: 'flex-end',
-            gap: 18,
-          }}>
+          <div style={{ padding: '0 14px 8px' }}>
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)',
+              border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.07)' : 'rgba(13,47,96,0.09)'}`,
+              background: isDarkMode ? colours.darkBlue : colours.grey,
+              overflow: 'hidden',
+            }}>
             <div style={{
               display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              flex: '1 1 0',
+              flexDirection: 'column',
               minWidth: 0,
-              paddingBottom: 6,
-              borderBottom: `2px solid ${isDarkMode ? colours.accent : colours.highlight}`,
+              borderRight: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(13,47,96,0.08)'}`,
             }}>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 9, fontWeight: 600, color: textMuted, letterSpacing: '0.2px' }}>
-                <FiArrowRight size={8} style={{ flexShrink: 0, opacity: 0.75 }} />
-                <span>Transactions</span>
-              </span>
-            </div>
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 5,
-              flex: '1 1 0',
-              minWidth: 0,
-              justifyContent: 'flex-start',
-              paddingBottom: 6,
-              borderBottom: `2px solid ${isDarkMode ? colours.accent : colours.highlight}`,
-            }}>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 9, fontWeight: 600, color: textMuted, letterSpacing: '0.2px' }}>
-                <SiStripe size={11} style={{ color: '#635bff', flexShrink: 0, opacity: 0.75 }} />
-                <span>Payments</span>
-              </span>
-              {displayedStripeRecent.length > 0 && (
-                <>
-                  <span style={{ fontSize: 8, color: textMuted, opacity: 0.5 }}>{displayedStripeRecent.length}</span>
-                  <span style={{ fontSize: 9, fontWeight: 600, color: textMuted }}>
-                    {formatAmount(displayedStripeRecent.reduce((sum, p) => sum + (p.amount || 0), 0))}
-                  </span>
-                </>
-              )}
-              {paymentsPreviewMode && txnFallbackHint && (
-                <span style={{ fontSize: 8, color: textMuted, opacity: 0.55 }}>
-                  {fallbackPeriodLabel} preview behind tap
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                minWidth: 0,
+                padding: '8px 10px',
+                background: isDarkMode ? colours.darkBlue : colours.grey,
+              }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 9, fontWeight: 600, color: textMuted, letterSpacing: '0.2px' }}>
+                  <FiArrowRight size={8} style={{ flexShrink: 0, opacity: 0.75 }} />
+                  <span>Transactions</span>
                 </span>
-              )}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 'auto' }}>
-                <button
-                  onClick={() => { setShowPaymentLookup(true); setLookupResults([]); setPaymentNotFound(false); setPaymentQuery(''); }}
-                  style={{
-                    background: 'none',
-                    border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(13,47,96,0.08)'}`,
-                    borderRadius: 0,
-                    padding: '3px 8px',
-                    cursor: 'pointer',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 3,
-                    color: textMuted,
-                    fontSize: 7,
-                    fontWeight: 600,
-                    fontFamily: "'Raleway', 'Segoe UI', sans-serif",
-                    letterSpacing: '0.3px',
-                    transition: 'all 0.12s ease',
-                  }}
-                  onMouseEnter={e => { e.currentTarget.style.borderColor = accent; e.currentTarget.style.color = accent; }}
-                  onMouseLeave={e => { e.currentTarget.style.borderColor = isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(13,47,96,0.08)'; e.currentTarget.style.color = textMuted; }}
-                >
-                  <FiSearch size={7} /> LOOKUP
-                </button>
-                <button
-                  onClick={() => { showToast('Request payment flow coming soon', 'info'); }}
-                  style={{
-                    background: 'none',
-                    border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(13,47,96,0.08)'}`,
-                    borderRadius: 0,
-                    padding: '3px 8px',
-                    cursor: 'pointer',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 3,
-                    color: textMuted,
-                    fontSize: 7,
-                    fontWeight: 600,
-                    fontFamily: "'Raleway', 'Segoe UI', sans-serif",
-                    letterSpacing: '0.3px',
-                    transition: 'all 0.12s ease',
-                  }}
-                  onMouseEnter={e => { e.currentTarget.style.borderColor = accent; e.currentTarget.style.color = accent; }}
-                  onMouseLeave={e => { e.currentTarget.style.borderColor = isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(13,47,96,0.08)'; e.currentTarget.style.color = textMuted; }}
-                >
-                  <FiCreditCard size={7} /> REQUEST
-                </button>
+              </div>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+                flexWrap: 'wrap',
+                minWidth: 0,
+                padding: '6px 10px 8px',
+                borderTop: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(13,47,96,0.06)'}`,
+                background: isDarkMode ? colours.darkBlue : colours.grey,
+              }}>
+                {(txnVersion === 'v1' ? txnV1StatusOptions : txnV2StatusOptions).map(option => {
+                  const isActive = txnVersion === 'v1'
+                    ? txnV1StatusFilter === option.value
+                    : txnV2StatusFilter === option.value;
+                  return (
+                    <button
+                      key={`${txnVersion}-${option.value}`}
+                      onClick={() => {
+                        if (txnVersion === 'v1') {
+                          setTxnV1StatusFilter(option.value as typeof txnV1StatusFilter);
+                        } else {
+                          setTxnV2StatusFilter(option.value as typeof txnV2StatusFilter);
+                        }
+                      }}
+                      style={{
+                        background: isActive
+                          ? (isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(13, 47, 96, 0.08)')
+                          : 'transparent',
+                        border: `1px solid ${isActive ? (isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(13, 47, 96, 0.12)') : (isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(13,47,96,0.08)')}`,
+                        borderRadius: 0,
+                        padding: '3px 8px',
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        fontSize: 9,
+                        fontWeight: isActive ? 700 : 600,
+                        color: isActive ? accent : textMuted,
+                        fontFamily: "'Raleway', 'Segoe UI', sans-serif",
+                        letterSpacing: '0.2px',
+                        transition: 'all 0.12s ease',
+                        minHeight: 22,
+                        lineHeight: 1.2,
+                      }}
+                    >
+                      <span>{option.label}</span>
+                      <span style={{ opacity: 0.55 }}>{option.count}</span>
+                    </button>
+                  );
+                })}
+                {isV2User && (
+                  <div style={{ display: 'flex', gap: 0, alignItems: 'center', marginLeft: 'auto' }}>
+                    {(['v1', 'v2'] as const).map(v => (
+                      <button
+                        key={v}
+                        onClick={() => setTxnVersion(v)}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          background: txnVersion === v
+                            ? (isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(13, 47, 96, 0.08)')
+                            : 'transparent',
+                          border: `1px solid ${txnVersion === v ? (isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(13, 47, 96, 0.12)') : 'transparent'}`,
+                          borderRadius: 0,
+                          padding: '3px 8px',
+                          cursor: 'pointer',
+                          fontSize: 9,
+                          fontWeight: txnVersion === v ? 700 : 600,
+                          color: txnVersion === v ? accent : textMuted,
+                          fontFamily: "'Raleway', 'Segoe UI', sans-serif",
+                          textTransform: 'uppercase' as const,
+                          letterSpacing: '0.2px',
+                          transition: 'all 0.12s ease',
+                          minHeight: 22,
+                          lineHeight: 1.2,
+                          opacity: txnVersion === v ? 1 : 0.5,
+                        }}
+                      >
+                        {v}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
-          </div>
-
-          <div style={{ padding: '0 14px 8px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
-              {(txnVersion === 'v1' ? txnV1StatusOptions : txnV2StatusOptions).map(option => {
-                const isActive = txnVersion === 'v1'
-                  ? txnV1StatusFilter === option.value
-                  : txnV2StatusFilter === option.value;
-                return (
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              minWidth: 0,
+            }}>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5,
+                minWidth: 0,
+                padding: '8px 10px',
+                background: isDarkMode ? colours.darkBlue : colours.highlightBlue,
+              }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 9, fontWeight: 600, color: textMuted, letterSpacing: '0.2px' }}>
+                  <SiStripe size={11} style={{ color: '#635bff', flexShrink: 0, opacity: 0.75 }} />
+                  <span>Payments</span>
+                </span>
+                {displayedStripeRecent.length > 0 && (
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginLeft: 'auto', minWidth: 0 }}>
+                    <span style={{ fontSize: 8, color: textMuted, opacity: 0.5 }}>{displayedStripeRecent.length}</span>
+                    <span style={{ fontSize: 9, fontWeight: 600, color: textMuted, textAlign: 'right', marginLeft: 'auto' }}>
+                      {formatAmount(displayedStripeRecent.reduce((sum, p) => sum + (p.amount || 0), 0))}
+                    </span>
+                  </div>
+                )}
+              </div>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                flexWrap: 'wrap',
+                minWidth: 0,
+                padding: '6px 10px 8px',
+                borderTop: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(13,47,96,0.06)'}`,
+                background: isDarkMode ? colours.darkBlue : colours.highlightBlue,
+              }}>
+                {paymentsPreviewMode && txnFallbackHint && (
+                  <span style={{ fontSize: 8, color: textMuted, opacity: 0.55 }}>
+                    Auto showing {fallbackPeriodLabel?.toLowerCase()}
+                  </span>
+                )}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: paymentsPreviewMode && txnFallbackHint ? 'auto' : 0 }}>
                   <button
-                    key={`${txnVersion}-${option.value}`}
-                    onClick={() => {
-                      if (txnVersion === 'v1') {
-                        setTxnV1StatusFilter(option.value as typeof txnV1StatusFilter);
-                      } else {
-                        setTxnV2StatusFilter(option.value as typeof txnV2StatusFilter);
-                      }
-                    }}
+                    onClick={() => { setShowPaymentLookup(true); setLookupResults([]); setPaymentNotFound(false); setPaymentQuery(''); }}
                     style={{
-                      background: isActive
-                        ? (isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(13, 47, 96, 0.08)')
-                        : 'transparent',
-                      border: `1px solid ${isActive ? (isDarkMode ? 'rgba(135, 243, 243, 0.25)' : 'rgba(13, 47, 96, 0.12)') : (isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(13,47,96,0.08)')}`,
+                      background: 'none',
+                      border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(13,47,96,0.08)'}`,
                       borderRadius: 0,
                       padding: '3px 8px',
                       cursor: 'pointer',
                       display: 'inline-flex',
                       alignItems: 'center',
-                      gap: 4,
-                      fontSize: 8,
-                      fontWeight: isActive ? 700 : 500,
-                      color: isActive ? accent : textMuted,
+                      gap: 3,
+                      color: textMuted,
+                      fontSize: 9,
+                      fontWeight: 600,
                       fontFamily: "'Raleway', 'Segoe UI', sans-serif",
                       letterSpacing: '0.2px',
                       transition: 'all 0.12s ease',
+                      minHeight: 22,
+                      lineHeight: 1.2,
                     }}
+                    onMouseEnter={e => { e.currentTarget.style.borderColor = accent; e.currentTarget.style.color = accent; }}
+                    onMouseLeave={e => { e.currentTarget.style.borderColor = isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(13,47,96,0.08)'; e.currentTarget.style.color = textMuted; }}
                   >
-                    <span>{option.label}</span>
-                    <span style={{ opacity: 0.55 }}>{option.count}</span>
+                    <FiSearch size={8} /> LOOKUP
                   </button>
-                );
-              })}
+                  <button
+                    onClick={() => { showToast('Request payment flow coming soon', 'info'); }}
+                    style={{
+                      background: 'none',
+                      border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(13,47,96,0.08)'}`,
+                      borderRadius: 0,
+                      padding: '3px 8px',
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 3,
+                      color: textMuted,
+                      fontSize: 9,
+                      fontWeight: 600,
+                      fontFamily: "'Raleway', 'Segoe UI', sans-serif",
+                      letterSpacing: '0.2px',
+                      transition: 'all 0.12s ease',
+                      minHeight: 22,
+                      lineHeight: 1.2,
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.borderColor = accent; e.currentTarget.style.color = accent; }}
+                    onMouseLeave={e => { e.currentTarget.style.borderColor = isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(13,47,96,0.08)'; e.currentTarget.style.color = textMuted; }}
+                  >
+                    <FiCreditCard size={8} /> REQUEST
+                  </button>
+                </div>
+              </div>
             </div>
+          </div>
           </div>
 
           {/* ── V1 transaction cards ──────────────────────── */}
@@ -2387,16 +2665,22 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
             </div>
           ) : (
             <div style={{ padding: '2px 14px 6px', position: 'relative' }}>
-              {/* 2-column card grid */}
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
-                gap: 4,
-                opacity: txnPreviewMode ? 0.26 : 1,
-                filter: txnPreviewMode ? 'saturate(0.8)' : 'none',
-                pointerEvents: txnPreviewMode ? 'none' : 'auto',
-              }}>
-              {renderedTxn.map(item => {
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, opacity: 1, filter: 'none', pointerEvents: 'auto' }}>
+              {renderedTxnGroups.map(group => (
+                <div key={group.key} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 2px' }}>
+                    <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.32px', textTransform: 'uppercase', color: textMuted }}>
+                      {group.label}
+                    </span>
+                    <span style={{ flex: 1, height: 1, background: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(13,47,96,0.08)' }} />
+                    <span style={{ fontSize: 8, color: textMuted, opacity: 0.6 }}>{group.items.length}</span>
+                  </div>
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+                    gap: 4,
+                  }}>
+              {group.items.map(item => {
                 const txnId = `txn-${item.transaction_id}`;
                 const isExpanded = expandedId === txnId;
                 const isActioning = actioningId === txnId;
@@ -2420,7 +2704,7 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
                         borderLeftColor: statusColour,
                         padding: '5px 8px',
                         cursor: 'pointer',
-                        background: isExpanded ? hoverBg : (isDarkMode ? 'rgba(6, 23, 51, 0.35)' : 'rgba(13, 47, 96, 0.015)'),
+                        background: isExpanded ? hoverBg : (isDarkMode ? colours.darkBlue : colours.sectionBackground),
                         transition: 'all 0.14s ease',
                       }}
                       onMouseEnter={e => {
@@ -2429,7 +2713,7 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
                         e.currentTarget.style.borderLeftColor = statusColour;
                       }}
                       onMouseLeave={e => {
-                        e.currentTarget.style.background = isExpanded ? hoverBg : (isDarkMode ? 'rgba(6, 23, 51, 0.35)' : 'rgba(13, 47, 96, 0.015)');
+                        e.currentTarget.style.background = isExpanded ? hoverBg : (isDarkMode ? colours.darkBlue : colours.sectionBackground);
                         e.currentTarget.style.borderColor = isExpanded ? (isDarkMode ? 'rgba(54,144,206,0.18)' : 'rgba(13,47,96,0.1)') : (isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(13,47,96,0.05)');
                         e.currentTarget.style.borderLeftColor = statusColour;
                       }}
@@ -2466,12 +2750,6 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
                         {item.fe && <span style={{ fontSize: 9, color: textMuted, opacity: 0.4 }}>·</span>}
                         <span style={{ fontSize: 9, color: textMuted }}>
                           {item.from_client ? 'Client' : (item.money_sender ? item.money_sender.split(' ')[0] : '3rd')}
-                        </span>
-                        <span style={{
-                          fontSize: 7, fontWeight: 700, letterSpacing: '0.3px', textTransform: 'uppercase',
-                          color: statusColour, marginLeft: 'auto', flexShrink: 0,
-                        }}>
-                          {statusLabel}
                         </span>
                       </div>
                     </div>
@@ -2619,36 +2897,10 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
                   </React.Fragment>
                 );
               })}
+                  </div>
+                </div>
+              ))}
               </div>
-              {txnPreviewMode && txnFallbackHint && (
-                <button
-                  onClick={() => setTxnRange(txnFallbackHint.range)}
-                  style={{
-                    position: 'absolute',
-                    inset: 0,
-                    background: 'transparent',
-                    border: `1px dashed ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(13,47,96,0.12)'}`,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    padding: 12,
-                  }}
-                >
-                  <span style={{
-                    background: isDarkMode ? 'rgba(2, 6, 23, 0.78)' : 'rgba(255,255,255,0.88)',
-                    border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(13,47,96,0.12)'}`,
-                    padding: '6px 10px',
-                    fontSize: 9,
-                    fontWeight: 600,
-                    color: textMuted,
-                    fontFamily: "'Raleway', 'Segoe UI', sans-serif",
-                    letterSpacing: '0.2px',
-                  }}>
-                    {fallbackPreviewLabel} preview · tap to show {fallbackPreviewLabelLower} ({txnFallbackItemsByStatus.length})
-                  </span>
-                </button>
-              )}
             </div>
           )}
           </>
@@ -2737,17 +2989,34 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
 
           {/* ── V2 transaction cards ──────────────────────── */}
           {txnVersion === 'v2' && (
-              <div style={{ padding: '2px 14px 6px', display: 'flex', gap: 8 }}>
+              <div style={{ padding: '2px 14px 6px' }}>
+                <div style={{
+                  display: 'flex',
+                  gap: 0,
+                  border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.07)' : 'rgba(13,47,96,0.09)'}`,
+                    background: isDarkMode ? colours.darkBlue : colours.grey,
+                  overflow: 'hidden',
+                }}>
                 {/* Left: V2 transaction cards */}
-                <div style={{ flex: '1 1 0', minWidth: 0 }}>
+                <div style={{ flex: '1 1 0', minWidth: 0, padding: '8px', background: isDarkMode ? colours.darkBlue : colours.sectionBackground }}>
                 {renderedTxnV2.length === 0 && syncSuggestions.length === 0 ? (
                   <div style={{ padding: '4px 0 8px', textAlign: 'center' }}>
                     <span style={{ fontSize: 10, color: textMuted, opacity: 0.6 }}>No V2 transactions</span>
                   </div>
                 ) : (
                 <div style={{ position: 'relative' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 4, opacity: txnV2PreviewMode ? 0.26 : 1, filter: txnV2PreviewMode ? 'saturate(0.8)' : 'none', pointerEvents: txnV2PreviewMode ? 'none' : 'auto' }}>
-                {renderedTxnV2.map(item => {
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, opacity: 1, filter: 'none', pointerEvents: 'auto' }}>
+                {renderedTxnV2Groups.map(group => (
+                  <div key={group.key} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 2px' }}>
+                      <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.32px', textTransform: 'uppercase', color: textMuted }}>
+                        {group.label}
+                      </span>
+                      <span style={{ flex: 1, height: 1, background: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(13,47,96,0.08)' }} />
+                      <span style={{ fontSize: 8, color: textMuted, opacity: 0.6 }}>{group.items.length}</span>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 4 }}>
+                {group.items.map(item => {
                   const v2Id = `v2-${item.id}`;
                   const isExpanded = expandedId === v2Id;
                   const isActioning = actioningV2Id === item.id;
@@ -2777,7 +3046,7 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
                           borderLeftColor: st.colour,
                           padding: '5px 8px',
                           cursor: 'pointer',
-                          background: isNew ? (isDarkMode ? 'rgba(135,243,243,0.06)' : 'rgba(54,144,206,0.06)') : (isExpanded ? hoverBg : (isDarkMode ? 'rgba(6, 23, 51, 0.35)' : 'rgba(13, 47, 96, 0.015)')),
+                          background: isNew ? (isDarkMode ? colours.dark.cardHover : colours.highlightBlue) : (isExpanded ? hoverBg : (isDarkMode ? colours.darkBlue : colours.sectionBackground)),
                           transition: 'all 0.14s ease',
                           boxShadow: lookupHighlight?.kind === 'transaction-v2' && lookupHighlight.id === String(item.id)
                             ? `0 0 0 1px ${accent}, inset 0 0 0 1px ${accent}`
@@ -2790,7 +3059,7 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
                           e.currentTarget.style.borderLeftColor = st.colour;
                         }}
                         onMouseLeave={e => {
-                          e.currentTarget.style.background = isNew ? (isDarkMode ? 'rgba(135,243,243,0.06)' : 'rgba(54,144,206,0.06)') : (isExpanded ? hoverBg : (isDarkMode ? 'rgba(6, 23, 51, 0.35)' : 'rgba(13, 47, 96, 0.015)'));
+                          e.currentTarget.style.background = isNew ? (isDarkMode ? colours.dark.cardHover : colours.highlightBlue) : (isExpanded ? hoverBg : (isDarkMode ? colours.darkBlue : colours.sectionBackground));
                           e.currentTarget.style.borderColor = isExpanded ? (isDarkMode ? 'rgba(54,144,206,0.18)' : 'rgba(13,47,96,0.1)') : (isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(13,47,96,0.05)');
                           e.currentTarget.style.borderLeftColor = st.colour;
                         }}
@@ -2819,12 +3088,6 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
                               </span>
                             </>
                           )}
-                          <span style={{
-                            fontSize: 7, fontWeight: 700, letterSpacing: '0.3px', textTransform: 'uppercase',
-                            color: st.colour, marginLeft: 'auto', flexShrink: 0,
-                          }}>
-                            {st.label}
-                          </span>
                         </div>
                       </div>
 
@@ -2946,46 +3209,21 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
                     </React.Fragment>
                   );
                 })}
+                    </div>
+                  </div>
+                ))}
                 </div>
-                {txnV2PreviewMode && txnFallbackHint && (
-                  <button
-                    onClick={() => setTxnRange(txnFallbackHint.range)}
-                    style={{
-                      position: 'absolute',
-                      inset: 0,
-                      background: 'transparent',
-                      border: `1px dashed ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(13,47,96,0.12)'}`,
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      padding: 12,
-                    }}
-                  >
-                    <span style={{
-                      background: isDarkMode ? 'rgba(2, 6, 23, 0.78)' : 'rgba(255,255,255,0.88)',
-                      border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(13,47,96,0.12)'}`,
-                      padding: '6px 10px',
-                      fontSize: 9,
-                      fontWeight: 600,
-                      color: textMuted,
-                      fontFamily: "'Raleway', 'Segoe UI', sans-serif",
-                      letterSpacing: '0.2px',
-                    }}>
-                      {fallbackPreviewLabel} preview · tap to show {fallbackPreviewLabelLower} ({previewTxnV2Items.length})
-                    </span>
-                  </button>
-                )}
                 </div>
                 )}
                 </div>
                 {/* Right: Payments ledger — 50/50 split, stretches to match transactions */}
                 <div style={{
                   flex: '1 1 0', minWidth: 0,
-                  borderLeft: `1px solid ${rowBorder}`,
-                  paddingLeft: 8, alignSelf: 'stretch',
+                  borderLeft: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.07)' : 'rgba(13,47,96,0.09)'}`,
+                  padding: '8px', alignSelf: 'stretch',
                   display: 'flex', flexDirection: 'column',
                   minHeight: 50,
+                  background: isDarkMode ? colours.darkBlue : colours.highlightBlue,
                 }}>
                   <div style={{
                     display: 'flex',
@@ -2994,15 +3232,17 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
                     minHeight: 0,
                     position: 'relative',
                     border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(13,47,96,0.05)'}`,
-                    background: isDarkMode ? 'rgba(6, 23, 51, 0.35)' : 'rgba(13, 47, 96, 0.015)',
+                    background: isDarkMode ? colours.darkBlue : colours.sectionBackground,
                   }}>
                     {/* Payment rows — fills available height, scrolls if needed */}
-                    <div data-ops-payment-list="true" style={{ display: 'flex', flexDirection: 'column', gap: 1, flex: 1, overflowY: 'auto', minHeight: 0, padding: '4px 0', opacity: paymentsPreviewMode ? 0.26 : 1, filter: paymentsPreviewMode ? 'saturate(0.8)' : 'none', pointerEvents: paymentsPreviewMode ? 'none' : 'auto' }}>
+                    <div data-ops-payment-list="true" style={{ display: 'flex', flexDirection: 'column', gap: 1, flex: 1, overflowY: 'auto', minHeight: 0, padding: '4px 0', opacity: 1, filter: 'none', pointerEvents: 'auto' }}>
                       {renderedStripeRecent.map(p => {
                         const clientName = [p.firstName, p.lastName].filter(Boolean).join(' ');
                         const statusColour = p.paymentStatus === 'succeeded' ? colours.green
                           : p.paymentStatus === 'failed' ? colours.cta : colours.orange;
                         const paymentMethod = p.paymentMethod || 'Card';
+                        const paymentMethodNormalised = paymentMethod.toLowerCase();
+                        const isBankMethod = paymentMethodNormalised.includes('bank') || paymentMethodNormalised.includes('bacs') || paymentMethodNormalised.includes('transfer');
                         const paymentReference = p.paymentReference || p.instructionRef || (p.paymentIntentId || p.id).slice(-12);
                         return (
                           <div
@@ -3011,9 +3251,9 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
                             onClick={() => setSelectedStripeItem(p)}
                             style={{
                               display: 'grid',
-                              gridTemplateColumns: '52px minmax(0, 1fr) 52px 124px 86px',
+                              gridTemplateColumns: '44px 44px minmax(0, 1fr) 42px 110px 80px',
                               alignItems: 'center',
-                              columnGap: 8,
+                              columnGap: 6,
                               padding: '4px 8px',
                               cursor: 'pointer',
                               background: 'transparent',
@@ -3025,22 +3265,52 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
                             onMouseEnter={e => { e.currentTarget.style.background = hoverBg; }}
                             onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
                           >
+                            <span
+                              title={p.paymentStatus === 'succeeded' ? 'Paid' : p.paymentStatus === 'failed' ? 'Failed' : 'Pending'}
+                              aria-label={p.paymentStatus === 'succeeded' ? 'Paid' : p.paymentStatus === 'failed' ? 'Failed' : 'Pending'}
+                              style={{
+                                fontSize: 7,
+                                fontWeight: 700,
+                                letterSpacing: '0.3px',
+                                textTransform: 'uppercase',
+                                color: statusColour,
+                                flexShrink: 0,
+                                textAlign: 'left',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                minHeight: 14,
+                              }}
+                            >
+                              {p.paymentStatus === 'succeeded' ? (
+                                <FiCheck size={10} strokeWidth={3} />
+                              ) : p.paymentStatus === 'failed' ? (
+                                'Failed'
+                              ) : (
+                                <FiClock size={10} strokeWidth={2.2} />
+                              )}
+                            </span>
                             <span style={{
-                              fontSize: 7, fontWeight: 700, letterSpacing: '0.3px', textTransform: 'uppercase',
-                              color: statusColour, flexShrink: 0, minWidth: 38, textAlign: 'left',
+                              fontSize: 7, color: textMuted, opacity: 0.55,
+                              whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums',
                             }}>
-                              {p.paymentStatus === 'succeeded' ? 'Paid' : p.paymentStatus === 'failed' ? 'Failed' : 'Pending'}
+                              {shortDate(p.createdAt)}
                             </span>
                             <span style={{ fontSize: 9, fontWeight: 600, color: textPrimary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: '1 1 0', minWidth: 0 }}>
                               {clientName || p.instructionRef || '—'}
                             </span>
                             <span style={{
-                              fontSize: 7, color: textMuted, opacity: 0.72,
+                              fontSize: 7,
+                              color: textMuted,
+                              opacity: 0.72,
                               whiteSpace: 'nowrap',
                               textAlign: 'left',
                               minWidth: 0,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4,
                             }}>
-                              {paymentMethod}
+                              {isBankMethod ? <FiBriefcase size={9} /> : <FiCreditCard size={9} />}
+                              <span>{paymentMethod}</span>
                             </span>
                             <span style={{
                               fontSize: 7, color: textMuted, opacity: 0.5,
@@ -3065,36 +3335,8 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
                         <span style={{ fontSize: 9, color: textMuted, opacity: 0.4, fontStyle: 'italic' }}>No payments in range</span>
                       </div>
                     )}
-                    {paymentsPreviewMode && txnFallbackHint && (
-                      <button
-                        onClick={() => setTxnRange(txnFallbackHint.range)}
-                        style={{
-                          position: 'absolute',
-                          inset: 0,
-                          background: 'transparent',
-                          border: `1px dashed ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(13,47,96,0.12)'}`,
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          padding: 12,
-                        }}
-                      >
-                        <span style={{
-                          background: isDarkMode ? 'rgba(2, 6, 23, 0.78)' : 'rgba(255,255,255,0.88)',
-                          border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(13,47,96,0.12)'}`,
-                          padding: '6px 10px',
-                          fontSize: 9,
-                          fontWeight: 600,
-                          color: textMuted,
-                          fontFamily: "'Raleway', 'Segoe UI', sans-serif",
-                          letterSpacing: '0.2px',
-                        }}>
-                          {fallbackPreviewLabel} payments preview · tap to show {fallbackPreviewLabelLower} ({stripeFallbackItems.length})
-                        </span>
-                      </button>
-                    )}
                   </div>
+                </div>
                 </div>
               </div>
           )}
@@ -3107,9 +3349,9 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
       {isV2User && filteredDebts.length > 0 && (
         <div style={{ marginTop: 10, borderTop: `1px solid ${rowBorder}`, paddingTop: 8 }}>
           <div style={{ padding: '2px 14px 3px', display: 'flex', alignItems: 'center', gap: 5 }}>
-            <span style={{ width: 4, height: 4, borderRadius: '50%', background: isDarkMode ? colours.subtleGrey : colours.greyText, flexShrink: 0, opacity: 0.8 }} />
+            <FiAlertCircle size={10} style={{ color: accent, flexShrink: 0 }} />
             <span style={{ fontSize: 9, fontWeight: 600, color: textMuted, letterSpacing: '0.2px' }}>
-              Aged debts
+              Aged debt suggestions
             </span>
             <span style={{ fontSize: 8, color: textMuted, opacity: 0.5 }}>{filteredDebts.length}</span>
             {(() => {
@@ -3123,131 +3365,175 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
                 </span>
               ) : null;
             })()}
-            <span style={{ fontSize: 9, fontWeight: 600, color: textMuted, marginLeft: 'auto' }}>
-              {formatAmount(filteredDebts.reduce((sum, d) => sum + (d.amount || 0), 0))}
-            </span>
+            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+              <span style={{ fontSize: 9, fontWeight: 600, color: textMuted }}>
+                Owed {formatAmount(filteredDebts.reduce((sum, d) => sum + (Number(d.amount) || 0), 0))}
+              </span>
+              <span style={{ fontSize: 8, fontWeight: 700, color: accent, letterSpacing: '0.2px', textTransform: 'uppercase' as const }}>
+                Can transfer {formatAmount(filteredDebts.reduce((sum, d) => sum + getDebtTransferMeta(d).transferableAmount, 0))}
+              </span>
+            </div>
           </div>
           <div style={{ padding: '2px 14px 6px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 4 }}>
-            {filteredDebts.map(item => {
-              const debtId = `debt-${item.id}`;
-              const isExpanded = expandedId === debtId;
-              const debtStatus = item.lifecycle_status || 'pending';
-              const debtNeutralColour = isDarkMode ? colours.subtleGrey : colours.greyText;
-              const debtCardBg = isDarkMode ? 'rgba(160,160,160,0.09)' : 'rgba(107,107,107,0.08)';
-              const debtCardHoverBg = isDarkMode ? 'rgba(160,160,160,0.14)' : 'rgba(107,107,107,0.12)';
-              const debtStageMap: Record<string, { label: string; colour: string }> = {
-                pending: { label: 'Needs action', colour: debtNeutralColour },
-                approved: { label: 'Approved', colour: colours.green },
-                transferred: { label: 'Settled', colour: colours.blue },
-                left_in_client: { label: 'Left in client', colour: isDarkMode ? colours.subtleGrey : colours.greyText },
-                rejected: { label: 'Confirm rejection', colour: debtNeutralColour },
-              };
-              const stage = debtStageMap[debtStatus] || debtStageMap.pending;
-              return (
-                <React.Fragment key={debtId}>
-                  {/* Card face */}
-                  <div
-                    data-ops-lookup-id={`debt-${item.id}`}
-                    onClick={() => toggleExpand(debtId)}
-                    style={{
-                      border: `1px solid ${isExpanded ? (isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(13,47,96,0.1)') : (isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(13,47,96,0.05)')}`,
-                      borderLeftWidth: 2,
-                      borderLeftColor: stage.colour,
-                      padding: '5px 8px',
-                      cursor: 'pointer',
-                      background: isExpanded ? debtCardHoverBg : debtCardBg,
-                      transition: 'all 0.14s ease',
-                      boxShadow: lookupHighlight?.kind === 'debt' && lookupHighlight.id === String(item.id)
-                        ? `0 0 0 1px ${accent}, inset 0 0 0 1px ${accent}`
-                        : 'none',
-                    }}
-                    onMouseEnter={e => {
-                      e.currentTarget.style.background = debtCardHoverBg;
-                      e.currentTarget.style.borderColor = isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(13,47,96,0.1)';
-                      e.currentTarget.style.borderLeftColor = stage.colour;
-                    }}
-                    onMouseLeave={e => {
-                      e.currentTarget.style.background = isExpanded ? debtCardHoverBg : debtCardBg;
-                      e.currentTarget.style.borderColor = isExpanded ? (isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(13,47,96,0.1)') : (isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(13,47,96,0.05)');
-                      e.currentTarget.style.borderLeftColor = stage.colour;
-                    }}
-                  >
-                    {/* Top: ref + amount */}
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
-                      <span style={{ fontSize: 10, fontWeight: 600, color: textPrimary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {item.matter_ref}
-                      </span>
-                      <span style={{ fontSize: 10, fontWeight: 600, color: textPrimary, whiteSpace: 'nowrap', flexShrink: 0 }}>
-                        {formatAmount(item.amount)}
-                      </span>
-                    </div>
-                    {item.fee_earner && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 1 }}>
-                        <span style={{ fontSize: 9, color: textMuted }}>{item.fee_earner}</span>
-                      </div>
-                    )}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {renderedDebtGroups.map(group => (
+                <div key={group.key} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 2px' }}>
+                    <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.32px', textTransform: 'uppercase', color: textMuted }}>
+                      {group.label}
+                    </span>
+                    <span style={{ flex: 1, height: 1, background: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(13,47,96,0.08)' }} />
+                    <span style={{ fontSize: 8, color: textMuted, opacity: 0.6 }}>{group.items.length}</span>
                   </div>
-                  {/* Expand detail */}
-                  {isExpanded && (
-                    <div style={{
-                      gridColumn: '1 / -1',
-                      padding: '6px 10px 8px 14px',
-                        background: debtCardHoverBg,
-                      border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(13,47,96,0.06)'}`,
-                      borderLeft: `2px solid ${stage.colour}`,
-                      animation: 'opsTicketExpand 0.14s ease-out',
-                      marginBottom: 2,
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, color: textMuted, marginBottom: 4 }}>
-                        {item.matter_description && (
-                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.matter_description}</span>
-                        )}
-                        {item.transaction_date && (
-                          <>
-                            {item.matter_description && <span style={{ opacity: 0.4 }}>·</span>}
-                            <span style={{ flexShrink: 0 }}>{shortDate(item.transaction_date)}</span>
-                          </>
-                        )}
-                        {item.created_by && (
-                          <>
-                            <span style={{ opacity: 0.4 }}>·</span>
-                            <span>by {item.created_by}</span>
-                          </>
-                        )}
-                        {item.approved_by && debtStatus !== 'pending' && (
-                          <>
-                            <span style={{ opacity: 0.4 }}>·</span>
-                            <span style={{ color: textMuted, fontWeight: 600 }}>{stage.label} by {item.approved_by}</span>
-                          </>
-                        )}
-                      </div>
-                      {item.notes && (
-                        <div style={{ fontSize: 9, color: textMuted, marginTop: 2, fontStyle: 'italic' }}>{item.notes}</div>
-                      )}
-                      {item.action_notes && (
-                        <div style={{ fontSize: 9, color: textMuted, marginTop: 2, fontStyle: 'italic' }}>{item.action_notes}</div>
-                      )}
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setSelectedDebtItem(item); }}
-                        style={{
-                          background: 'none', border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(13,47,96,0.1)'}`,
-                          borderRadius: 0, padding: '2px 8px', marginTop: 4,
-                          cursor: 'pointer', fontSize: 8, fontWeight: 600, color: textMuted,
-                          fontFamily: "'Raleway', 'Segoe UI', sans-serif",
-                          textTransform: 'uppercase' as const, letterSpacing: '0.3px',
-                          transition: 'all 0.12s ease',
-                        }}
-                        onMouseEnter={e => { e.currentTarget.style.borderColor = isDarkMode ? 'rgba(255,255,255,0.16)' : 'rgba(13,47,96,0.18)'; }}
-                        onMouseLeave={e => { e.currentTarget.style.borderColor = isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(13,47,96,0.1)'; }}
-                      >
-                        View details
-                      </button>
-                    </div>
-                  )}
-                </React.Fragment>
-              );
-            })}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 4 }}>
+                    {group.items.map(item => {
+                      const debtId = `debt-${item.id}`;
+                      const isExpanded = expandedId === debtId;
+                      const debtStatus = item.lifecycle_status || 'pending';
+                      const debtMeta = getDebtTransferMeta(item);
+                      const stage = getDebtStageMeta(debtStatus, isDarkMode);
+                      const debtCardBg = debtMeta.queueable
+                        ? (isDarkMode ? 'rgba(135,243,243,0.06)' : 'rgba(54,144,206,0.05)')
+                        : (isDarkMode ? 'rgba(160,160,160,0.09)' : 'rgba(107,107,107,0.08)');
+                      const debtCardHoverBg = debtMeta.queueable
+                        ? (isDarkMode ? 'rgba(135,243,243,0.11)' : 'rgba(54,144,206,0.09)')
+                        : (isDarkMode ? 'rgba(160,160,160,0.14)' : 'rgba(107,107,107,0.12)');
+                      const contextBits = [
+                        item.matter_description,
+                        item.transaction_date ? shortDate(item.transaction_date) : null,
+                        item.created_by ? `by ${item.created_by}` : null,
+                      ].filter(Boolean);
+
+                      return (
+                        <React.Fragment key={debtId}>
+                          <div
+                            data-ops-lookup-id={`debt-${item.id}`}
+                            onClick={() => toggleExpand(debtId)}
+                            style={{
+                              border: `1px solid ${isExpanded ? (isDarkMode ? 'rgba(54,144,206,0.18)' : 'rgba(13,47,96,0.1)') : (isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(13,47,96,0.05)')}`,
+                              borderLeftWidth: 2,
+                              borderLeftColor: stage.colour,
+                              padding: '5px 8px',
+                              cursor: 'pointer',
+                              background: isExpanded ? debtCardHoverBg : debtCardBg,
+                              transition: 'all 0.14s ease',
+                              boxShadow: lookupHighlight?.kind === 'debt' && lookupHighlight.id === String(item.id)
+                                ? `0 0 0 1px ${accent}, inset 0 0 0 1px ${accent}`
+                                : 'none',
+                            }}
+                            onMouseEnter={e => {
+                              e.currentTarget.style.background = debtCardHoverBg;
+                              e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54,144,206,0.18)' : 'rgba(13,47,96,0.1)';
+                              e.currentTarget.style.borderLeftColor = stage.colour;
+                            }}
+                            onMouseLeave={e => {
+                              e.currentTarget.style.background = isExpanded ? debtCardHoverBg : debtCardBg;
+                              e.currentTarget.style.borderColor = isExpanded ? (isDarkMode ? 'rgba(54,144,206,0.18)' : 'rgba(13,47,96,0.1)') : (isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(13,47,96,0.05)');
+                              e.currentTarget.style.borderLeftColor = stage.colour;
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
+                              <span style={{ fontSize: 10, fontWeight: 600, color: textPrimary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {item.matter_ref}
+                              </span>
+                              <span style={{ fontSize: 10, fontWeight: 600, color: textPrimary, whiteSpace: 'nowrap', flexShrink: 0 }}>
+                                {formatAmount(item.amount)}
+                              </span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 1 }}>
+                              {item.fee_earner && <span style={{ fontSize: 9, color: textMuted }}>{item.fee_earner}</span>}
+                              {item.fee_earner && <span style={{ fontSize: 9, color: textMuted, opacity: 0.4 }}>·</span>}
+                              <span style={{ fontSize: 9, color: textMuted }}>{debtMeta.sourceLabel}</span>
+                              <span style={{ fontSize: 9, color: textMuted, opacity: 0.4 }}>·</span>
+                              <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.3px', textTransform: 'uppercase', color: debtMeta.queueable ? accent : textMuted, marginLeft: 'auto', flexShrink: 0 }}>
+                                {debtMeta.queueable ? `Transfer ${formatAmount(debtMeta.transferableAmount)}` : debtMeta.actionLabel}
+                              </span>
+                            </div>
+                          </div>
+
+                          {isExpanded && (
+                            <div style={{
+                              gridColumn: '1 / -1',
+                              padding: '6px 10px 8px 14px',
+                              background: debtCardHoverBg,
+                              border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.12)' : 'rgba(13,47,96,0.08)'}`,
+                              borderLeft: `2px solid ${stage.colour}`,
+                              animation: 'opsTicketExpand 0.14s ease-out',
+                              marginBottom: 2,
+                            }}>
+                              {contextBits.length > 0 && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, color: textMuted, marginBottom: 4 }}>
+                                  {contextBits.map((bit, index) => (
+                                    <React.Fragment key={`${debtId}-context-${index}`}>
+                                      {index > 0 && <span style={{ opacity: 0.4 }}>·</span>}
+                                      <span style={{ overflow: index === 0 ? 'hidden' : 'visible', textOverflow: index === 0 ? 'ellipsis' : 'clip', whiteSpace: index === 0 ? 'nowrap' : 'normal', flexShrink: index === 0 ? 1 : 0 }}>
+                                        {bit}
+                                      </span>
+                                    </React.Fragment>
+                                  ))}
+                                </div>
+                              )}
+
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', fontSize: 9, color: textMuted, marginBottom: 4 }}>
+                                <span>Owed <span style={{ color: textPrimary, fontWeight: 600 }}>{formatAmount(item.amount)}</span></span>
+                                <span>Can transfer <span style={{ color: debtMeta.queueable ? accent : textMuted, fontWeight: 600 }}>{debtMeta.transferableAmount > 0 ? formatAmount(debtMeta.transferableAmount) : '—'}</span></span>
+                                <span>Source <span style={{ color: textPrimary, fontWeight: 600 }}>{debtMeta.sourceLabel}</span></span>
+                              </div>
+
+                              {item.notes && (
+                                <div style={{ fontSize: 9, color: textMuted, marginTop: 2, fontStyle: 'italic' }}>{item.notes}</div>
+                              )}
+                              {item.action_notes && (
+                                <div style={{ fontSize: 9, color: textMuted, marginTop: 2, fontStyle: 'italic' }}>{item.action_notes}</div>
+                              )}
+
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
+                                {debtMeta.queueable && (
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); handleConvertDebtToRequest(item); }}
+                                    disabled={convertingDebtId === item.id}
+                                    style={{
+                                      background: colours.cta,
+                                      border: 'none',
+                                      borderRadius: 0,
+                                      padding: '4px 10px',
+                                      cursor: convertingDebtId === item.id ? 'wait' : 'pointer',
+                                      fontSize: 8,
+                                      fontWeight: 700,
+                                      color: '#fff',
+                                      fontFamily: "'Raleway', 'Segoe UI', sans-serif",
+                                      textTransform: 'uppercase' as const,
+                                      letterSpacing: '0.24px',
+                                      opacity: convertingDebtId === item.id ? 0.65 : 1,
+                                    }}
+                                  >
+                                    {convertingDebtId === item.id ? 'Queueing…' : debtMeta.actionLabel}
+                                  </button>
+                                )}
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); setSelectedDebtItem(item); }}
+                                  style={{
+                                    background: 'none', border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(13,47,96,0.1)'}`,
+                                    borderRadius: 0, padding: '2px 8px',
+                                    cursor: 'pointer', fontSize: 8, fontWeight: 600, color: textMuted,
+                                    fontFamily: "'Raleway', 'Segoe UI', sans-serif",
+                                    textTransform: 'uppercase' as const, letterSpacing: '0.3px',
+                                    transition: 'all 0.12s ease',
+                                  }}
+                                  onMouseEnter={e => { e.currentTarget.style.borderColor = isDarkMode ? 'rgba(255,255,255,0.16)' : 'rgba(13,47,96,0.18)'; }}
+                                  onMouseLeave={e => { e.currentTarget.style.borderColor = isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(13,47,96,0.1)'; }}
+                                >
+                                  View details
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -3267,7 +3553,7 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
       {isAdmin && showRecent && recentCount > 0 && (
         <div style={{ marginTop: 10, borderTop: `1px solid ${rowBorder}`, paddingTop: 8, opacity: 0.55 }}>
           <div style={{ padding: '2px 14px 3px', display: 'flex', alignItems: 'center', gap: 5 }}>
-            <span style={{ width: 4, height: 4, borderRadius: '50%', background: colours.green, flexShrink: 0, opacity: 0.6 }} />
+            <FiCheckCircle size={10} style={{ color: colours.green, flexShrink: 0, opacity: 0.6 }} />
             <span style={{ fontSize: 9, fontWeight: 600, color: textMuted, letterSpacing: '0.2px' }}>
               Recently approved
             </span>
@@ -3304,8 +3590,128 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
         </div>
       )}
 
+      {/* ── Team call stream (admin only — side-by-side) ────────── */}
+      {isAdmin && recentCalls.length > 0 && (() => {
+        const externalCalls = recentCalls.filter(c => !c.is_internal);
+        const internalCalls = recentCalls.filter(c => c.is_internal);
+
+        const renderStreamRow = (call: DubberCallItem) => {
+          const isInbound = call.call_type === 'inbound';
+          const party = isInbound
+            ? (call.from_label || call.from_party || '—')
+            : (call.to_label || call.to_party || '—');
+          const teamLabel = call.matched_team_initials || '—';
+          const mins = call.duration_seconds != null ? Math.floor(call.duration_seconds / 60) : null;
+          const secs = call.duration_seconds != null ? call.duration_seconds % 60 : null;
+          const durationText = mins != null ? `${mins}:${String(secs).padStart(2, '0')}` : '—';
+          const callTime = call.start_time_utc ? new Date(call.start_time_utc) : null;
+          const timeLabel = callTime
+            ? callTime.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+            : '—';
+          const sentimentScore = call.document_sentiment_score;
+          const sentimentColour = sentimentScore != null
+            ? (sentimentScore >= 0.6 ? colours.green : sentimentScore <= 0.4 ? colours.cta : colours.orange)
+            : colours.subtleGrey;
+          const dirColour = isInbound ? colours.green : colours.blue;
+          return (
+            <div
+              key={call.recording_id}
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '2px 24px minmax(0, 1fr) 34px 32px',
+                alignItems: 'center',
+                columnGap: 4,
+                padding: '3px 6px',
+                background: 'transparent',
+                transition: 'all 0.12s ease',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = hoverBg; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+            >
+              <div style={{ width: 2, height: '100%', minHeight: 14, background: sentimentColour, borderRadius: 999, opacity: 0.7 }} />
+              <span style={{
+                fontSize: 7, fontWeight: 700, letterSpacing: '0.3px',
+                color: isDarkMode ? colours.dark.text : colours.light.text,
+                background: isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(13, 47, 96, 0.06)',
+                padding: '1px 4px', textAlign: 'center', borderRadius: 0,
+              }}>
+                {teamLabel}
+              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0, overflow: 'hidden' }}>
+                <span style={{ fontSize: 7, color: dirColour, fontWeight: 600, flexShrink: 0 }}>
+                  {isInbound ? '←' : '→'}
+                </span>
+                <span style={{
+                  fontSize: 8, fontWeight: 600, color: textPrimary,
+                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0,
+                }}>
+                  {party}
+                </span>
+              </div>
+              <span style={{
+                fontSize: 7, color: textMuted,
+                fontFamily: "'Consolas', 'Courier New', monospace",
+                fontVariantNumeric: 'tabular-nums',
+                textAlign: 'right',
+              }}>
+                {durationText}
+              </span>
+              <span style={{ fontSize: 7, color: textMuted, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                {timeLabel}
+              </span>
+            </div>
+          );
+        };
+
+        return (
+        <div style={{ marginTop: 10, borderTop: `1px solid ${rowBorder}`, paddingTop: 8 }}>
+          <div style={{ padding: '2px 14px 3px', display: 'flex', alignItems: 'center', gap: 5 }}>
+            <FiPhone size={10} color={accent} style={{ flexShrink: 0 }} />
+            <span style={{ fontSize: 9, fontWeight: 600, color: textMuted, letterSpacing: '0.2px' }}>
+              Team calls
+            </span>
+            <span style={{ fontSize: 8, color: textMuted, opacity: 0.5 }}>{recentCalls.length}</span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, padding: '4px 14px 8px' }}>
+            {/* External column */}
+            <div>
+              <div style={{
+                fontSize: 7, fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase' as const,
+                color: accent, padding: '2px 6px 4px', borderBottom: `1px solid ${rowBorder}`,
+              }}>
+                External
+                <span style={{ marginLeft: 4, fontSize: 7, opacity: 0.5, fontWeight: 500 }}>{externalCalls.length}</span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                {externalCalls.length > 0
+                  ? externalCalls.map(renderStreamRow)
+                  : <span style={{ fontSize: 8, color: textMuted, opacity: 0.4, fontStyle: 'italic', padding: '6px' }}>None</span>
+                }
+              </div>
+            </div>
+            {/* Internal column */}
+            <div>
+              <div style={{
+                fontSize: 7, fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase' as const,
+                color: textMuted, padding: '2px 6px 4px', borderBottom: `1px solid ${rowBorder}`,
+              }}>
+                Internal
+                <span style={{ marginLeft: 4, fontSize: 7, opacity: 0.5, fontWeight: 500 }}>{internalCalls.length}</span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                {internalCalls.length > 0
+                  ? internalCalls.map(renderStreamRow)
+                  : <span style={{ fontSize: 8, color: textMuted, opacity: 0.4, fontStyle: 'italic', padding: '6px' }}>None</span>
+                }
+              </div>
+            </div>
+          </div>
+        </div>
+        );
+      })()}
+
       {/* ── CCL date confirmations ─────────────────────────────────── */}
-      {isAdmin && cclCount > 0 && (
+      {isAdmin && showHomeOpsCclDates && cclCount > 0 && (
         <div style={{
           marginTop: 10,
           borderTop: `1px solid ${rowBorder}`,
@@ -3313,7 +3719,7 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
           background: isDarkMode ? 'rgba(6, 23, 51, 0.18)' : 'rgba(13, 47, 96, 0.012)',
         }}>
           <div style={{ padding: '2px 14px 3px', display: 'flex', alignItems: 'center', gap: 5 }}>
-            <span style={{ width: 4, height: 4, borderRadius: '50%', background: colours.highlightBlue, flexShrink: 0 }} />
+            <FiCalendar size={10} style={{ color: accent, flexShrink: 0 }} />
             <span style={{ fontSize: 9, fontWeight: 600, color: textMuted, letterSpacing: '0.2px' }}>
               CCL dates
             </span>
@@ -3514,6 +3920,7 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
       {/* ── Debt Detail Modal ────────────────────────────────────────── */}
       {selectedDebtItem && (() => {
         const d = selectedDebtItem;
+        const debtMeta = getDebtTransferMeta(d);
         return (
           <div
             onClick={() => setSelectedDebtItem(null)}
@@ -3556,7 +3963,19 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
               <div style={{ padding: '12px 16px', display: 'flex', flexWrap: 'wrap', gap: '10px 20px', fontSize: 11, color: textBody, lineHeight: 1.6 }}>
                 <div>
                   <span style={{ fontSize: 9, color: textMuted, textTransform: 'uppercase', letterSpacing: '0.3px', display: 'block' }}>Status</span>
-                  <span style={{ fontWeight: 600 }}>{d.lifecycle_status || 'pending'}</span>
+                  <span style={{ fontWeight: 600 }}>{(d.lifecycle_status || 'pending').replace(/_/g, ' ')}</span>
+                </div>
+                <div>
+                  <span style={{ fontSize: 9, color: textMuted, textTransform: 'uppercase', letterSpacing: '0.3px', display: 'block' }}>Money owed</span>
+                  <span style={{ fontWeight: 600 }}>{d.amount != null ? formatAmount(Number(d.amount)) : '—'}</span>
+                </div>
+                <div>
+                  <span style={{ fontSize: 9, color: textMuted, textTransform: 'uppercase', letterSpacing: '0.3px', display: 'block' }}>Can transfer</span>
+                  <span style={{ fontWeight: 600 }}>{debtMeta.transferableAmount > 0 ? formatAmount(debtMeta.transferableAmount) : '—'}</span>
+                </div>
+                <div>
+                  <span style={{ fontSize: 9, color: textMuted, textTransform: 'uppercase', letterSpacing: '0.3px', display: 'block' }}>Source</span>
+                  <span style={{ fontWeight: 600 }}>{debtMeta.sourceLabel}</span>
                 </div>
                 {d.fee_earner && (
                   <div>
@@ -3582,13 +4001,18 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
                     {d.notes}
                   </div>
                 )}
+                {d.action_notes && (
+                  <div style={{ flexBasis: '100%' }}>
+                    <span style={{ fontSize: 9, color: textMuted, textTransform: 'uppercase', letterSpacing: '0.3px', display: 'block' }}>Action notes</span>
+                    {d.action_notes}
+                  </div>
+                )}
               </div>
               {/* Footer */}
-              {d.created_at && (
-                <div style={{ padding: '6px 16px 10px', fontSize: 9, color: textMuted, borderTop: `1px solid ${borderCol}` }}>
-                  Created {relativeTime(d.created_at)}
-                </div>
-              )}
+              <div style={{ padding: '6px 16px 10px', fontSize: 9, color: textMuted, borderTop: `1px solid ${borderCol}` }}>
+                {d.created_at ? `Created ${relativeTime(d.created_at)}` : 'Created just now'}
+                {d.action_notes ? ` · ${d.action_notes}` : ''}
+              </div>
             </div>
           </div>
         );
@@ -3777,6 +4201,7 @@ const OperationsQueue: React.FC<OperationsQueueProps> = ({ isDarkMode, userIniti
         }
       `}</style>
     </div>
+    </>
   );
 };
 

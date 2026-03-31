@@ -1,6 +1,9 @@
-import React from 'react';
+﻿import React from 'react';
 import { createPortal } from 'react-dom';
-import { FiRefreshCw, FiInbox, FiSend, FiCheckCircle, FiFolder } from 'react-icons/fi';
+import { FiRefreshCw, FiInbox, FiSend, FiCheckCircle, FiChevronDown, FiChevronUp, FiFolder, FiFilter, FiTrendingUp, FiMail, FiPhoneCall, FiClock } from 'react-icons/fi';
+import { renderAreaOfWorkGlyph } from '../../components/filter/areaGlyphs';
+import { TbCurrencyPound } from 'react-icons/tb';
+import CallsAndNotes from './CallsAndNotes';
 import { colours } from '../../app/styles/colours';
 import helixMark from '../../assets/markwhite.svg';
 import clioIcon from '../../assets/clio.svg';
@@ -9,20 +12,106 @@ import { useToast } from '../feedback/ToastProvider';
 import { useClaimEnquiry } from '../../utils/claimEnquiry';
 import { DEFAULT_CCL_TEMPLATE, generateTemplateContent, type GenerationOptions } from '../../shared/ccl';
 import { isCclUser } from '../../app/admin';
+import CompactOptionStrip, { type CompactOptionStripItem } from '../../components/CompactOptionStrip';
+import { buildPitchScenarioStripItems, scenarioIcon, scenarioTone } from '../../components/pitchScenarioPresentation';
 import { DocumentRenderer } from '../../tabs/instructions/ccl/DocumentRenderer';
-import { fetchAiFill, fetchAiFillStream, approveCcl, fetchPressureTest, type AiFillRequest, type AiFillResponse, type PressureTestResponse, type PressureTestFieldScore } from '../../tabs/matters/ccl/cclAiService';
+import { approveCcl, fetchCclCompile, fetchPressureTest, runCclService, type AiFillRequest, type AiFillResponse, type CclCompileResponse, type PressureTestResponse, type PressureTestFieldScore } from '../../tabs/matters/ccl/cclAiService';
 
 /* ── Types ── */
 
 type PeriodKey = 'today' | 'weekToDate' | 'monthToDate' | 'yearToDate';
 type SortKey = 'date' | 'name' | 'aow';
 type MatterSortKey = 'date' | 'name' | 'fe' | 'aow';
-type EnquiryTab = 'enquiries' | 'unclaimed';
 type UnclaimedRange = 'today' | 'yesterday' | 'week' | 'lastWeek' | 'month' | 'lastMonth';
-type WeekComparisonMode = 'relative' | 'full';
-type ActivityTab = 'enquiries' | 'pitched' | 'instructed';
+type ActivityTab = 'enquiries' | 'unclaimed';
 type InsightPeriod = 'today' | 'weekToDate' | 'monthToDate' | null;
 type CclContactSource = 'matter' | 'current';
+type HomeMatterStepKey = 'compile' | 'generate' | 'pressure' | 'review' | 'nd';
+type CclPipelineDetailModal = { matterId: string; kind: 'compile' | 'pressure' };
+type FollowUpChannel = 'email' | 'phone';
+type FollowUpDueState = 'pending' | 'due' | 'late' | null;
+type EnquiryLifecycleStepKey = 'claimed' | 'pitch' | 'follow-up' | 'instruction';
+type EnquiryFollowUpModal = { record: DetailRecord };
+
+const HOME_PITCH_SCENARIO_STRIP_ITEMS = buildPitchScenarioStripItems();
+const HOME_MATTER_STEP_HEADER_LABELS = ['Compile', 'Generate', 'Test', 'Review', 'Upload'] as const;
+const HOME_ENQUIRY_STEP_HEADER_LABELS = ['Claimed', 'Pitch', 'Follow Up', 'Instruction'] as const;
+const CCL_ORDERED_REVIEW_FIELD_KEYS = [
+  'insert_clients_name',
+  'insert_heading_eg_matter_description',
+  'name_of_person_handling_matter',
+  'status',
+  'name',
+  'fee_earner_email',
+  'fee_earner_phone',
+  'fee_earner_postal_address',
+  'names_and_contact_details_of_other_members_of_staff_who_can_help_with_queries',
+  'insert_current_position_and_scope_of_retainer',
+  'next_steps',
+  'realistic_timescale',
+  'handler_hourly_rate',
+  'charges_estimate_paragraph',
+  'disbursements_paragraph',
+  'costs_other_party_paragraph',
+  'figure',
+  'and_or_intervals_eg_every_three_months',
+  'contact_details_for_marketing_opt_out',
+  'eid_paragraph',
+  'may_will',
+  'explain_the_nature_of_your_arrangement_with_any_introducer_for_link_to_sample_wording_see_drafting_note_referral_and_fee_sharing_arrangement',
+  'instructions_link',
+  'insert_next_step_you_would_like_client_to_take',
+  'state_why_this_step_is_important',
+  'state_amount',
+  'insert_consequence',
+  'describe_first_document_or_information_you_need_from_your_client',
+  'describe_second_document_or_information_you_need_from_your_client',
+  'describe_third_document_or_information_you_need_from_your_client',
+] as const;
+const CCL_SUPPRESSED_REVIEW_FIELD_KEYS = new Set<string>([
+  'insert_clients_name',
+  'name_of_person_handling_matter',
+  'status',
+  'name',
+  'fee_earner_email',
+  'fee_earner_phone',
+  'fee_earner_postal_address',
+  'names_and_contact_details_of_other_members_of_staff_who_can_help_with_queries',
+  'contact_details_for_marketing_opt_out',
+  'handler_hourly_rate',
+]);
+const CCL_PRESSURE_TEST_FIELD_KEYS = CCL_ORDERED_REVIEW_FIELD_KEYS.filter((key) => !CCL_SUPPRESSED_REVIEW_FIELD_KEYS.has(key));
+
+function readCclReviewTextValue(value: unknown): string {
+  if (typeof value === 'string') return value.trim();
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return '';
+}
+
+function sanitiseCclPressureTestFields(fields: Record<string, unknown> | null | undefined): Record<string, string> {
+  const result: Record<string, string> = {};
+  if (!fields) return result;
+  for (const key of CCL_PRESSURE_TEST_FIELD_KEYS) {
+    const text = readCclReviewTextValue(fields[key]);
+    if (text) result[key] = text;
+  }
+  return result;
+}
+
+function extractCclTraceFields(trace: Record<string, unknown> | null | undefined): Record<string, string> {
+  if (!trace) return {};
+  const outputJson = trace.AiOutputJson;
+  if (typeof outputJson !== 'string' || !outputJson.trim()) return {};
+  try {
+    const parsed = JSON.parse(outputJson) as { fields?: Record<string, unknown> } | Record<string, unknown>;
+    const source = parsed && typeof parsed === 'object' && 'fields' in parsed && parsed.fields && typeof parsed.fields === 'object'
+      ? parsed.fields as Record<string, unknown>
+      : parsed as Record<string, unknown>;
+    return sanitiseCclPressureTestFields(source);
+  } catch {
+    return {};
+  }
+}
 
 interface TeamMemberRecord {
   'Full Name'?: string;
@@ -97,6 +186,10 @@ export interface ConversionComparisonBucket {
   previousMatters: number;
   isFuture?: boolean;
 }
+export interface ConversionComparisonAowItem {
+  key: string;
+  count: number;
+}
 export interface ConversionComparisonItem {
   key: string;
   title: string;
@@ -111,6 +204,7 @@ export interface ConversionComparisonItem {
   previousPct: number;
   chartMode: 'none' | 'working-days' | 'month-weeks' | 'quarter-weeks';
   buckets: ConversionComparisonBucket[];
+  currentAowMix?: ConversionComparisonAowItem[];
 }
 export interface ConversionComparisonPayload {
   items: ConversionComparisonItem[];
@@ -142,12 +236,36 @@ export interface UnclaimedRangeSummary {
 export interface UnclaimedSummaryPayload {
   ranges: UnclaimedRangeSummary[];
 }
+interface DetailRecordFollowUpSummary {
+  totalCount: number;
+  emailCount: number;
+  phoneCount: number;
+  lastFollowUpAt?: string;
+  lastChannel?: FollowUpChannel;
+  lastRecordedBy?: string;
+}
 interface DetailRecord {
   id?: string; enquiryId?: string; date?: string; poc?: string; aow?: string; source?: string; name?: string; stage?: string;
+  processingEnquiryId?: string; pitchEnquiryId?: string; legacyEnquiryId?: string;
   pipelineStage?: string; teamsChannel?: string; teamsCardType?: string; teamsStage?: string; teamsClaimed?: string; teamsLink?: string;
+  dataSource?: 'new' | 'legacy';
   email?: string;
+  notes?: string;
+  prospectIds?: string[];
+  pitchedBy?: string;
+  pitchedAt?: string;
+  pitchDealId?: string;
+  pitchInstructionRef?: string;
+  pitchStatus?: string;
+  pitchScenarioId?: string;
+  followUpSummary?: DetailRecordFollowUpSummary;
 }
-interface DetailsPayload { currentRange?: string; current?: { records?: DetailRecord[] } }
+interface DetailsPayload {
+  currentRange?: string;
+  previousRange?: string;
+  current?: { records?: DetailRecord[] };
+  previous?: { records?: DetailRecord[] };
+}
 
 interface CclStatus {
   status: string;
@@ -166,13 +284,26 @@ interface CclStatus {
   attentionReason?: string;
   confidence?: string;
   unresolvedCount?: number;
+  compiledAt?: string;
+  compileSummary?: {
+    sourceCount?: number;
+    readyCount?: number;
+    limitedCount?: number;
+    missingCount?: number;
+  } | null;
 }
 
-function getCanonicalCclStage(status?: string | null): 'pending' | 'generated' | 'reviewed' | 'sent' {
+function getCanonicalCclStage(status?: string | null): 'pending' | 'compiled' | 'generated' | 'pressure-tested' | 'reviewed' | 'sent' {
   switch (String(status || '').trim().toLowerCase()) {
+    case 'compiled':
+      return 'compiled';
     case 'generated':
     case 'draft':
       return 'generated';
+    case 'pressure-tested':
+    case 'pressure_tested':
+    case 'pressuretested':
+      return 'pressure-tested';
     case 'reviewed':
     case 'approved':
     case 'final':
@@ -191,14 +322,75 @@ function getCanonicalCclLabel(status?: string | null, explicitLabel?: string | n
   }
 
   switch (getCanonicalCclStage(status)) {
+    case 'compiled':
+      return 'Compiled';
     case 'generated':
       return 'Generated';
+    case 'pressure-tested':
+      return 'Pressure tested';
     case 'reviewed':
       return 'Reviewed';
     case 'sent':
       return 'Sent';
     default:
       return 'Pending';
+  }
+}
+
+const CCL_REVIEW_SESSION_STORAGE_KEY = 'opsDashboard.cclReviewSession.v1';
+
+interface PersistedCclReviewSessionEntry {
+  reviewedFields?: string[];
+  selectedField?: string;
+  summaryDismissed?: boolean;
+}
+
+function loadPersistedCclReviewSession(): Record<string, PersistedCclReviewSessionEntry> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem(CCL_REVIEW_SESSION_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return {};
+    return parsed as Record<string, PersistedCclReviewSessionEntry>;
+  } catch {
+    return {};
+  }
+}
+
+function persistCclReviewSession(
+  reviewedByMatter: Record<string, Set<string>>,
+  selectedFieldByMatter: Record<string, string>,
+  summaryDismissedByMatter: Record<string, boolean>,
+) {
+  if (typeof window === 'undefined') return;
+  try {
+    const matterIds = new Set<string>([
+      ...Object.keys(reviewedByMatter),
+      ...Object.keys(selectedFieldByMatter),
+      ...Object.keys(summaryDismissedByMatter),
+    ]);
+    const nextPayload = Array.from(matterIds).reduce((acc, matterId) => {
+      const reviewedFields = Array.from(reviewedByMatter[matterId] || []);
+      const selectedField = selectedFieldByMatter[matterId];
+      const summaryDismissed = !!summaryDismissedByMatter[matterId];
+      if (!reviewedFields.length && selectedField === undefined && !summaryDismissed) {
+        return acc;
+      }
+      acc[matterId] = {
+        ...(reviewedFields.length > 0 ? { reviewedFields } : {}),
+        ...(selectedField !== undefined ? { selectedField } : {}),
+        ...(summaryDismissed ? { summaryDismissed: true } : {}),
+      };
+      return acc;
+    }, {} as Record<string, PersistedCclReviewSessionEntry>);
+    if (Object.keys(nextPayload).length === 0) {
+      window.localStorage.removeItem(CCL_REVIEW_SESSION_STORAGE_KEY);
+      return;
+    }
+    window.localStorage.setItem(CCL_REVIEW_SESSION_STORAGE_KEY, JSON.stringify(nextPayload));
+  } catch {
+    // Ignore storage failures. Review state can still live in memory for this session.
   }
 }
 
@@ -209,6 +401,7 @@ interface MatterRecord {
   practiceArea: string;
   openDate: string;
   responsibleSolicitor: string;
+  originatingSolicitor: string;
   status: 'active' | 'closed';
   instructionRef?: string;
 }
@@ -374,12 +567,25 @@ function fetchSharedJson<T>(key: string, loader: () => Promise<T>, ttlMs = SHARE
   return promise;
 }
 
+function chunkMatterIds(ids: string[], chunkSize = 50): string[][] {
+  if (ids.length <= chunkSize) return [ids];
+  const chunks: string[][] = [];
+  for (let index = 0; index < ids.length; index += chunkSize) {
+    chunks.push(ids.slice(index, index + chunkSize));
+  }
+  return chunks;
+}
+
 export interface OperationsDashboardProps {
   metrics: TimeMetric[];
   enquiryMetrics?: EnquiryMetric[];
   enquiryMetricsBreakdown?: unknown;
   conversionComparison?: ConversionComparisonPayload | null;
   enableConversionComparison?: boolean;
+  isResolvingConversionComparison?: boolean;
+  enquiriesUsingSnapshot?: boolean;
+  enquiriesLiveRefreshInFlight?: boolean;
+  enquiriesLastLiveSyncAt?: number | null;
   isTeamWideEnquiryView?: boolean;
   unclaimedSummary?: UnclaimedSummaryPayload | null;
   recentEnquiryRecords?: DetailRecord[];
@@ -455,11 +661,11 @@ const safeBreakdown = (value: unknown): BreakdownPayload => {
 
 const shortLabel = (title: string): string => {
   const t = title.toLowerCase();
-  if (t.includes('time today') || t === 'today') return 'Today';
-  if (t.includes('av.') || t.includes('avg')) return 'Avg / Day';
-  if (t.includes('time this week')) return 'This Week';
-  if (t.includes('fees') || t.includes('recovered')) return 'Fees Recovered';
-  if (t.includes('outstanding')) return 'Outstanding';
+  if (t.includes('time today') || t === 'today') return t.includes('firm') ? 'Firm Today' : 'Today';
+  if (t.includes('av.') || t.includes('avg')) return t.includes('firm') ? 'Firm Avg / Day' : 'Avg / Day';
+  if (t.includes('time this week')) return t.includes('firm') ? 'Firm This Week' : 'This Week';
+  if (t.includes('fees') || t.includes('recovered') || t.includes('collected')) return t.includes('firm') ? 'Firm Collected' : 'Fees Recovered';
+  if (t.includes('outstanding')) return t.includes('firm') ? 'Firm Outstanding' : 'Outstanding';
   if (t.includes('this week')) return 'This Week';
   if (t.includes('this month') && t.includes('matter')) return 'Matters Opened';
   if (t.includes('conversion')) return 'Conversion';
@@ -556,6 +762,49 @@ const effectiveStageForRecord = (record: DetailRecord): string | undefined => {
 
 const activityStageForRecord = (record: DetailRecord): string | undefined => record.stage || record.pipelineStage || record.teamsStage;
 
+const hasPitchEvidenceForRecord = (record: DetailRecord): boolean => Boolean(
+  String(record.pitchDealId || '').trim() || String(record.pitchedAt || '').trim()
+);
+
+const hasInstructionForRecord = (record: DetailRecord): boolean =>
+  stageLevel(effectiveStageForRecord(record)) >= 4
+  || ['instructed', 'instruction', 'actioned'].includes(String(record.pitchStatus || '').trim().toLowerCase());
+
+const hasCompletedPitchForRecord = (record: DetailRecord): boolean => hasPitchEvidenceForRecord(record) || hasInstructionForRecord(record);
+
+const getDetailRecordIds = (record: DetailRecord): string[] => Array.from(new Set([
+  record.enquiryId,
+  record.id,
+  record.processingEnquiryId,
+  record.pitchEnquiryId,
+  record.legacyEnquiryId,
+].map((value) => String(value || '').trim()).filter(Boolean)));
+
+const doDetailRecordsMatch = (left: DetailRecord, right: DetailRecord): boolean => {
+  const rightIds = new Set(getDetailRecordIds(right));
+  if (rightIds.size === 0) {
+    return String(left.email || '').trim().toLowerCase() !== ''
+      && String(left.email || '').trim().toLowerCase() === String(right.email || '').trim().toLowerCase();
+  }
+
+  return getDetailRecordIds(left).some((value) => rightIds.has(value));
+};
+
+const getFollowUpSummaryForRecord = (record: DetailRecord): DetailRecordFollowUpSummary | null => {
+  if (!record.followUpSummary || Number(record.followUpSummary.totalCount || 0) <= 0) return null;
+  return record.followUpSummary;
+};
+
+const getFollowUpDueStateForRecord = (record: DetailRecord): FollowUpDueState => {
+  if (hasInstructionForRecord(record)) return null;
+  if (!hasPitchEvidenceForRecord(record)) return null;
+  const anchor = record.pitchedAt || record.date;
+  const ageHours = hoursSince(anchor);
+  if (ageHours >= 48) return 'late';
+  if (ageHours >= 24) return 'due';
+  return 'pending';
+};
+
 const hoursSince = (raw?: string): number => {
   if (!raw) return 0;
   const ms = Date.parse(raw);
@@ -635,25 +884,75 @@ const friendlyDate = (raw?: string): string => {
   }
 };
 
-const friendlyDateParts = (raw?: string): { primary: string; secondary?: string } => {
+const friendlyTime = (raw?: string): string | null => {
+  if (!raw) return null;
+  try {
+    const source = String(raw).trim();
+    if (!source || !/\d{1,2}:\d{2}/.test(source)) return null;
+    const d = new Date(source);
+    if (isNaN(d.getTime())) return null;
+    const hrs = String(d.getHours()).padStart(2, '0');
+    const mins = String(d.getMinutes()).padStart(2, '0');
+    return `${hrs}:${mins}`;
+  } catch {
+    return null;
+  }
+};
+
+const friendlyDateParts = (raw?: string, nowMs: number = Date.now()): { primary: string; secondary?: string; isLive?: boolean } => {
   if (!raw) return { primary: '—' };
   try {
     const d = new Date(raw);
     if (isNaN(d.getTime())) return { primary: raw };
+    const diffMs = Math.max(0, nowMs - d.getTime());
+    if (diffMs < 24 * 60 * 60 * 1000) {
+      if (diffMs < 60 * 1000) {
+        return { primary: 'Just now', isLive: true };
+      }
+      if (diffMs < 60 * 60 * 1000) {
+        const mins = Math.floor(diffMs / (60 * 1000));
+        return { primary: `${mins}m`, secondary: 'ago', isLive: true };
+      }
+      const hours = Math.floor(diffMs / (60 * 60 * 1000));
+      const mins = Math.floor((diffMs % (60 * 60 * 1000)) / (60 * 1000));
+      return { primary: `${hours}h ${mins}m`, secondary: 'ago', isLive: true };
+    }
+    const now = new Date(nowMs);
+    const toDateKey = (dt: Date) => `${dt.getFullYear()}-${dt.getMonth()}-${dt.getDate()}`;
+    const isToday = toDateKey(d) === toDateKey(now);
+    const yesterday = new Date(now); yesterday.setDate(now.getDate() - 1);
+    const isYesterday = toDateKey(d) === toDateKey(yesterday);
+    // If today is Monday, treat last Friday as "Fri"
+    const isMondayFriday = now.getDay() === 1 && (() => { const fri = new Date(now); fri.setDate(now.getDate() - 3); return toDateKey(d) === toDateKey(fri); })();
     const day = d.getDate();
     const month = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()];
     const hrs = d.getHours();
     const mins = String(d.getMinutes()).padStart(2, '0');
+    const dateLabel = isToday ? 'Today' : isYesterday ? 'Yest' : isMondayFriday ? 'Fri' : `${day} ${month}`;
     if (hrs === 0 && mins === '00') {
-      return { primary: `${day} ${month}` };
+      return { primary: dateLabel };
     }
     return {
-      primary: `${day} ${month}`,
+      primary: dateLabel,
       secondary: `${hrs}:${mins}`,
     };
   } catch {
     return { primary: raw };
   }
+};
+
+const formatLiveSyncAge = (lastLiveSyncAt?: number | null, nowMs: number = Date.now()): string | undefined => {
+  if (!lastLiveSyncAt || !Number.isFinite(lastLiveSyncAt)) return undefined;
+  const diffMs = Math.max(0, nowMs - lastLiveSyncAt);
+  const diffSeconds = Math.round(diffMs / 1000);
+  if (diffSeconds < 15) return 'just now';
+  if (diffSeconds < 90) return `${diffSeconds}s ago`;
+  const diffMinutes = Math.round(diffSeconds / 60);
+  if (diffMinutes < 60) return `${diffMinutes}m ago`;
+  const diffHours = Math.round(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  const diffDays = Math.round(diffHours / 24);
+  return `${diffDays}d ago`;
 };
 
 /* ── Component ── */
@@ -664,6 +963,10 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
   enquiryMetricsBreakdown,
   conversionComparison,
   enableConversionComparison = false,
+  isResolvingConversionComparison = false,
+  enquiriesUsingSnapshot = false,
+  enquiriesLiveRefreshInFlight = false,
+  enquiriesLastLiveSyncAt = null,
   isTeamWideEnquiryView = false,
   unclaimedSummary,
   recentEnquiryRecords = [],
@@ -818,16 +1121,21 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
   const showPrev = true;
   const layoutStacked = true;
   const [unclaimedAowFilter, setUnclaimedAowFilter] = React.useState<string>('all');
-  const [weekComparisonMode, setWeekComparisonMode] = React.useState<WeekComparisonMode>('relative');
   const [claimedUnclaimedIds, setClaimedUnclaimedIds] = React.useState<Set<string>>(new Set());
+  const [claimedRecentEnquiryIds, setClaimedRecentEnquiryIds] = React.useState<Set<string>>(new Set());
   const [unclaimedClaimFeedback, setUnclaimedClaimFeedback] = React.useState<{ tone: 'success' | 'error'; message: string } | null>(null);
   const { claimEnquiry: triggerClaimEnquiry, isLoading: isClaimingUnclaimed } = useClaimEnquiry();
+  const { claimEnquiry: triggerRecentClaimEnquiry, isLoading: isClaimingRecentEnquiry } = useClaimEnquiry();
   const [claimingItemId, setClaimingItemId] = React.useState<string | null>(null);
+  const [claimingRecentEnquiryId, setClaimingRecentEnquiryId] = React.useState<string | null>(null);
+  const [expandedRecentNoteIds, setExpandedRecentNoteIds] = React.useState<Set<string>>(new Set());
+  const [selectedPitchScenariosByRecord, setSelectedPitchScenariosByRecord] = React.useState<Record<string, string>>({});
 
   // Responsive: auto-stack when container is narrow
   const dashRef = React.useRef<HTMLDivElement | null>(null);
     const conversionRailRef = React.useRef<HTMLDivElement | null>(null);
   const [containerWidth, setContainerWidth] = React.useState(0);
+  const [liveNowMs, setLiveNowMs] = React.useState(() => Date.now());
     const [conversionRailHeight, setConversionRailHeight] = React.useState<number | null>(null);
   React.useEffect(() => {
     const el = dashRef.current;
@@ -837,7 +1145,9 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
     return () => ro.disconnect();
   }, []);
   const isNarrow = containerWidth > 0 && containerWidth < 700;
-  React.useEffect(() => {
+  const matterStepsInline = containerWidth >= 920;
+  const callsAndNotesNarrow = containerWidth > 0 && containerWidth < 540;
+  React.useLayoutEffect(() => {
     if (isNarrow) {
       setConversionRailHeight(null);
       return;
@@ -857,15 +1167,43 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
     ro.observe(el);
     return () => ro.disconnect();
   }, [isNarrow]);
-  const [enquiryTab, setEnquiryTab] = React.useState<EnquiryTab>('enquiries');
+  React.useEffect(() => {
+    let timeoutId: number | null = null;
+    let intervalId: number | null = null;
+    const tick = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      setLiveNowMs(Date.now());
+    };
+    const schedule = () => {
+      const now = Date.now();
+      const msUntilNextMinute = 60000 - (now % 60000);
+      timeoutId = window.setTimeout(() => {
+        tick();
+        intervalId = window.setInterval(tick, 60000);
+      }, msUntilNextMinute);
+    };
+    tick();
+    schedule();
+    return () => {
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+      if (intervalId !== null) window.clearInterval(intervalId);
+    };
+  }, []);
   const [unclaimedRange, setUnclaimedRange] = React.useState<UnclaimedRange>('today');
   const [activityTab, setActivityTab] = React.useState<ActivityTab>('enquiries');
   const [sortKey, setSortKey] = React.useState<SortKey>('date');
   const [sortDesc, setSortDesc] = React.useState(true);
   const [matterSortKey, setMatterSortKey] = React.useState<MatterSortKey>('date');
   const [matterSortDesc, setMatterSortDesc] = React.useState(true);
+  const initialCclReviewSession = React.useMemo(() => loadPersistedCclReviewSession(), []);
   const [details, setDetails] = React.useState<DetailsPayload | null>(null);
   const [detailsLoading, setDetailsLoading] = React.useState(false);
+  const [pitchLookup, setPitchLookup] = React.useState<{
+    byProspectId: Record<string, { pitchDealId?: string; pitchedBy?: string; pitchedAt?: string; pitchInstructionRef?: string; pitchStatus?: string; pitchScenarioId?: string }>;
+    byEmail: Record<string, { pitchDealId?: string; pitchedBy?: string; pitchedAt?: string; pitchInstructionRef?: string; pitchStatus?: string; pitchScenarioId?: string }>;
+  } | null>(null);
+  const [pitchLookupLoading, setPitchLookupLoading] = React.useState(false);
+  const [selectedConversionKey, setSelectedConversionKey] = React.useState<string>('week-vs-last');
   const [insightPeriod, setInsightPeriod] = React.useState<InsightPeriod>(null);
   const [insightRecords, setInsightRecords] = React.useState<DetailRecord[]>([]);
   const [insightLoading, setInsightLoading] = React.useState(false);
@@ -882,31 +1220,55 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
   const [cclDocPreview, setCclDocPreview] = React.useState<{ matterId: string; embedUrl: string } | null>(null);
   const [cclFieldsModal, setCclFieldsModal] = React.useState<string | null>(null);
   const [cclLetterModal, setCclLetterModal] = React.useState<string | null>(null);
+  const [cclPipelineDetailModal, setCclPipelineDetailModal] = React.useState<CclPipelineDetailModal | null>(null);
+  const [enquiryFollowUpModal, setEnquiryFollowUpModal] = React.useState<EnquiryFollowUpModal | null>(null);
+  const [enquiryFollowUpSavingChannel, setEnquiryFollowUpSavingChannel] = React.useState<FollowUpChannel | null>(null);
   // cclReviewFocus removed — inspector-first layout; preview toggled via cclPreviewOpen
   const [cclPreviewOpen, setCclPreviewOpen] = React.useState(false);
   const [cclAiFillingMatter, setCclAiFillingMatter] = React.useState<string | null>(null);
   const [cclAiStatusByMatter, setCclAiStatusByMatter] = React.useState<Record<string, string>>({});
   const [cclAiResultByMatter, setCclAiResultByMatter] = React.useState<Record<string, { request: AiFillRequest; response: AiFillResponse; baseFields: Record<string, string> }>>({});
+  const [cclCompileByMatter, setCclCompileByMatter] = React.useState<Record<string, CclCompileResponse>>({});
   const [cclAiTraceByMatter, setCclAiTraceByMatter] = React.useState<Record<string, any>>({});
   const [cclAiTraceLoadingByMatter, setCclAiTraceLoadingByMatter] = React.useState<Record<string, boolean>>({});
-  const [cclAiReviewedFields, setCclAiReviewedFields] = React.useState<Record<string, Set<string>>>({});
-  const [cclSelectedReviewFieldByMatter, setCclSelectedReviewFieldByMatter] = React.useState<Record<string, string>>({});
+  const [cclAiReviewedFields, setCclAiReviewedFields] = React.useState<Record<string, Set<string>>>(() => (
+    Object.fromEntries(
+      Object.entries(initialCclReviewSession)
+        .filter(([, value]) => Array.isArray(value?.reviewedFields) && value.reviewedFields.length > 0)
+        .map(([matterId, value]) => [matterId, new Set(value.reviewedFields || [])]),
+    )
+  ));
+  const [cclSelectedReviewFieldByMatter, setCclSelectedReviewFieldByMatter] = React.useState<Record<string, string>>(() => (
+    Object.fromEntries(
+      Object.entries(initialCclReviewSession)
+        .filter(([, value]) => typeof value?.selectedField === 'string')
+        .map(([matterId, value]) => [matterId, String(value.selectedField)]),
+    )
+  ));
   const [cclSessionPromptExpandedByMatter, setCclSessionPromptExpandedByMatter] = React.useState<Record<string, boolean>>({});
   const [cclSessionPromptTabByMatter, setCclSessionPromptTabByMatter] = React.useState<Record<string, 'system' | 'user'>>({});
   const [cclPlaceholderRevealByMatter, setCclPlaceholderRevealByMatter] = React.useState<Record<string, boolean>>({});
   const [cclPromptContextRevealByMatter, setCclPromptContextRevealByMatter] = React.useState<Record<string, boolean>>({});
   const [cclReviewRailPrimedByMatter, setCclReviewRailPrimedByMatter] = React.useState<Record<string, boolean>>({});
   const [cclVisibleReviewGroupByMatter, setCclVisibleReviewGroupByMatter] = React.useState<Record<string, string>>({});
+  const [cclForcedIntroByMatter, setCclForcedIntroByMatter] = React.useState<Record<string, boolean>>({});
   const [cclApprovingMatter, setCclApprovingMatter] = React.useState<string | null>(null);
   const [cclContactSourceByMatter, setCclContactSourceByMatter] = React.useState<Record<string, CclContactSource>>({});
   const [cclAiStreamLog, setCclAiStreamLog] = React.useState<{ key: string; value: string }[]>([]);
   const [cclPressureTestByMatter, setCclPressureTestByMatter] = React.useState<Record<string, PressureTestResponse>>({});
   const [cclPressureTestRunning, setCclPressureTestRunning] = React.useState<string | null>(null);
-  const [cclPressureTestSteps, setCclPressureTestSteps] = React.useState<{ label: string; status: 'pending' | 'active' | 'done' | 'error' }[]>([]);
+  const [cclPressureTestSteps, setCclPressureTestSteps] = React.useState<{ label: string; detail?: string; status: 'pending' | 'active' | 'done' | 'error' }[]>([]);
   const [cclPressureTestElapsed, setCclPressureTestElapsed] = React.useState(0);
   const [cclPressureTestError, setCclPressureTestError] = React.useState<string | null>(null);
+  const [cclPressureTestContext, setCclPressureTestContext] = React.useState<{ fieldKeys: string[]; clientName: string } | null>(null);
   const cclPressureTestTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
-  const [cclReviewSummaryDismissedByMatter, setCclReviewSummaryDismissedByMatter] = React.useState<Record<string, boolean>>({});
+  const [cclReviewSummaryDismissedByMatter, setCclReviewSummaryDismissedByMatter] = React.useState<Record<string, boolean>>(() => (
+    Object.fromEntries(
+      Object.entries(initialCclReviewSession)
+        .filter(([, value]) => !!value?.summaryDismissed)
+        .map(([matterId]) => [matterId, true]),
+    )
+  ));
   const cclAiAutoFiredRef = React.useRef<Set<string>>(new Set());
   const lastHandledReviewRequestRef = React.useRef<number | null>(null);
   const streamFeedRef = React.useRef<HTMLDivElement | null>(null);
@@ -920,29 +1282,43 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
   const cclSelectedFieldRef = React.useRef<string | null>(null);
   const cclPageBreakObserverRef = React.useRef<ResizeObserver | null>(null);
   const cclRendererRootRef = React.useRef<HTMLDivElement>(null);
+  const cclIntroPreviewModeRef = React.useRef(false);
   /** Array of page break info: each entry is { beforeSectionIdx, pageNumber }. First page (1) has no entry. */
   const [cclPageBreaks, setCclPageBreaks] = React.useState<Array<{ beforeSectionIdx: number; pageNumber: number }>>([]);
   /** Total page count derived from section measurement */
   const [cclTotalPages, setCclTotalPages] = React.useState(1);
+  const [cclIntroPageBreaks, setCclIntroPageBreaks] = React.useState<Array<{ beforeSectionIdx: number; pageNumber: number }>>([]);
+  const [cclIntroTotalPages, setCclIntroTotalPages] = React.useState(1);
+  const [cclIntroCurrentPage, setCclIntroCurrentPage] = React.useState(1);
+  const [cclReviewCurrentPage, setCclReviewCurrentPage] = React.useState(1);
+  const [cclIntroScrollProgress, setCclIntroScrollProgress] = React.useState(0);
+  const [cclHoveredPreviewPage, setCclHoveredPreviewPage] = React.useState<number | null>(null);
   const cclAutoScrollReviewRef = React.useRef<string | null>(null);
 
   /** Measures DocumentRenderer section heights and calculates page assignments. */
   const calcPageBreaks = React.useCallback(() => {
     const rootEl = cclRendererRootRef.current;
     if (!rootEl) return;
+    const isIntroPreview = cclIntroPreviewModeRef.current;
     const isMobile = typeof window !== 'undefined' ? window.innerWidth <= 820 : false;
     if (isMobile) {
-      setCclPageBreaks(prev => prev.length === 0 ? prev : []);
-      setCclTotalPages(1);
+      if (isIntroPreview) {
+        setCclIntroPageBreaks(prev => prev.length === 0 ? prev : []);
+        setCclIntroTotalPages(1);
+      } else {
+        setCclPageBreaks(prev => prev.length === 0 ? prev : []);
+        setCclTotalPages(1);
+      }
       return;
     }
-    // Fixed A4 page width for the document area
-    const PAGE_W = 680;
-    // A4 ratio: 210mm × 297mm
+    const measuredPageWidth = Math.round(rootEl.getBoundingClientRect().width || 0);
+    const PAGE_W = Math.max(measuredPageWidth, 640);
     const PAGE_H = Math.round(PAGE_W * (297 / 210));
     const PADDING_TOP = 48;
     const PADDING_BOTTOM = 56; // room for page number
     const USABLE_H = PAGE_H - PADDING_TOP - PADDING_BOTTOM;
+    const INTRO_FIRST_PAGE_RESERVED = 258;
+    const FIRST_PAGE_USABLE_H = isIntroPreview ? Math.max(USABLE_H - INTRO_FIRST_PAGE_RESERVED, 260) : USABLE_H;
 
     const sectionDivs = rootEl.querySelectorAll<HTMLElement>('[data-section-idx]');
     if (!sectionDivs.length) return;
@@ -959,13 +1335,14 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
       const sectionH = el.getBoundingClientRect().height;
       const firstText = el.textContent?.trim().slice(0, 20) || '';
       const isTopLevelSection = i > 0 && topSectionRe.test(firstText);
-      const remainingSpace = USABLE_H - accumulated;
+      const pageUsableHeight = pageNum === 1 ? FIRST_PAGE_USABLE_H : USABLE_H;
+      const remainingSpace = pageUsableHeight - accumulated;
 
       if (accumulated > 0 && isTopLevelSection && remainingSpace < MIN_SECTION_START_SPACE) {
         pageNum++;
         breaks.push({ beforeSectionIdx: sectionIdx, pageNumber: pageNum });
         accumulated = sectionH;
-      } else if (accumulated > 0 && accumulated + sectionH > USABLE_H) {
+      } else if (accumulated > 0 && accumulated + sectionH > pageUsableHeight) {
         pageNum++;
         breaks.push({ beforeSectionIdx: sectionIdx, pageNumber: pageNum });
         accumulated = sectionH;
@@ -974,13 +1351,23 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
       }
     });
 
-    setCclTotalPages(pageNum);
-    setCclPageBreaks(prev => {
-      if (prev.length === breaks.length && prev.every((b, i) => b.beforeSectionIdx === breaks[i].beforeSectionIdx && b.pageNumber === breaks[i].pageNumber)) {
-        return prev;
-      }
-      return breaks;
-    });
+    if (isIntroPreview) {
+      setCclIntroTotalPages(pageNum);
+      setCclIntroPageBreaks(prev => {
+        if (prev.length === breaks.length && prev.every((b, i) => b.beforeSectionIdx === breaks[i].beforeSectionIdx && b.pageNumber === breaks[i].pageNumber)) {
+          return prev;
+        }
+        return breaks;
+      });
+    } else {
+      setCclTotalPages(pageNum);
+      setCclPageBreaks(prev => {
+        if (prev.length === breaks.length && prev.every((b, i) => b.beforeSectionIdx === breaks[i].beforeSectionIdx && b.pageNumber === breaks[i].pageNumber)) {
+          return prev;
+        }
+        return breaks;
+      });
+    }
   }, []);
 
   const cclReviewPageRefCallback = React.useCallback((el: HTMLDivElement | null) => {
@@ -1022,8 +1409,57 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
     requestAnimationFrame(resize);
   }, []);
 
-  const openCclLetterModal = React.useCallback((matterId: string) => {
+  React.useEffect(() => {
+    persistCclReviewSession(
+      cclAiReviewedFields,
+      cclSelectedReviewFieldByMatter,
+      cclReviewSummaryDismissedByMatter,
+    );
+  }, [cclAiReviewedFields, cclSelectedReviewFieldByMatter, cclReviewSummaryDismissedByMatter]);
+
+  const toggleReviewedFieldForMatter = React.useCallback((matterId: string, key: string) => {
+    setCclAiReviewedFields((prev) => {
+      const existing = new Set(prev[matterId] || []);
+      if (existing.has(key)) existing.delete(key); else existing.add(key);
+      return { ...prev, [matterId]: existing };
+    });
+  }, []);
+
+  const dismissReviewIntroForMatter = React.useCallback((matterId: string) => {
+    setCclForcedIntroByMatter((prev) => {
+      if (!prev[matterId]) return prev;
+      const next = { ...prev };
+      delete next[matterId];
+      return next;
+    });
+    setCclReviewSummaryDismissedByMatter((prev) => ({ ...prev, [matterId]: true }));
+  }, []);
+
+  const resetCclReviewLaunchState = React.useCallback((matterId: string) => {
+    setCclForcedIntroByMatter((prev) => ({ ...prev, [matterId]: true }));
+    setCclSelectedReviewFieldByMatter((prev) => {
+      if (!(matterId in prev)) return prev;
+      const next = { ...prev };
+      delete next[matterId];
+      return next;
+    });
+    setCclReviewSummaryDismissedByMatter((prev) => {
+      if (!prev[matterId]) return prev;
+      const next = { ...prev };
+      delete next[matterId];
+      return next;
+    });
+    cclSelectedFieldRef.current = null;
+    cclScrollSpyPendingFieldRef.current = { key: null, count: 0 };
+    cclScrollSpyLockRef.current = true;
+    setTimeout(() => { cclScrollSpyLockRef.current = false; }, 600);
+  }, []);
+
+  const openCclLetterModal = React.useCallback((matterId: string, options?: { forceIntro?: boolean }) => {
     cclLetterModalOpenedAtRef.current = Date.now();
+    if (options?.forceIntro !== false) {
+      resetCclReviewLaunchState(matterId);
+    }
     setCclReviewRailPrimedByMatter((prev) => (prev[matterId] ? prev : { ...prev, [matterId]: true }));
     setCclLetterModal(matterId);
 
@@ -1049,16 +1485,23 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
     } else {
       console.log('[CCL modal] draft already cached for', matterId);
     }
-  }, []);
+  }, [resetCclReviewLaunchState]);
 
   const closeCclLetterModal = React.useCallback(() => {
     setCclLetterModal(null);
   }, []);
 
+  const openCclPipelineDetailModal = React.useCallback((matterId: string, kind: 'compile' | 'pressure') => {
+    setCclPipelineDetailModal({ matterId, kind });
+  }, []);
+
+  const closeCclPipelineDetailModal = React.useCallback(() => {
+    setCclPipelineDetailModal(null);
+  }, []);
+
   const handleCclLetterBackdropClick = React.useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     if (event.target !== event.currentTarget) return;
-    if (Date.now() - cclLetterModalOpenedAtRef.current < 250) return;
-    closeCclLetterModal();
+    // Review is a multi-step workflow; only explicit close actions should dismiss it.
   }, [closeCclLetterModal]);
 
   const buildCclAiPromptSummary = React.useCallback((practiceArea?: string, description?: string) => {
@@ -1066,6 +1509,12 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
     const fallback = 'Generate CCL draft fields from the matter context';
     const text = summary || fallback;
     return text.length > 140 ? `${text.slice(0, 137)}...` : text;
+  }, []);
+
+  const buildCclAiToastMessage = React.useCallback((statusMessage: string, promptSummary?: string) => {
+    const summary = String(promptSummary || '').trim();
+    if (!summary) return statusMessage;
+    return `${statusMessage} Work type: ${summary}`;
   }, []);
 
   const buildCclAiToastProgress = React.useCallback((phase: string, fieldCount: number, status: 'running' | 'success' | 'error') => {
@@ -1128,7 +1577,7 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
     const toastPayload = {
       type: options.type || 'loading',
       title: options.title,
-      message: `${options.statusMessage} Prompt: ${options.promptSummary}`,
+      message: buildCclAiToastMessage(options.statusMessage, options.promptSummary),
       persist: options.persist ?? (options.type === 'loading' || !options.type),
       duration: options.duration,
       progress: buildCclAiToastProgress(options.phase, options.fieldCount, options.type === 'success' ? 'success' : options.type === 'error' ? 'error' : 'running'),
@@ -1143,7 +1592,7 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
     const toastId = showToast(toastPayload);
     cclAiToastIdRef.current = toastId;
     return toastId;
-  }, [buildCclAiToastProgress, showToast, updateToast]);
+  }, [buildCclAiToastMessage, buildCclAiToastProgress, showToast, updateToast]);
 
   const isDemoMatter = React.useCallback((matter: MatterRecord): boolean => {
     const matterId = String(matter.matterId || '').toUpperCase();
@@ -1173,6 +1622,35 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
     }
   }, [demoModeEnabled]);
 
+  const pipelineSyncMeta = React.useMemo(() => {
+    const lastLiveAge = formatLiveSyncAge(enquiriesLastLiveSyncAt, liveNowMs);
+    if (enquiriesLiveRefreshInFlight) {
+      return {
+        label: 'Refreshing',
+        detail: lastLiveAge ? `live ${lastLiveAge}` : 'checking live feed',
+        color: isDarkMode ? colours.accent : colours.highlight,
+        borderColor: isDarkMode ? 'rgba(135,243,243,0.28)' : 'rgba(54,144,206,0.22)',
+        background: isDarkMode ? 'rgba(135,243,243,0.08)' : 'rgba(214,232,255,0.85)',
+      };
+    }
+    if (enquiriesUsingSnapshot) {
+      return {
+        label: 'Cached',
+        detail: lastLiveAge ? `live ${lastLiveAge}` : 'awaiting sync',
+        color: isDarkMode ? colours.yellow : colours.orange,
+        borderColor: isDarkMode ? 'rgba(255,213,79,0.24)' : 'rgba(255,140,0,0.2)',
+        background: isDarkMode ? 'rgba(255,213,79,0.08)' : 'rgba(255,140,0,0.08)',
+      };
+    }
+    return {
+      label: 'Live',
+      detail: lastLiveAge ? `updated ${lastLiveAge}` : 'watching changes',
+      color: colours.green,
+      borderColor: isDarkMode ? 'rgba(32,178,108,0.24)' : 'rgba(32,178,108,0.18)',
+      background: isDarkMode ? 'rgba(32,178,108,0.08)' : 'rgba(32,178,108,0.06)',
+    };
+  }, [enquiriesLastLiveSyncAt, enquiriesLiveRefreshInFlight, enquiriesUsingSnapshot, isDarkMode, liveNowMs]);
+
   const buildDemoCclMap = React.useCallback((demoIds: string[]): Record<string, CclStatus> => {
     if (demoIds.length === 0) return {};
     const ago = (d: number) => { const dt = new Date(); dt.setDate(dt.getDate() - d); return dt.toISOString(); };
@@ -1180,7 +1658,7 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
     const fe = userInitials || 'Demo';
     const demoMap: Record<string, CclStatus> = {};
     if (demoIds[0]) {
-      demoMap[demoIds[0]] = { status: 'uploaded', version: 3, feeEarner: fe, practiceArea: 'Commercial', clientName: 'Demo Prospect', matterDescription: 'Commercial Dispute — Demo Prospect v Acme Corp', createdAt: ago(14), finalizedAt: ago(2), uploadedToClio: true };
+      demoMap[demoIds[0]] = { status: 'uploaded', version: 3, feeEarner: fe, practiceArea: 'Commercial', clientName: 'Demo Prospect', matterDescription: 'Commercial Dispute — Demo Prospect v Acme Corp', createdAt: ago(14), finalizedAt: ago(2), uploadedToNd: true };
     }
     if (demoIds[1]) {
       demoMap[demoIds[1]] = { status: 'final', version: 2, feeEarner: fe, practiceArea: 'Property', clientName: 'Demo Property Co', matterDescription: 'Property Acquisition — Land Registry Title Review', createdAt: ago(7), finalizedAt: ago(1) };
@@ -1245,7 +1723,7 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
       setCclStatusResolvedByMatter({});
       return;
     }
-    const ids = recentMatters.slice(0, 12).map(m => m.matterId).filter(Boolean);
+    const ids = recentMatters.map(m => m.matterId).filter(Boolean);
     if (ids.length === 0) {
       setCclMap({});
       setCclStatusResolvingByMatter({});
@@ -1267,14 +1745,19 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
       return next;
     });
     let cancelled = false;
-    fetchSharedJson(`ccl-batch-status:${JSON.stringify(ids)}`, () => fetch('/api/ccl/batch-status', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ matterIds: ids }),
-    }).then((r) => (r.ok ? r.json() : Promise.reject(r.status))))
-      .then(data => {
+    Promise.all(chunkMatterIds(ids).map((chunk) => (
+      fetchSharedJson(`ccl-batch-status:${JSON.stringify(chunk)}`, () => fetch('/api/ccl/batch-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ matterIds: chunk }),
+      }).then((r) => (r.ok ? r.json() : Promise.reject(r.status))))
+    )))
+      .then((batches) => {
         if (cancelled) return;
-        const results: Record<string, CclStatus> = data?.results || {};
+        const results = batches.reduce((acc, batch) => ({
+          ...acc,
+          ...((batch?.results || {}) as Record<string, CclStatus>),
+        }), {} as Record<string, CclStatus>);
         const nextCclMap = demoModeActive && demoMatterIds.length > 0
           ? { ...results, ...buildDemoCclMap(demoMatterIds) }
           : results;
@@ -1512,8 +1995,15 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
     const contactContext = applyCclContactFallbacks(matterId, baseFields, matter, ccl);
 
     setCclAiFillingMatter(matterId);
-    setCclAiStatusByMatter((prev) => ({ ...prev, [matterId]: 'Gathering context…' }));
+    setCclAiStatusByMatter((prev) => ({ ...prev, [matterId]: 'Compiling evidence…' }));
     setCclAiStreamLog([]); // Reset live feed
+    setCclPressureTestByMatter((prev) => {
+      if (!(matterId in prev)) return prev;
+      const next = { ...prev };
+      delete next[matterId];
+      return next;
+    });
+    setCclPressureTestError(null);
 
     // Keep the run in the background so the user can continue using the app.
     setCclPreviewOpen(false);
@@ -1532,7 +2022,7 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
       handlerRate: baseFields.handler_hourly_rate || contactContext.activeProfile.rate || '',
       initials: userInitials || '',
     };
-    const toastTitle = `CCL review · ${matter.displayNumber || matterId}`;
+    const toastTitle = `Preparing CCL · ${matter.displayNumber || matterId}`;
     const promptSummary = buildCclAiPromptSummary(aiRequest.practiceArea, aiRequest.description);
     // Only show toast when the review modal isn't already showing this matter
     const showToastForThis = cclLetterModal !== matterId;
@@ -1541,7 +2031,7 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
         matterId,
         title: toastTitle,
         promptSummary,
-        statusMessage: 'Running in the background. You can keep using the app.',
+        statusMessage: 'Running on the backend. You can keep using the app.',
         phase: 'gathering-context',
         fieldCount: 0,
         type: 'loading',
@@ -1550,146 +2040,154 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
     }
 
     try {
-      await fetchAiFillStream(aiRequest, {
-        onPhase: (phase, message, dataSources) => {
-          setCclAiStatusByMatter((prev) => ({ ...prev, [matterId]: message }));
-          if (showToastForThis) {
-            upsertCclAiToast({
-              matterId,
-              title: toastTitle,
-              promptSummary,
-              statusMessage: message,
-              phase,
-              fieldCount: cclAiStreamLog.length,
-              type: 'loading',
-              persist: true,
-            });
-          }
-        },
-        onField: (key, value, index) => {
-          // Push to live feed log
-          setCclAiStreamLog((prev) => [...prev, { key, value }]);
+      const compileResult = await fetchCclCompile(aiRequest);
+      setCclCompileByMatter((prev) => ({ ...prev, [matterId]: compileResult.compile }));
+      const compiledStatus: CclStatus = {
+        ...(ccl || { status: 'compiled', version: 0 }),
+        status: 'compiled',
+        stage: 'compiled',
+        label: 'Compiled',
+        version: Math.max(Number(ccl?.version || 0), 0),
+        feeEarner: ccl?.feeEarner || matter.responsibleSolicitor || baseFields.name_of_person_handling_matter,
+        practiceArea: ccl?.practiceArea || matter.practiceArea,
+        clientName: ccl?.clientName || matter.clientName,
+        matterDescription: ccl?.matterDescription || matter.practiceArea,
+        compiledAt: compileResult.compile.createdAt || new Date().toISOString(),
+        compileSummary: compileResult.compile.summary,
+        uploadedToClio: Boolean(ccl?.uploadedToClio),
+        uploadedToNd: Boolean(ccl?.uploadedToNd),
+        needsAttention: false,
+        attentionReason: 'none',
+        confidence: ccl?.confidence,
+        unresolvedCount: ccl?.unresolvedCount || 0,
+      };
+      setCclMap((prev) => ({ ...prev, [matterId]: compiledStatus }));
+      setCclStatusResolvedByMatter((prev) => ({ ...prev, [matterId]: true }));
+      setCclStatusResolvingByMatter((prev) => ({ ...prev, [matterId]: false }));
 
-          // Merge field into draft cache in real-time — always apply AI values
-          // The user explicitly triggered the fill, so AI output is authoritative
-          setCclDraftCache((prev) => {
-            const existing = prev[matterId]?.fields || {};
-            return {
-              ...prev,
-              [matterId]: { ...prev[matterId], fields: { ...existing, [key]: value } },
-            };
-          });
-          setCclAiStatusByMatter((prev) => ({
-            ...prev,
-            [matterId]: `Generating field ${index}…`,
-          }));
-          if (showToastForThis) {
-            upsertCclAiToast({
-              matterId,
-              title: toastTitle,
-              promptSummary,
-              statusMessage: `Generating field ${index}…`,
-              phase: 'calling-ai',
-              fieldCount: index,
-              type: 'loading',
-              persist: true,
-            });
-          }
-        },
-        onComplete: (result) => {
-          // Store full AI result for review checklist
-          setCclAiResultByMatter((prev) => ({
-            ...prev,
-            [matterId]: { request: aiRequest, response: result, baseFields: baseFieldsSnapshot },
-          }));
-
-          // Final merge — AI result is authoritative for all returned fields
-          setCclDraftCache((prev) => {
-            const merged = { ...(prev[matterId]?.fields || {}) } as Record<string, string>;
-            for (const [key, value] of Object.entries(result.fields || {})) {
-              merged[key] = value;
-            }
-            applyCclContactFallbacks(matterId, merged, matter, ccl);
-            if (merged.figure && !merged.state_amount) merged.state_amount = merged.figure;
-            if (merged.state_amount && !merged.figure) merged.figure = merged.state_amount;
-            return {
-              ...prev,
-              [matterId]: { ...prev[matterId], fields: merged },
-            };
-          });
-
-          // Persist to server (best-effort)
-          setCclDraftCache((prev) => {
-            const fields = prev[matterId]?.fields || {};
-            persistCclDraft(matterId, fields);
-            return prev;
-          });
-
-          const confidenceLabel = result.confidence === 'full' ? 'full' : result.confidence === 'partial' ? 'partial' : 'fallback';
-          setCclAiStatusByMatter((prev) => ({
-            ...prev,
-            [matterId]: `AI ${confidenceLabel} · ${result.source}${result.durationMs ? ` · ${Math.round(result.durationMs / 100) / 10}s` : ''}`,
-          }));
-
-          setCclAiFillingMatter(null);
-          if (showToastForThis) {
-            upsertCclAiToast({
-              matterId,
-              title: toastTitle,
-              promptSummary,
-              statusMessage: 'Draft ready. Review whenever you are ready.',
-              phase: 'complete',
-              fieldCount: Object.keys(result.fields || {}).length,
-              type: 'success',
-              persist: false,
-              duration: 7000,
-              action: {
-                label: 'Review now',
-                onClick: () => openCclLetterModal(matterId),
-              },
-            });
-            cclAiToastIdRef.current = null;
-          }
-        },
-        onError: (message, fallbackFields) => {
-          if (fallbackFields) {
-            setCclDraftCache((prev) => {
-              const existing = prev[matterId]?.fields || {};
-              const merged = { ...existing };
-              for (const [key, value] of Object.entries(fallbackFields)) {
-                if (!merged[key] || !String(merged[key]).trim()) merged[key] = value;
-              }
-              return { ...prev, [matterId]: { ...prev[matterId], fields: merged } };
-            });
-          }
-          setCclAiStatusByMatter((prev) => ({ ...prev, [matterId]: `AI failed · ${message}` }));
-          setCclAiFillingMatter(null);
-          if (showToastForThis) {
-            upsertCclAiToast({
-              matterId,
-              title: toastTitle,
-              promptSummary,
-              statusMessage: `AI failed · ${message}`,
-              phase: 'calling-ai',
-              fieldCount: 0,
-              type: 'error',
-              persist: false,
-              duration: 7000,
-            });
-            cclAiToastIdRef.current = null;
-          }
-        },
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'AI autofill failed';
-      setCclAiStatusByMatter((prev) => ({ ...prev, [matterId]: `AI failed · ${message}` }));
-      setCclAiFillingMatter(null);
+      setCclAiStatusByMatter((prev) => ({ ...prev, [matterId]: 'Generating CCL on the backend…' }));
       if (showToastForThis) {
         upsertCclAiToast({
           matterId,
           title: toastTitle,
           promptSummary,
-          statusMessage: `AI failed · ${message}`,
+          statusMessage: 'Generating CCL on the backend…',
+          phase: 'calling-ai',
+          fieldCount: 0,
+          type: 'loading',
+          persist: true,
+        });
+      }
+
+      const serviceResult = await runCclService({
+        ...aiRequest,
+        draftJson: baseFieldsSnapshot,
+        stage: 'home-operations',
+        skipCompilePersistence: true,
+      });
+      const result = serviceResult.ai;
+      const merged = { ...(serviceResult.fields || {}) } as Record<string, string>;
+      applyCclContactFallbacks(matterId, merged, matter, ccl, serviceResult.preview?.contextFields);
+      if (merged.figure && !merged.state_amount) merged.state_amount = merged.figure;
+      if (merged.state_amount && !merged.figure) merged.figure = merged.state_amount;
+
+      setCclAiStreamLog(Object.entries(result.fields || {}).map(([key, value]) => ({ key, value })));
+      setCclAiResultByMatter((prev) => ({
+        ...prev,
+        [matterId]: { request: aiRequest, response: result, baseFields: baseFieldsSnapshot },
+      }));
+      setCclDraftCache((prev) => ({
+        ...prev,
+        [matterId]: { ...prev[matterId], fields: merged, docUrl: serviceResult.url || prev[matterId]?.docUrl },
+      }));
+
+      const needsAttention = result.confidence !== 'full' || (serviceResult.unresolvedCount || 0) > 0;
+      const nextGeneratedStatus: CclStatus = {
+        ...(ccl || { status: 'generated', version: 0 }),
+        status: 'generated',
+        stage: 'generated',
+        label: 'Generated',
+        version: Math.max(Number(ccl?.version || 0), 0) + 1,
+        feeEarner: ccl?.feeEarner || matter.responsibleSolicitor || merged.name_of_person_handling_matter,
+        practiceArea: ccl?.practiceArea || matter.practiceArea,
+        clientName: ccl?.clientName || matter.clientName,
+        matterDescription: merged.insert_heading_eg_matter_description || ccl?.matterDescription || matter.practiceArea,
+        createdAt: new Date().toISOString(),
+        compiledAt: serviceResult.compile?.createdAt || compileResult.compile.createdAt || ccl?.compiledAt,
+        compileSummary: serviceResult.compile?.summary || compileResult.compile.summary,
+        uploadedToClio: Boolean(ccl?.uploadedToClio),
+        uploadedToNd: Boolean(ccl?.uploadedToNd),
+        needsAttention,
+        attentionReason: (serviceResult.unresolvedCount || 0) > 0 ? 'missing_fields' : (needsAttention ? 'low_confidence' : 'none'),
+        confidence: result.confidence,
+        unresolvedCount: serviceResult.unresolvedCount || 0,
+      };
+      setCclMap((prev) => ({ ...prev, [matterId]: nextGeneratedStatus }));
+      setCclStatusResolvedByMatter((prev) => ({ ...prev, [matterId]: true }));
+      setCclStatusResolvingByMatter((prev) => ({ ...prev, [matterId]: false }));
+
+      let finalStatus = nextGeneratedStatus;
+      if (!needsAttention) {
+        const approvalResult = await approveCcl(matterId, 'approved');
+        if (approvalResult.ok) {
+          finalStatus = {
+            ...nextGeneratedStatus,
+            status: approvalResult.status || 'reviewed',
+            stage: 'reviewed',
+            label: 'Reviewed',
+            finalizedAt: approvalResult.finalizedAt || new Date().toISOString(),
+            uploadedToClio: Boolean(approvalResult.uploadedToClio),
+            needsAttention: false,
+            attentionReason: 'none',
+            unresolvedCount: 0,
+          };
+          setCclMap((prev) => ({ ...prev, [matterId]: finalStatus }));
+          setCclAiReviewedFields((prev) => ({ ...prev, [matterId]: new Set(Object.keys(result.fields || {})) }));
+          setCclReviewSummaryDismissedByMatter((prev) => ({ ...prev, [matterId]: true }));
+          setCclSelectedReviewFieldByMatter((prev) => ({ ...prev, [matterId]: '__none__' }));
+        }
+      } else {
+        resetCclReviewLaunchState(matterId);
+      }
+
+      const confidenceLabel = result.confidence === 'full' ? 'full' : result.confidence === 'partial' ? 'partial' : 'fallback';
+      const statusMessage = finalStatus.stage === 'reviewed'
+        ? `Backend complete · ${confidenceLabel}${result.durationMs ? ` · ${Math.round(result.durationMs / 100) / 10}s` : ''}`
+        : `Draft needs review · ${confidenceLabel}${result.durationMs ? ` · ${Math.round(result.durationMs / 100) / 10}s` : ''}`;
+      setCclAiStatusByMatter((prev) => ({ ...prev, [matterId]: statusMessage }));
+      setCclAiFillingMatter(null);
+
+      if (showToastForThis) {
+        upsertCclAiToast({
+          matterId,
+          title: toastTitle,
+          promptSummary,
+          statusMessage: finalStatus.stage === 'reviewed'
+            ? 'Draft completed on the backend. Review stays hidden unless something is flagged.'
+            : 'Draft generated. Only flagged items need review.',
+          phase: 'complete',
+          fieldCount: Object.keys(result.fields || {}).length,
+          type: 'success',
+          persist: false,
+          duration: 7000,
+          action: {
+            label: finalStatus.stage === 'reviewed' ? 'Open letter' : 'Review flagged',
+            onClick: () => openCclLetterModal(matterId, { forceIntro: finalStatus.stage !== 'reviewed' }),
+          },
+        });
+        cclAiToastIdRef.current = null;
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'AI autofill failed';
+      setCclAiStatusByMatter((prev) => ({ ...prev, [matterId]: `Generation failed after compile · ${message}` }));
+      setCclAiFillingMatter(null);
+      setCclStatusResolvingByMatter((prev) => ({ ...prev, [matterId]: false }));
+      if (showToastForThis) {
+        upsertCclAiToast({
+          matterId,
+          title: toastTitle,
+          promptSummary,
+          statusMessage: `Generation failed after compile · ${message}`,
           phase: 'calling-ai',
           fieldCount: 0,
           type: 'error',
@@ -1699,25 +2197,109 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
         cclAiToastIdRef.current = null;
       }
     }
-  }, [applyCclContactFallbacks, buildCclAiPromptSummary, cclAiFillingMatter, cclAiStreamLog.length, cclLetterModal, displayMatters, cclMap, cclDraftCache, setCclLetterModal, persistCclDraft, upsertCclAiToast, userInitials]);
+  }, [applyCclContactFallbacks, buildCclAiPromptSummary, cclAiFillingMatter, cclLetterModal, displayMatters, cclMap, openCclLetterModal, upsertCclAiToast, userInitials]);
 
-  const runPressureTest = React.useCallback(async (matterId: string) => {
-    if (!matterId || cclPressureTestRunning) return;
+  const runPressureTest = React.useCallback(async (matterId: string, options?: { silent?: boolean }) => {
+    if (!matterId) return;
+    if (cclPressureTestRunning) {
+      if (!options?.silent) openCclPipelineDetailModal(cclPressureTestRunning, 'pressure');
+      return;
+    }
     const matter = displayMatters.find((m) => m.matterId === matterId);
+    const ccl = cclMap[matterId];
     const aiResult = cclAiResultByMatter[matterId];
-    const draft = cclDraftCache[matterId]?.fields;
-    const generatedFields = aiResult?.response?.fields || draft || {};
-    if (Object.keys(generatedFields).length === 0) return;
+    let persistedTrace = cclAiTraceByMatter[matterId];
+    const titleRef = matter?.displayNumber || matterId;
+
+    if (!options?.silent) openCclPipelineDetailModal(matterId, 'pressure');
+
+    let persistedDraft = cclDraftCache[matterId]?.fields || null;
+    if ((!persistedDraft || Object.keys(persistedDraft).length === 0) && ccl?.version) {
+      try {
+        setCclPressureTestSteps([
+          { label: 'Loading generated draft', status: 'active' as const },
+          { label: 'Preparing Safety Net review', status: 'pending' as const },
+          { label: 'Gathering evidence', status: 'pending' as const },
+          { label: 'Scoring fields against evidence', status: 'pending' as const },
+        ]);
+        const response = await fetch(`/api/ccl/${encodeURIComponent(matterId)}`);
+        const data = await response.json().catch(() => null);
+        if (!response.ok) {
+          throw new Error(String(data?.error || `Draft fetch failed: ${response.status}`));
+        }
+        persistedDraft = (data?.json && typeof data.json === 'object') ? data.json as Record<string, string> : null;
+        setCclDraftCache((prev) => ({
+          ...prev,
+          [matterId]: { fields: persistedDraft, docUrl: data?.url || prev[matterId]?.docUrl },
+        }));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to load generated CCL draft.';
+        setCclPressureTestError(message);
+        showToast({
+          type: 'error',
+          title: `Safety Net failed · ${titleRef}`,
+          message,
+          persist: false,
+          duration: 6200,
+        });
+        return;
+      }
+    }
+
+    if (!aiResult && !persistedTrace) {
+      try {
+        const traceResponse = await fetch(`/api/ccl-admin/traces/${encodeURIComponent(matterId)}?limit=1`);
+        const traceData = await traceResponse.json().catch(() => null);
+        if (traceResponse.ok && traceData?.traces?.length) {
+          persistedTrace = traceData.traces[0] as Record<string, unknown>;
+          setCclAiTraceByMatter((prev) => ({ ...prev, [matterId]: persistedTrace as any }));
+        }
+      } catch {
+        // Trace lookup is best-effort. Pressure test can still fall back to the persisted draft.
+      }
+    }
+
+    const generatedFields = (() => {
+      const liveAiFields = sanitiseCclPressureTestFields(aiResult?.response?.fields as Record<string, unknown> | undefined);
+      if (Object.keys(liveAiFields).length > 0) return liveAiFields;
+      const traceFields = extractCclTraceFields(persistedTrace as Record<string, unknown> | null | undefined);
+      if (Object.keys(traceFields).length > 0) return traceFields;
+      return sanitiseCclPressureTestFields(persistedDraft as Record<string, unknown> | null | undefined);
+    })();
+
+    if (Object.keys(generatedFields).length === 0) {
+      const message = 'Generate AI review context first so the Safety Net has the actual fee-earner decision fields to test.';
+      setCclPressureTestError(message);
+      showToast({
+        type: 'error',
+        title: `Safety Net blocked · ${titleRef}`,
+        message,
+        persist: false,
+        duration: 5200,
+      });
+      return;
+    }
+
+    const fieldKeyList = Object.keys(generatedFields);
+    const fieldCount = fieldKeyList.length;
+
+    const toastId = options?.silent ? '' : showToast({
+      type: 'loading',
+      title: `Running Safety Net · ${titleRef}`,
+      message: `Scoring ${fieldCount} fields against source evidence.`,
+      persist: true,
+    });
 
     setCclPressureTestRunning(matterId);
     setCclPressureTestError(null);
+    setCclPressureTestContext({ fieldKeys: fieldKeyList, clientName: matter?.clientName || ccl?.clientName || 'Client' });
     const startMs = Date.now();
     setCclPressureTestElapsed(0);
 
     const steps = [
-      { label: 'Starting Safety Net review', status: 'active' as const },
-      { label: 'Gathering evidence', status: 'pending' as const },
-      { label: 'Scoring fields against evidence', status: 'pending' as const },
+      { label: 'Starting Safety Net review', detail: `${fieldCount} AI-generated fields queued`, status: 'active' as const },
+      { label: 'Gathering evidence', detail: 'Emails, calls, documents, deal data', status: 'pending' as const },
+      { label: 'Scoring fields against evidence', detail: `AI verification of ${fieldCount} fields`, status: 'pending' as const },
       { label: 'Compiling results', status: 'pending' as const },
     ];
     setCclPressureTestSteps([...steps]);
@@ -1742,22 +2324,53 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
         practiceArea: matter?.practiceArea || '',
         clientName: matter?.clientName || '',
       });
+      await approveCcl(matterId, 'pressure-tested');
       phaseTimers.forEach(clearTimeout);
       setCclPressureTestSteps(prev => prev.map(s => ({ ...s, status: 'done' as const })));
       setCclPressureTestByMatter((prev) => ({ ...prev, [matterId]: result }));
+      if (toastId) updateToast(toastId, {
+        type: 'success',
+        title: `Safety Net complete · ${titleRef}`,
+        message: result.flaggedCount > 0
+          ? `${result.flaggedCount} field${result.flaggedCount === 1 ? '' : 's'} flagged for review.`
+          : 'No fields were flagged against the available evidence.',
+        persist: false,
+        duration: 5200,
+      });
+      setCclMap((prev) => {
+        const current = prev[matterId];
+        if (!current) return prev;
+        return {
+          ...prev,
+          [matterId]: {
+            ...current,
+            stage: current.stage === 'reviewed' || current.stage === 'sent' ? current.stage : 'pressure-tested',
+            status: current.status === 'approved' || current.status === 'final' || current.status === 'uploaded' ? current.status : 'pressure-tested',
+            label: current.stage === 'reviewed' || current.stage === 'sent' ? current.label : 'Pressure tested',
+          },
+        };
+      });
     } catch (err: unknown) {
       phaseTimers.forEach(clearTimeout);
       console.error('[CCL] Pressure test failed:', err);
       const msg = err instanceof Error ? err.message : 'Pressure test failed';
       setCclPressureTestError(msg);
+      if (toastId) updateToast(toastId, {
+        type: 'error',
+        title: `Safety Net failed · ${titleRef}`,
+        message: msg,
+        persist: false,
+        duration: 6200,
+      });
       setCclPressureTestSteps(prev => prev.map(s =>
         s.status === 'active' || s.status === 'pending' ? { ...s, status: 'error' as const } : s
       ));
     } finally {
       if (cclPressureTestTimerRef.current) { clearInterval(cclPressureTestTimerRef.current); cclPressureTestTimerRef.current = null; }
       setCclPressureTestRunning(null);
+      setCclPressureTestContext(null);
     }
-  }, [cclPressureTestRunning, displayMatters, cclAiResultByMatter, cclDraftCache]);
+  }, [cclPressureTestRunning, displayMatters, cclAiResultByMatter, cclAiTraceByMatter, cclDraftCache, cclMap, openCclPipelineDetailModal, showToast, updateToast]);
 
   React.useEffect(() => {
     if (!cclLetterModal) return;
@@ -1804,8 +2417,24 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cclLetterModal, cclAiResultByMatter, cclAiTraceByMatter, cclAiTraceLoadingByMatter, cclAiFillingMatter, cclDraftCache]);
 
-  // Pressure test is user-initiated only — no auto-trigger.
-  // The review rail shows a "Run Safety Net" button when AI context is present.
+  // Auto-trigger pressure test after AI generation completes (fire-and-forget).
+  // Results surface inline in the review rail — no modal opens.
+  React.useEffect(() => {
+    if (!cclLetterModal) return;
+    // Need AI context to test against
+    const hasAiContext = !!(cclAiResultByMatter[cclLetterModal] || cclAiTraceByMatter[cclLetterModal]);
+    if (!hasAiContext) return;
+    // Already have PT results or PT is running
+    if (cclPressureTestByMatter[cclLetterModal]) return;
+    if (cclPressureTestRunning) return;
+    // Draft not loaded
+    if (!cclDraftCache[cclLetterModal]?.fields) return;
+    // Still generating AI
+    if (cclAiFillingMatter === cclLetterModal) return;
+    console.log('[CCL] Auto-triggering pressure test for', cclLetterModal);
+    void runPressureTest(cclLetterModal, { silent: true });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cclLetterModal, cclAiResultByMatter, cclAiTraceByMatter, cclPressureTestByMatter, cclPressureTestRunning, cclAiFillingMatter, cclDraftCache]);
 
   React.useEffect(() => {
     if (!cclLetterModal || typeof document === 'undefined') return undefined;
@@ -1871,17 +2500,26 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
   }, [breakdown, period]);
   const conversionRows = React.useMemo(() => conversionComparison?.items ?? [], [conversionComparison]);
   const visibleConversionRows = React.useMemo(() => {
-    const weekKey = weekComparisonMode === 'relative' ? 'week-pace' : 'week-vs-last';
-    return conversionRows.filter((item) => {
-      if (item.key === 'week-pace' || item.key === 'week-vs-last') {
-        return item.key === weekKey;
-      }
-      return true;
-    });
-  }, [conversionRows, weekComparisonMode]);
+    return conversionRows.filter((item) => item.key !== 'week-pace');
+  }, [conversionRows]);
+  const selectedConversionItem = React.useMemo(
+    () => visibleConversionRows.find((item) => item.key === selectedConversionKey) ?? visibleConversionRows[0] ?? null,
+    [selectedConversionKey, visibleConversionRows],
+  );
+  const selectedConversionAowMix = React.useMemo(() => {
+    const list = selectedConversionItem?.currentAowMix ?? [];
+    return [...list].sort((a, b) => b.count - a.count);
+  }, [selectedConversionItem]);
+  const selectedConversionInsightTarget = React.useMemo<InsightPeriod>(() => {
+    if (!selectedConversionItem) return null;
+    if (selectedConversionItem.key === 'today') return 'today';
+    if (selectedConversionItem.key === 'week-vs-last') return 'weekToDate';
+    if (selectedConversionItem.key === 'month-vs-last') return 'monthToDate';
+    return null;
+  }, [selectedConversionItem]);
   const useExperimentalConversion = enableConversionComparison && conversionRows.length > 0;
-  const showExperimentalConversionSkeleton = enableConversionComparison;
-  const primaryRailMinHeight = isNarrow ? undefined : (useExperimentalConversion ? 500 : 520);
+  const showExperimentalConversionSkeleton = enableConversionComparison && isResolvingConversionComparison;
+  const primaryRailMinHeight = isNarrow ? undefined : (useExperimentalConversion ? 440 : 520);
   const pipelineRailHeight = isNarrow
     ? undefined
     : Math.max(primaryRailMinHeight ?? 0, conversionRailHeight ?? 0) || undefined;
@@ -1970,6 +2608,97 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
     if (priorityUnclaimedItem) handleClaimUnclaimed(priorityUnclaimedItem);
   }, [handleClaimUnclaimed, priorityUnclaimedItem]);
 
+  const closeEnquiryFollowUpModal = React.useCallback(() => {
+    if (enquiryFollowUpSavingChannel) return;
+    setEnquiryFollowUpModal(null);
+  }, [enquiryFollowUpSavingChannel]);
+
+  const openEnquiryFollowUpModal = React.useCallback((record: DetailRecord) => {
+    const hasLookupTarget = getDetailRecordIds(record).length > 0 || String(record.email || '').trim().length > 0;
+    if (!hasLookupTarget) return;
+    setEnquiryFollowUpModal({ record });
+  }, []);
+
+  const applyFollowUpSummaryToCollections = React.useCallback((targetRecord: DetailRecord, followUpSummary: DetailRecordFollowUpSummary | null) => {
+    const applyToRecords = (records?: DetailRecord[]) => {
+      if (!Array.isArray(records)) return records;
+      return records.map((record) => (
+        doDetailRecordsMatch(record, targetRecord)
+          ? { ...record, followUpSummary: followUpSummary || undefined }
+          : record
+      ));
+    };
+
+    setDetails((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        current: current.current ? { ...current.current, records: applyToRecords(current.current.records) } : current.current,
+        previous: current.previous ? { ...current.previous, records: applyToRecords(current.previous.records) } : current.previous,
+      };
+    });
+    setInsightRecords((current) => applyToRecords(current) || []);
+    setEnquiryFollowUpModal((current) => {
+      if (!current || !doDetailRecordsMatch(current.record, targetRecord)) return current;
+      return { record: { ...current.record, followUpSummary: followUpSummary || undefined } };
+    });
+  }, []);
+
+  const recordEnquiryFollowUp = React.useCallback(async (record: DetailRecord, channel: FollowUpChannel) => {
+    const lookupIds = getDetailRecordIds(record);
+    const email = String(record.email || '').trim().toLowerCase();
+    if (lookupIds.length === 0 && !email) return;
+
+    setEnquiryFollowUpSavingChannel(channel);
+    const toastId = showToast({
+      type: 'loading',
+      title: `Recording ${channel === 'email' ? 'email' : 'phone'} follow-up`,
+      message: 'Saving the follow-up attempt and refreshing the Home enquiry lifecycle.',
+      persist: true,
+    });
+
+    try {
+      const response = await fetch('/api/home-enquiries/follow-up', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          enquiryId: record.enquiryId,
+          id: record.id,
+          processingEnquiryId: record.processingEnquiryId,
+          pitchEnquiryId: record.pitchEnquiryId,
+          legacyEnquiryId: record.legacyEnquiryId,
+          email,
+          channel,
+          recordedBy: userEmail || userInitials || '',
+        }),
+      });
+
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(String(data?.error || 'Failed to record follow-up'));
+      }
+
+      const nextSummary = (data?.followUpSummary || null) as DetailRecordFollowUpSummary | null;
+      applyFollowUpSummaryToCollections(record, nextSummary);
+
+      updateToast(toastId, {
+        type: 'success',
+        title: `${channel === 'email' ? 'Email' : 'Phone'} follow-up recorded`,
+        message: nextSummary?.totalCount
+          ? `${nextSummary.totalCount} follow-up attempt${nextSummary.totalCount === 1 ? '' : 's'} now recorded for this enquiry.`
+          : 'The follow-up attempt has been recorded.',
+      });
+    } catch (error) {
+      updateToast(toastId, {
+        type: 'error',
+        title: 'Follow-up not saved',
+        message: error instanceof Error ? error.message : 'Failed to record follow-up',
+      });
+    } finally {
+      setEnquiryFollowUpSavingChannel(null);
+    }
+  }, [applyFollowUpSummaryToCollections, showToast, updateToast, userEmail, userInitials]);
+
   /* pitched/mattersOpened removed — Col 3 now shows matters */
 
   /* ── Insight modal fetch ── */
@@ -2042,12 +2771,14 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
     params.set('period', activityDetailsPeriod);
     params.set('limit', '500');
     params.set('includePrevious', 'false');
+    if (isTeamWideEnquiryView) {
+      params.set('fetchAll', 'true');
+      params.set('includeTeamInbox', 'true');
+    }
     const requestKey = `home-enquiries-details:${params.toString()}`;
     const runFetch = () => {
       if (!active) return;
-      if (!hasSeededRecords) {
-        setDetailsLoading(true);
-      }
+      setDetailsLoading(true);
       fetchSharedJson(requestKey, () => fetch(`/api/home-enquiries/details?${params}`)
         .then((r) => (r.ok ? r.json() : Promise.reject(r.status))))
         .then((d: DetailsPayload) => { if (active) setDetails(d); })
@@ -2055,8 +2786,9 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
         .finally(() => { if (active) setDetailsLoading(false); });
     };
 
+    setDetails(null);
     if (hasSeededRecords) {
-      setDetailsLoading(false);
+      setDetailsLoading(true);
       if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
         timeoutId = globalThis.setTimeout(() => {
           (window as typeof window & {
@@ -2078,14 +2810,98 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
     };
   }, [activityDetailsPeriod, isTeamWideEnquiryView, recentEnquiryRecords, userEmail, userInitials, secondaryFetchesReady]);
 
+  /* ── Fetch pitch evidence for ALL seeded records (not user-scoped) ── */
+  React.useEffect(() => {
+    const lookupRecords = isTeamWideEnquiryView
+      ? recentEnquiryRecords.filter((record) => recordFallsWithinPeriod(record.date, activityDetailsPeriod))
+      : recentEnquiryRecords;
+
+    if (lookupRecords.length === 0) {
+      setPitchLookup(null);
+      setPitchLookupLoading(false);
+      return;
+    }
+    let active = true;
+    const prospectIds = [...new Set(
+      lookupRecords.flatMap((r) =>
+        Array.isArray(r.prospectIds) ? r.prospectIds.map((v: string) => String(v || '').trim()).filter(Boolean) : [],
+      ),
+    )];
+    const emails = [...new Set(
+      lookupRecords.map((r) => String(r.email || '').trim().toLowerCase()).filter(Boolean),
+    )];
+    setPitchLookup(null);
+    if (prospectIds.length === 0 && emails.length === 0) {
+      setPitchLookupLoading(false);
+      return;
+    }
+    setPitchLookupLoading(true);
+    fetch('/api/home-enquiries/pitch-lookup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prospectIds, emails }),
+    })
+      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then((data) => { if (active) setPitchLookup(data); })
+      .catch(() => {})
+      .finally(() => { if (active) setPitchLookupLoading(false); });
+    return () => { active = false; };
+  }, [activityDetailsPeriod, isTeamWideEnquiryView, recentEnquiryRecords]);
+
   const recents = React.useMemo(() => {
     const seededRecords = isTeamWideEnquiryView
       ? recentEnquiryRecords.filter((record) => recordFallsWithinPeriod(record.date, activityDetailsPeriod))
       : recentEnquiryRecords;
+    const seededRecordMap = new Map<string, DetailRecord>();
+    seededRecords.forEach((record) => {
+      getDetailRecordIds(record).forEach((key) => {
+        seededRecordMap.set(key, record);
+      });
+    });
     const currentRecordsRaw = details?.current?.records;
     const currentRecords = Array.isArray(currentRecordsRaw) ? currentRecordsRaw : [];
-    const sourceRecords = currentRecords.length > 0 ? currentRecords : seededRecords;
-    const list = [...sourceRecords];
+    const mergedCurrentRecords = currentRecords.map((record) => {
+      const seeded = getDetailRecordIds(record)
+        .map((key) => seededRecordMap.get(key))
+        .find(Boolean);
+      return seeded ? { ...seeded, ...record, dataSource: record.dataSource || seeded.dataSource } : record;
+    });
+    const hydratedSeededRecords = seededRecords.map((seededRecord) => {
+      const enrichedRecord = mergedCurrentRecords.find((record) => doDetailRecordsMatch(record, seededRecord));
+      return enrichedRecord
+        ? { ...seededRecord, ...enrichedRecord, dataSource: enrichedRecord.dataSource || seededRecord.dataSource }
+        : seededRecord;
+    });
+    const additionalDetailRecords = mergedCurrentRecords.filter(
+      (record) => !seededRecords.some((seededRecord) => doDetailRecordsMatch(record, seededRecord)),
+    );
+    const sourceRecords = currentRecords.length > 0
+      ? [...hydratedSeededRecords, ...additionalDetailRecords]
+      : seededRecords;
+    // Apply pitch evidence from the bulk pitch lookup to records that lack it
+    const pitchedRecords = sourceRecords.map((record) => {
+      if (hasPitchEvidenceForRecord(record)) return record;
+      if (!pitchLookup) return record;
+      const ids = Array.isArray(record.prospectIds)
+        ? record.prospectIds.map((v) => String(v || '').trim()).filter(Boolean)
+        : [];
+      const matchedById = ids
+        .map((pid) => pitchLookup.byProspectId[pid])
+        .find(Boolean);
+      const email = String(record.email || '').trim().toLowerCase();
+      const matchedPitch = matchedById || (email ? pitchLookup.byEmail[email] : undefined);
+      if (!matchedPitch) return record;
+      return { ...record, ...matchedPitch };
+    });
+    const list = pitchedRecords.map((record) => {
+      const enquiryId = String(record.enquiryId || record.id || '').trim();
+      if (!enquiryId || !claimedRecentEnquiryIds.has(enquiryId)) return record;
+      return {
+        ...record,
+        teamsClaimed: userInitials?.toUpperCase() || record.teamsClaimed || record.poc,
+        stage: record.stage === 'enquiry' || !record.stage ? 'claimed' : record.stage,
+      };
+    });
     // Inject demo prospect when demo mode is active
     if (demoModeActive && !list.some((r) => r.name === 'Demo Prospect')) {
       const now = new Date();
@@ -2106,38 +2922,134 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
       return sortDesc ? -cmp : cmp;
     });
     return list;
-  }, [activityDetailsPeriod, details, isTeamWideEnquiryView, recentEnquiryRecords, sortKey, sortDesc, demoModeActive, userInitials]);
+  }, [activityDetailsPeriod, claimedRecentEnquiryIds, details, isTeamWideEnquiryView, pitchLookup, recentEnquiryRecords, sortKey, sortDesc, demoModeActive, userInitials]);
 
   const filteredRecents = React.useMemo(() => {
-    const eff = (r: DetailRecord) => stageLevel(activityStageForRecord(r));
-    if (activityTab === 'enquiries') return recents;
-    if (activityTab === 'pitched') return recents.filter((r) => eff(r) === 3);
-    if (activityTab === 'instructed') return recents.filter((r) => eff(r) >= 4);
-    return recents;
-  }, [recents, activityTab]);
+    return recents.filter((record) => {
+      const enquiryId = String(record.enquiryId || record.id || '').trim();
+      const isClaimedLocally = enquiryId.length > 0 && claimedRecentEnquiryIds.has(enquiryId);
+      const activityStage = activityStageForRecord(record);
+      const effectiveStage = effectiveStageForRecord(record);
+      const stageImpliesClaimed = stageLevel(activityStage) >= 2 || stageLevel(effectiveStage) >= 2;
+      const claimedBy = isClaimedLocally
+        ? (userInitials?.toUpperCase() || record.teamsClaimed || record.poc)
+        : (record.teamsClaimed || (stageImpliesClaimed ? record.poc : undefined));
+
+      return Boolean(claimedBy || hasPitchEvidenceForRecord(record) || hasInstructionForRecord(record) || stageImpliesClaimed);
+    });
+  }, [claimedRecentEnquiryIds, recents, userInitials]);
   const activityVisibleCount = layoutStacked ? 6 : 8;
-  const matterVisibleCount = layoutStacked ? 6 : 8;
+  const matterVisibleCount = Math.max(recentMatters.length, layoutStacked ? 6 : 8);
   const alignStackedColumns = layoutStacked && !isNarrow;
-  const sharedDotColumnWidth = 20;
-  const sharedDateColumnWidth = alignStackedColumns ? 62 : 36;
-  const sharedFeColumnWidth = alignStackedColumns ? 34 : 28;
+  const showInlineMatterSteps = canSeeCcl && matterStepsInline;
+  const sharedDotColumnWidth = 28;
+  const sharedDateColumnWidth = alignStackedColumns ? 78 : 74;
+  const sharedFeColumnWidth = alignStackedColumns ? 62 : 48;
   const sharedAowColumnWidth = alignStackedColumns ? 72 : 48;
   const sharedStatusColumnWidth = 52;
-  const matterActionColumnWidth = canSeeCcl ? (alignStackedColumns ? 92 : 76) : 14;
+  const matterActionColumnWidth = canSeeCcl
+    ? showInlineMatterSteps
+      ? (alignStackedColumns ? 198 : 176)
+      : (alignStackedColumns ? 92 : 76)
+    : 14;
   const matterStatusColumnWidth = alignStackedColumns ? sharedStatusColumnWidth : (canSeeCcl ? 34 : 14);
-  const matterGridTemplate = `${sharedDotColumnWidth}px ${sharedDateColumnWidth}px minmax(0, 1fr) 1px ${sharedAowColumnWidth}px ${sharedFeColumnWidth}px ${matterActionColumnWidth}px`;
+  const nameColumnMax = alignStackedColumns ? 220 : 160;
+  const matterGridTemplate = `${sharedDotColumnWidth}px ${sharedDateColumnWidth}px ${sharedFeColumnWidth}px minmax(0, ${nameColumnMax}px) 1fr`;
 
-  const openPitchBuilderForRecord = React.useCallback((record: DetailRecord) => {
+  const getRecentRecordKey = React.useCallback((record: DetailRecord) => {
+    return String(record.enquiryId || record.id || record.pitchEnquiryId || record.legacyEnquiryId || record.date || record.name || '').trim();
+  }, []);
+
+  const getDefaultPitchScenarioForRecord = React.useCallback((record: DetailRecord) => {
+    const stage = String(record.stage || record.pipelineStage || '').toLowerCase().trim();
+    if (stage.includes('claim') || stage.includes('pitch')) return 'after-call-want-instruction';
+    return 'before-call-call';
+  }, []);
+
+  const openEnquiryRecord = React.useCallback((record: DetailRecord, subTab?: string) => {
     const enquiryId = String(record.enquiryId || record.id || '').trim();
     if (!enquiryId) return;
     try {
+      const recordKey = getRecentRecordKey(record);
+      const pitchScenario = subTab === 'Pitch'
+        ? (selectedPitchScenariosByRecord[recordKey] || getDefaultPitchScenarioForRecord(record))
+        : undefined;
       window.dispatchEvent(new CustomEvent('navigateToEnquiry', {
-        detail: { enquiryId, subTab: 'Pitch' },
+        detail: subTab ? { enquiryId, subTab, pitchScenario } : { enquiryId },
       }));
+    } catch (error) {
+      console.error('Failed to open enquiry from home activity row', error);
+    }
+  }, [getDefaultPitchScenarioForRecord, getRecentRecordKey, selectedPitchScenariosByRecord]);
+
+  const openPitchBuilderForRecord = React.useCallback((record: DetailRecord, scenarioId?: string) => {
+    try {
+      const recordKey = getRecentRecordKey(record);
+      if (recordKey && scenarioId) {
+        setSelectedPitchScenariosByRecord((current) => ({
+          ...current,
+          [recordKey]: scenarioId,
+        }));
+      }
+      openEnquiryRecord(record, 'Pitch');
     } catch (error) {
       console.error('Failed to open pitch builder from home activity row', error);
     }
+  }, [getRecentRecordKey, openEnquiryRecord]);
+
+  const toggleRecentNotesTray = React.useCallback((recordKey: string) => {
+    setExpandedRecentNoteIds((current) => {
+      const next = new Set(current);
+      if (next.has(recordKey)) {
+        next.delete(recordKey);
+      } else {
+        next.add(recordKey);
+      }
+      return next;
+    });
   }, []);
+
+  const handleClaimRecentEnquiry = React.useCallback(async (record: DetailRecord) => {
+    const enquiryId = String(record.enquiryId || record.id || '').trim();
+    const prospectName = String(record.name || 'enquiry').trim() || 'enquiry';
+    if (!enquiryId || !userEmail || isClaimingRecentEnquiry) return;
+
+    setClaimingRecentEnquiryId(enquiryId);
+    const toastId = showToast({
+      type: 'loading',
+      title: `Claiming ${prospectName}`,
+      message: 'Updating the enquiry owner and refreshing the Teams card.',
+      persist: true,
+    });
+
+    try {
+      await triggerRecentClaimEnquiry(enquiryId, userEmail, record.dataSource || 'legacy');
+      setClaimedRecentEnquiryIds((current) => {
+        const next = new Set(current);
+        next.add(enquiryId);
+        return next;
+      });
+      updateToast(toastId, {
+        type: 'success',
+        title: `Claimed ${prospectName}`,
+        message: 'Opening the prospect so you can carry on from Home.',
+        persist: false,
+        duration: 3200,
+      });
+      openEnquiryRecord(record);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to claim enquiry.';
+      updateToast(toastId, {
+        type: 'error',
+        title: `Could not claim ${prospectName}`,
+        message,
+        persist: false,
+        duration: 5200,
+      });
+    } finally {
+      setClaimingRecentEnquiryId(null);
+    }
+  }, [isClaimingRecentEnquiry, openEnquiryRecord, showToast, triggerRecentClaimEnquiry, updateToast, userEmail]);
 
   /** Mini pipeline dot trail: P → C → P → I → M */
   const pipelineDots = (stage?: string) => {
@@ -2203,6 +3115,199 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
   const hoverBg = isDarkMode ? 'rgba(135,243,243,0.04)' : 'rgba(13,47,96,0.04)';
   const hoverShadow = isDarkMode ? 'inset 2px 0 0 rgba(135,243,243,0.3)' : `inset 2px 0 0 ${colours.helixBlue}`;
 
+  const renderUnclaimedPipelinePanel = React.useCallback(() => (
+    <>
+      <div style={{ padding: '18px 16px 14px', animation: 'opsDashFadeIn 0.3s ease 0.12s both' }}>
+        {unclaimedClaimFeedback ? (
+          <div style={{ marginBottom: 12, padding: '9px 12px', border: `1px solid ${unclaimedClaimFeedback.tone === 'success' ? colours.green : colours.cta}`, background: unclaimedClaimFeedback.tone === 'success' ? (isDarkMode ? 'rgba(32,178,108,0.08)' : 'rgba(32,178,108,0.06)') : (isDarkMode ? 'rgba(214,85,65,0.08)' : 'rgba(214,85,65,0.06)'), fontSize: 11, color: text, lineHeight: 1.4 }}>
+            {unclaimedClaimFeedback.message}
+          </div>
+        ) : null}
+
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+          {bigNumber(
+            String(activeUnclaimedRange?.count ?? (unclaimedRange === 'today' ? unclaimedToday : unclaimedRange === 'week' ? unclaimedThisWeek : unclaimedLastWeek)),
+            { color: (activeUnclaimedRange?.count ?? claimSignal.unclaimed) > 0 ? colours.orange : text, loading: !!isLoadingEnquiryMetrics, size: 28 },
+          )}
+          <div style={{ fontSize: 13, color: isDarkMode ? '#d1d5db' : '#374151', fontWeight: 500, lineHeight: 1.3 }}>
+            {(activeUnclaimedRange?.count ?? claimSignal.unclaimed) === 1 ? 'enquiry waiting' : 'enquiries waiting'}
+          </div>
+        </div>
+        <div style={{ fontSize: 11, color: isDarkMode ? colours.subtleGrey : colours.greyText, marginTop: 4, lineHeight: 1.4 }}>
+          {(activeUnclaimedRange?.count ?? claimSignal.unclaimed) > 0
+            ? `These came in ${activeUnclaimedRange?.label?.toLowerCase() || 'recently'} and no one has picked them up yet.`
+            : 'All clear — every enquiry has been picked up.'}
+        </div>
+      </div>
+
+      {priorityUnclaimedItem ? (
+        <div style={{
+          margin: '0 14px 12px',
+          padding: '14px 16px',
+          border: `1px solid ${isDarkMode ? 'rgba(214,85,65,0.32)' : 'rgba(214,85,65,0.24)'}`,
+          background: isDarkMode ? 'rgba(214,85,65,0.08)' : 'rgba(214,85,65,0.05)',
+          animation: 'opsDashFadeIn 0.35s ease 0.2s both',
+        }}>
+          <div style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: colours.cta, marginBottom: 8 }}>
+            Pick up next
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: aowColor(priorityUnclaimedItem.aow), display: 'inline-block', flexShrink: 0 }} />
+            <span style={{ fontSize: 14, fontWeight: 700, color: text }}>{priorityUnclaimedItem.name}</span>
+          </div>
+          <div style={{ fontSize: 11, color: isDarkMode ? '#d1d5db' : '#374151', marginBottom: canClaimUnclaimed ? 12 : 0, lineHeight: 1.4 }}>
+            {priorityUnclaimedItem.aow} · {priorityUnclaimedItem.ageDays === 0 ? 'arrived today' : priorityUnclaimedItem.ageDays === 1 ? 'arrived yesterday' : `waiting ${priorityUnclaimedItem.ageDays} days`}
+            {priorityUnclaimedItem.value > 0 ? ` · ${fmt.currency(priorityUnclaimedItem.value)}` : ''}
+          </div>
+          {canClaimUnclaimed ? (
+            <button
+              type="button"
+              onClick={handleClaimPriorityUnclaimed}
+              disabled={isClaimingUnclaimed || !userEmail}
+              style={{
+                border: 'none',
+                background: colours.cta,
+                color: '#fff',
+                padding: '9px 18px',
+                fontSize: 12,
+                fontWeight: 700,
+                width: '100%',
+                cursor: isClaimingUnclaimed ? 'default' : 'pointer',
+                opacity: isClaimingUnclaimed ? 0.7 : 1,
+                letterSpacing: '0.2px',
+                transition: 'opacity 0.2s ease',
+              }}
+            >
+              {isClaimingUnclaimed ? 'Claiming…' : 'Claim this enquiry'}
+            </button>
+          ) : null}
+        </div>
+      ) : (
+        <div style={{ margin: '0 14px 12px', padding: '14px 16px', border: `1px solid ${rowBorder}`, background: isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)' }}>
+          <div style={{ fontSize: 12, color: isDarkMode ? '#d1d5db' : '#374151', textAlign: 'center' }}>
+            Nothing waiting to be picked up.
+          </div>
+        </div>
+      )}
+
+      {unclaimedAowOptions.length > 0 && (
+        <div style={{ padding: '0 14px 10px', animation: 'opsDashFadeIn 0.35s ease 0.26s both' }}>
+          <div style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText, marginBottom: 8 }}>
+            By area
+          </div>
+          {unclaimedAowOptions.slice(0, 5).map((item) => {
+            const maxCount = unclaimedAowOptions[0]?.count || 1;
+            const barPct = Math.max(8, Math.round((item.count / maxCount) * 100));
+            return (
+              <div
+                key={item.key}
+                onClick={() => setUnclaimedAowFilter(unclaimedAowFilter === item.key ? 'all' : item.key)}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6, cursor: 'pointer', userSelect: 'none' }}
+              >
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: aowColor(item.key), display: 'inline-block', flexShrink: 0 }} />
+                <span style={{ fontSize: 11, color: unclaimedAowFilter === item.key ? text : (isDarkMode ? '#d1d5db' : '#374151'), fontWeight: unclaimedAowFilter === item.key ? 600 : 400, minWidth: 80 }}>{item.key}</span>
+                <div style={{ flex: 1, height: 6, background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', position: 'relative', overflow: 'hidden' }}>
+                  <div style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: `${barPct}%`, background: aowColor(item.key), opacity: unclaimedAowFilter === item.key ? 0.9 : 0.5, transition: 'width 0.3s ease, opacity 0.2s ease' }} />
+                </div>
+                <span style={{ fontSize: 11, fontWeight: 600, color: text, minWidth: 16, textAlign: 'right' }}>{item.count}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {filteredUnclaimedItems.length > 0 && (
+        <div style={{ borderTop: `1px solid ${rowBorder}`, animation: 'opsDashFadeIn 0.35s ease 0.32s both' }}>
+          <div style={{ padding: '10px 14px 6px', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+            {unclaimedAowFilter !== 'all' ? `${unclaimedAowFilter} enquiries` : 'Waiting longest'}
+          </div>
+          {filteredUnclaimedItems.slice(0, 4).map((item, index) => (
+            <div
+              key={item.id}
+              style={{
+                padding: '9px 14px',
+                borderBottom: index < Math.min(filteredUnclaimedItems.length, 4) - 1 ? `1px solid ${rowBorder}` : 'none',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                transition: 'background 0.15s ease',
+              }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)'; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+            >
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: aowColor(item.aow), display: 'inline-block', flexShrink: 0 }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}</div>
+                <div style={{ fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText, marginTop: 2 }}>
+                  {item.aow}
+                </div>
+              </div>
+              <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                <div style={{ fontSize: 10, color: item.ageDays >= 7 ? colours.orange : (isDarkMode ? '#d1d5db' : '#374151'), fontWeight: item.ageDays >= 7 ? 600 : 400 }}>
+                  {item.ageDays === 0 ? 'Today' : item.ageDays === 1 ? '1 day' : `${item.ageDays} days`}
+                </div>
+                {item.value > 0 && (
+                  <div style={{ fontSize: 9, color: isDarkMode ? colours.subtleGrey : colours.greyText, marginTop: 1 }}>{fmt.currency(item.value)}</div>
+                )}
+              </div>
+              {canClaimUnclaimed && (
+                <button
+                  type="button"
+                  onClick={() => handleClaimUnclaimed(item)}
+                  disabled={isClaimingUnclaimed || !userEmail}
+                  style={{
+                    border: 'none',
+                    background: claimingItemId === item.id ? colours.cta : (isDarkMode ? 'rgba(214,85,65,0.16)' : 'rgba(214,85,65,0.1)'),
+                    color: claimingItemId === item.id ? '#fff' : colours.cta,
+                    padding: '4px 10px',
+                    fontSize: 10,
+                    fontWeight: 700,
+                    cursor: isClaimingUnclaimed ? 'default' : 'pointer',
+                    opacity: isClaimingUnclaimed && claimingItemId !== item.id ? 0.4 : 1,
+                    flexShrink: 0,
+                    transition: 'background 0.15s ease, color 0.15s ease, opacity 0.15s ease',
+                  }}
+                >
+                  {claimingItemId === item.id ? 'Claiming…' : 'Claim'}
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', justifyContent: 'center', gap: 4, padding: '10px 14px', borderTop: `1px solid ${rowBorder}` }}>
+        {([
+          ['today', 'Today'],
+          ['week', 'This week'],
+          ['month', 'This month'],
+        ] as const).map(([key, label]) => {
+          const rangeData = visibleUnclaimedRanges.find((range) => range.key === key);
+          const count = rangeData?.count ?? 0;
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setUnclaimedRange(key)}
+              style={{
+                border: 'none',
+                background: unclaimedRange === key ? (isDarkMode ? 'rgba(135,243,243,0.1)' : 'rgba(54,144,206,0.08)') : 'transparent',
+                color: unclaimedRange === key ? accent : muted,
+                padding: '5px 10px',
+                fontSize: 10,
+                fontWeight: unclaimedRange === key ? 700 : 400,
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              {label}{count > 0 ? ` (${count})` : ''}
+            </button>
+          );
+        })}
+      </div>
+    </>
+  ), [activeUnclaimedRange, accent, canClaimUnclaimed, claimSignal.unclaimed, claimingItemId, filteredUnclaimedItems, fmt, handleClaimPriorityUnclaimed, handleClaimUnclaimed, isClaimingUnclaimed, isDarkMode, isLoadingEnquiryMetrics, muted, priorityUnclaimedItem, rowBorder, text, unclaimedAowFilter, unclaimedAowOptions, unclaimedClaimFeedback, unclaimedLastWeek, unclaimedRange, unclaimedThisWeek, unclaimedToday, userEmail, visibleUnclaimedRanges]);
+
   React.useEffect(() => {
     const handleOpenHomeCclReview = (event: Event) => {
       const detail = (event as CustomEvent<{ matterId?: string; openInspector?: boolean; autoRunAi?: boolean }>).detail;
@@ -2246,7 +3351,7 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
         void runHomeCclAiAutofill(resolvedMatterId);
       } else {
         setCclPreviewOpen(true);
-        openCclLetterModal(resolvedMatterId);
+        openCclLetterModal(resolvedMatterId, { forceIntro: true });
       }
     }
   }, [homeReviewRequest, displayMatters, cclMap, cclAiResultByMatter, cclAiTraceByMatter, cclAiTraceLoadingByMatter, openCclLetterModal, runHomeCclAiAutofill]);
@@ -2344,50 +3449,26 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
     }
 
     const chartWidth = 240;
-    const chartHeight = 74;
+    const chartHeight = 82;
     const buckets = item.buckets.map((bucket) => ({
       ...bucket,
-      currentEnquiries: Number(bucket.currentEnquiries || 0),
-      previousEnquiries: Number(bucket.previousEnquiries || 0),
-      currentMatters: Number(bucket.currentMatters || 0),
-      previousMatters: Number(bucket.previousMatters || 0),
+      currentMatters: Number(bucket.currentMatters ?? 0),
+      previousMatters: Number(bucket.previousMatters ?? 0),
     }));
-    const maxEnquiries = Math.max(
-      1,
-      ...buckets.flatMap((bucket) => [bucket.currentEnquiries, bucket.previousEnquiries]),
-    );
     const maxMatters = Math.max(
       1,
       ...buckets.flatMap((bucket) => [bucket.currentMatters, bucket.previousMatters]),
     );
     const padTop = 10;
-    const padBot = 4;
-    const padLeft = 10;
-    const padRight = 10;
+    const padBot = 18;
+    const padLeft = 18;
+    const padRight = 8;
     const drawWidth = chartWidth - padLeft - padRight;
-    const step = buckets.length > 1 ? drawWidth / (buckets.length - 1) : drawWidth;
-    const xAt = (index: number) => padLeft + (buckets.length > 1 ? index * step : drawWidth / 2);
-    const yAt = (value: number) => chartHeight - padBot - (value / maxEnquiries) * (chartHeight - padTop - padBot);
+    const bucketWidth = buckets.length > 0 ? drawWidth / buckets.length : drawWidth;
+    const groupWidth = Math.max(10, Math.min(24, bucketWidth * 0.7));
+    const barWidth = Math.max(4, Math.min(10, groupWidth / 2 - 1));
+    const xAt = (index: number) => padLeft + bucketWidth * index + bucketWidth / 2;
     const yAtMatter = (value: number) => chartHeight - padBot - (value / maxMatters) * (chartHeight - padTop - padBot);
-    const buildSmoothPath = (values: number[]) => {
-      const points = values.map((value, index) => ({ x: xAt(index), y: yAt(value) }));
-      if (points.length === 0) return '';
-      if (points.length === 1) {
-        return `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`;
-      }
-
-      let path = `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`;
-      for (let index = 1; index < points.length; index += 1) {
-        const previousPoint = points[index - 1];
-        const point = points[index];
-        const controlX = ((previousPoint.x + point.x) / 2).toFixed(2);
-        path += ` C ${controlX} ${previousPoint.y.toFixed(2)}, ${controlX} ${point.y.toFixed(2)}, ${point.x.toFixed(2)} ${point.y.toFixed(2)}`;
-      }
-      return path;
-    };
-    const currentLine = buildSmoothPath(buckets.map((bucket) => bucket.currentEnquiries));
-    const previousLine = buildSmoothPath(buckets.map((bucket) => bucket.previousEnquiries));
-    const barWidth = Math.max(6, Math.min(14, buckets.length > 8 ? step * 0.45 : 14));
     const visibleAxisIndexes = new Set<number>(
       buckets.length <= 5
         ? buckets.map((_, index) => index)
@@ -2395,58 +3476,90 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
           ? [0, Math.floor((buckets.length - 1) / 2), buckets.length - 1]
           : [0, Math.floor((buckets.length - 1) / 3), Math.floor(((buckets.length - 1) * 2) / 3), buckets.length - 1],
     );
-    const currentStroke = isDarkMode ? 'rgba(135,243,243,0.78)' : 'rgba(54,144,206,0.82)';
-    const previousStroke = isDarkMode ? 'rgba(160,160,160,0.34)' : 'rgba(107,107,107,0.38)';
-    const matterFill = isDarkMode ? 'rgba(32,178,108,0.3)' : 'rgba(32,178,108,0.24)';
-    const matterStroke = isDarkMode ? 'rgba(32,178,108,0.58)' : 'rgba(32,178,108,0.42)';
+    const currentFill = isDarkMode ? 'rgba(32,178,108,0.24)' : 'rgba(32,178,108,0.16)';
+    const previousFill = isDarkMode ? 'rgba(244,244,246,0.18)' : 'rgba(107,107,107,0.16)';
+    const currentStroke = colours.green;
+    const previousStroke = isDarkMode ? 'rgba(244,244,246,0.38)' : 'rgba(107,107,107,0.42)';
+    const chartGrid = isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(13,47,96,0.06)';
+    const axisText = isDarkMode ? 'rgba(244,244,246,0.42)' : 'rgba(6,23,51,0.42)';
+    const axisCaption = isDarkMode ? 'rgba(160,160,160,0.52)' : 'rgba(107,107,107,0.56)';
+    const matterTicks = [maxMatters, Math.max(0, Math.round(maxMatters / 2)), 0];
+    const xAxisY = chartHeight - padBot;
 
     return (
-      <div>
-        <svg width="100%" height={chartHeight} viewBox={`0 0 ${chartWidth} ${chartHeight}`} preserveAspectRatio="none" role="img" aria-hidden="true" style={{ display: 'block' }}>
+      <div style={{ display: 'grid', gap: 4 }}>
+        <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} role="img" aria-hidden="true" style={{ display: 'block', width: '100%', height: 'auto' }}>
+          {matterTicks.map((tick, index) => {
+            const y = index === 0 ? padTop : index === 1 ? (padTop + xAxisY) / 2 : xAxisY;
+            const showTickLabel = index !== 1;
+            return (
+              <g key={`${item.key}-matter-tick-${tick}-${index}`}>
+                <line
+                  x1={padLeft}
+                  y1={y}
+                  x2={chartWidth - padRight}
+                  y2={y}
+                  stroke={chartGrid}
+                  strokeWidth="1"
+                  strokeDasharray={index === 2 ? undefined : '3 3'}
+                />
+                {showTickLabel ? (
+                  <text
+                    x={padLeft - 4}
+                    y={y + 3}
+                    textAnchor="end"
+                    fontSize="7"
+                    fontWeight="600"
+                    fill={axisText}
+                  >
+                    {fmt.int(tick)}
+                  </text>
+                ) : null}
+              </g>
+            );
+          })}
           <line
-            x1="0"
-            y1={chartHeight - 0.5}
-            x2={chartWidth}
-            y2={chartHeight - 0.5}
-            stroke={isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(13,47,96,0.06)'}
+            x1={padLeft}
+            y1={xAxisY}
+            x2={chartWidth - padRight}
+            y2={xAxisY}
+            stroke={chartGrid}
             strokeWidth="1"
-          />
-          <line
-            x1="0"
-            y1={chartHeight / 2}
-            x2={chartWidth}
-            y2={chartHeight / 2}
-            stroke={isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(13,47,96,0.04)'}
-            strokeWidth="1"
-            strokeDasharray="2 3"
           />
           {buckets.map((bucket, index) => {
             const centreX = xAt(index);
-            const barY = yAtMatter(bucket.currentMatters);
-            const barH = Math.max(1, chartHeight - padBot - barY);
+            const previousY = yAtMatter(bucket.previousMatters);
+            const currentY = yAtMatter(bucket.currentMatters);
+            const previousH = Math.max(0, xAxisY - previousY);
+            const currentH = Math.max(0, xAxisY - currentY);
             return (
-              <g key={`${item.key}-${bucket.label}`} opacity={bucket.isFuture ? 0.28 : 1}>
+              <g key={`${item.key}-${bucket.label}`} opacity={bucket.isFuture ? 0.45 : 1}>
                 <rect
-                  x={centreX - barWidth / 2}
-                  y={barY}
+                  x={centreX - barWidth - 1}
+                  y={previousY}
                   width={barWidth}
-                  height={barH}
-                  fill={matterFill}
-                  stroke={matterStroke}
-                  strokeWidth="0.8"
-                  rx="1"
+                  height={previousH}
+                  fill={previousFill}
+                  stroke={previousStroke}
+                  strokeWidth="1"
+                />
+                <rect
+                  x={centreX + 1}
+                  y={currentY}
+                  width={barWidth}
+                  height={currentH}
+                  fill={currentFill}
+                  stroke={currentStroke}
+                  strokeWidth="1"
                 />
               </g>
             );
           })}
-          <path d={previousLine} fill="none" stroke={previousStroke} strokeWidth="1.15" strokeLinecap="round" strokeLinejoin="round" />
-          <path d={currentLine} fill="none" stroke={currentStroke} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
-          {/* Hover columns — invisible rects with tooltip */}
           {buckets.map((bucket, index) => {
             const centreX = xAt(index);
-            const colW = buckets.length > 1 ? step : chartWidth;
+            const colW = bucketWidth;
             const colX = buckets.length > 1 ? Math.max(0, centreX - colW / 2) : 0;
-            const tip = `${bucket.label}\nEnquiries: ${bucket.currentEnquiries} (prior ${bucket.previousEnquiries})\nMatters: ${bucket.currentMatters}`;
+            const tip = `${bucket.label}\nMatters: ${bucket.currentMatters} (prior ${bucket.previousMatters})`;
             return (
               <rect
                 key={`${item.key}-${bucket.label}-hit`}
@@ -2455,36 +3568,37 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
                 width={colW}
                 height={chartHeight}
                 fill="transparent"
-                style={{ cursor: 'crosshair' }}
+                  style={{ cursor: 'crosshair' }}
               >
                 <title>{tip}</title>
               </rect>
             );
           })}
         </svg>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 0 0' }}>
-          {buckets.filter((_, index) => visibleAxisIndexes.has(index)).map((bucket) => (
-            <span
-              key={`${item.key}-${bucket.label}-ax`}
-              style={{ fontSize: 7, color: muted, opacity: 0.65, letterSpacing: '0.1px' }}
-            >
-              {bucket.axisLabel || ''}
-            </span>
-          ))}
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '2px 0 0' }}>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-            <span style={{ width: 8, height: 2, background: currentStroke, display: 'inline-block' }} />
-            <span style={{ fontSize: 7, color: muted, opacity: 0.7 }}>Enquiries</span>
-          </span>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-            <span style={{ width: 8, height: 2, background: previousStroke, display: 'inline-block' }} />
-            <span style={{ fontSize: 7, color: muted, opacity: 0.7 }}>Prior</span>
-          </span>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-            <span style={{ width: 6, height: 6, background: matterFill, border: `1px solid ${matterStroke}`, display: 'inline-block', borderRadius: 1 }} />
-            <span style={{ fontSize: 7, color: muted, opacity: 0.7 }}>Matters</span>
-          </span>
+        <div style={{ position: 'relative', height: 10, width: '100%' }}>
+          {buckets.map((bucket, index) => {
+            const isVisible = visibleAxisIndexes.has(index) && !!bucket.axisLabel;
+            if (!isVisible) return null;
+            const leftPercent = (xAt(index) / chartWidth) * 100;
+            return (
+              <span
+                key={`${item.key}-${bucket.label}-ax`}
+                style={{
+                  position: 'absolute',
+                  left: `${leftPercent}%`,
+                  transform: 'translateX(-50%)',
+                  fontSize: 7,
+                  color: axisCaption,
+                  letterSpacing: '0.08em',
+                  textAlign: 'center',
+                  fontWeight: 600,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {bucket.axisLabel || ''}
+              </span>
+            );
+          })}
         </div>
       </div>
     );
@@ -2722,7 +3836,7 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
       {(billingMetrics.length > 0 || isLoading) && (
         <div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '2px 0 3px' }}>
-            <span style={{ fontSize: 11, fontWeight: 600, color: muted, letterSpacing: '0.2px' }}>Billing</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><TbCurrencyPound size={11} style={{ color: accent, flexShrink: 0 }} /><span style={{ fontSize: 11, fontWeight: 600, color: muted, letterSpacing: '0.2px' }}>Billing</span></span>
             {onRefresh && (
               <FiRefreshCw
                 size={11}
@@ -2769,7 +3883,7 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
             ) : (
               <div style={{ display: 'grid', gridTemplateColumns: `repeat(${billingMetrics.length}, 1fr)` }}>
                 {billingMetrics.map((m, i) => {
-                const isRecovered = m.title.toLowerCase().includes('recovered') || m.title.toLowerCase().includes('fees');
+                const isRecovered = m.title.toLowerCase().includes('recovered') || m.title.toLowerCase().includes('fees') || m.title.toLowerCase().includes('collected');
                 const primary = m.isMoneyOnly
                   ? fmt.currency(m.money || 0)
                   : m.isTimeMoney
@@ -2854,353 +3968,225 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
           <div style={{ display: 'grid', gridTemplateColumns: isNarrow ? '1fr' : '1fr 2fr', gap: 6 }}>
           {/* ── Left: Conversion ── */}
           <div>
-          <div style={{ fontSize: 11, fontWeight: 600, color: muted, padding: '2px 0 3px', letterSpacing: '0.2px', animation: 'opsDashFadeIn 0.25s ease both' }}>Conversion</div>
-          <div ref={conversionRailRef} style={{ minHeight: primaryRailMinHeight }}>
-          {(!enquiryMetrics || enquiryMetrics.length === 0) ? (
-              renderConversionSkeleton()
-          ) : (
-            <div
-              style={{ background: cardBg, border: `1px solid ${cardBorder}`, boxShadow: cardShadow, display: 'flex', flexDirection: 'column', minHeight: primaryRailMinHeight, animation: 'opsDashFadeIn 0.35s ease 0.05s both', transition: 'border-color 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease' }}
-              onMouseEnter={cardHover.enter}
-              onMouseLeave={cardHover.leave}
-            >
-              {/* Tabs */}
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: '1fr 1fr',
-                borderBottom: `1px solid ${cardBorder}`,
-              }}>
-                {(['enquiries', 'unclaimed'] as const).map((tab, tabIdx) => (
-                  <div
-                    key={tab}
-                    onClick={() => setEnquiryTab(tab)}
-                    style={{
-                      padding: '10px 14px 8px',
-                      fontSize: 10,
-                      fontWeight: 600,
-                      letterSpacing: '0.3px',
-                      color: enquiryTab === tab ? accent : muted,
-                      borderBottom: enquiryTab === tab ? `2px solid ${accent}` : '2px solid transparent',
-                      cursor: 'pointer',
-                      userSelect: 'none',
-                      textAlign: 'center',
-                      background: enquiryTab === tab ? tabActiveBg : 'transparent',
-                      transition: 'color 0.2s ease, background 0.2s ease, border-color 0.2s ease',
-                      animation: `opsDashRowFade 0.2s ease ${0.06 + tabIdx * 0.04}s both`,
-                    }}
-                  >
-                    {tab === 'enquiries' ? 'Enquiries' : 'Unclaimed'}
-                    {tab === 'unclaimed' && claimSignal.unclaimed > 0 && (
-                      <span style={{ marginLeft: 4, color: colours.orange, fontWeight: 700 }}>{claimSignal.unclaimed}</span>
-                    )}
+            <div style={{ fontSize: 11, fontWeight: 600, color: muted, padding: '2px 0 3px', letterSpacing: '0.2px', animation: 'opsDashFadeIn 0.25s ease both', display: 'flex', alignItems: 'center', gap: 4 }}><FiTrendingUp size={10} style={{ color: accent, flexShrink: 0 }} />Conversion</div>
+            <div ref={conversionRailRef} style={{ minHeight: primaryRailMinHeight }}>
+              {(!enquiryMetrics || enquiryMetrics.length === 0 || showExperimentalConversionSkeleton) ? (
+                renderConversionSkeleton()
+              ) : (
+                <div
+                  style={{ background: cardBg, border: `1px solid ${cardBorder}`, boxShadow: cardShadow, display: 'flex', flexDirection: 'column', minHeight: primaryRailMinHeight, animation: 'opsDashFadeIn 0.35s ease 0.05s both', transition: 'border-color 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease' }}
+                  onMouseEnter={cardHover.enter}
+                  onMouseLeave={cardHover.leave}
+                >
+                  <div style={{ padding: '12px 14px 11px', borderBottom: `1px solid ${cardBorder}`, background: tabActiveBg, display: 'grid', gap: 4 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: text, letterSpacing: '-0.01em' }}>Enquiry conversion flow</span>
+                    </div>
                   </div>
-                ))}
-              </div>
 
-              {/* Tab content */}
-              <div style={{ flex: 1 }}>
-                {enquiryTab === 'enquiries' ? (
-                  <>
+                  <div style={{ flex: 1 }}>
                     {useExperimentalConversion ? (
-                      <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        {visibleConversionRows.map((item, index) => {
-                          const hasChart = item.chartMode !== 'none' && item.buckets.length > 0;
-                          const insightTarget = item.key === 'today'
-                            ? 'today'
-                            : item.key === 'week-vs-last' || item.key === 'week-pace'
-                              ? 'weekToDate'
-                              : item.key === 'month-vs-last'
-                                ? 'monthToDate'
-                                : null;
-                          const hasCurrentBasis = item.currentEnquiries > 0;
-                          const hasPreviousBasis = item.previousEnquiries > 0;
-                          const deltaPoints = item.currentPct - item.previousPct;
-                          const deltaColour = hasCurrentBasis && hasPreviousBasis
-                            ? (deltaPoints >= 0 ? colours.green : colours.cta)
-                            : muted;
-                          const currentPctLabel = hasCurrentBasis ? fmt.pct(item.currentPct) : '—';
-                          const deltaLabel = hasCurrentBasis && hasPreviousBasis
-                            ? `${deltaPoints >= 0 ? '+' : ''}${deltaPoints.toFixed(1)} pts`
-                            : hasCurrentBasis
-                              ? 'No prior basis'
-                              : 'No enquiries yet';
-                          const showWeekToggle = item.key === 'week-pace' || item.key === 'week-vs-last';
-                          if (item.key === 'today') {
-                            const todayTile = {
-                              title: item.currentLabel,
-                              enquiries: item.currentEnquiries,
-                              matters: item.currentMatters,
-                              pct: hasCurrentBasis ? currentPctLabel : '—',
-                              detail: hasCurrentBasis ? `${item.currentMatters} matters opened` : 'No enquiries yet',
-                            };
-                            const yesterdayHasBasis = item.previousEnquiries > 0;
-                            const yesterdayTile = {
-                              title: item.previousLabel,
-                              enquiries: item.previousEnquiries,
-                              matters: item.previousMatters,
-                              pct: yesterdayHasBasis ? fmt.pct(item.previousPct) : '—',
-                              detail: yesterdayHasBasis ? `${item.previousMatters} matters opened` : 'No enquiries yet',
-                            };
-                            return (
-                              <div
-                                key={item.key}
-                                style={{
-                                  display: 'grid',
-                                  gridTemplateColumns: '1fr 1fr',
-                                  gap: 0,
-                                  borderBottom: index < conversionRows.length - 1 || topAow.length > 0 ? `1px solid ${rowBorder}` : 'none',
-                                }}
-                              >
-                                {[todayTile, yesterdayTile].map((tile, tileIndex) => (
-                                  <div
-                                    key={tile.title}
+                      (() => {
+                        const item = selectedConversionItem;
+                        if (!item) return null;
+
+                        const hasCurrentBasis = item.currentEnquiries > 0;
+                        const hasPreviousBasis = item.previousEnquiries > 0;
+                        const currentPctLabel = hasCurrentBasis ? fmt.pct(item.currentPct) : '—';
+                        const previousPctLabel = hasPreviousBasis ? fmt.pct(item.previousPct) : '—';
+                        const deltaPoints = item.currentPct - item.previousPct;
+                        const deltaPointsLabel = hasCurrentBasis && hasPreviousBasis ? `${deltaPoints >= 0 ? '+' : ''}${deltaPoints.toFixed(1)} pts` : null;
+                        const enquiryDelta = hasCurrentBasis && hasPreviousBasis ? item.currentEnquiries - item.previousEnquiries : null;
+                        const matterDelta = hasCurrentBasis && hasPreviousBasis ? item.currentMatters - item.previousMatters : null;
+                        const hasChart = item.chartMode !== 'none' && item.buckets.length > 0;
+                        const reserveChartWhitespace = item.key === 'today';
+                        const chartWhitespaceHeight = isNarrow ? 92 : 124;
+                        const comparisonCopy = hasCurrentBasis
+                          ? `${fmt.int(item.currentMatters)} matters from ${fmt.int(item.currentEnquiries)} enquiries`
+                          : 'No enquiries yet';
+                        const tabLabel = item.key === 'week-vs-last'
+                          ? 'Week'
+                          : item.key === 'month-vs-last'
+                            ? 'Month'
+                            : item.key === 'quarter-vs-last'
+                              ? 'Quarter'
+                              : 'Today';
+
+                        return (
+                          <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '10px 12px', borderBottom: `1px solid ${rowBorder}` }}>
+                              {visibleConversionRows.map((row) => {
+                                const isSelected = row.key === item.key;
+                                const label = row.key === 'week-vs-last'
+                                  ? 'Week'
+                                  : row.key === 'month-vs-last'
+                                    ? 'Month'
+                                    : row.key === 'quarter-vs-last'
+                                      ? 'Quarter'
+                                      : 'Today';
+                                return (
+                                  <button
+                                    key={row.key}
+                                    type="button"
+                                    onClick={() => setSelectedConversionKey(row.key)}
                                     style={{
-                                      padding: '12px 12px 11px',
-                                      borderRight: tileIndex === 0 ? `1px solid ${rowBorder}` : 'none',
-                                      cursor: insightTarget ? 'pointer' : 'default',
-                                      transition: 'background 0.16s ease, transform 0.16s ease',
-                                      animation: `opsDashRowFade 0.25s ease ${0.1 + tileIndex * 0.06}s both`,
+                                      border: `1px solid ${isSelected ? (isDarkMode ? 'rgba(135,243,243,0.36)' : 'rgba(54,144,206,0.26)') : rowBorder}`,
+                                      background: isSelected ? (isDarkMode ? 'rgba(135,243,243,0.08)' : 'rgba(54,144,206,0.08)') : 'transparent',
+                                      color: isSelected ? text : muted,
+                                      padding: '5px 8px',
+                                      fontSize: 9,
+                                      fontWeight: 700,
+                                      letterSpacing: '0.08em',
+                                      textTransform: 'uppercase',
+                                      cursor: 'pointer',
                                     }}
-                                    onMouseEnter={insightTarget ? tileHover.enter : undefined}
-                                    onMouseLeave={insightTarget ? tileHover.leave : undefined}
-                                    onClick={insightTarget ? () => openInsight(insightTarget) : undefined}
                                   >
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
-                                      <div style={{ minWidth: 0 }}>
-                                        <div style={{ fontSize: 10, fontWeight: 600, color: text, letterSpacing: '0.12px' }}>{tile.title}</div>
-                                        <div style={{ fontSize: 20, fontWeight: 700, color: text, letterSpacing: '-0.03em', lineHeight: 1.05, marginTop: 5 }}>{fmt.int(tile.enquiries)}</div>
-                                      </div>
-                                      <div data-muted style={{ fontSize: 12, fontWeight: 700, color: text, opacity: 0.68, letterSpacing: '-0.02em', lineHeight: 1.05, transition: 'color 0.2s ease, opacity 0.2s ease' }}>
-                                        {tile.pct}
-                                      </div>
-                                    </div>
-                                    <div data-muted style={{ fontSize: 8, color: muted, marginTop: 4, opacity: 0.68, lineHeight: 1.25, transition: 'color 0.2s ease, opacity 0.2s ease' }}>
-                                      {tile.detail}
-                                    </div>
-                                    <div
-                                      data-hover-detail
-                                      style={{
-                                        ...hoverDetailStyle,
-                                        fontSize: 8,
-                                        color: muted,
-                                        marginTop: 4,
-                                        lineHeight: 1.2,
-                                      }}
-                                    >
-                                      Conversion {tile.pct}
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            );
-                          }
-                          // Compact diff cues
-                          const enquiryDelta = hasCurrentBasis && hasPreviousBasis
-                            ? item.currentEnquiries - item.previousEnquiries
-                            : null;
-                          const matterDelta = hasCurrentBasis && hasPreviousBasis
-                            ? item.currentMatters - item.previousMatters
-                            : null;
-                          return (
+                                    {label}
+                                  </button>
+                                );
+                              })}
+                            </div>
+
                             <div
-                              key={item.key}
-                              style={{
-                                display: 'flex',
-                                flexDirection: 'column',
-                                gap: hasChart ? 4 : 3,
-                                padding: '8px 12px 7px',
-                                borderBottom: index < conversionRows.length - 1 || topAow.length > 0 ? `1px solid ${rowBorder}` : 'none',
-                                background: 'transparent',
-                                cursor: insightTarget ? 'pointer' : 'default',
-                                transition: 'background 0.16s ease',
-                                animation: `opsDashRowFade 0.25s ease ${0.12 + index * 0.06}s both`,
-                              }}
-                              onMouseEnter={insightTarget ? tileHover.enter : undefined}
-                              onMouseLeave={insightTarget ? tileHover.leave : undefined}
-                              onClick={insightTarget ? () => openInsight(insightTarget) : undefined}
+                              style={{ padding: '14px 14px 12px', display: 'grid', gap: 12, flex: 1, alignContent: 'start', cursor: selectedConversionInsightTarget ? 'pointer' : 'default' }}
+                              onMouseEnter={selectedConversionInsightTarget ? tileHover.enter : undefined}
+                              onMouseLeave={selectedConversionInsightTarget ? tileHover.leave : undefined}
+                              onClick={selectedConversionInsightTarget ? () => openInsight(selectedConversionInsightTarget) : undefined}
                             >
-                              {/* Title row with inline toggle */}
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                <div style={{ fontSize: 10, fontWeight: 600, color: text, letterSpacing: '0.12px' }}>{item.title}</div>
-                                {showWeekToggle ? (
-                                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 0 }}>
-                                    <button
-                                      type="button"
-                                      onClick={(event) => { event.stopPropagation(); setWeekComparisonMode('relative'); }}
-                                      style={{
-                                        border: 'none',
-                                        background: 'transparent',
-                                        color: weekComparisonMode === 'relative' ? accent : muted,
-                                        padding: '0 3px',
-                                        fontSize: 8,
-                                        fontWeight: weekComparisonMode === 'relative' ? 700 : 500,
-                                        cursor: 'pointer',
-                                        opacity: weekComparisonMode === 'relative' ? 1 : 0.6,
-                                        textDecoration: weekComparisonMode === 'relative' ? 'none' : 'underline',
-                                        textUnderlineOffset: '2px',
-                                        textDecorationColor: isDarkMode ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.18)',
-                                      }}
-                                    >
-                                      so far
-                                    </button>
-                                    <span style={{ color: muted, fontSize: 7, opacity: 0.35 }}>·</span>
-                                    <button
-                                      type="button"
-                                      onClick={(event) => { event.stopPropagation(); setWeekComparisonMode('full'); }}
-                                      style={{
-                                        border: 'none',
-                                        background: 'transparent',
-                                        color: weekComparisonMode === 'full' ? accent : muted,
-                                        padding: '0 3px',
-                                        fontSize: 8,
-                                        fontWeight: weekComparisonMode === 'full' ? 700 : 500,
-                                        cursor: 'pointer',
-                                        opacity: weekComparisonMode === 'full' ? 1 : 0.6,
-                                        textDecoration: weekComparisonMode === 'full' ? 'none' : 'underline',
-                                        textUnderlineOffset: '2px',
-                                        textDecorationColor: isDarkMode ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.18)',
-                                      }}
-                                    >
-                                      full
-                                    </button>
+                              {/* ── Hero KPI ── */}
+                              <div style={{ display: 'grid', gap: 4 }}>
+                                <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+                                  <span style={{ fontSize: 36, fontWeight: 700, color: text, letterSpacing: '-0.04em', lineHeight: 1 }}>{currentPctLabel}</span>
+                                  {deltaPointsLabel ? (
+                                    <span style={{ fontSize: 10, fontWeight: 700, color: deltaPoints >= 0 ? colours.green : colours.cta, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                                      {deltaPointsLabel}
+                                    </span>
+                                  ) : null}
+                                </div>
+                                <div style={{ fontSize: 11, color: isDarkMode ? '#d1d5db' : '#374151', lineHeight: 1.35, marginTop: 2 }}>{comparisonCopy}</div>
+                                <div style={{ fontSize: 9, color: muted, lineHeight: 1.35 }}>
+                                  {tabLabel} · {item.comparisonLabel.replace(/^vs\s+/i, '')} · {item.previousLabel} {hasPreviousBasis ? previousPctLabel : '—'}
+                                </div>
+                              </div>
+
+                              {/* ── Compact comparison strip ── */}
+                              <div style={{ display: 'grid', gap: 0, border: `1px solid ${rowBorder}`, background: isDarkMode ? 'rgba(255,255,255,0.015)' : 'rgba(13,47,96,0.015)' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 10px', gap: 8 }}>
+                                  <span style={{ fontSize: 9, fontWeight: 700, color: muted, letterSpacing: '0.1em', textTransform: 'uppercase', minWidth: 64 }}>{item.currentLabel}</span>
+                                  <span style={{ fontSize: 10, color: isDarkMode ? '#d1d5db' : '#374151' }}>{fmt.int(item.currentEnquiries)} enq</span>
+                                  <span style={{ fontSize: 10, color: isDarkMode ? '#d1d5db' : '#374151' }}>&middot;</span>
+                                  <span style={{ fontSize: 10, color: isDarkMode ? '#d1d5db' : '#374151' }}>{fmt.int(item.currentMatters)} mat</span>
+                                  {enquiryDelta != null && enquiryDelta !== 0 ? <span style={{ fontSize: 9, fontWeight: 700, color: enquiryDelta > 0 ? colours.green : colours.cta, marginLeft: 'auto' }}>{enquiryDelta > 0 ? '+' : ''}{enquiryDelta} enq</span> : <span style={{ marginLeft: 'auto' }} />}
+                                </div>
+                                <div style={{ height: 1, background: rowBorder }} />
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 10px', gap: 8, opacity: 0.7 }}>
+                                  <span style={{ fontSize: 9, fontWeight: 700, color: muted, letterSpacing: '0.1em', textTransform: 'uppercase', minWidth: 64 }}>{item.previousLabel}</span>
+                                  <span style={{ fontSize: 10, color: isDarkMode ? '#d1d5db' : '#374151' }}>{fmt.int(item.previousEnquiries)} enq</span>
+                                  <span style={{ fontSize: 10, color: isDarkMode ? '#d1d5db' : '#374151' }}>&middot;</span>
+                                  <span style={{ fontSize: 10, color: isDarkMode ? '#d1d5db' : '#374151' }}>{fmt.int(item.previousMatters)} mat</span>
+                                  {matterDelta != null && matterDelta !== 0 ? <span style={{ fontSize: 9, fontWeight: 700, color: matterDelta > 0 ? colours.green : colours.cta, marginLeft: 'auto' }}>{matterDelta > 0 ? '+' : ''}{matterDelta} mat</span> : <span style={{ marginLeft: 'auto' }} />}
+                                </div>
+                              </div>
+
+                              {hasChart ? (
+                                <div style={{ display: 'grid', gap: 6 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                                    <span style={{ fontSize: 8, fontWeight: 700, color: muted, letterSpacing: '0.14em', textTransform: 'uppercase' }}>Matters opened trend</span>
+                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                                      <span style={{ width: 8, height: 8, background: isDarkMode ? 'rgba(244,244,246,0.18)' : 'rgba(107,107,107,0.16)', border: `1px solid ${isDarkMode ? 'rgba(244,244,246,0.38)' : 'rgba(107,107,107,0.42)'}`, display: 'inline-block' }} />
+                                      <span style={{ fontSize: 8, color: muted }}>{item.previousLabel}</span>
+                                    </span>
+                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                                      <span style={{ width: 8, height: 8, background: isDarkMode ? 'rgba(32,178,108,0.24)' : 'rgba(32,178,108,0.16)', border: `1px solid ${colours.green}`, display: 'inline-block' }} />
+                                      <span style={{ fontSize: 8, color: muted }}>{item.currentLabel}</span>
+                                    </span>
                                   </div>
-                                ) : null}
-                                <div style={{ marginLeft: 'auto', fontSize: 13, fontWeight: 700, color: text, letterSpacing: '-0.02em', lineHeight: 1.05 }}>{currentPctLabel}</div>
-                              </div>
-                              {/* Count row with inline diff badges */}
-                              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-                                <div style={{ fontSize: 19, fontWeight: 700, color: text, letterSpacing: '-0.025em', lineHeight: 1.05 }}>
-                                  {fmt.int(item.currentEnquiries)}
+                                  <div style={{ width: '100%' }}>{renderConversionChart(item)}</div>
                                 </div>
-                                {enquiryDelta != null && enquiryDelta !== 0 ? (
-                                  <span style={{ fontSize: 9, fontWeight: 600, color: enquiryDelta > 0 ? colours.green : colours.cta, letterSpacing: '-0.01em' }}>
-                                    {enquiryDelta > 0 ? '▲' : '▼'}{Math.abs(enquiryDelta)}
-                                  </span>
-                                ) : null}
-                                <span style={{ fontSize: 9, color: muted, opacity: 0.7 }}>→</span>
-                                <span style={{ fontSize: 11, fontWeight: 600, color: text, opacity: 0.85 }}>
-                                  {fmt.int(item.currentMatters)} matter{item.currentMatters === 1 ? '' : 's'}
-                                </span>
-                                {matterDelta != null && matterDelta !== 0 ? (
-                                  <span style={{ fontSize: 9, fontWeight: 600, color: matterDelta > 0 ? colours.green : colours.cta, letterSpacing: '-0.01em' }}>
-                                    {matterDelta > 0 ? '▲' : '▼'}{Math.abs(matterDelta)}
-                                  </span>
-                                ) : null}
-                              </div>
-                              {!hasCurrentBasis ? (
-                                <div style={{ fontSize: 9, color: muted, opacity: 0.6 }}>No enquiries yet</div>
+                              ) : reserveChartWhitespace ? (
+                                <div style={{ minHeight: chartWhitespaceHeight }} />
                               ) : null}
-                              {hasChart ? <div style={{ width: '100%', animation: `opsDashFadeIn 0.3s ease ${0.2 + index * 0.06}s both` }}>{renderConversionChart(item)}</div> : null}
                             </div>
-                          );
-                        })}
-                        {topAow.length > 0 && (
-                          <div style={{ padding: '10px 14px 12px', animation: `opsDashFadeIn 0.3s ease 0.35s both` }}>
-                            <div data-muted style={{ fontSize: 8, color: muted, marginBottom: 7, letterSpacing: '0.18px', textTransform: 'uppercase', opacity: 0.62, transition: 'color 0.2s ease, opacity 0.2s ease' }}>Area of Work</div>
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                              {topAow.slice(0, 3).map((item, aowIdx) => (
-                                <div key={item.key} data-muted style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 8px', border: `1px solid ${rowBorder}`, background: isDarkMode ? 'rgba(255,255,255,0.015)' : 'rgba(13,47,96,0.02)', opacity: 0.7, transition: 'color 0.2s ease, opacity 0.2s ease, background 0.2s ease', animation: `opsDashRowFade 0.2s ease ${0.38 + aowIdx * 0.04}s both` }}>
-                                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: aowColor(item.key), display: 'inline-block' }} />
-                                  <span style={{ fontSize: 10, color: text }}>{item.key}</span>
-                                  <span style={{ fontSize: 10, color: muted }}>{item.count}</span>
+
+                            {selectedConversionAowMix.length > 0 && (() => {
+                              const totalMixCount = selectedConversionAowMix.reduce((sum, item) => sum + Number(item.count || 0), 0);
+                              return (
+                                <div style={{ padding: '10px 14px 12px', borderTop: `1px solid ${rowBorder}`, background: isDarkMode ? 'rgba(255,255,255,0.01)' : 'rgba(13,47,96,0.015)', display: 'grid', gap: 7 }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                    <div style={{ fontSize: 8, fontWeight: 700, color: muted, letterSpacing: '0.14em', textTransform: 'uppercase', opacity: 0.72 }}>Top enquiry mix</div>
+                                    <div style={{ fontSize: 8, color: muted }}>{fmt.int(totalMixCount)} enquiries</div>
+                                  </div>
+                                  <div style={{ display: 'flex', width: '100%', minHeight: 10, overflow: 'hidden', border: `1px solid ${rowBorder}`, background: isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(13,47,96,0.03)' }}>
+                                    {selectedConversionAowMix.map((aow) => {
+                                      const pct = totalMixCount > 0 ? (aow.count / totalMixCount) * 100 : 0;
+                                      return (
+                                        <div
+                                          key={aow.key}
+                                          title={`${aow.key}: ${fmt.int(aow.count)} (${fmt.pct(pct)})`}
+                                          style={{ width: `${pct}%`, minWidth: pct > 0 ? 6 : 0, background: aowColor(aow.key), opacity: 0.95 }}
+                                        />
+                                      );
+                                    })}
+                                  </div>
+                                  <div style={{ display: 'grid', gridTemplateColumns: isNarrow ? '1fr' : 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
+                                    {selectedConversionAowMix.slice(0, 3).map((aow) => {
+                                      const pct = totalMixCount > 0 ? (aow.count / totalMixCount) * 100 : 0;
+                                      return (
+                                        <div key={aow.key} style={{ display: 'grid', gap: 3 }}>
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: aowColor(aow.key), display: 'inline-block', flexShrink: 0 }} />
+                                            <span style={{ fontSize: 9, color: text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{aow.key}</span>
+                                          </div>
+                                          <div style={{ fontSize: 8, color: muted }}>{fmt.int(aow.count)} · {fmt.pct(pct)}</div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
                                 </div>
-                              ))}
-                            </div>
+                              );
+                            })()}
                           </div>
-                        )}
-                      </div>
+                        );
+                      })()
                     ) : (
                       <>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', borderBottom: `1px solid ${cardBorder}` }}>
-                          <div
-                            style={{ padding: '14px 14px 10px', borderRight: `1px solid ${rowBorder}`, transition: 'background 0.2s ease, transform 0.2s ease', cursor: 'pointer', animation: 'opsDashRowFade 0.25s ease 0.1s both' }}
-                            onMouseEnter={tileHover.enter}
-                            onMouseLeave={tileHover.leave}
-                            onClick={() => openInsight('today')}
-                          >
+                          <div style={{ padding: '14px 14px 10px', borderRight: `1px solid ${rowBorder}`, transition: 'background 0.2s ease, transform 0.2s ease', cursor: 'pointer', animation: 'opsDashRowFade 0.25s ease 0.1s both' }} onMouseEnter={tileHover.enter} onMouseLeave={tileHover.leave} onClick={() => openInsight('today')}>
                             {bigNumber(fmt.int(todayEnquiry?.count || 0), { loading: !!isLoadingEnquiryMetrics, size: 20 })}
                             <div data-muted style={{ fontSize: 10, color: muted, marginTop: 3, transition: 'color 0.2s ease, opacity 0.2s ease' }}>Today</div>
-                            {showPrev && todayEnquiry?.prevCount != null && (
-                              <div data-muted style={{ fontSize: 9, color: muted, opacity: 0.5, marginTop: 2, transition: 'color 0.2s ease, opacity 0.2s ease' }}>yesterday {fmt.int(todayEnquiry.prevCount)}{delta(todayEnquiry.count || 0, todayEnquiry.prevCount, fmt.int)}</div>
-                            )}
+                            {showPrev && todayEnquiry?.prevCount != null && <div data-muted style={{ fontSize: 9, color: muted, opacity: 0.5, marginTop: 2, transition: 'color 0.2s ease, opacity 0.2s ease' }}>yesterday {fmt.int(todayEnquiry.prevCount)}{delta(todayEnquiry.count || 0, todayEnquiry.prevCount, fmt.int)}</div>}
                           </div>
-                          <div
-                            style={{ padding: '14px 14px 10px', transition: 'background 0.2s ease, transform 0.2s ease', cursor: 'pointer', animation: 'opsDashRowFade 0.25s ease 0.16s both' }}
-                            onMouseEnter={tileHover.enter}
-                            onMouseLeave={tileHover.leave}
-                            onClick={() => openInsight('weekToDate')}
-                          >
+                          <div style={{ padding: '14px 14px 10px', transition: 'background 0.2s ease, transform 0.2s ease', cursor: 'pointer', animation: 'opsDashRowFade 0.25s ease 0.16s both' }} onMouseEnter={tileHover.enter} onMouseLeave={tileHover.leave} onClick={() => openInsight('weekToDate')}>
                             {bigNumber(fmt.int(periodEnquiry?.count || 0), { loading: !!isLoadingEnquiryMetrics, size: 20 })}
                             <div data-muted style={{ fontSize: 10, color: muted, marginTop: 3, transition: 'color 0.2s ease, opacity 0.2s ease' }}>This Week</div>
-                            {showPrev && periodEnquiry?.prevCount != null && (
-                              <div data-muted style={{ fontSize: 9, color: muted, opacity: 0.5, marginTop: 2, transition: 'color 0.2s ease, opacity 0.2s ease' }}>last week {fmt.int(periodEnquiry.prevCount)}{delta(periodEnquiry.count || 0, periodEnquiry.elapsedPrevCount ?? periodEnquiry.prevCount, fmt.int)}</div>
-                            )}
+                            {showPrev && periodEnquiry?.prevCount != null && <div data-muted style={{ fontSize: 9, color: muted, opacity: 0.5, marginTop: 2, transition: 'color 0.2s ease, opacity 0.2s ease' }}>last week {fmt.int(periodEnquiry.prevCount)}{delta(periodEnquiry.count || 0, periodEnquiry.elapsedPrevCount ?? periodEnquiry.prevCount, fmt.int)}</div>}
                           </div>
                         </div>
 
-                        {(monthEnquiry || isLoadingEnquiryMetrics) && (
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', borderBottom: `1px solid ${cardBorder}` }}>
-                            <div
-                              style={{ padding: '10px 14px', borderRight: `1px solid ${rowBorder}`, transition: 'background 0.2s ease, transform 0.2s ease', cursor: 'pointer', animation: 'opsDashRowFade 0.25s ease 0.2s both' }}
-                              onMouseEnter={tileHover.enter}
-                              onMouseLeave={tileHover.leave}
-                              onClick={() => openInsight('monthToDate')}
-                            >
-                              {bigNumber(fmt.int(monthEnquiry?.count || 0), { loading: !!isLoadingEnquiryMetrics, size: 16 })}
-                              <div data-muted style={{ fontSize: 10, color: muted, marginTop: 2, transition: 'color 0.2s ease, opacity 0.2s ease' }}>This Month</div>
-                            </div>
-                            {(showPrev || isLoadingEnquiryMetrics) && (
-                              <div
-                                style={{ padding: '10px 14px', transition: 'background 0.2s ease, transform 0.2s ease', cursor: 'default', animation: 'opsDashRowFade 0.25s ease 0.26s both' }}
-                                onMouseEnter={tileHover.enter}
-                                onMouseLeave={tileHover.leave}
-                              >
-                                {bigNumber(fmt.int(monthEnquiry?.prevCount || 0), { loading: !!isLoadingEnquiryMetrics, size: 16 })}
-                                <div data-muted style={{ fontSize: 10, color: muted, opacity: 0.45, marginTop: 2, transition: 'color 0.2s ease, opacity 0.2s ease' }}>Last Month</div>
-                              </div>
-                            )}
+                        {(monthEnquiry || isLoadingEnquiryMetrics) && <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', borderBottom: `1px solid ${cardBorder}` }}>
+                          <div style={{ padding: '10px 14px', borderRight: `1px solid ${rowBorder}`, transition: 'background 0.2s ease, transform 0.2s ease', cursor: 'pointer', animation: 'opsDashRowFade 0.25s ease 0.2s both' }} onMouseEnter={tileHover.enter} onMouseLeave={tileHover.leave} onClick={() => openInsight('monthToDate')}>
+                            {bigNumber(fmt.int(monthEnquiry?.count || 0), { loading: !!isLoadingEnquiryMetrics, size: 16 })}
+                            <div data-muted style={{ fontSize: 10, color: muted, marginTop: 2, transition: 'color 0.2s ease, opacity 0.2s ease' }}>This Month</div>
                           </div>
-                        )}
+                          {(showPrev || isLoadingEnquiryMetrics) && <div style={{ padding: '10px 14px', transition: 'background 0.2s ease, transform 0.2s ease', cursor: 'default', animation: 'opsDashRowFade 0.25s ease 0.26s both' }} onMouseEnter={tileHover.enter} onMouseLeave={tileHover.leave}>
+                            {bigNumber(fmt.int(monthEnquiry?.prevCount || 0), { loading: !!isLoadingEnquiryMetrics, size: 16 })}
+                            <div data-muted style={{ fontSize: 10, color: muted, opacity: 0.45, marginTop: 2, transition: 'color 0.2s ease, opacity 0.2s ease' }}>Last Month</div>
+                          </div>}
+                        </div>}
 
                         {((conversionMetric && conversionMetric.percentage != null && conversionMetric.context) || isLoadingEnquiryMetrics) && (() => {
                           const opened = conversionMetric?.context?.mattersOpenedMonthToDate || 0;
                           const total = conversionMetric?.context?.enquiriesMonthToDate || 0;
                           const pct = conversionMetric?.percentage || 0;
                           return (
-                            <div style={{
-                              padding: '10px 14px',
-                              borderBottom: `1px solid ${cardBorder}`,
-                              background: isDarkMode ? 'rgba(135,243,243,0.02)' : 'rgba(13,47,96,0.02)',
-                              animation: 'opsDashFadeIn 0.3s ease 0.3s both',
-                            }}>
+                            <div style={{ padding: '10px 14px', borderBottom: `1px solid ${cardBorder}`, background: isDarkMode ? 'rgba(135,243,243,0.02)' : 'rgba(13,47,96,0.02)', animation: 'opsDashFadeIn 0.3s ease 0.3s both' }}>
                               <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 6 }}>
-                                {isLoadingEnquiryMetrics ? (
-                                  <div style={{ width: 52, height: 18, background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(54,144,206,0.06)', borderRadius: 2, animation: 'opsDashPulse 1.5s ease-in-out infinite' }} />
-                                ) : (
-                                  <span style={{ fontSize: 18, fontWeight: 700, color: text, letterSpacing: '-0.03em' }}>{fmt.pct(pct)}</span>
-                                )}
+                                {isLoadingEnquiryMetrics ? <div style={{ width: 52, height: 18, background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(54,144,206,0.06)', borderRadius: 2, animation: 'opsDashPulse 1.5s ease-in-out infinite' }} /> : <span style={{ fontSize: 18, fontWeight: 700, color: text, letterSpacing: '-0.03em' }}>{fmt.pct(pct)}</span>}
                                 <span style={{ fontSize: 10, color: muted }}>conversion</span>
-                                <span style={{ fontSize: 10, color: muted, marginLeft: 'auto' }}>
-                                  {isLoadingEnquiryMetrics ? (
-                                    <div style={{ width: 140, height: 10, background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(54,144,206,0.06)', borderRadius: 2, animation: 'opsDashPulse 1.5s ease-in-out infinite 0.1s' }} />
-                                  ) : (
-                                    <>
-                                      <span style={{ fontWeight: 600, color: text }}>{fmt.int(opened)}</span> matters from <span style={{ fontWeight: 600, color: text }}>{fmt.int(total)}</span> enquiries
-                                    </>
-                                  )}
-                                </span>
+                                <span style={{ fontSize: 10, color: muted, marginLeft: 'auto' }}>{isLoadingEnquiryMetrics ? <div style={{ width: 140, height: 10, background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(54,144,206,0.06)', borderRadius: 2, animation: 'opsDashPulse 1.5s ease-in-out infinite 0.1s' }} /> : <><span style={{ fontWeight: 600, color: text }}>{fmt.int(opened)}</span> matters from <span style={{ fontWeight: 600, color: text }}>{fmt.int(total)}</span> enquiries</>}</span>
                               </div>
                               <div style={{ position: 'relative', height: 4, background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(13,47,96,0.06)', overflow: 'hidden' }}>
-                                <div style={{
-                                  position: 'absolute',
-                                  top: 0,
-                                  left: 0,
-                                  height: '100%',
-                                  width: isLoadingEnquiryMetrics ? '38%' : `${Math.min(pct, 100)}%`,
-                                  background: isLoadingEnquiryMetrics ? (isDarkMode ? 'rgba(135,243,243,0.3)' : 'rgba(54,144,206,0.25)') : colours.green,
-                                  animation: isLoadingEnquiryMetrics ? 'opsDashPulse 1.5s ease-in-out infinite' : 'opsDashBarGrow 0.6s ease both',
-                                  transformOrigin: 'left',
-                                }} />
+                                <div style={{ position: 'absolute', top: 0, left: 0, height: '100%', width: isLoadingEnquiryMetrics ? '38%' : `${Math.min(pct, 100)}%`, background: isLoadingEnquiryMetrics ? (isDarkMode ? 'rgba(135,243,243,0.3)' : 'rgba(54,144,206,0.25)') : colours.green, animation: isLoadingEnquiryMetrics ? 'opsDashPulse 1.5s ease-in-out infinite' : 'opsDashBarGrow 0.6s ease both', transformOrigin: 'left' }} />
                               </div>
                             </div>
                           );
@@ -3226,217 +4212,44 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
                         })()}
                       </>
                     )}
-                  </>
-                ) : (
-                  <>
-                    {/* ── Unclaimed: Hero ── */}
-                    <div style={{ padding: '18px 16px 14px', animation: 'opsDashFadeIn 0.3s ease 0.12s both' }}>
-                      {/* Claim feedback toast */}
-                      {unclaimedClaimFeedback ? (
-                        <div style={{ marginBottom: 12, padding: '9px 12px', border: `1px solid ${unclaimedClaimFeedback.tone === 'success' ? colours.green : colours.cta}`, background: unclaimedClaimFeedback.tone === 'success' ? (isDarkMode ? 'rgba(32,178,108,0.08)' : 'rgba(32,178,108,0.06)') : (isDarkMode ? 'rgba(214,85,65,0.08)' : 'rgba(214,85,65,0.06)'), fontSize: 11, color: text, lineHeight: 1.4 }}>
-                          {unclaimedClaimFeedback.message}
-                        </div>
-                      ) : null}
-
-                      {/* Big count + plain English headline */}
-                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-                        {bigNumber(
-                          String(activeUnclaimedRange?.count ?? (unclaimedRange === 'today' ? unclaimedToday : unclaimedRange === 'week' ? unclaimedThisWeek : unclaimedLastWeek)),
-                          { color: (activeUnclaimedRange?.count ?? claimSignal.unclaimed) > 0 ? colours.orange : text, loading: !!isLoadingEnquiryMetrics, size: 28 },
-                        )}
-                        <div style={{ fontSize: 13, color: isDarkMode ? '#d1d5db' : '#374151', fontWeight: 500, lineHeight: 1.3 }}>
-                          {(activeUnclaimedRange?.count ?? claimSignal.unclaimed) === 1
-                            ? 'enquiry waiting'
-                            : 'enquiries waiting'}
-                        </div>
-                      </div>
-                      <div style={{ fontSize: 11, color: isDarkMode ? colours.subtleGrey : colours.greyText, marginTop: 4, lineHeight: 1.4 }}>
-                        {(activeUnclaimedRange?.count ?? claimSignal.unclaimed) > 0
-                          ? `These came in ${activeUnclaimedRange?.label?.toLowerCase() || 'recently'} and no one has picked them up yet.`
-                          : 'All clear — every enquiry has been picked up.'}
-                      </div>
-                    </div>
-
-                    {/* ── Pick up next: priority card ── */}
-                    {priorityUnclaimedItem ? (
-                      <div style={{
-                        margin: '0 14px 12px',
-                        padding: '14px 16px',
-                        border: `1px solid ${isDarkMode ? 'rgba(32,178,108,0.28)' : 'rgba(32,178,108,0.22)'}`,
-                        background: isDarkMode ? 'rgba(32,178,108,0.06)' : 'rgba(32,178,108,0.04)',
-                        animation: 'opsDashFadeIn 0.35s ease 0.2s both',
-                      }}>
-                        <div style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: colours.green, marginBottom: 8 }}>
-                          Pick up next
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                          <span style={{ width: 8, height: 8, borderRadius: '50%', background: aowColor(priorityUnclaimedItem.aow), display: 'inline-block', flexShrink: 0 }} />
-                          <span style={{ fontSize: 14, fontWeight: 700, color: text }}>{priorityUnclaimedItem.name}</span>
-                        </div>
-                        <div style={{ fontSize: 11, color: isDarkMode ? '#d1d5db' : '#374151', marginBottom: canClaimUnclaimed ? 12 : 0, lineHeight: 1.4 }}>
-                          {priorityUnclaimedItem.aow} · {priorityUnclaimedItem.ageDays === 0 ? 'arrived today' : priorityUnclaimedItem.ageDays === 1 ? 'arrived yesterday' : `waiting ${priorityUnclaimedItem.ageDays} days`}
-                          {priorityUnclaimedItem.value > 0 ? ` · ${fmt.currency(priorityUnclaimedItem.value)}` : ''}
-                        </div>
-                        {canClaimUnclaimed ? (
-                          <button
-                            type="button"
-                            onClick={handleClaimPriorityUnclaimed}
-                            disabled={isClaimingUnclaimed || !userEmail}
-                            style={{
-                              border: 'none',
-                              background: colours.green,
-                              color: '#fff',
-                              padding: '9px 18px',
-                              fontSize: 12,
-                              fontWeight: 700,
-                              width: '100%',
-                              cursor: isClaimingUnclaimed ? 'default' : 'pointer',
-                              opacity: isClaimingUnclaimed ? 0.7 : 1,
-                              letterSpacing: '0.2px',
-                              transition: 'opacity 0.2s ease',
-                            }}
-                          >
-                            {isClaimingUnclaimed ? 'Claiming…' : 'Claim this enquiry'}
-                          </button>
-                        ) : null}
-                      </div>
-                    ) : (
-                      <div style={{ margin: '0 14px 12px', padding: '14px 16px', border: `1px solid ${rowBorder}`, background: isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)' }}>
-                        <div style={{ fontSize: 12, color: isDarkMode ? '#d1d5db' : '#374151', textAlign: 'center' }}>
-                          Nothing waiting to be picked up.
-                        </div>
-                      </div>
-                    )}
-
-                    {/* ── Breakdown by area ── */}
-                    {unclaimedAowOptions.length > 0 && (
-                      <div style={{ padding: '0 14px 10px', animation: 'opsDashFadeIn 0.35s ease 0.26s both' }}>
-                        <div style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText, marginBottom: 8 }}>
-                          By area
-                        </div>
-                        {unclaimedAowOptions.slice(0, 5).map((item) => {
-                          const maxCount = unclaimedAowOptions[0]?.count || 1;
-                          const barPct = Math.max(8, Math.round((item.count / maxCount) * 100));
-                          return (
-                            <div
-                              key={item.key}
-                              onClick={() => setUnclaimedAowFilter(unclaimedAowFilter === item.key ? 'all' : item.key)}
-                              style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6, cursor: 'pointer', userSelect: 'none' }}
-                            >
-                              <span style={{ width: 6, height: 6, borderRadius: '50%', background: aowColor(item.key), display: 'inline-block', flexShrink: 0 }} />
-                              <span style={{ fontSize: 11, color: unclaimedAowFilter === item.key ? text : (isDarkMode ? '#d1d5db' : '#374151'), fontWeight: unclaimedAowFilter === item.key ? 600 : 400, minWidth: 80 }}>{item.key}</span>
-                              <div style={{ flex: 1, height: 6, background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', position: 'relative', overflow: 'hidden' }}>
-                                <div style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: `${barPct}%`, background: aowColor(item.key), opacity: unclaimedAowFilter === item.key ? 0.9 : 0.5, transition: 'width 0.3s ease, opacity 0.2s ease' }} />
-                              </div>
-                              <span style={{ fontSize: 11, fontWeight: 600, color: text, minWidth: 16, textAlign: 'right' }}>{item.count}</span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-
-                    {/* ── Waiting list (oldest first) ── */}
-                    {filteredUnclaimedItems.length > 0 && (
-                      <div style={{ borderTop: `1px solid ${rowBorder}`, animation: 'opsDashFadeIn 0.35s ease 0.32s both' }}>
-                        <div style={{ padding: '10px 14px 6px', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
-                          {unclaimedAowFilter !== 'all' ? `${unclaimedAowFilter} enquiries` : 'Waiting longest'}
-                        </div>
-                        {filteredUnclaimedItems.slice(0, 4).map((item, index) => (
-                          <div
-                            key={item.id}
-                            style={{
-                              padding: '9px 14px',
-                              borderBottom: index < Math.min(filteredUnclaimedItems.length, 4) - 1 ? `1px solid ${rowBorder}` : 'none',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 10,
-                              transition: 'background 0.15s ease',
-                            }}
-                            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)'; }}
-                            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
-                          >
-                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: aowColor(item.aow), display: 'inline-block', flexShrink: 0 }} />
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontSize: 12, fontWeight: 600, color: text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}</div>
-                              <div style={{ fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText, marginTop: 2 }}>
-                                {item.aow}
-                              </div>
-                            </div>
-                            <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                              <div style={{ fontSize: 10, color: item.ageDays >= 7 ? colours.orange : (isDarkMode ? '#d1d5db' : '#374151'), fontWeight: item.ageDays >= 7 ? 600 : 400 }}>
-                                {item.ageDays === 0 ? 'Today' : item.ageDays === 1 ? '1 day' : `${item.ageDays} days`}
-                              </div>
-                              {item.value > 0 && (
-                                <div style={{ fontSize: 9, color: isDarkMode ? colours.subtleGrey : colours.greyText, marginTop: 1 }}>{fmt.currency(item.value)}</div>
-                              )}
-                            </div>
-                            {canClaimUnclaimed && (
-                              <button
-                                type="button"
-                                onClick={() => handleClaimUnclaimed(item)}
-                                disabled={isClaimingUnclaimed || !userEmail}
-                                style={{
-                                  border: 'none',
-                                  background: claimingItemId === item.id ? colours.green : (isDarkMode ? 'rgba(32,178,108,0.15)' : 'rgba(32,178,108,0.1)'),
-                                  color: claimingItemId === item.id ? '#fff' : colours.green,
-                                  padding: '4px 10px',
-                                  fontSize: 10,
-                                  fontWeight: 700,
-                                  cursor: isClaimingUnclaimed ? 'default' : 'pointer',
-                                  opacity: isClaimingUnclaimed && claimingItemId !== item.id ? 0.4 : 1,
-                                  flexShrink: 0,
-                                  transition: 'background 0.15s ease, color 0.15s ease, opacity 0.15s ease',
-                                }}
-                              >
-                                {claimingItemId === item.id ? 'Claiming…' : 'Claim'}
-                              </button>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* ── Time range toggle (subtle, bottom) ── */}
-                    <div style={{ display: 'flex', justifyContent: 'center', gap: 4, padding: '10px 14px', borderTop: `1px solid ${rowBorder}` }}>
-                      {([
-                        ['today', 'Today'],
-                        ['week', 'This week'],
-                        ['month', 'This month'],
-                      ] as const).map(([key, label]) => {
-                        const rangeData = visibleUnclaimedRanges.find((r) => r.key === key);
-                        const count = rangeData?.count ?? 0;
-                        return (
-                          <button
-                            key={key}
-                            type="button"
-                            onClick={() => setUnclaimedRange(key)}
-                            style={{
-                              border: 'none',
-                              background: unclaimedRange === key ? (isDarkMode ? 'rgba(135,243,243,0.1)' : 'rgba(54,144,206,0.08)') : 'transparent',
-                              color: unclaimedRange === key ? accent : muted,
-                              padding: '5px 10px',
-                              fontSize: 10,
-                              fontWeight: unclaimedRange === key ? 700 : 400,
-                              cursor: 'pointer',
-                              transition: 'all 0.15s ease',
-                            }}
-                          >
-                            {label}{count > 0 ? ` (${count})` : ''}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </>
-                )}
-              </div>
+                  </div>
+                </div>
+              )}
             </div>
-          )}
-          </div>
           </div>
 
           {/* ── Right: Pipeline ── */}
           <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%' }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: muted, padding: '2px 0 3px', letterSpacing: '0.2px' }}>Pipeline</div>
+          <div style={{ fontSize: 11, fontWeight: 600, color: muted, padding: '2px 132px 3px 0', letterSpacing: '0.2px', display: 'flex', alignItems: 'center', gap: 4, minHeight: 18, position: 'relative' }}>
+            <FiFilter size={10} style={{ color: accent, flexShrink: 0 }} />Pipeline
+            <div
+              title={enquiriesLiveRefreshInFlight ? 'Home is checking the live enquiries feed.' : enquiriesUsingSnapshot ? 'Home is showing cached data until the live feed settles.' : 'Home is showing the live enquiries feed.'}
+              style={{
+                position: 'absolute',
+                right: 0,
+                top: '50%',
+                transform: 'translateY(-50%)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                padding: '2px 6px',
+                border: `1px solid ${pipelineSyncMeta.borderColor}`,
+                background: pipelineSyncMeta.background,
+                color: muted,
+                fontSize: 8,
+                fontWeight: 600,
+                letterSpacing: '0.14px',
+                whiteSpace: 'nowrap',
+                lineHeight: 1,
+                maxWidth: isNarrow ? '56%' : 128,
+                overflow: 'hidden',
+              }}
+            >
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: pipelineSyncMeta.color, flexShrink: 0 }} />
+              <span style={{ color: text, opacity: 0.92 }}>{pipelineSyncMeta.label}</span>
+              {!isNarrow ? <span style={{ opacity: 0.72, overflow: 'hidden', textOverflow: 'ellipsis' }}>{pipelineSyncMeta.detail}</span> : null}
+            </div>
+          </div>
           {(!enquiryMetrics || enquiryMetrics.length === 0) ? (
             <div style={{ display: 'grid', gridTemplateColumns: isNarrow || layoutStacked ? '1fr' : '1fr 1fr', gap: 6, minHeight: pipelineRailHeight ?? 0, height: pipelineRailHeight }}>
               {renderPipelineSkeletonCard('activity')}
@@ -3466,12 +4279,10 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
                 display: 'flex',
                 borderBottom: `1px solid ${cardBorder}`,
               }}>
-                {([['enquiries', 'Enquiries'], ['pitched', 'Pitched'], ['instructed', 'Instructed']] as const).map(([key, label]) => {
+                {([['enquiries', 'Enquiries'], ['unclaimed', 'Unclaimed']] as const).map(([key, label]) => {
                   const tabCount = key === 'enquiries'
-                    ? recents.length
-                    : key === 'pitched'
-                      ? recents.filter((r) => stageLevel(activityStageForRecord(r)) === 3).length
-                      : recents.filter((r) => stageLevel(activityStageForRecord(r)) >= 4).length;
+                    ? filteredRecents.length
+                    : claimSignal.unclaimed;
                   return (
                   <div
                     key={key}
@@ -3498,7 +4309,7 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
                 })}
               </div>
               <div className="ops-dash-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', WebkitOverflowScrolling: 'touch' }}>
-                {detailsLoading && filteredRecents.length === 0 ? (
+                {activityTab === 'unclaimed' ? renderUnclaimedPipelinePanel() : detailsLoading && filteredRecents.length === 0 ? (
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '28px 14px', gap: 6 }}>
                     <FiRefreshCw size={13} style={{ color: accent, animation: 'opsDashSpin 1s linear infinite' }} />
                     <span style={{ fontSize: 11, color: muted }}>Loading activity…</span>
@@ -3515,37 +4326,209 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
                       background: theadBg,
                       borderBottom: `1px solid ${cardBorder}`,
                     }}>
-                      <span style={{ display: 'flex', justifyContent: 'center' }} title="Area of work">
-                        <FiFolder size={9} style={{ color: theadText, opacity: 0.8 }} />
+                      <span onClick={() => toggleSort('aow')} style={{ display: 'flex', justifyContent: 'center', cursor: 'pointer' }} title="Sort by area of work">
+                        <FiFolder size={9} style={{ color: sortKey === 'aow' ? theadAccent : theadText, opacity: 0.8 }} />
                       </span>
                       <span onClick={() => toggleSort('date')} style={{ fontSize: 8, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: sortKey === 'date' ? theadAccent : theadText, cursor: 'pointer', userSelect: 'none' }}>
                         Date{sortKey === 'date' ? (sortDesc ? ' ↓' : ' ↑') : ''}
                       </span>
+                      <span style={{ fontSize: 8, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: theadText, textAlign: 'left', whiteSpace: 'nowrap', paddingLeft: 2 }}>FE</span>
                       <span onClick={() => toggleSort('name')} style={{ fontSize: 8, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: sortKey === 'name' ? theadAccent : theadText, cursor: 'pointer', userSelect: 'none' }}>
                         Prospect{sortKey === 'name' ? (sortDesc ? ' ↓' : ' ↑') : ''}
                       </span>
-                      {/* Pipe separator */}
-                      <span style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}><span style={{ width: 1, height: 12, background: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(13,47,96,0.10)' }} /></span>
-                      <span onClick={() => toggleSort('aow')} style={{ fontSize: 8, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: sortKey === 'aow' ? theadAccent : theadText, paddingLeft: 6, cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}>
-                        {alignStackedColumns ? 'Worktype' : 'AoW'}{sortKey === 'aow' ? (sortDesc ? ' ↓' : ' ↑') : ''}
-                      </span>
-                      <span style={{ fontSize: 8, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: theadText, textAlign: 'center', whiteSpace: 'nowrap' }}>FE</span>
-                      <span style={{ fontSize: 8, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: theadText, textAlign: 'center' }}></span>
+                      <div
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: `repeat(${HOME_ENQUIRY_STEP_HEADER_LABELS.length}, minmax(0, 1fr))`,
+                          alignItems: 'center',
+                          gap: 0,
+                          textAlign: 'center',
+                        }}
+                      >
+                        {HOME_ENQUIRY_STEP_HEADER_LABELS.map((label) => (
+                          <span
+                            key={label}
+                            style={{
+                              fontSize: 7,
+                              fontWeight: 700,
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.35px',
+                              color: theadText,
+                              opacity: 0.82,
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                            }}
+                            title={label}
+                          >
+                            {label}
+                          </span>
+                        ))}
+                      </div>
                     </div>
                     {/* Data rows */}
-                    {filteredRecents.slice(0, activityVisibleCount).map((r, i) => {
-                      const hasTeams = !!r.teamsLink;
+                    {filteredRecents.map((r, i) => {
+                      const enquiryId = String(r.enquiryId || r.id || '').trim();
+                      const hasProspectLink = enquiryId.length > 0;
+                      const isClaimedLocally = enquiryId ? claimedRecentEnquiryIds.has(enquiryId) : false;
                       const activityStage = activityStageForRecord(r);
                       const effectiveStage = effectiveStageForRecord(r);
                       const activityLevel = stageLevel(activityStage);
                       const effectiveLevel = stageLevel(effectiveStage);
-                      const ageHours = hoursSince(r.date);
-                      const enquiryDateParts = friendlyDateParts(r.date);
-                      const enquiryFe = resolveFeeEarnerDisplay(r.teamsClaimed || r.poc);
-                      const canPitch = activityLevel <= 2 && effectiveLevel < 3;
-                      const followUpState = activityLevel === 3 && effectiveLevel === 3
-                        ? (ageHours >= 48 ? 'late' : ageHours >= 24 ? 'due' : null)
-                        : null;
+                      const stageImpliesClaimed = activityLevel >= 2 || effectiveLevel >= 2;
+                      const recordKey = getRecentRecordKey(r) || `recent-${i}`;
+                      const notesText = String(r.notes || '').trim();
+                      const hasNotes = notesText.length > 0;
+                      const notesExpanded = expandedRecentNoteIds.has(recordKey);
+                      const selectedScenarioId = selectedPitchScenariosByRecord[recordKey] || getDefaultPitchScenarioForRecord(r);
+                      const rowHasPitchLookupInputs = Array.isArray(r.prospectIds)
+                        ? r.prospectIds.some((value) => String(value || '').trim().length > 0)
+                        : false;
+                      const rowHasLookupIdentity = rowHasPitchLookupInputs || String(r.email || '').trim().length > 0;
+                      const rowLifecycleProcessing = !isTeamWideEnquiryView
+                        && (detailsLoading || (!secondaryFetchesReady) || (rowHasLookupIdentity && pitchLookupLoading));
+                      const hasPitchEvidence = hasPitchEvidenceForRecord(r);
+                      const hasInstruction = hasInstructionForRecord(r);
+                      const hasCompletedPitch = hasCompletedPitchForRecord(r);
+                      const followUpSummary = getFollowUpSummaryForRecord(r);
+                      const followUpDueState = getFollowUpDueStateForRecord(r);
+                      const followUpCount = Number(followUpSummary?.totalCount || 0);
+                      const pitchedByDisplay = resolveFeeEarnerDisplay(r.pitchedBy);
+                      const claimedBy = isClaimedLocally
+                        ? (userInitials?.toUpperCase() || r.teamsClaimed || r.poc)
+                        : (r.teamsClaimed || (stageImpliesClaimed ? r.poc : undefined));
+                      const hasTeams = !!r.teamsLink && !!claimedBy;
+                      const isClaimingRecent = enquiryId.length > 0 && claimingRecentEnquiryId === enquiryId;
+                      const enquiryDateParts = friendlyDateParts(r.date, liveNowMs);
+                      const enquiryFe = resolveFeeEarnerDisplay(claimedBy);
+                      const canPitch = !hasPitchEvidence && effectiveLevel < 4;
+                      const lifecycleItems: CompactOptionStripItem<EnquiryLifecycleStepKey>[] = rowLifecycleProcessing ? [
+                        {
+                          key: 'claimed',
+                          label: 'Claimed',
+                          icon: <FiRefreshCw size={12} style={{ animation: 'opsDashSpin 1s linear infinite' }} />,
+                          tone: colours.subtleGrey,
+                          title: 'Checking live claim and pitch state…',
+                          state: 'default',
+                          disabled: true,
+                        },
+                        {
+                          key: 'pitch',
+                          label: 'Pitch',
+                          icon: <FiRefreshCw size={12} style={{ animation: 'opsDashSpin 1s linear infinite' }} />,
+                          tone: colours.subtleGrey,
+                          title: 'Checking live claim and pitch state…',
+                          state: 'default',
+                          disabled: true,
+                        },
+                        {
+                          key: 'follow-up',
+                          label: 'Follow Up',
+                          icon: <FiRefreshCw size={12} style={{ animation: 'opsDashSpin 1s linear infinite' }} />,
+                          tone: colours.subtleGrey,
+                          title: 'Checking live claim and pitch state…',
+                          state: 'default',
+                          disabled: true,
+                        },
+                        {
+                          key: 'instruction',
+                          label: 'Instruction',
+                          icon: <FiRefreshCw size={12} style={{ animation: 'opsDashSpin 1s linear infinite' }} />,
+                          tone: colours.subtleGrey,
+                          title: 'Checking live claim and pitch state…',
+                          state: 'default',
+                          disabled: true,
+                        },
+                      ] : [
+                        {
+                          key: 'claimed',
+                          label: 'Claimed',
+                          icon: <FiCheckCircle size={12} />,
+                          tone: colours.green,
+                          title: claimedBy ? `Claimed by ${enquiryFe.title || enquiryFe.label}` : 'Claim this enquiry',
+                          state: claimedBy ? 'done' : 'active',
+                        },
+                        {
+                          key: 'pitch',
+                          label: 'Pitch',
+                          icon: (() => {
+                            if (hasPitchEvidence || hasInstruction) {
+                              const resolvedId = r.pitchScenarioId || (String(r.pitchStatus || '').toUpperCase() === 'CHECKOUT_LINK' ? 'link-only' : undefined);
+                              if (resolvedId) return scenarioIcon(resolvedId) || <FiCheckCircle size={12} />;
+                              return <FiCheckCircle size={12} />;
+                            }
+                            const explicitScenario = selectedPitchScenariosByRecord[recordKey];
+                            if (explicitScenario) return scenarioIcon(explicitScenario) || <FiSend size={12} />;
+                            return <FiSend size={12} />;
+                          })(),
+                          tone: (() => {
+                            if (hasPitchEvidence || hasInstruction) {
+                              const resolvedId = r.pitchScenarioId || (String(r.pitchStatus || '').toUpperCase() === 'CHECKOUT_LINK' ? 'link-only' : undefined);
+                              if (resolvedId) return scenarioTone(resolvedId);
+                              return colours.green;
+                            }
+                            const explicitScenario = selectedPitchScenariosByRecord[recordKey];
+                            if (explicitScenario) return scenarioTone(explicitScenario);
+                            return colours.orange;
+                          })(),
+                          title: hasPitchEvidence
+                            ? `Pitched${pitchedByDisplay.title ? ` by ${pitchedByDisplay.title}` : ''}${r.pitchedAt ? ` on ${friendlyDate(r.pitchedAt)}` : ''}`
+                            : `Open ${HOME_PITCH_SCENARIO_STRIP_ITEMS.find((item) => item.key === selectedScenarioId)?.title || 'pitch builder'}`,
+                          state: hasCompletedPitch ? 'done' : (claimedBy ? 'active' : 'default'),
+                          disabled: hasInstruction || (!claimedBy && !stageImpliesClaimed),
+                        },
+                        {
+                          key: 'follow-up',
+                          label: followUpDueState === 'pending' && !followUpSummary ? 'Pending' : 'Follow Up',
+                          icon: followUpDueState === 'pending' && !followUpSummary
+                            ? <FiClock size={12} />
+                            : followUpSummary?.lastChannel === 'phone' ? <FiPhoneCall size={12} /> : <FiMail size={12} />,
+                          tone: followUpDueState === 'late' ? colours.cta : followUpDueState === 'pending' ? colours.subtleGrey : colours.orange,
+                          title: followUpSummary
+                            ? `${followUpSummary.totalCount} follow-up attempt${followUpSummary.totalCount === 1 ? '' : 's'} recorded${followUpSummary.lastFollowUpAt ? `, last ${friendlyDate(followUpSummary.lastFollowUpAt)}` : ''}`
+                            : followUpDueState === 'late'
+                              ? 'Follow-up overdue'
+                              : followUpDueState === 'due'
+                                ? 'Follow-up due'
+                                : followUpDueState === 'pending'
+                                  ? 'Pitched recently — follow-up window opens in 24h'
+                                  : 'Record a follow-up attempt',
+                          state: followUpSummary
+                            ? 'done'
+                            : followUpDueState === 'due' || followUpDueState === 'late'
+                              ? 'active'
+                              : 'default',
+                          disabled: !hasPitchEvidence || followUpDueState === 'pending',
+                        },
+                        {
+                          key: 'instruction',
+                          label: 'Instruction',
+                          icon: <FiFolder size={12} />,
+                          tone: colours.green,
+                          title: hasInstruction ? 'Instruction received' : 'Instruction not yet received',
+                          state: hasInstruction ? 'done' : 'default',
+                        },
+                      ];
+                      const selectedLifecycleKey: EnquiryLifecycleStepKey | null = rowLifecycleProcessing
+                        ? null
+                        : hasInstruction
+                        ? 'instruction'
+                        : (followUpSummary || followUpDueState === 'due' || followUpDueState === 'late')
+                          ? 'follow-up'
+                          : hasCompletedPitch
+                            ? 'pitch'
+                            : 'claimed';
+                      const followUpIndicatorText = rowLifecycleProcessing
+                        ? null
+                        : followUpSummary
+                        ? `FU ${followUpCount}`
+                        : followUpDueState === 'late'
+                          ? 'Follow up'
+                          : followUpDueState === 'due'
+                            ? 'Follow up soon'
+                            : followUpDueState === 'pending'
+                              ? 'Pending'
+                              : null;
                       return (
                         <div
                           key={i}
@@ -3555,39 +4538,119 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
                           <div
                             style={{
                               padding: '6px 8px 6px 4px',
-                              cursor: hasTeams ? 'pointer' : 'default',
+                              cursor: hasProspectLink ? 'pointer' : 'default',
                               display: 'grid',
                               gridTemplateColumns: matterGridTemplate,
                               alignItems: 'center',
                               gap: 0,
                               transition: 'background 0.15s ease',
                             }}
-                            onClick={hasTeams ? () => window.open(r.teamsLink, '_blank') : undefined}
-                            title={hasTeams ? `Open in Teams · ${r.teamsChannel || 'Channel'}` : undefined}
+                            onClick={hasProspectLink ? () => openEnquiryRecord(r) : undefined}
+                            title={hasProspectLink ? 'Open prospect' : undefined}
                             onMouseEnter={(e) => { e.currentTarget.style.background = hoverBg; }}
                             onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
                           >
-                            {/* AoW dot */}
-                            <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: aowColor(r.aow || ''), justifySelf: 'center' }} />
+                            {/* AoW glyph */}
+                            <span style={{ display: 'flex', justifyContent: 'center', opacity: 0.55 }} title={r.aow || 'Unknown'}>{renderAreaOfWorkGlyph(r.aow || '', undefined, 'glyph', 12)}</span>
 
                             {/* Date */}
-                            <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: 24 }}>
-                              <span style={{ fontSize: 9, color: muted, lineHeight: 1.05, whiteSpace: 'nowrap' }}>{enquiryDateParts.primary}</span>
+                            <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: 24 }} title={r.date ? new Date(r.date).toLocaleString('en-GB') : undefined}>
+                              <span style={{ fontSize: 9, color: enquiryDateParts.isLive ? text : muted, lineHeight: 1.05, whiteSpace: 'nowrap' }}>
+                                {enquiryDateParts.primary}
+                              </span>
                               <span style={{ fontSize: 8, color: muted, opacity: enquiryDateParts.secondary ? 0.9 : 0.45, whiteSpace: 'nowrap', lineHeight: 1.05 }}>{enquiryDateParts.secondary || '—'}</span>
+                            </div>
+
+                            {/* FE — Teams claimer indicator */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-start', minWidth: 0 }} title={rowLifecycleProcessing ? 'Checking live claim state…' : claimedBy ? `Claimed by ${enquiryFe.title || enquiryFe.label}` : 'Claim this enquiry'}>
+                              {rowLifecycleProcessing ? (
+                                <>
+                                  <span style={{ width: 20, display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 3, flexShrink: 0 }}>
+                                    <FiRefreshCw size={10} style={{ color: muted, animation: 'opsDashSpin 1s linear infinite', flexShrink: 0 }} />
+                                  </span>
+                                  <span style={{ fontSize: 8, fontWeight: 600, color: muted, letterSpacing: '0.3px', whiteSpace: 'nowrap' }}>
+                                    Checking…
+                                  </span>
+                                </>
+                              ) : claimedBy ? (
+                                <>
+                                  <span style={{ width: 20, display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 3, flexShrink: 0 }}>
+                                    {hasTeams ? (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          window.open(r.teamsLink, '_blank');
+                                        }}
+                                        title={`Open in Teams · ${r.teamsChannel || 'Channel'}`}
+                                        style={{
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'center',
+                                          padding: 0,
+                                          border: 'none',
+                                          background: 'transparent',
+                                          cursor: 'pointer',
+                                          lineHeight: 0,
+                                        }}
+                                      >
+                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" style={{ opacity: 0.98 }}>
+                                          <path d="M4 7.5A1.5 1.5 0 0 1 5.5 6h8A1.5 1.5 0 0 1 15 7.5v9a1.5 1.5 0 0 1-1.5 1.5h-8A1.5 1.5 0 0 1 4 16.5z" stroke={colours.green} strokeWidth="1.9" />
+                                          <path d="M8 10h3.5" stroke={colours.green} strokeWidth="1.9" strokeLinecap="round" />
+                                          <path d="M9.75 10v4.5" stroke={colours.green} strokeWidth="1.9" strokeLinecap="round" />
+                                          <path d="M15 9l3.8-1.5A1 1 0 0 1 20 8.43v7.14a1 1 0 0 1-1.2.98L15 15" stroke={colours.green} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+                                        </svg>
+                                      </button>
+                                    ) : (
+                                      <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 0 }} title="Claimed. Teams card refresh pending.">
+                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" style={{ opacity: 0.72 }}>
+                                          <path d="M4 7.5A1.5 1.5 0 0 1 5.5 6h8A1.5 1.5 0 0 1 15 7.5v9a1.5 1.5 0 0 1-1.5 1.5h-8A1.5 1.5 0 0 1 4 16.5z" stroke={colours.green} strokeWidth="1.9" />
+                                          <path d="M8 10h3.5" stroke={colours.green} strokeWidth="1.9" strokeLinecap="round" />
+                                          <path d="M9.75 10v4.5" stroke={colours.green} strokeWidth="1.9" strokeLinecap="round" />
+                                          <path d="M15 9l3.8-1.5A1 1 0 0 1 20 8.43v7.14a1 1 0 0 1-1.2.98L15 15" stroke={colours.green} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+                                        </svg>
+                                      </span>
+                                    )}
+                                    <svg width="8" height="8" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0 }}>
+                                      <circle cx="6" cy="6" r="5" fill={colours.green} opacity="0.18" />
+                                      <path d="M3 6.2 5 8.1 9 4" stroke={colours.green} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                                    </svg>
+                                  </span>
+                                  <span style={{ fontSize: 8, fontWeight: 700, color: colours.green, letterSpacing: '0.3px', whiteSpace: 'nowrap' }}>
+                                    {enquiryFe.label}
+                                  </span>
+                                </>
+                              ) : enquiryId ? (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleClaimRecentEnquiry(r);
+                                  }}
+                                  disabled={isClaimingRecentEnquiry && !isClaimingRecent}
+                                  style={{
+                                    border: `1px solid ${isDarkMode ? 'rgba(214,85,65,0.28)' : 'rgba(214,85,65,0.3)'}`,
+                                    background: isClaimingRecent ? colours.cta : (isDarkMode ? 'rgba(214,85,65,0.14)' : 'rgba(214,85,65,0.1)'),
+                                    color: isClaimingRecent ? '#fff' : colours.cta,
+                                    padding: '2px 6px',
+                                    fontSize: 8,
+                                    fontWeight: 700,
+                                    letterSpacing: '0.3px',
+                                    cursor: isClaimingRecentEnquiry && !isClaimingRecent ? 'default' : 'pointer',
+                                    opacity: isClaimingRecentEnquiry && !isClaimingRecent ? 0.45 : 1,
+                                    transition: 'background 0.15s ease, color 0.15s ease, opacity 0.15s ease',
+                                  }}
+                                >
+                                  {isClaimingRecent ? 'Claiming…' : 'Claim'}
+                                </button>
+                              ) : (
+                                <span style={{ fontSize: 8, fontWeight: 600, color: muted }}>—</span>
+                              )}
                             </div>
 
                             {/* Name + email on hover */}
                             <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 1, overflow: 'hidden' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
-                                {hasTeams && (
-                                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={isDarkMode ? colours.accent : colours.highlight} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, opacity: 0.7 }}>
-                                    <rect x="3.5" y="6" width="12" height="12" rx="2" />
-                                    <path d="M7 10h5" />
-                                    <path d="M9.5 10v6" />
-                                    <circle cx="18.5" cy="9" r="2" />
-                                    <rect x="16.5" y="12" width="5" height="6" rx="2" />
-                                  </svg>
-                                )}
                                 <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 10, fontWeight: 600, color: text }}>{r.name || '—'}</span>
                                 {r.name && (
                                   <button
@@ -3599,16 +4662,16 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
                                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={muted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" /></svg>
                                   </button>
                                 )}
-                                {followUpState && (
+                                {followUpIndicatorText && (
                                   <span style={{
                                     fontSize: 8,
-                                    fontWeight: followUpState === 'late' ? 700 : 600,
+                                    fontWeight: followUpDueState === 'late' ? 700 : 600,
                                     letterSpacing: '0.2px',
-                                    color: colours.orange,
-                                    opacity: followUpState === 'late' ? 1 : 0.72,
+                                    color: followUpSummary ? colours.highlight : colours.orange,
+                                    opacity: followUpDueState === 'late' ? 1 : 0.78,
                                     flexShrink: 0,
                                   }}>
-                                    {followUpState === 'late' ? 'Follow up' : 'Follow up soon'}
+                                    {followUpIndicatorText}
                                   </span>
                                 )}
                               </div>
@@ -3627,65 +4690,113 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
                               )}
                             </div>
 
-                            {/* Pipe separator */}
-                            <span style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}><span style={{ width: 1, height: 14, background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(13,47,96,0.08)' }} /></span>
-
-                            {/* AoW label */}
-                            <span style={{ fontSize: 8, fontWeight: 600, color: aowColor(r.aow || ''), letterSpacing: '0.2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingLeft: 6 }}>
-                              {r.aow || '—'}
-                            </span>
-
-                            {/* FE initials */}
-                            <span style={{ fontSize: 8, fontWeight: 700, color: enquiryFe.label !== '—' ? colours.green : muted, letterSpacing: '0.3px', textAlign: 'center' }} title={enquiryFe.title ? `Claimed by ${enquiryFe.title}` : undefined}>
-                              {enquiryFe.label}
-                            </span>
-
                             {/* Pitch action */}
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0 }}>
-                              {canPitch ? (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    openPitchBuilderForRecord(r);
-                                  }}
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', minWidth: 0 }}>
+                              <div style={{ display: 'flex', flexDirection: 'row-reverse', alignItems: 'center', justifyContent: 'flex-start', gap: 6, flexWrap: 'nowrap', minWidth: 0, width: '100%' }}>
+                                <span
                                   style={{
-                                    border: `1px solid ${isDarkMode ? 'rgba(135,243,243,0.18)' : 'rgba(54,144,206,0.18)'}`,
-                                    background: isDarkMode ? 'rgba(135,243,243,0.10)' : 'rgba(54,144,206,0.10)',
-                                    padding: '2px 6px',
-                                    margin: 0,
-                                    fontSize: 8,
-                                    fontWeight: 700,
-                                    letterSpacing: '0.3px',
-                                    color: accent,
-                                    cursor: 'pointer',
+                                    width: 22,
+                                    height: 20,
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
                                     flexShrink: 0,
-                                    lineHeight: '14px',
-                                    transition: 'background 0.15s ease, border-color 0.15s ease, transform 0.1s ease',
                                   }}
-                                  title="Open pitch builder"
-                                  onMouseEnter={(e) => { e.currentTarget.style.background = isDarkMode ? 'rgba(135,243,243,0.18)' : 'rgba(54,144,206,0.18)'; }}
-                                  onMouseLeave={(e) => { e.currentTarget.style.background = isDarkMode ? 'rgba(135,243,243,0.10)' : 'rgba(54,144,206,0.10)'; }}
                                 >
-                                  Pitch
-                                </button>
-                              ) : effectiveLevel >= 3 ? (
-                                <FiCheckCircle size={12} style={{ color: colours.green, flexShrink: 0, opacity: 0.8 }} title="Pitched" />
-                              ) : null}
+                                  {hasNotes ? (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        toggleRecentNotesTray(recordKey);
+                                      }}
+                                      style={{
+                                        border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(13,47,96,0.14)'}`,
+                                        background: notesExpanded
+                                          ? (isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(13,47,96,0.08)')
+                                          : 'transparent',
+                                        width: 22,
+                                        height: 20,
+                                        padding: 0,
+                                        margin: 0,
+                                        fontSize: 8,
+                                        fontWeight: 700,
+                                        letterSpacing: '0.3px',
+                                        color: text,
+                                        cursor: 'pointer',
+                                        flexShrink: 0,
+                                        lineHeight: '14px',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                      }}
+                                      title={notesExpanded ? 'Hide notes' : 'Reveal notes'}
+                                      aria-label={notesExpanded ? 'Hide notes' : 'Reveal notes'}
+                                    >
+                                      {notesExpanded ? <FiChevronUp size={10} /> : <FiChevronDown size={10} />}
+                                    </button>
+                                  ) : null}
+                                </span>
+                                <div
+                                  style={{ '--strip-columns': lifecycleItems.length, minWidth: 0, width: '100%' } as React.CSSProperties}
+                                  onClick={(e) => e.stopPropagation()}
+                                  title="Enquiry lifecycle"
+                                >
+                                  <CompactOptionStrip
+                                    items={lifecycleItems}
+                                    selectedKey={selectedLifecycleKey}
+                                    onSelect={(stepKey) => {
+                                      if (stepKey === 'claimed') {
+                                        if (!claimedBy && enquiryId) {
+                                          void handleClaimRecentEnquiry(r);
+                                          return;
+                                        }
+                                        openEnquiryRecord(r);
+                                        return;
+                                      }
+                                      if (stepKey === 'pitch') {
+                                        openPitchBuilderForRecord(r, selectedScenarioId);
+                                        return;
+                                      }
+                                      if (stepKey === 'follow-up') {
+                                        openEnquiryFollowUpModal(r);
+                                        return;
+                                      }
+                                      openEnquiryRecord(r);
+                                    }}
+                                    ariaLabel="Enquiry lifecycle"
+                                    className="compact-option-strip--icon-grid"
+                                  />
+                                </div>
+                              </div>
                             </div>
                           </div>
+                          {notesExpanded && hasNotes ? (
+                            <div
+                              style={{
+                                marginLeft: sharedDotColumnWidth,
+                                marginRight: 8,
+                                padding: '8px 10px 10px',
+                                borderTop: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(13,47,96,0.08)'}`,
+                                background: isDarkMode ? 'rgba(255,255,255,0.025)' : 'rgba(13,47,96,0.03)',
+                              }}
+                            >
+                              <div style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.32px', textTransform: 'uppercase', color: isDarkMode ? colours.subtleGrey : colours.greyText, marginBottom: 4 }}>
+                                Notes
+                              </div>
+                              <div style={{ fontSize: 10, lineHeight: 1.45, color: isDarkMode ? '#d1d5db' : '#374151', whiteSpace: 'pre-wrap' }}>
+                                {notesText}
+                              </div>
+                            </div>
+                          ) : null}
                         </div>
                       );
                     })}
                   </div>
                 ) : (
                   (() => {
-                    const emptyIcon = activityTab === 'pitched' ? <FiSend size={18} />
-                      : activityTab === 'instructed' ? <FiCheckCircle size={18} />
-                      : <FiInbox size={18} />;
-                    const emptyMsg = activityTab === 'pitched' ? 'No Recent Pitches'
-                      : activityTab === 'instructed' ? 'No Recent Instructions'
-                      : 'No Enquiries';
+                    const emptyIcon = <FiInbox size={18} />;
+                    const emptyMsg = 'No Enquiries';
                     return (
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '28px 14px', gap: 6 }}>
                         <div style={{ color: isDarkMode ? colours.subtleGrey : colours.greyText, opacity: 0.5 }}>{emptyIcon}</div>
@@ -3714,11 +4825,11 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
                 <span style={{ fontSize: 9, fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.highlight, letterSpacing: '0.3px', lineHeight: 1.1 }}>Matters</span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   {displayMatters.length > 0 && (
-                    <span style={{ fontSize: 8, color: muted, opacity: 0.5, lineHeight: 1.1 }}>{matterVisibleCount} shown</span>
+                    <span style={{ fontSize: 8, color: muted, opacity: 0.5, lineHeight: 1.1 }}>{displayMatters.length} shown</span>
                   )}
                   {canSeeCcl && (() => {
-                    const total = displayMatters.slice(0, matterVisibleCount).length;
-                    const withCcl = displayMatters.slice(0, matterVisibleCount).filter(m => cclMap[m.matterId]).length;
+                    const total = displayMatters.length;
+                    const withCcl = displayMatters.filter(m => cclMap[m.matterId]).length;
                     if (withCcl > 0) return <span style={{ fontSize: 8, color: isDarkMode ? colours.accent : colours.highlight, opacity: 0.7, lineHeight: 1.1 }}>{withCcl}/{total} CCL</span>;
                     return null;
                   })()}
@@ -3736,35 +4847,156 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
                       padding: '7px 8px 5px 4px',
                       background: theadBg, borderBottom: `1px solid ${cardBorder}`,
                     }}>
-                      <span style={{ width: 'auto', flexShrink: 0, display: 'flex', justifyContent: 'center' }} title="Area of work">
-                        <FiFolder size={9} style={{ color: theadText, opacity: 0.8 }} />
+                      <span onClick={() => toggleMatterSort('aow')} style={{ width: 'auto', flexShrink: 0, display: 'flex', justifyContent: 'center', cursor: 'pointer' }} title="Sort by area of work">
+                        <FiFolder size={9} style={{ color: matterSortKey === 'aow' ? theadAccent : theadText, opacity: 0.8 }} />
                       </span>
                       <span onClick={() => toggleMatterSort('date')} style={{ fontSize: 8, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: matterSortKey === 'date' ? theadAccent : theadText, flexShrink: 0, cursor: 'pointer', userSelect: 'none' }}>Date{matterSortKey === 'date' ? (matterSortDesc ? ' ↓' : ' ↑') : ''}</span>
+                      <span onClick={() => toggleMatterSort('fe')} style={{ fontSize: 8, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: matterSortKey === 'fe' ? theadAccent : theadText, flexShrink: 0, textAlign: 'left', paddingLeft: 2, cursor: 'pointer', userSelect: 'none' }}>FE{matterSortKey === 'fe' ? (matterSortDesc ? ' ↓' : ' ↑') : ''}</span>
                       <span onClick={() => toggleMatterSort('name')} style={{ fontSize: 8, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: matterSortKey === 'name' ? theadAccent : theadText, flex: 1, cursor: 'pointer', userSelect: 'none' }}>Matter{matterSortKey === 'name' ? (matterSortDesc ? ' ↓' : ' ↑') : ''}</span>
-                      {/* Pipe separator */}
-                      <span style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}><span style={{ width: 1, height: 12, background: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(13,47,96,0.10)' }} /></span>
-                      <span onClick={() => toggleMatterSort('aow')} style={{ fontSize: 8, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: matterSortKey === 'aow' ? theadAccent : theadText, flexShrink: 0, textAlign: 'left', paddingLeft: 6, cursor: 'pointer', userSelect: 'none' }}>{alignStackedColumns ? 'Worktype' : 'AoW'}{matterSortKey === 'aow' ? (matterSortDesc ? ' ↓' : ' ↑') : ''}</span>
-                      <span onClick={() => toggleMatterSort('fe')} style={{ fontSize: 8, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: matterSortKey === 'fe' ? theadAccent : theadText, flexShrink: 0, textAlign: 'center', cursor: 'pointer', userSelect: 'none' }}>FE{matterSortKey === 'fe' ? (matterSortDesc ? ' ↓' : ' ↑') : ''}</span>
-                      <span style={{ fontSize: 8, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.5px', color: theadText, flexShrink: 0, textAlign: 'center' }}>{canSeeCcl ? 'CCL' : ''}</span>
+                      <div
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: `repeat(${HOME_MATTER_STEP_HEADER_LABELS.length}, minmax(0, 1fr))`,
+                          alignItems: 'center',
+                          gap: 0,
+                          textAlign: 'center',
+                          opacity: canSeeCcl && showInlineMatterSteps ? 1 : 0,
+                        }}
+                        title={canSeeCcl ? (showInlineMatterSteps ? 'CCL lifecycle' : 'CCL') : undefined}
+                      >
+                        {HOME_MATTER_STEP_HEADER_LABELS.map((label) => (
+                          <span
+                            key={label}
+                            style={{
+                              fontSize: 7,
+                              fontWeight: 700,
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.35px',
+                              color: theadText,
+                              opacity: 0.82,
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                            }}
+                            title={label}
+                          >
+                            {label}
+                          </span>
+                        ))}
+                      </div>
                     </div>
-                    {displayMatters.slice(0, matterVisibleCount).map((m, i) => {
+                    {displayMatters.map((m, i) => {
                       const ccl = canSeeCcl ? (cclMap[m.matterId] || null) : null;
-                      const matterDateParts = friendlyDateParts(m.openDate);
-                      const matterFe = resolveFeeEarnerDisplay(m.responsibleSolicitor);
+                      const matterDateParts = friendlyDateParts(m.openDate, liveNowMs);
+                      const matterOpenTime = friendlyTime(m.openDate);
+                      const matterResponsible = resolveFeeEarnerDisplay(m.responsibleSolicitor);
+                      const matterOriginating = resolveFeeEarnerDisplay(m.originatingSolicitor);
+                      const normalizedResponsible = (m.responsibleSolicitor || '').trim().toLowerCase();
+                      const normalizedOriginating = (m.originatingSolicitor || '').trim().toLowerCase();
+                      const showOriginating = Boolean(normalizedOriginating) && normalizedOriginating !== normalizedResponsible;
                       const isCclStatusResolving = canSeeCcl && !!cclStatusResolvingByMatter[m.matterId];
                       const hasResolvedCclStatus = canSeeCcl && !!cclStatusResolvedByMatter[m.matterId];
                       const showCclStatusResolving = canSeeCcl && (!hasResolvedCclStatus || isCclStatusResolving);
-                      const isExp = canSeeCcl && expandedCcl === m.matterId;
+                      const isExp = canSeeCcl && !showInlineMatterSteps && expandedCcl === m.matterId;
                       const isDemo = String(m.matterId || '').toUpperCase().startsWith('DEMO-');
                       const clioUrl = m.matterId && !isDemo ? `https://eu.app.clio.com/nc/#/matters/${m.matterId}` : undefined;
                       const cclStage = getCanonicalCclStage(ccl?.stage || ccl?.status);
                       const hasDraft = Boolean(ccl && ccl.version);
                       const isApproved = cclStage === 'reviewed' || cclStage === 'sent';
+                      const isAiRunning = cclAiFillingMatter === m.matterId;
+                      const aiStatus = cclAiStatusByMatter[m.matterId] || '';
+                      const isPtRunning = cclPressureTestRunning === m.matterId;
+                      const ptResult = cclPressureTestByMatter[m.matterId];
+                      const ptFlagged = ptResult?.flaggedCount || 0;
+                      const toNd = Boolean(ccl?.uploadedToNd);
+                      const compileDone = Boolean(ccl?.compiledAt || ccl?.compileSummary || cclStage === 'compiled' || cclStage === 'generated' || cclStage === 'pressure-tested' || cclStage === 'reviewed' || cclStage === 'sent');
+                      const genDone = hasDraft;
+                      const genActive = isAiRunning;
+                      const pressureDone = Boolean(ptResult) || cclStage === 'pressure-tested' || cclStage === 'reviewed' || cclStage === 'sent';
+                      const pressureActive = hasDraft && !pressureDone && isPtRunning;
+                      const reviewDone = isApproved;
+                      const reviewActive = hasDraft && pressureDone && !isApproved;
+                      const ndDone = toNd;
+                      const activeMatterStepKey: HomeMatterStepKey = !compileDone
+                        ? 'compile'
+                        : genActive || !genDone
+                          ? 'generate'
+                          : pressureActive || !pressureDone
+                            ? 'pressure'
+                            : !reviewDone
+                              ? 'review'
+                              : 'nd';
+                      const inlineStageHint = genActive
+                        ? aiStatus || 'Generating'
+                        : !compileDone
+                          ? 'Compile'
+                          : !genDone
+                            ? 'Generate'
+                            : pressureActive
+                              ? 'Testing'
+                              : !pressureDone
+                                ? 'Pressure test'
+                                : !reviewDone
+                                  ? (ptFlagged > 0 ? `${ptFlagged} flag${ptFlagged === 1 ? '' : 's'}` : 'Review')
+                                  : ndDone
+                                    ? 'In ND'
+                                    : 'ND pending';
+                      const openReview = (event: React.MouseEvent) => {
+                        event.stopPropagation();
+                        openCclLetterModal(m.matterId);
+                      };
+                      const matterStepItems: CompactOptionStripItem<HomeMatterStepKey>[] = [
+                        {
+                          key: 'compile',
+                          label: compileDone ? 'Compiled' : 'Compile',
+                          state: compileDone ? 'done' : (activeMatterStepKey === 'compile' ? 'active' : 'default'),
+                          title: compileDone ? 'Compilation Results' : 'Compile context and evidence',
+                          tone: compileDone ? colours.green : (isDarkMode ? colours.accent : colours.highlight),
+                          disabled: !compileDone,
+                          icon: compileDone ? <FiCheckCircle size={12} /> : <FiInbox size={12} />,
+                        },
+                        {
+                          key: 'generate',
+                          label: genDone ? 'Generated' : genActive ? 'Generating' : 'Generate',
+                          state: genDone ? 'done' : (activeMatterStepKey === 'generate' ? 'active' : 'default'),
+                          title: genDone ? 'Open generated CCL draft' : genActive ? 'Generating CCL draft' : 'Generate CCL draft',
+                          tone: genDone ? colours.green : (isDarkMode ? colours.accent : colours.highlight),
+                          disabled: genActive,
+                          icon: genDone ? <FiCheckCircle size={12} /> : <FiSend size={12} />,
+                        },
+                        {
+                          key: 'pressure',
+                          label: pressureDone ? 'Results' : pressureActive ? 'Testing' : 'Test',
+                          state: pressureDone ? 'done' : (activeMatterStepKey === 'pressure' ? 'active' : 'default'),
+                          title: pressureDone ? 'Pressure Test Results' : genDone ? 'Run Pressure Test' : 'Generate draft before Pressure Test',
+                          tone: pressureDone ? colours.green : (pressureActive ? (isDarkMode ? colours.accent : colours.highlight) : colours.orange),
+                          disabled: !genDone,
+                          icon: <FiRefreshCw size={12} />,
+                        },
+                        {
+                          key: 'review',
+                          label: reviewDone ? 'Reviewed' : reviewActive ? 'Review' : 'Review',
+                          state: reviewDone ? 'done' : (activeMatterStepKey === 'review' ? 'active' : 'default'),
+                          title: reviewDone ? 'Open reviewed CCL' : hasDraft ? 'Review CCL draft' : 'Draft required before review',
+                          tone: reviewDone ? colours.green : (reviewActive ? (isDarkMode ? colours.accent : colours.highlight) : colours.orange),
+                          disabled: !hasDraft,
+                          icon: <FiCheckCircle size={12} />,
+                        },
+                        {
+                          key: 'nd',
+                          label: ndDone ? 'Uploaded' : 'Upload',
+                          state: ndDone ? 'done' : (activeMatterStepKey === 'nd' ? 'active' : 'default'),
+                          title: ndDone ? 'CCL is in NetDocuments' : reviewDone ? 'Open CCL to finish NetDocuments delivery' : 'Review required before NetDocuments',
+                          tone: ndDone ? colours.green : (reviewDone ? colours.highlight : colours.greyText),
+                          disabled: !reviewDone && !ndDone,
+                          icon: <FiFolder size={12} />,
+                        },
+                      ];
                       const cclDotColor = !ccl
                         ? (isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.10)')
                         : cclStage === 'sent'
                           ? colours.green
-                          : cclStage === 'reviewed' || cclStage === 'generated'
+                          : cclStage === 'reviewed' || cclStage === 'pressure-tested' || cclStage === 'generated' || cclStage === 'compiled'
                             ? (isDarkMode ? colours.accent : colours.highlight)
                             : colours.orange;
                       const collapsedCta = !ccl
@@ -3810,21 +5042,54 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
                               transition: 'background 0.15s ease',
                             }}
                             onClick={() => {
-                              if (canSeeCcl) {
+                              if (canSeeCcl && !showInlineMatterSteps) {
                                 setExpandedCcl(prev => prev === m.matterId ? null : m.matterId);
                               } else {
                                 window.dispatchEvent(new CustomEvent('navigateToMatter', { detail: { matterId: m.matterId } }));
                               }
                             }}
-                            onMouseEnter={(e) => { e.currentTarget.style.background = hoverBg; }}
+                            onMouseEnter={(e) => {
+                              window.dispatchEvent(new CustomEvent('warmMattersTab'));
+                              e.currentTarget.style.background = hoverBg;
+                            }}
                             onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
                           >
-                            {/* AoW dot */}
-                            <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: aowColor(m.practiceArea || ''), justifySelf: 'center' }} />
+                            {/* AoW glyph */}
+                            <span style={{ display: 'flex', justifyContent: 'center', opacity: 0.55 }} title={m.practiceArea || 'Unknown'}>{renderAreaOfWorkGlyph(m.practiceArea || '', undefined, 'glyph', 12)}</span>
 
                             {/* Date */}
-                            <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: 24 }}>
-                              <span style={{ fontSize: 9, color: muted, lineHeight: 1.05, whiteSpace: 'nowrap' }}>{matterDateParts.primary}</span>
+                            <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: 24 }} title={m.openDate ? new Date(m.openDate).toLocaleString('en-GB') : undefined}>
+                              <span style={{ fontSize: 9, color: matterDateParts.isLive ? text : muted, lineHeight: 1.05, whiteSpace: 'nowrap' }}>
+                                {matterDateParts.primary}
+                              </span>
+                              {matterDateParts.isLive ? (
+                                <span style={{ fontSize: 8, color: muted, opacity: 0.9, whiteSpace: 'nowrap', lineHeight: 1.05 }}>
+                                  {matterOpenTime ? `ago ${matterOpenTime}` : (matterDateParts.secondary || 'ago')}
+                                </span>
+                              ) : (
+                                <span style={{ fontSize: 8, color: muted, opacity: matterDateParts.secondary ? 0.9 : 0.45, whiteSpace: 'nowrap', lineHeight: 1.05 }}>
+                                  {matterDateParts.secondary || matterOpenTime || '—'}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* FE initials */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-start', minWidth: 0 }} title={showOriginating
+                              ? `Responsible: ${matterResponsible.title || '—'} · Originating: ${matterOriginating.title || '—'}`
+                              : (matterResponsible.title || undefined)}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 3, minWidth: 0, whiteSpace: 'nowrap' }}>
+                                <span style={{ fontSize: 8, fontWeight: 700, color: matterResponsible.label !== '—' ? colours.green : muted, letterSpacing: '0.3px', whiteSpace: 'nowrap' }}>
+                                  {matterResponsible.label}
+                                </span>
+                                {showOriginating && (
+                                  <>
+                                    <span style={{ fontSize: 8, color: muted, opacity: 0.55, lineHeight: 1 }}>·</span>
+                                    <span style={{ fontSize: 8, fontWeight: 700, color: matterOriginating.label !== '—' ? (isDarkMode ? colours.accent : colours.highlight) : muted, letterSpacing: '0.3px', whiteSpace: 'nowrap' }}>
+                                      {matterOriginating.label}
+                                    </span>
+                                  </>
+                                )}
+                              </div>
                             </div>
 
                             {/* Ref + client */}
@@ -3832,6 +5097,7 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
                               <div style={{ display: 'flex', alignItems: 'center', gap: 3, minWidth: 0 }}>
                                 <span
                                   style={{ fontSize: 10, fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.highlight, lineHeight: 1.15, flexShrink: 1, cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}
+                                  onMouseEnter={() => { window.dispatchEvent(new CustomEvent('warmMattersTab')); }}
                                   onClick={(e: React.MouseEvent) => { e.stopPropagation(); window.dispatchEvent(new CustomEvent('navigateToMatter', { detail: { matterId: m.matterId } })); }}
                                   title="Open matter"
                                 >
@@ -3851,20 +5117,7 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
                               <span style={{ fontSize: 9, color: muted, lineHeight: 1.1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.clientName || '—'}</span>
                             </div>
 
-                            {/* Pipe separator */}
-                            <span style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}><span style={{ width: 1, height: 14, background: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(13,47,96,0.08)' }} /></span>
-
-                            {/* AoW label */}
-                            <span style={{ fontSize: 8, fontWeight: 600, color: aowColor(m.practiceArea || ''), letterSpacing: '0.2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingLeft: 6 }}>
-                              {m.practiceArea || '—'}
-                            </span>
-
-                            {/* FE initials */}
-                            <span style={{ fontSize: 8, fontWeight: 700, color: matterFe.label !== '—' ? colours.green : muted, letterSpacing: '0.3px', textAlign: 'center' }} title={matterFe.title || undefined}>
-                              {matterFe.label}
-                            </span>
-
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', minWidth: 0 }}>
                               {canSeeCcl && (
                                 showCclStatusResolving ? (
                                   <div
@@ -3884,6 +5137,56 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
                                     title="Resolving CCL status"
                                   >
                                     <FiRefreshCw size={alignStackedColumns ? 11 : 10} style={{ color: muted, animation: 'opsDashSpin 1s linear infinite', flexShrink: 0 }} />
+                                  </div>
+                                ) : showInlineMatterSteps ? (
+                                  <div
+                                    style={{ '--strip-columns': matterStepItems.length, minWidth: 150, width: '100%', overflow: 'hidden' } as React.CSSProperties}
+                                    onClick={(event) => event.stopPropagation()}
+                                    title={`CCL ${getCanonicalCclLabel(ccl?.stage || ccl?.status, ccl?.label)}${ccl?.version ? ` · v${ccl.version}` : ''}`}
+                                  >
+                                    <CompactOptionStrip
+                                      items={matterStepItems}
+                                      selectedKey={activeMatterStepKey}
+                                      onSelect={(stepKey) => {
+                                        if (stepKey === 'compile' && compileDone) {
+                                          openCclPipelineDetailModal(m.matterId, 'compile');
+                                          return;
+                                        }
+
+                                        if (stepKey === 'generate') {
+                                          if (genDone) {
+                                            openCclLetterModal(m.matterId);
+                                            return;
+                                          }
+                                          if (!genActive) {
+                                            void runHomeCclAiAutofill(m.matterId);
+                                          }
+                                          return;
+                                        }
+
+                                        if (stepKey === 'pressure') {
+                                          if (pressureDone) {
+                                            openCclPipelineDetailModal(m.matterId, 'pressure');
+                                            return;
+                                          }
+                                          if (!pressureActive && genDone) {
+                                            void runPressureTest(m.matterId);
+                                          }
+                                          return;
+                                        }
+
+                                        if (stepKey === 'review' && hasDraft) {
+                                          openCclLetterModal(m.matterId);
+                                          return;
+                                        }
+
+                                        if (stepKey === 'nd' && (reviewDone || ndDone)) {
+                                          openCclLetterModal(m.matterId);
+                                        }
+                                      }}
+                                      ariaLabel="Matter CCL steps"
+                                      className="compact-option-strip--icon-grid"
+                                    />
                                   </div>
                                 ) : (
                                   <button
@@ -3963,110 +5266,168 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
                             </div>
                           </div>
 
-                            {/* Expanded: CCL milestone line items */}
+                            {/* Expanded: CCL pipeline tray */}
                             {isExp && (
                               <div style={{
-                                padding: '4px 14px 10px',
+                                padding: '6px 14px 10px',
                                 animation: 'opsDashRowFade 0.15s ease both',
                                 display: 'flex',
                                 flexDirection: 'column',
                                 gap: 0,
                               }}>
                                 {(() => {
-                                  const openReview = (event: React.MouseEvent) => {
-                                    event.stopPropagation();
-                                    openCclLetterModal(m.matterId);
-                                  };
-                                  const toClio = Boolean(ccl?.uploadedToClio);
-                                  const toNd = Boolean(ccl?.uploadedToNd);
+                                  const uploadDone = toNd;
 
-                                  const milestones: { label: string; sublabel: string; done: boolean; icon: React.ReactNode; onClick?: (e: React.MouseEvent) => void }[] = [
-                                    {
-                                      label: hasDraft ? 'CCL ready' : 'Draft CCL',
-                                      sublabel: hasDraft ? `v${ccl?.version || 1}` : 'Not started',
-                                      done: hasDraft,
-                                      icon: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>,
-                                      onClick: hasDraft ? openReview : undefined,
-                                    },
-                                    {
-                                      label: isApproved ? 'Reviewed' : 'Review CCL',
-                                      sublabel: isApproved ? (ccl?.finalizedAt ? new Date(ccl.finalizedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : 'Done') : 'Step through fields',
-                                      done: isApproved,
-                                      icon: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>,
-                                      onClick: hasDraft && !isApproved ? openReview : undefined,
-                                    },
-                                    {
-                                      label: toClio ? 'In Clio' : 'Send to Clio',
-                                      sublabel: toClio ? 'Sent' : 'Not sent yet',
-                                      done: toClio,
-                                      icon: <img src={clioIcon} alt="Clio" width={14} height={14} style={{ opacity: toClio ? 1 : 0.3, filter: `${isDarkMode ? 'invert(1) ' : ''}${toClio ? '' : 'grayscale(1)'}`.trim() || 'none' }} />,
-                                    },
-                                    {
-                                      label: toNd ? 'In NetDocuments' : 'File in NetDocuments',
-                                      sublabel: toNd ? 'Filed' : 'Not filed yet',
-                                      done: toNd,
-                                      icon: <img src={netdocumentsIcon} alt="NetDocuments" width={14} height={14} style={{ opacity: toNd ? 1 : 0.3, filter: `${isDarkMode ? 'invert(1) ' : ''}${toNd ? '' : 'grayscale(1)'}`.trim() || 'none' }} />,
-                                    },
-                                  ];
+                                  // Connector line helper
+                                  const connectorColor = (done: boolean) => done
+                                    ? colours.green
+                                    : isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+
+                                  // Dot helper
+                                  const dotStyle = (done: boolean, active: boolean): React.CSSProperties => ({
+                                    width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+                                    background: done ? colours.green : active ? (isDarkMode ? colours.accent : colours.highlight) : (isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.08)'),
+                                    boxShadow: done ? `0 0 0 3px ${isDarkMode ? 'rgba(32,178,108,0.14)' : 'rgba(32,178,108,0.10)'}` : active ? `0 0 0 3px ${isDarkMode ? 'rgba(135,243,243,0.12)' : 'rgba(54,144,206,0.10)'}` : 'none',
+                                    transition: 'background 0.2s ease, box-shadow 0.2s ease',
+                                  });
+
+                                  // Status badge helper
+                                  const badge = (label: string, tone: 'done' | 'active' | 'muted') => {
+                                    const toneMap = {
+                                      done: { color: colours.green, bg: isDarkMode ? 'rgba(32,178,108,0.10)' : 'rgba(32,178,108,0.08)' },
+                                      active: { color: isDarkMode ? colours.accent : colours.highlight, bg: isDarkMode ? 'rgba(135,243,243,0.08)' : 'rgba(54,144,206,0.06)' },
+                                      muted: { color: isDarkMode ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.18)', bg: 'transparent' },
+                                    };
+                                    const t = toneMap[tone];
+                                    return (
+                                      <span style={{
+                                        fontSize: 7.5, fontWeight: 700, letterSpacing: '0.4px',
+                                        textTransform: 'uppercase', color: t.color, background: t.bg,
+                                        padding: tone !== 'muted' ? '1px 5px' : 0, flexShrink: 0,
+                                      }}>{label}</span>
+                                    );
+                                  };
+
+                                  // Spinner
+                                  const spin = (size: number = 10) => (
+                                    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" style={{ animation: 'helix-spin 0.8s linear infinite', flexShrink: 0 }}>
+                                      <circle cx="12" cy="12" r="10" stroke={isDarkMode ? colours.accent : colours.highlight} strokeWidth="3" strokeDasharray="48" strokeLinecap="round" opacity={0.3} />
+                                      <circle cx="12" cy="12" r="10" stroke={isDarkMode ? colours.accent : colours.highlight} strokeWidth="3" strokeDasharray="48" strokeDashoffset="36" strokeLinecap="round" />
+                                    </svg>
+                                  );
 
                                   return (
                                     <>
-                                      {milestones.map((ms, mi) => {
-                                        const dotColor = ms.done ? colours.green : (isDarkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)');
-                                        return (
-                                          <div
-                                            key={ms.label}
-                                            style={{
-                                              display: 'flex',
-                                              alignItems: 'center',
-                                              gap: 10,
-                                              padding: '5px 0',
-                                              borderTop: mi > 0 ? `1px solid ${isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)'}` : 'none',
-                                              cursor: ms.onClick ? 'pointer' : 'default',
-                                              animation: `opsDashRowFade 0.2s ease ${0.05 * mi}s both`,
-                                            }}
-                                            onClick={ms.onClick}
-                                            onMouseEnter={ms.onClick ? (e) => { e.currentTarget.style.background = hoverBg; } : undefined}
-                                            onMouseLeave={ms.onClick ? (e) => { e.currentTarget.style.background = 'transparent'; } : undefined}
-                                          >
-                                            {/* Status dot */}
-                                            <span style={{
-                                              width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
-                                              background: dotColor,
-                                              boxShadow: ms.done ? `0 0 0 3px ${isDarkMode ? 'rgba(32,178,108,0.15)' : 'rgba(32,178,108,0.12)'}` : 'none',
-                                            }} />
+                                      {/* ── Stage 1: Generate ── */}
+                                      <div
+                                        style={{
+                                          display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0',
+                                          cursor: !genDone && !genActive ? 'pointer' : genDone ? 'pointer' : 'default',
+                                          animation: 'opsDashRowFade 0.2s ease 0s both',
+                                        }}
+                                        onClick={genDone ? openReview : (!genActive ? (e) => { e.stopPropagation(); void runHomeCclAiAutofill(m.matterId); } : undefined)}
+                                        onMouseEnter={(e) => { if (!genActive) e.currentTarget.style.background = hoverBg; }}
+                                        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                                      >
+                                        <span style={dotStyle(genDone, genActive)} />
+                                        <span style={{
+                                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                          width: 18, height: 18, flexShrink: 0,
+                                          color: genDone ? colours.green : genActive ? (isDarkMode ? colours.accent : colours.highlight) : (isDarkMode ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.2)'),
+                                        }}>
+                                          {genActive ? spin(14) : (
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                                          )}
+                                        </span>
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                          <span style={{ fontSize: 10, fontWeight: 600, color: genDone ? text : genActive ? text : muted }}>
+                                            {genDone ? 'CCL generated' : genActive ? 'Generating CCL…' : 'Generate CCL'}
+                                          </span>
+                                          {genActive && aiStatus && (
+                                            <div style={{ fontSize: 8, color: isDarkMode ? colours.accent : colours.highlight, marginTop: 1, opacity: 0.8 }}>{aiStatus}</div>
+                                          )}
+                                        </div>
+                                        {genDone ? badge(`v${ccl?.version || 1}`, 'done') : genActive ? badge('processing', 'active') : badge('not started', 'muted')}
+                                      </div>
 
-                                            {/* Icon */}
-                                            <span style={{
-                                              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                                              width: 18, height: 18, flexShrink: 0,
-                                              color: ms.done ? colours.green : (isDarkMode ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.2)'),
-                                            }}>
-                                              {ms.icon}
-                                            </span>
+                                      {/* Connector */}
+                                      <div style={{ marginLeft: 3.5, width: 1, height: 6, background: connectorColor(genDone) }} />
 
-                                            {/* Label + sublabel */}
-                                            <div style={{ flex: 1, minWidth: 0 }}>
-                                              <span style={{
-                                                fontSize: 10, fontWeight: 600,
-                                                color: ms.done ? text : muted,
-                                              }}>
-                                                {ms.label}
-                                              </span>
+                                      {/* ── Stage 2: Review ── */}
+                                      <div
+                                        style={{
+                                          display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0',
+                                          cursor: hasDraft && !reviewDone ? 'pointer' : reviewDone ? 'pointer' : 'default',
+                                          animation: 'opsDashRowFade 0.2s ease 0.06s both',
+                                        }}
+                                        onClick={hasDraft ? openReview : undefined}
+                                        onMouseEnter={hasDraft ? (e) => { e.currentTarget.style.background = hoverBg; } : undefined}
+                                        onMouseLeave={hasDraft ? (e) => { e.currentTarget.style.background = 'transparent'; } : undefined}
+                                      >
+                                        <span style={dotStyle(reviewDone, reviewActive)} />
+                                        <span style={{
+                                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                          width: 18, height: 18, flexShrink: 0,
+                                          color: reviewDone ? colours.green : reviewActive ? (isDarkMode ? colours.accent : colours.highlight) : (isDarkMode ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.2)'),
+                                        }}>
+                                          {reviewActive ? spin(14) : (
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                                          )}
+                                        </span>
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                          <span style={{ fontSize: 10, fontWeight: 600, color: reviewDone ? text : hasDraft ? text : muted }}>
+                                            {reviewDone ? 'Reviewed' : reviewActive ? 'Reviewing…' : hasDraft ? 'Review CCL' : 'Review'}
+                                          </span>
+                                          {reviewDone && ccl?.finalizedAt && (
+                                            <div style={{ fontSize: 8, color: colours.green, marginTop: 1, opacity: 0.8 }}>{new Date(ccl.finalizedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</div>
+                                          )}
+                                          {reviewActive && (
+                                            <div style={{ fontSize: 8, color: isDarkMode ? colours.accent : colours.highlight, marginTop: 1, opacity: 0.8 }}>Safety net in progress…</div>
+                                          )}
+                                          {ptResult && !reviewDone && !reviewActive && (
+                                            <div style={{ fontSize: 8, color: ptFlagged > 0 ? colours.orange : colours.green, marginTop: 1 }}>
+                                              {ptFlagged > 0 ? `${ptFlagged} field${ptFlagged > 1 ? 's' : ''} flagged` : 'All fields passed'}
                                             </div>
+                                          )}
+                                        </div>
+                                        {reviewDone ? badge('approved', 'done') : reviewActive ? badge('checking', 'active') : !hasDraft ? badge('waiting', 'muted') : badge('review ready', 'active')}
+                                      </div>
 
-                                            {/* Sublabel / status */}
-                                            <span style={{
-                                              fontSize: 8.5, fontWeight: 600, flexShrink: 0,
-                                              color: ms.done ? colours.green : (isDarkMode ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.18)'),
-                                              textTransform: 'uppercase',
-                                              letterSpacing: '0.3px',
-                                            }}>
-                                              {ms.sublabel}
-                                            </span>
+                                      {/* Connector */}
+                                      <div style={{ marginLeft: 3.5, width: 1, height: 6, background: connectorColor(reviewDone) }} />
+
+                                      {/* ── Stage 3: Upload ── */}
+                                      <div
+                                        style={{
+                                          display: 'flex', alignItems: 'flex-start', gap: 10, padding: '6px 0',
+                                          cursor: reviewDone ? 'pointer' : 'default',
+                                          animation: 'opsDashRowFade 0.2s ease 0.12s both',
+                                        }}
+                                        onClick={reviewDone ? openReview : undefined}
+                                        onMouseEnter={reviewDone ? (e) => { e.currentTarget.style.background = hoverBg; } : undefined}
+                                        onMouseLeave={reviewDone ? (e) => { e.currentTarget.style.background = 'transparent'; } : undefined}
+                                      >
+                                        <span style={{ ...dotStyle(uploadDone, false), marginTop: 4 }} />
+                                        <span style={{
+                                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                          width: 18, height: 18, flexShrink: 0, marginTop: 1,
+                                          color: uploadDone ? colours.green : (isDarkMode ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.2)'),
+                                        }}>
+                                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                                        </span>
+                                        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                                          <span style={{ fontSize: 10, fontWeight: 600, color: uploadDone ? text : muted }}>
+                                            {uploadDone ? 'In NetDocuments' : reviewDone ? 'NetDocuments pending' : 'NetDocuments'}
+                                          </span>
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                                              <span style={{ width: 5, height: 5, borderRadius: '50%', background: toNd ? colours.green : (isDarkMode ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.08)') }} />
+                                              <span style={{ fontSize: 8, color: toNd ? colours.green : muted, fontWeight: 600 }}>NetDocuments</span>
+                                            </div>
                                           </div>
-                                        );
-                                      })}
+                                        </div>
+                                        {uploadDone ? badge('complete', 'done') : !reviewDone ? badge('waiting', 'muted') : badge('ready', 'active')}
+                                      </div>
                                     </>
                                   );
                                 })()}
@@ -4092,6 +5453,418 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
           </div>
         </div>
       )}
+
+        {/* ── Calls & Attendance Notes ── */}
+        <CallsAndNotes isDarkMode={isDarkMode} userInitials={userInitials || ''} userEmail={userEmail} isNarrow={callsAndNotesNarrow} />
+
+        {/* ── Enquiry Follow-Up Modal ── */}
+        {enquiryFollowUpModal && (() => {
+          const record = enquiryFollowUpModal.record;
+          const summary = getFollowUpSummaryForRecord(record);
+          const followUpDueState = getFollowUpDueStateForRecord(record);
+          const lastFollowUpLabel = summary?.lastFollowUpAt ? friendlyDate(summary.lastFollowUpAt) : 'No follow-up recorded yet';
+          const lastChannelLabel = summary?.lastChannel ? (summary.lastChannel === 'email' ? 'Email' : 'Phone') : 'Not yet recorded';
+          const canRecordFollowUp = getDetailRecordIds(record).length > 0 || String(record.email || '').trim().length > 0;
+
+          return createPortal(
+            <div
+              onClick={closeEnquiryFollowUpModal}
+              style={{
+                position: 'fixed',
+                inset: 0,
+                zIndex: 1200,
+                background: 'rgba(0, 3, 25, 0.6)',
+                backdropFilter: 'blur(8px)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 18,
+              }}
+            >
+              <div
+                onClick={(event) => event.stopPropagation()}
+                style={{
+                  width: 'min(560px, calc(100vw - 28px))',
+                  maxHeight: 'calc(100vh - 36px)',
+                  overflowY: 'auto',
+                  background: isDarkMode ? 'rgba(8, 28, 48, 0.98)' : 'rgba(255, 255, 255, 0.98)',
+                  border: `1px solid ${isDarkMode ? 'rgba(75,85,99,0.55)' : 'rgba(13,47,96,0.12)'}`,
+                  boxShadow: '0 18px 42px rgba(0, 0, 0, 0.34)',
+                  padding: 18,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 14 }}>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: followUpDueState === 'late' ? colours.cta : colours.orange, flexShrink: 0 }} />
+                      <span style={{ fontSize: 11, fontWeight: 700, color: followUpDueState === 'late' ? colours.cta : colours.orange, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                        Enquiry Follow Up
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: text, lineHeight: 1.1 }}>{record.name || 'Enquiry'}</div>
+                    <div style={{ fontSize: 11, color: muted, marginTop: 6, lineHeight: 1.45 }}>
+                      {record.aow || 'Area unknown'} · {hasInstructionForRecord(record) ? 'Instruction received' : followUpDueState === 'late' ? 'Follow-up overdue' : followUpDueState === 'due' ? 'Follow-up due now' : 'Track outreach against this enquiry'}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={closeEnquiryFollowUpModal}
+                    disabled={!!enquiryFollowUpSavingChannel}
+                    style={{
+                      border: 'none',
+                      background: 'transparent',
+                      color: muted,
+                      fontSize: 22,
+                      lineHeight: 1,
+                      cursor: enquiryFollowUpSavingChannel ? 'default' : 'pointer',
+                      opacity: enquiryFollowUpSavingChannel ? 0.5 : 0.8,
+                    }}
+                    aria-label="Close follow-up modal"
+                  >
+                    ×
+                  </button>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: isNarrow ? '1fr' : 'repeat(3, minmax(0, 1fr))', gap: 10, marginBottom: 16 }}>
+                  {[
+                    { label: 'Attempts', value: String(summary?.totalCount || 0), tone: summary?.totalCount ? colours.highlight : muted },
+                    { label: 'Email / Phone', value: `${summary?.emailCount || 0} / ${summary?.phoneCount || 0}`, tone: colours.orange },
+                    { label: 'Last touch', value: summary ? lastChannelLabel : 'Pending', tone: summary ? colours.green : muted },
+                  ].map((item) => (
+                    <div key={item.label} style={{ border: `1px solid ${rowBorder}`, padding: '10px 12px', background: isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(13,47,96,0.02)' }}>
+                      <div style={{ fontSize: 9, fontWeight: 700, color: muted, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 5 }}>{item.label}</div>
+                      <div style={{ fontSize: 18, fontWeight: 700, color: item.tone }}>{item.value}</div>
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{ border: `1px solid ${rowBorder}`, padding: '12px 14px', marginBottom: 16, background: isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(13,47,96,0.02)' }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: text, marginBottom: 6 }}>Current follow-up state</div>
+                  <div style={{ fontSize: 11, color: muted, lineHeight: 1.5 }}>
+                    {summary
+                      ? `${summary.totalCount} follow-up attempt${summary.totalCount === 1 ? '' : 's'} recorded. Last touch: ${lastChannelLabel}${summary.lastRecordedBy ? ` by ${summary.lastRecordedBy}` : ''} on ${lastFollowUpLabel}.`
+                      : followUpDueState === 'late'
+                        ? 'No follow-up attempt is recorded and this enquiry is already beyond the 24-hour follow-up window.'
+                        : followUpDueState === 'due'
+                          ? 'No follow-up attempt is recorded and this enquiry has reached the 24-hour follow-up point.'
+                          : 'No follow-up attempt is recorded yet.'}
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: isNarrow ? '1fr' : '1fr 1fr', gap: 10 }}>
+                  <button
+                    type="button"
+                    onClick={() => { void recordEnquiryFollowUp(record, 'email'); }}
+                    disabled={!canRecordFollowUp || !!enquiryFollowUpSavingChannel}
+                    style={{
+                      border: `1px solid ${isDarkMode ? 'rgba(54,144,206,0.28)' : 'rgba(54,144,206,0.24)'}`,
+                      background: enquiryFollowUpSavingChannel === 'email' ? colours.highlight : (isDarkMode ? 'rgba(54,144,206,0.12)' : 'rgba(54,144,206,0.08)'),
+                      color: enquiryFollowUpSavingChannel === 'email' ? '#fff' : text,
+                      padding: '12px 14px',
+                      cursor: !canRecordFollowUp || enquiryFollowUpSavingChannel ? 'default' : 'pointer',
+                      opacity: !canRecordFollowUp ? 0.5 : 1,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 8,
+                      fontSize: 12,
+                      fontWeight: 700,
+                    }}
+                  >
+                    <FiMail size={14} />
+                    {enquiryFollowUpSavingChannel === 'email' ? 'Recording email…' : 'Record email follow-up'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { void recordEnquiryFollowUp(record, 'phone'); }}
+                    disabled={!canRecordFollowUp || !!enquiryFollowUpSavingChannel}
+                    style={{
+                      border: `1px solid ${isDarkMode ? 'rgba(255,140,0,0.28)' : 'rgba(255,140,0,0.24)'}`,
+                      background: enquiryFollowUpSavingChannel === 'phone' ? colours.orange : (isDarkMode ? 'rgba(255,140,0,0.12)' : 'rgba(255,140,0,0.08)'),
+                      color: enquiryFollowUpSavingChannel === 'phone' ? '#fff' : text,
+                      padding: '12px 14px',
+                      cursor: !canRecordFollowUp || enquiryFollowUpSavingChannel ? 'default' : 'pointer',
+                      opacity: !canRecordFollowUp ? 0.5 : 1,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 8,
+                      fontSize: 12,
+                      fontWeight: 700,
+                    }}
+                  >
+                    <FiPhoneCall size={14} />
+                    {enquiryFollowUpSavingChannel === 'phone' ? 'Recording call…' : 'Record phone follow-up'}
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          );
+        })()}
+
+        {/* ── CCL Pipeline Detail Modal ── */}
+        {cclPipelineDetailModal && (() => {
+          const { matterId, kind } = cclPipelineDetailModal;
+          const matter = displayMatters.find((item) => item.matterId === matterId);
+          const ccl = cclMap[matterId];
+          const compileResult = cclCompileByMatter[matterId];
+          const compileSummary = compileResult?.summary || ccl?.compileSummary || null;
+          const pressureResult = cclPressureTestByMatter[matterId];
+          const flaggedFieldEntries = pressureResult
+            ? Object.entries(pressureResult.fieldScores || {})
+                .filter(([, value]) => !!value?.flag)
+                .sort((left, right) => (right[1]?.score || 0) - (left[1]?.score || 0))
+            : [];
+          const modalTitle = kind === 'compile' ? 'Compilation Results' : 'Pressure Test Results';
+          const modalAccent = kind === 'compile'
+            ? (isDarkMode ? colours.accent : colours.highlight)
+            : ((pressureResult?.flaggedCount || 0) > 0 ? colours.orange : colours.green);
+
+          return createPortal(
+            <div
+              onClick={closeCclPipelineDetailModal}
+              style={{
+                position: 'fixed',
+                inset: 0,
+                zIndex: 28000,
+                background: 'rgba(0, 3, 25, 0.68)',
+                backdropFilter: 'blur(6px)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '20px',
+                boxSizing: 'border-box',
+                fontFamily: "'Raleway', Arial, Helvetica, sans-serif",
+              }}
+            >
+              <div
+                onClick={(event) => event.stopPropagation()}
+                style={{
+                  width: 'min(760px, 100%)',
+                  maxHeight: 'min(82vh, 920px)',
+                  overflow: 'auto',
+                  background: isDarkMode ? 'rgba(6, 23, 51, 0.98)' : '#ffffff',
+                  border: `1px solid ${isDarkMode ? 'rgba(135,243,243,0.14)' : 'rgba(54,144,206,0.14)'}`,
+                  boxShadow: '0 18px 44px rgba(0,0,0,0.35)',
+                  padding: '18px 20px 20px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 16 }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: modalAccent, flexShrink: 0 }} />
+                      <span style={{ fontSize: 11, fontWeight: 700, color: modalAccent, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                        {modalTitle}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: isDarkMode ? '#f3f4f6' : '#061733', lineHeight: 1.2 }}>
+                      {matter?.displayNumber || 'Matter'}
+                      <span style={{ color: isDarkMode ? '#94a3b8' : '#475569', fontWeight: 500 }}> · {matter?.clientName || ccl?.clientName || 'Client'}</span>
+                    </div>
+                    <div style={{ marginTop: 4, fontSize: 10, color: isDarkMode ? '#94a3b8' : '#64748b', lineHeight: 1.45 }}>
+                      {kind === 'compile'
+                        ? 'Source readiness, context coverage, and missing evidence used before generation.'
+                        : 'Field-by-field verification of the generated draft against source evidence.'}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={closeCclPipelineDetailModal}
+                    style={{ border: 'none', background: 'transparent', color: isDarkMode ? '#94a3b8' : '#64748b', cursor: 'pointer', fontSize: 18, lineHeight: 1, padding: 0 }}
+                    aria-label="Close pipeline detail modal"
+                  >
+                    ×
+                  </button>
+                </div>
+
+                {kind === 'compile' ? (
+                  compileSummary ? (
+                    <div style={{ display: 'grid', gap: 14 }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10 }}>
+                        {[
+                          { label: 'Ready', value: compileSummary.readyCount || 0, tone: colours.green },
+                          { label: 'Limited', value: compileSummary.limitedCount || 0, tone: colours.orange },
+                          { label: 'Missing', value: compileSummary.missingCount || 0, tone: colours.cta },
+                          { label: 'Snippets', value: compileSummary.snippetCount || 0, tone: isDarkMode ? colours.accent : colours.highlight },
+                        ].map((item) => (
+                          <div key={item.label} style={{ padding: '10px 12px', border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(13,47,96,0.10)'}`, background: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(13,47,96,0.025)' }}>
+                            <div style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: isDarkMode ? '#94a3b8' : '#64748b' }}>{item.label}</div>
+                            <div style={{ marginTop: 4, fontSize: 18, fontWeight: 700, color: item.tone }}>{item.value}</div>
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{ padding: '10px 12px', border: `1px solid ${isDarkMode ? 'rgba(135,243,243,0.12)' : 'rgba(54,144,206,0.12)'}`, background: isDarkMode ? 'rgba(135,243,243,0.05)' : 'rgba(54,144,206,0.04)' }}>
+                        <div style={{ fontSize: 10.5, fontWeight: 700, color: modalAccent }}>
+                          {compileSummary.readyCount || 0}/{compileSummary.sourceCount || 0} evidence sources ready
+                        </div>
+                        <div style={{ marginTop: 4, fontSize: 10, lineHeight: 1.5, color: isDarkMode ? '#d1d5db' : '#475569' }}>
+                          {(compileSummary.missingFlagsCount || 0)} missing-data flags, {compileSummary.contextFieldCount || 0} context fields, {compileSummary.snippetCount || 0} evidence snippets.
+                          {compileResult?.createdAt ? ` Compiled ${new Date(compileResult.createdAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}.` : ''}
+                        </div>
+                      </div>
+                      {compileResult?.sourceCoverage?.length ? (
+                        <div style={{ display: 'grid', gap: 8 }}>
+                          <div style={{ fontSize: 10, fontWeight: 700, color: isDarkMode ? '#94a3b8' : '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Evidence Coverage</div>
+                          <div style={{ display: 'grid', gap: 8 }}>
+                            {compileResult.sourceCoverage.map((source) => {
+                              const sourceTone = source.status === 'ready' ? colours.green : source.status === 'limited' ? colours.orange : colours.cta;
+                              return (
+                                <div key={source.key} style={{ padding: '10px 12px', border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(13,47,96,0.10)'}`, background: isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(13,47,96,0.02)' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                                    <div style={{ fontSize: 11, fontWeight: 700, color: isDarkMode ? '#f3f4f6' : '#061733' }}>{source.label}</div>
+                                    <span style={{ fontSize: 9, fontWeight: 700, color: sourceTone, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{source.status}</span>
+                                  </div>
+                                  <div style={{ marginTop: 4, fontSize: 10, lineHeight: 1.5, color: isDarkMode ? '#94a3b8' : '#64748b' }}>{source.summary}</div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: 10, lineHeight: 1.5, color: isDarkMode ? '#94a3b8' : '#64748b' }}>
+                          Detailed source-by-source coverage is only available for compile runs completed in this session.
+                        </div>
+                      )}
+                      {!!compileResult?.missingDataFlags?.length && (
+                        <div style={{ display: 'grid', gap: 8 }}>
+                          <div style={{ fontSize: 10, fontWeight: 700, color: isDarkMode ? '#94a3b8' : '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Missing Data Flags</div>
+                          <div style={{ display: 'grid', gap: 6 }}>
+                            {compileResult.missingDataFlags.map((flag) => (
+                              <div key={flag.key} style={{ padding: '8px 10px', border: `1px solid ${isDarkMode ? 'rgba(214,85,65,0.18)' : 'rgba(214,85,65,0.16)'}`, background: isDarkMode ? 'rgba(214,85,65,0.08)' : 'rgba(214,85,65,0.05)' }}>
+                                <div style={{ fontSize: 10.5, fontWeight: 700, color: colours.cta }}>{flag.label}</div>
+                                {flag.detail ? <div style={{ marginTop: 3, fontSize: 10, lineHeight: 1.45, color: isDarkMode ? '#d1d5db' : '#475569' }}>{flag.detail}</div> : null}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 11, lineHeight: 1.6, color: isDarkMode ? '#94a3b8' : '#64748b' }}>
+                      No compile result is cached for this matter yet.
+                    </div>
+                  )
+                ) : cclPressureTestRunning === matterId ? (
+                  <div style={{ display: 'grid', gap: 14 }}>
+                    <div style={{ padding: '12px 14px', border: `1px solid ${isDarkMode ? 'rgba(135,243,243,0.14)' : 'rgba(54,144,206,0.16)'}`, background: isDarkMode ? 'rgba(135,243,243,0.06)' : 'rgba(54,144,206,0.05)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: modalAccent }}>Safety Net running</div>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: isDarkMode ? '#d1d5db' : '#334155' }}>{(cclPressureTestElapsed / 1000).toFixed(1)}s</div>
+                      </div>
+                      <div style={{ marginTop: 4, fontSize: 10, lineHeight: 1.5, color: isDarkMode ? '#d1d5db' : '#475569' }}>
+                        Checking the generated CCL against available source evidence. Keep this open if you want to watch progress.
+                      </div>
+                    </div>
+                    <div style={{ display: 'grid', gap: 8 }}>
+                      {cclPressureTestSteps.map((step) => {
+                        const tone = step.status === 'done'
+                          ? colours.green
+                          : step.status === 'active'
+                            ? (isDarkMode ? colours.accent : colours.highlight)
+                            : step.status === 'error'
+                              ? colours.cta
+                              : (isDarkMode ? '#94a3b8' : '#64748b');
+                        return (
+                          <div key={step.label} style={{ display: 'grid', gridTemplateColumns: '14px minmax(0, 1fr)', gap: 10, alignItems: 'start', padding: '8px 10px', border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(13,47,96,0.08)'}`, background: isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(13,47,96,0.02)' }}>
+                            <div style={{ width: 12, height: 12, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: tone, marginTop: 1 }}>
+                              {step.status === 'active' ? <FiRefreshCw size={12} style={{ animation: 'opsDashSpin 1s linear infinite' }} /> : step.status === 'done' ? <FiCheckCircle size={12} /> : <span style={{ width: 8, height: 8, borderRadius: '50%', background: tone, display: 'inline-block' }} />}
+                            </div>
+                            <div>
+                              <div style={{ fontSize: 10.5, fontWeight: 600, color: step.status === 'pending' ? (isDarkMode ? '#94a3b8' : '#64748b') : (isDarkMode ? '#f3f4f6' : '#061733') }}>{step.label}</div>
+                              {step.detail && (step.status === 'active' || step.status === 'done') && (
+                                <div style={{ fontSize: 9, color: isDarkMode ? '#94a3b8' : '#64748b', marginTop: 2, lineHeight: 1.4 }}>{step.detail}</div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {/* Dev context: fields being tested */}
+                    {cclPressureTestContext && cclPressureTestContext.fieldKeys.length > 0 && (
+                      <div style={{ padding: '10px 12px', border: `1px solid ${isDarkMode ? 'rgba(135,243,243,0.10)' : 'rgba(54,144,206,0.10)'}`, background: isDarkMode ? 'rgba(135,243,243,0.03)' : 'rgba(54,144,206,0.03)' }}>
+                        <div style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: isDarkMode ? '#94a3b8' : '#64748b', marginBottom: 6 }}>
+                          Fields under test ({cclPressureTestContext.fieldKeys.length})
+                        </div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                          {cclPressureTestContext.fieldKeys.map((key) => (
+                            <span key={key} style={{
+                              fontSize: 8.5, fontWeight: 600, padding: '2px 6px',
+                              background: isDarkMode ? 'rgba(135,243,243,0.08)' : 'rgba(54,144,206,0.08)',
+                              color: isDarkMode ? colours.accent : colours.highlight,
+                              textTransform: 'capitalize',
+                            }}>
+                              {key.replace(/_/g, ' ')}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : cclPressureTestError ? (
+                  <div style={{ padding: '12px 14px', border: `1px solid ${isDarkMode ? 'rgba(214,85,65,0.18)' : 'rgba(214,85,65,0.16)'}`, background: isDarkMode ? 'rgba(214,85,65,0.08)' : 'rgba(214,85,65,0.05)' }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: colours.cta }}>Safety Net unavailable</div>
+                    <div style={{ marginTop: 4, fontSize: 10, lineHeight: 1.5, color: isDarkMode ? '#d1d5db' : '#475569' }}>
+                      {cclPressureTestError}
+                    </div>
+                  </div>
+                ) : pressureResult ? (
+                  <div style={{ display: 'grid', gap: 14 }}>
+                    {/* Single-line status bar */}
+                    <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 10, padding: '10px 12px', border: `1px solid ${pressureResult.flaggedCount > 0 ? colours.orange : colours.green}`, background: isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(13,47,96,0.025)' }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: pressureResult.flaggedCount > 0 ? colours.orange : colours.green }}>
+                        {pressureResult.flaggedCount > 0 ? `${pressureResult.flaggedCount} of ${pressureResult.totalFields} fields flagged` : `All ${pressureResult.totalFields} fields passed`}
+                      </span>
+                      <span style={{ fontSize: 10, color: isDarkMode ? '#94a3b8' : '#64748b' }}>·</span>
+                      <span style={{ fontSize: 10, color: isDarkMode ? '#94a3b8' : '#64748b' }}>
+                        {pressureResult.dataSources?.join(', ') || 'source evidence'}
+                      </span>
+                      <span style={{ fontSize: 10, color: isDarkMode ? '#94a3b8' : '#64748b' }}>·</span>
+                      <span style={{ fontSize: 10, color: isDarkMode ? '#94a3b8' : '#64748b' }}>
+                        {Math.round((pressureResult.durationMs || 0) / 100) / 10}s
+                      </span>
+                    </div>
+                    {flaggedFieldEntries.length > 0 && (
+                      <div style={{ display: 'grid', gap: 8 }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: isDarkMode ? '#94a3b8' : '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Flagged Fields</div>
+                        <div style={{ display: 'grid', gap: 8 }}>
+                          {flaggedFieldEntries.map(([fieldKey, score]) => (
+                            <div key={fieldKey} style={{ padding: '8px 10px', border: `1px solid ${isDarkMode ? 'rgba(255,140,0,0.22)' : 'rgba(255,140,0,0.18)'}`, background: isDarkMode ? 'rgba(255,140,0,0.08)' : 'rgba(255,140,0,0.05)' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                                <div style={{ fontSize: 10.5, fontWeight: 700, color: colours.orange, textTransform: 'capitalize' }}>{fieldKey.replace(/_/g, ' ')}</div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                  <span style={{ fontSize: 9, fontWeight: 700, color: colours.orange }}>Score {score.score}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => { closeCclPipelineDetailModal(); setCclReviewSummaryDismissedByMatter((prev) => ({ ...prev, [matterId]: true })); setCclForcedIntroByMatter((prev) => ({ ...prev, [matterId]: false })); setCclSelectedReviewFieldByMatter((prev) => ({ ...prev, [matterId]: fieldKey })); openCclLetterModal(matterId, { forceIntro: false }); }}
+                                    style={{ border: 'none', background: 'rgba(255,140,0,0.14)', color: colours.orange, fontSize: 9, fontWeight: 700, padding: '3px 8px', cursor: 'pointer' }}
+                                  >
+                                    Go to field
+                                  </button>
+                                </div>
+                              </div>
+                              <div style={{ marginTop: 4, fontSize: 10, lineHeight: 1.45, color: isDarkMode ? '#d1d5db' : '#475569' }}>{score.reason}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {flaggedFieldEntries.length === 0 && (
+                      <div style={{ fontSize: 10.5, lineHeight: 1.55, color: isDarkMode ? '#d1d5db' : '#475569' }}>
+                        No fields were flagged against the available evidence. All scores were above the threshold.
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 11, lineHeight: 1.6, color: isDarkMode ? '#94a3b8' : '#64748b' }}>
+                    No pressure-test result is cached for this matter in the current session.
+                  </div>
+                )}
+              </div>
+            </div>,
+            document.body,
+          );
+        })()}
 
       {/* ── CCL Fields Modal ── */}
       {cclFieldsModal && (() => {
@@ -4125,6 +5898,7 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
         applyFallback('display_number', matter?.displayNumber);
         applyFallback('figure', normalizedDraft.state_amount);
         applyFallback('state_amount', normalizedDraft.figure);
+        applyFallback('may_will', 'may');
 
         const fieldSections: { title: string; fields: { key: string; label: string }[] }[] = [
           { title: 'Client Details', fields: [
@@ -4206,11 +5980,7 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
 
         const toggleFieldReviewed = (key: string) => {
           if (!cclFieldsModal) return;
-          setCclAiReviewedFields(prev => {
-            const existing = new Set(prev[cclFieldsModal] || []);
-            if (existing.has(key)) existing.delete(key); else existing.add(key);
-            return { ...prev, [cclFieldsModal]: existing };
-          });
+          toggleReviewedFieldForMatter(cclFieldsModal, key);
         };
 
         // Helper: render a single field value row with optional review checkbox
@@ -4749,7 +6519,7 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
         const cclStage = getCanonicalCclStage(ccl?.stage || ccl?.status);
         const statusLabel = getCanonicalCclLabel(ccl?.stage || ccl?.status, ccl?.label);
         const statusColor = cclStage === 'sent' ? colours.green
-          : cclStage === 'reviewed' || cclStage === 'generated' ? (isDarkMode ? colours.accent : colours.highlight)
+          : cclStage === 'reviewed' || cclStage === 'pressure-tested' || cclStage === 'generated' || cclStage === 'compiled' ? (isDarkMode ? colours.accent : colours.highlight)
           : colours.orange;
         const parseTraceJson = (value: unknown, fallback: any) => {
           if (value == null || value === '') return fallback;
@@ -4811,13 +6581,13 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
             ? {
                 tone: 'success' as const,
                 title: 'Review ready',
-                detail: 'Start with the first flagged step below. The draft updates as you go.',
+                detail: 'Start from the review summary. The full first page stays visible until you choose to begin.',
               }
             : persistedTrace
               ? {
                   tone: 'success' as const,
                   title: 'Review ready',
-                  detail: 'Start with the first flagged step below. This panel is using the latest saved AI run.',
+                  detail: 'Start from the review summary. This panel is using the latest saved AI run.',
                 }
               : traceLoading
                 ? {
@@ -4849,11 +6619,7 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
         };
 
         const toggleFieldReviewed = (key: string) => {
-          setCclAiReviewedFields((prev) => {
-            const existing = new Set(prev[cclLetterModal] || []);
-            if (existing.has(key)) existing.delete(key); else existing.add(key);
-            return { ...prev, [cclLetterModal]: existing };
-          });
+          toggleReviewedFieldForMatter(cclLetterModal, key);
         };
 
         // Confidence tiers:
@@ -4902,6 +6668,28 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
         const dateStr = ccl?.createdAt
           ? new Date(ccl.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
           : new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+        const matterRecord = (matter || {}) as Record<string, unknown>;
+        const recipientName = String(normalizedDraft.insert_clients_name || matter?.clientName || '').trim();
+        const recipientAddressRaw = String(
+          normalizedDraft.insert_postal_address
+          || normalizedDraft.client_address
+          || matterRecord.client_address
+          || matterRecord.clientAddress
+          || ''
+        ).trim();
+        const recipientAddressLines = recipientAddressRaw
+          ? recipientAddressRaw
+            .split(/\r?\n/)
+            .flatMap((line) => line.split(/\s*,\s*/))
+            .map((line) => line.trim())
+            .filter(Boolean)
+          : [];
+        const recipientMatterHeading = String(
+          normalizedDraft.insert_heading_eg_matter_description
+          || matterRecord.description
+          || matterRecord.practiceArea
+          || ''
+        ).trim();
 
         const getDraftValue = (fields: Record<string, unknown>, key: string) => String(fields[key] || '').trim();
         const normalizeInitialScopeValue = (value: string) => value
@@ -4995,56 +6783,20 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
         };
         const rawPreviewTemplate = generateTemplateContent(DEFAULT_CCL_TEMPLATE, structuredReviewFields, genOptions, true);
         const rawGeneratedContent = generateTemplateContent(DEFAULT_CCL_TEMPLATE, structuredReviewFields, genOptions);
+        // The letterhead header already renders "Dear {name}" and the matter heading,
+        // so skip both and start the template body from the substantive opening paragraph.
+        const introPreviewTemplateStart = rawPreviewTemplate.search(/\bThank you for your instructions\b/);
+        const introPreviewTemplate = introPreviewTemplateStart >= 0
+          ? rawPreviewTemplate.slice(introPreviewTemplateStart)
+          : rawPreviewTemplate;
         const unresolvedPlaceholders = Array.from(new Set(
           [...rawGeneratedContent.matchAll(/\{\{([^}]+)\}\}/g)].map((m) => String(m[1] || '').trim()).filter(Boolean)
         ));
         const hasUnresolved = unresolvedPlaceholders.length > 0;
-        const canApprove = getCanonicalCclStage(ccl?.stage || ccl?.status) === 'generated' && !hasUnresolved;
+        const canApprove = ['generated', 'pressure-tested'].includes(getCanonicalCclStage(ccl?.stage || ccl?.status)) && !hasUnresolved;
 
-        const orderedTemplateFieldKeys = [
-          'insert_clients_name',
-          'insert_heading_eg_matter_description',
-          'name_of_person_handling_matter',
-          'status',
-          'name',
-          'fee_earner_email',
-          'fee_earner_phone',
-          'fee_earner_postal_address',
-          'names_and_contact_details_of_other_members_of_staff_who_can_help_with_queries',
-          'insert_current_position_and_scope_of_retainer',
-          'next_steps',
-          'realistic_timescale',
-          'handler_hourly_rate',
-          'charges_estimate_paragraph',
-          'disbursements_paragraph',
-          'costs_other_party_paragraph',
-          'figure',
-          'and_or_intervals_eg_every_three_months',
-          'contact_details_for_marketing_opt_out',
-          'eid_paragraph',
-          'may_will',
-          'explain_the_nature_of_your_arrangement_with_any_introducer_for_link_to_sample_wording_see_drafting_note_referral_and_fee_sharing_arrangement',
-          'instructions_link',
-          'insert_next_step_you_would_like_client_to_take',
-          'state_why_this_step_is_important',
-          'state_amount',
-          'insert_consequence',
-          'describe_first_document_or_information_you_need_from_your_client',
-          'describe_second_document_or_information_you_need_from_your_client',
-          'describe_third_document_or_information_you_need_from_your_client',
-        ];
-        const suppressedReviewFieldKeys = new Set([
-          'insert_clients_name',
-          'name_of_person_handling_matter',
-          'status',
-          'name',
-          'fee_earner_email',
-          'fee_earner_phone',
-          'fee_earner_postal_address',
-          'names_and_contact_details_of_other_members_of_staff_who_can_help_with_queries',
-          'contact_details_for_marketing_opt_out',
-          'handler_hourly_rate',
-        ]);
+        const orderedTemplateFieldKeys: string[] = [...CCL_ORDERED_REVIEW_FIELD_KEYS];
+        const suppressedReviewFieldKeys = CCL_SUPPRESSED_REVIEW_FIELD_KEYS;
         const visibleReviewFieldKeys = orderedTemplateFieldKeys.filter((key) => (
           !suppressedReviewFieldKeys.has(key)
           &&
@@ -5055,19 +6807,25 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
             || aiFieldKeys.includes(key)
           )
         ));
-        const lowConfidenceReviewFieldKeys = visibleReviewFieldKeys.filter((key) => {
+        const flaggedReviewFieldKeys = visibleReviewFieldKeys.filter((key) => {
           const meta = fieldMeta[key];
           const ptFieldScore = cclPressureTestByMatter[cclLetterModal]?.fieldScores?.[key];
           const isAiBacked = aiFieldKeys.includes(key);
-          return isAiBacked && (
-            unresolvedPlaceholders.includes(key)
-            || !!ptFieldScore?.flag
-            || meta?.confidence === 'inferred'
-            || meta?.confidence === 'unknown'
-          );
+          if (!isAiBacked) return false;
+          if (unresolvedPlaceholders.includes(key) || !!ptFieldScore?.flag) return true;
+          return false;
         });
-        const effectiveReviewFieldKeys = lowConfidenceReviewFieldKeys;
-        const allClickableFieldKeys = visibleReviewFieldKeys;
+        const lowConfidenceReviewFieldKeys = flaggedReviewFieldKeys.length > 0
+          ? flaggedReviewFieldKeys
+          : visibleReviewFieldKeys.filter((key) => {
+              const meta = fieldMeta[key];
+              const isAiBacked = aiFieldKeys.includes(key);
+              if (!isAiBacked) return false;
+              if (unresolvedPlaceholders.includes(key)) return true;
+              return meta?.confidence === 'unknown';
+            });
+        const effectiveReviewFieldKeys: string[] = lowConfidenceReviewFieldKeys;
+        const allClickableFieldKeys: string[] = effectiveReviewFieldKeys.length > 0 ? effectiveReviewFieldKeys : visibleReviewFieldKeys;
         const visibleReviewFieldCount = effectiveReviewFieldKeys.length;
 
         // Confidence breakdown for summary card
@@ -5078,17 +6836,21 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
         }
 
         const summaryDismissed = !!cclReviewSummaryDismissedByMatter[cclLetterModal];
-        const showSummaryLanding = !summaryDismissed && !traceLoading && !isStreamingNow && (hasAiData || !!persistedTrace);
 
         const savedSelectedField = cclSelectedReviewFieldByMatter[cclLetterModal];
         const isExplicitFullLetter = savedSelectedField === '__none__';
-        const selectedFieldKey = showSummaryLanding
+        const forcedIntro = !!cclForcedIntroByMatter[cclLetterModal];
+        const shouldOfferReviewIntro = forcedIntro || (!summaryDismissed && !savedSelectedField && visibleReviewFieldCount > 0);
+        const showSummaryLanding = shouldOfferReviewIntro && !traceLoading && !isStreamingNow && (hasAiData || !!persistedTrace);
+        const nextQueuedFieldKey = effectiveReviewFieldKeys.find((key) => !reviewedSet.has(key)) || effectiveReviewFieldKeys[0] || null;
+        const resolvedSelectedFieldKey = isExplicitFullLetter
           ? null
-          : isExplicitFullLetter
-            ? null
-            : (savedSelectedField && (effectiveReviewFieldKeys.includes(savedSelectedField) || allClickableFieldKeys.includes(savedSelectedField)))
-              ? savedSelectedField
-              : (effectiveReviewFieldKeys.find(key => !reviewedSet.has(key)) || effectiveReviewFieldKeys[0] || null);
+          : (savedSelectedField && (effectiveReviewFieldKeys.includes(savedSelectedField) || allClickableFieldKeys.includes(savedSelectedField)))
+            ? savedSelectedField
+            : null;
+        const showReviewIntro = shouldOfferReviewIntro;
+        cclIntroPreviewModeRef.current = showReviewIntro;
+        const selectedFieldKey = showReviewIntro ? null : resolvedSelectedFieldKey;
         cclSelectedFieldRef.current = selectedFieldKey;
         const selectedFieldMeta = selectedFieldKey ? fieldMeta[selectedFieldKey] : null;
         const selectedFieldTemplateContext = selectedFieldKey ? templateContextFor(selectedFieldKey) : '';
@@ -5168,22 +6930,24 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
           ? reviewFieldGroups.find((group) => group.title === selectedFieldMeta.group) || null
           : null;
         const reviewedDecisionCount = effectiveReviewFieldKeys.filter((key) => reviewedSet.has(key)).length;
+        const selectedFieldSequence = selectedFieldKey && !effectiveReviewFieldKeys.includes(selectedFieldKey)
+          ? allClickableFieldKeys
+          : effectiveReviewFieldKeys;
+        const selectedFieldSequenceCount = selectedFieldSequence.length;
         const currentDecisionNumber = selectedFieldKey
-          ? Math.max(effectiveReviewFieldKeys.indexOf(selectedFieldKey) + 1, 1)
+          ? Math.max(selectedFieldSequence.indexOf(selectedFieldKey) + 1, 1)
           : 0;
         const selectedFieldIsReviewed = selectedFieldKey ? reviewedSet.has(selectedFieldKey) : false;
         const selectedFieldPressureTest = selectedFieldKey ? cclPressureTestByMatter[cclLetterModal]?.fieldScores?.[selectedFieldKey] : undefined;
         const selectedFieldDecisionReason = structuredChoiceConfig
-          ? 'Choose the branch that should appear in the approved letter preview on the left.'
+          ? 'Pick the wording branch that should go into the letter.'
           : selectedFieldUnresolved
-          ? 'No wording has been filled in yet for this part of the letter.'
+          ? 'Set the wording for this part of the letter.'
           : selectedFieldPressureTest?.reason
             ? selectedFieldPressureTest.reason
             : selectedFieldMeta?.confidence === 'unknown'
-              ? 'We do not have a reliable source for this, so a fee earner needs to decide it.'
-              : selectedFieldMeta?.confidence === 'inferred'
-                ? 'This wording was inferred from the intake context, so it needs a human check.'
-                : selectedFieldMeta?.prompt || 'Check that this reads correctly before you move on.';
+              ? 'No reliable source has landed for this point yet. Please set the wording.'
+              : 'Confirm the wording that should stay in the letter.';
         const systemPromptText = String(aiRes?.systemPrompt || '').trim();
         const userPromptText = String(aiRes?.userPrompt || '').trim();
         const hasSessionPrompts = !!(systemPromptText || userPromptText);
@@ -5259,10 +7023,10 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
               : section.body,
           }))
           .filter((section) => !!section.body.trim());
-        const selectedFieldIndex = selectedFieldKey ? effectiveReviewFieldKeys.indexOf(selectedFieldKey) : -1;
+        const selectedFieldIndex = selectedFieldKey ? selectedFieldSequence.indexOf(selectedFieldKey) : -1;
         const nextDecisionFieldKey = selectedFieldIndex >= 0
-          ? effectiveReviewFieldKeys.slice(selectedFieldIndex + 1).find((key) => !reviewedSet.has(key))
-            || effectiveReviewFieldKeys[selectedFieldIndex + 1]
+          ? selectedFieldSequence.slice(selectedFieldIndex + 1).find((key) => !reviewedSet.has(key))
+            || selectedFieldSequence[selectedFieldIndex + 1]
             || null
           : null;
         const selectionProgressPercent = visibleReviewFieldCount > 0
@@ -5328,7 +7092,7 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
             isActive,
           };
         });
-        const setFocusedReviewField = (key: string | null, fromScrollSpy = false) => {
+        const setFocusedReviewField = (key: string | null, fromScrollSpy = false, shouldScrollIntoView = true) => {
           if (key) {
             const nextGroupTitle = fieldMeta[key]?.group;
             if (nextGroupTitle) {
@@ -5347,7 +7111,9 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
             // Lock scroll spy for 600ms to prevent circular: programmatic scroll → spy → set field
             cclScrollSpyLockRef.current = true;
             setTimeout(() => { cclScrollSpyLockRef.current = false; }, 600);
-            requestAnimationFrame(() => scrollReviewFieldIntoView(key));
+            if (shouldScrollIntoView) {
+              requestAnimationFrame(() => scrollReviewFieldIntoView(key));
+            }
           }
         };
         const focusNextDecision = () => {
@@ -5428,9 +7194,13 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
                   finalizedAt: result.finalizedAt || new Date().toISOString(),
                 },
               }));
+              showToast({ type: 'success', title: 'Letter approved', message: 'CCL marked as reviewed and finalised.', duration: 4000 });
+            } else {
+              showToast({ type: 'error', title: 'Approval failed', message: result.error || 'Could not approve letter.', duration: 5000 });
             }
           } catch (err) {
             console.error('[ccl] Approval error:', err);
+            showToast({ type: 'error', title: 'Approval error', message: 'Something went wrong approving this letter.', duration: 5000 });
           } finally {
             setCclApprovingMatter(null);
           }
@@ -5451,9 +7221,17 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
         const isMobileReview = typeof window !== 'undefined' ? window.innerWidth <= 820 : false;
         const ptRunningHere = cclPressureTestRunning === cclLetterModal;
         const ptResultHere = cclPressureTestByMatter[cclLetterModal];
+        const compileResultHere = cclCompileByMatter[cclLetterModal];
+        const compileSummaryHere = compileResultHere?.summary || ccl?.compileSummary || null;
+        const compiledAtHere = ccl?.compiledAt || compileResultHere?.createdAt || null;
         const ptHasAiContext = hasAiData || !!persistedTrace;
         const ptCanRun = ptHasAiContext && !ptResultHere && !ptRunningHere;
-        const shouldShowReviewRail = !isMobileReview && (
+        const generationFieldCount = Number(aiRes?.debug?.generatedFieldCount || persistedTrace?.GeneratedFieldCount || totalAiFields || 0);
+        const generationConfidence = String(aiRes?.confidence || persistedTrace?.Confidence || ccl?.confidence || '').trim().toLowerCase();
+        const loadingReviewContext = !selectedFieldKey && (traceLoading || isStreamingNow);
+        const noAiReviewContext = !selectedFieldKey && !loadingReviewContext && !hasAiData && !persistedTrace;
+        const showQueuedReviewLanding = !selectedFieldKey && !loadingReviewContext && !noAiReviewContext && !showSummaryLanding && visibleReviewFieldCount > 0;
+        const shouldShowReviewRail = !showReviewIntro && !isMobileReview && !showQueuedReviewLanding && (
           reviewRailPrimed
           || !!selectedFieldKey
           || traceLoading
@@ -5463,13 +7241,98 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
           || visibleReviewFieldCount > 0
           || ptRunningHere
         );
-        const loadingReviewContext = !selectedFieldKey && (traceLoading || isStreamingNow);
-        const noAiReviewContext = !selectedFieldKey && !loadingReviewContext && !hasAiData && !persistedTrace;
         const noClarificationsQueued = !selectedFieldKey && !loadingReviewContext && !noAiReviewContext && visibleReviewFieldCount === 0 && !showSummaryLanding;
         const showReviewRailSkeleton = shouldShowReviewRail && loadingReviewContext;
         const reviewValueFontSize = isMobileReview ? 11 : 10;
         const reviewPaneHeight = isMobileReview ? (selectedFieldKey ? 'min(50vh, 440px)' : '0px') : 'auto';
         const previewBottomPadding = isMobileReview && selectedFieldKey ? 380 : 22;
+        const introPreviewFooter = 'Helix Law Ltd is authorised and regulated by the Solicitors Regulation Authority (SRA No. 669720)';
+        const introHeadline = loadingReviewContext
+          ? 'Preparing your review'
+          : noAiReviewContext
+            ? 'Draft open'
+            : 'Review ready';
+        const ptFlaggedCount = ptResultHere?.flaggedCount || 0;
+        const ptTotalFields = ptResultHere?.totalFields || 0;
+        const introBody = loadingReviewContext
+          ? (aiState.detail || 'Pulling the matter context together and setting up the review.')
+          : noAiReviewContext
+            ? 'The draft is open. Generate the review pass if you want the remaining points pulled out for sign-off.'
+            : visibleReviewFieldCount > 0
+              ? (ptResultHere && ptFlaggedCount > 0
+                ? `Safety Net flagged ${ptFlaggedCount} field${ptFlaggedCount === 1 ? '' : 's'} \u2014 the rest scored 8+ against source evidence.`
+                : ptResultHere && ptFlaggedCount === 0
+                  ? `All ${ptTotalFields} fields passed Safety Net. Open the review for a final check.`
+                  : `${visibleReviewFieldCount} point${visibleReviewFieldCount === 1 ? '' : 's'} still need${visibleReviewFieldCount === 1 ? 's' : ''} sign-off.`)
+              : 'Open the review workspace for a final read-through.';
+        const introShellGrid = isMobileReview
+          ? 'minmax(0, 1fr)'
+          : 'minmax(0, 1.15fr) minmax(360px, 0.85fr)';
+        const reviewShellGrid = isMobileReview
+          ? 'minmax(0, 1fr)'
+          : (shouldShowReviewRail ? introShellGrid : 'minmax(0, 1fr)');
+        const introSectionTitles = reviewSectionTabs.map((tab) => tab.title);
+        const introRemainingStart = Math.min(
+          Math.max(Math.floor(cclIntroScrollProgress * Math.max(introSectionTitles.length, 1)), 0),
+          Math.max(introSectionTitles.length - 1, 0),
+        );
+        const introRemainingTitles = introSectionTitles.slice(introRemainingStart, introRemainingStart + 3);
+        const previewCurrentPage = showReviewIntro ? cclIntroCurrentPage : cclReviewCurrentPage;
+        const previewTotalPages = showReviewIntro ? cclIntroTotalPages : cclTotalPages;
+        const previewDocumentMaxWidth = isMobileReview ? '100%' : 794;
+        const previewDesktopFontSize = '10pt';
+        const previewDesktopLineHeight = 1.42;
+        const previewDocumentPaddingX = isMobileReview ? 24 : 52;
+
+        const previewFirstPageHeader = (
+          <>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 24 }}>
+              <img src="https://helix-law.co.uk/wp-content/uploads/2025/01/Asset-2@72x.png" alt="Helix Law" style={{ width: isMobileReview ? 146 : 178, height: 'auto', display: 'block', flexShrink: 0 }} />
+              <div style={{ textAlign: 'right' as const, fontSize: 9.5, lineHeight: 1.55, color: '#475569', minWidth: isMobileReview ? 160 : 220 }}>
+                <div style={{ fontSize: 10.5, fontWeight: 700, color: '#0D2F60' }}>01273 761990</div>
+                <div>helix-law.com</div>
+                <div>Second Floor, Britannia House</div>
+                <div>21 Station Street, Brighton</div>
+                <div>BN1 4DE</div>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: isMobileReview ? 'minmax(0, 1fr)' : 'minmax(0, 1fr) max-content', gap: isMobileReview ? 16 : 28, fontSize: 10.5, lineHeight: 1.65, color: '#061733', marginTop: 22, marginBottom: 14, alignItems: 'start' }}>
+              <div style={{ display: 'grid', gap: 2, minWidth: 0 }}>
+                <div style={{ fontWeight: 600 }}>{recipientName || 'Client'}</div>
+                {recipientAddressLines.map((line) => (
+                  <div key={line}>{line}</div>
+                ))}
+              </div>
+              <div style={{ display: 'grid', gap: 8, justifyItems: isMobileReview ? 'start' : 'end', textAlign: isMobileReview ? 'left' as const : 'right' as const, minWidth: isMobileReview ? 0 : 220 }}>
+                <div>Our Reference {matter?.displayNumber || ''}</div>
+                {!!structuredReviewFields.fee_earner_email && <div>Email {structuredReviewFields.fee_earner_email}</div>}
+                <div>Date {dateStr}</div>
+              </div>
+            </div>
+
+            {!!structuredReviewFields.client_email && (
+              <div style={{ fontSize: 10.5, lineHeight: 1.65, color: '#061733', marginBottom: 18 }}>
+                BY EMAIL ONLY - {structuredReviewFields.client_email}
+              </div>
+            )}
+
+            {!!recipientMatterHeading && (
+              <div style={{ fontSize: 11, lineHeight: 1.65, color: '#061733', fontWeight: 600, marginBottom: 18 }}>
+                {recipientMatterHeading}
+              </div>
+            )}
+
+            <div style={{ fontSize: 10.5, lineHeight: 1.65, color: '#061733', marginBottom: 18 }}>
+              Dear {recipientName || 'Client'}
+            </div>
+          </>
+        );
+        const previewFirstPageFooter = (
+          <div style={{ paddingTop: 10, borderTop: '0.5px solid #d5dbe3', fontSize: 7.5, color: '#94a3b8', textAlign: 'center', lineHeight: 1.45 }}>
+            {introPreviewFooter}
+          </div>
+        );
         const syncVisibleReviewGroup = () => {
           const el = cclReviewPreviewRef.current;
           const legend = cclLegendRef.current;
@@ -5489,6 +7352,7 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
             if (cclScrollSpyLockRef.current) return;
             const containerRect = el.getBoundingClientRect();
             const scanY = containerRect.top + containerRect.height * 0.4;
+            const currentKey = cclSelectedFieldRef.current;
             let bestKey: string | null = null;
             let bestDist = Infinity;
             for (const key of allClickableFieldKeys) {
@@ -5503,11 +7367,10 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
                 bestKey = key;
               }
             }
-            // If at top of scroll, deselect to show "Full letter"
-            if (el.scrollTop < 30) {
+            // Only snap back to full letter at the very top if no field is explicitly selected.
+            if (el.scrollTop < 18 && !currentKey) {
               bestKey = null;
             }
-            const currentKey = cclSelectedFieldRef.current;
             const currentFieldEl = currentKey ? cclReviewFieldElementRefs.current[currentKey] : null;
             const currentRect = currentFieldEl?.getBoundingClientRect();
             const currentStillAnchored = !!currentRect
@@ -5532,6 +7395,48 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
             }
             cclScrollSpyPendingFieldRef.current = { key: currentKey, count: 0 };
           }, 160);
+
+          const containerRect = el.getBoundingClientRect();
+          const pageEls = Array.from(el.querySelectorAll<HTMLElement>('[data-page-number]'));
+          let bestPage = 1;
+          let bestDistance = Number.POSITIVE_INFINITY;
+          pageEls.forEach((pageEl) => {
+            const rect = pageEl.getBoundingClientRect();
+            if (rect.bottom < containerRect.top || rect.top > containerRect.bottom) return;
+            const distance = Math.abs(rect.top - containerRect.top - 24);
+            const pageNum = Number(pageEl.dataset.pageNumber || 1);
+            if (distance < bestDistance) {
+              bestDistance = distance;
+              bestPage = pageNum;
+            }
+          });
+          setCclReviewCurrentPage((prev) => prev === bestPage ? prev : bestPage);
+        };
+        const syncIntroPreviewProgress = () => {
+          const el = cclReviewPreviewRef.current;
+          if (!el) return;
+          const maxScroll = Math.max(el.scrollHeight - el.clientHeight, 0);
+          const nextProgress = maxScroll > 0 ? Math.min(Math.max(el.scrollTop / maxScroll, 0), 1) : 0;
+          setCclIntroScrollProgress((prev) => Math.abs(prev - nextProgress) < 0.01 ? prev : nextProgress);
+          const pageEls = Array.from(el.querySelectorAll<HTMLElement>('[data-page-number]'));
+          if (!pageEls.length) {
+            setCclIntroCurrentPage(1);
+            return;
+          }
+          const containerRect = el.getBoundingClientRect();
+          let bestPage = 1;
+          let bestDistance = Number.POSITIVE_INFINITY;
+          pageEls.forEach((pageEl) => {
+            const rect = pageEl.getBoundingClientRect();
+            if (rect.bottom < containerRect.top || rect.top > containerRect.bottom) return;
+            const distance = Math.abs(rect.top - containerRect.top - 24);
+            const pageNum = Number(pageEl.dataset.pageNumber || 1);
+            if (distance < bestDistance) {
+              bestDistance = distance;
+              bestPage = pageNum;
+            }
+          });
+          setCclIntroCurrentPage((prev) => prev === bestPage ? prev : bestPage);
         };
         const reviewRailContentKey = selectedFieldKey
           ? `field:${selectedFieldKey}`
@@ -5605,12 +7510,36 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
                     <span style={{ color: '#94a3b8', fontWeight: 500 }}> · {matter?.clientName || normalizedDraft.insert_clients_name || 'Client'}</span>
                   </div>
 
-                  <div style={{ marginTop: 8, height: 4, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
-                    <div style={{ width: `${selectionProgressPercent}%`, height: '100%', background: colours.accent, transition: 'width 0.18s ease' }} />
+                  <div style={{ marginTop: 5, fontSize: isMobileReview ? 11 : 10, color: '#94a3b8', lineHeight: 1.45 }}>
+                    {showReviewIntro
+                      ? 'Draft review'
+                      : selectedFieldKey
+                        ? `Decision ${Math.max(currentDecisionNumber, 1)} of ${visibleReviewFieldCount}`
+                        : visibleReviewFieldCount > 0
+                          ? `${visibleReviewFieldCount} point${visibleReviewFieldCount === 1 ? '' : 's'} left to check`
+                          : 'Final review workspace'}
                   </div>
                 </div>
+                {showQueuedReviewLanding && nextQueuedFieldKey && !isMobileReview && (
+                  <button
+                    type="button"
+                    onClick={() => setFocusedReviewField(nextQueuedFieldKey)}
+                    style={{
+                      border: '1px solid rgba(135, 243, 243, 0.42)',
+                      background: 'rgba(135, 243, 243, 0.12)',
+                      color: '#f3f4f6',
+                      cursor: 'pointer',
+                      padding: '8px 12px',
+                      fontSize: 10,
+                      fontWeight: 700,
+                      flexShrink: 0,
+                    }}
+                  >
+                    Open first point
+                  </button>
+                )}
                 <div style={{ fontSize: isMobileReview ? 11 : 10, color: '#A0A0A0', whiteSpace: 'nowrap' }}>
-                  {selectedFieldKey ? `Step ${Math.max(currentDecisionNumber, 1)} of ${visibleReviewFieldCount}` : visibleReviewFieldCount > 0 ? `${visibleReviewFieldCount} to check` : 'No clarifications'}
+                  {`Page ${previewCurrentPage} of ${Math.max(previewTotalPages, 1)}`}
                 </div>
                 <button
                   type="button"
@@ -5627,147 +7556,200 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
                 >×</button>
               </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: shouldShowReviewRail ? 'minmax(0, 3fr) minmax(340px, 2fr)' : 'minmax(0, 1fr)', flex: 1, minHeight: 0, overflow: 'hidden', position: 'relative' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: showReviewIntro ? introShellGrid : reviewShellGrid, flex: 1, minHeight: 0, overflow: 'hidden', position: 'relative' }}>
+                  <div style={{ position: 'relative', minWidth: 0, minHeight: 0, overflow: 'hidden' }}>
                   <div
                     className="ccl-review-scroll"
                     ref={(el) => {
                       cclReviewPreviewRef.current = el;
                     }}
-                    onScroll={syncVisibleReviewGroup}
-                    style={{ overflow: 'auto', padding: 0, paddingBottom: previewBottomPadding, background: '#d5d8dc' }}
+                    onScroll={showReviewIntro ? syncIntroPreviewProgress : syncVisibleReviewGroup}
+                    style={{
+                      overflow: 'auto',
+                      padding: 0,
+                      paddingBottom: showReviewIntro ? 0 : previewBottomPadding,
+                      background: '#cfd6df',
+                      height: '100%',
+                    }}
                   >
                   <div style={{ minHeight: '100%', display: 'flex', flexDirection: 'column' }}>
-                    {reviewSectionTabs.length > 0 && (
-                      <div data-review-tabs-header="true" style={{
-                        position: 'sticky',
-                        top: 0,
-                        zIndex: 2,
-                        padding: isMobileReview ? '12px 12px 10px' : '10px 18px 8px',
-                        borderBottom: '1px solid rgba(0,0,0,0.08)',
-                        background: isMobileReview ? '#f6f7f9' : 'rgba(213,216,220,0.92)',
-                        backdropFilter: isMobileReview ? 'none' : 'blur(8px)',
-                        boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
-                        display: 'grid',
-                        gap: 8,
-                      }}>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              cclScrollSpyLockRef.current = true;
-                              setTimeout(() => { cclScrollSpyLockRef.current = false; }, 600);
-                              setFocusedReviewField(null, true);
-                              cclReviewPreviewRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
-                            }}
-                            style={{
-                              border: `1px solid ${isFullLetterActive ? 'rgba(54,144,206,0.34)' : 'rgba(13,47,96,0.12)'}`,
-                              background: isFullLetterActive ? 'rgba(214,232,255,1)' : '#ffffff',
-                              color: '#061733',
-                              padding: isMobileReview ? '7px 10px' : '5px 9px',
-                              fontSize: isMobileReview ? 10 : 9,
-                              fontWeight: 600,
-                              cursor: 'pointer',
-                            }}
-                          >
-                            Full letter
-                          </button>
-                          {reviewSectionTabs.map((tab) => {
-                            const done = tab.completedCount === tab.totalCount;
-                            return (
-                              <button
-                                key={tab.key}
-                                type="button"
-                                onClick={() => {
-                                  setFocusedReviewField(tab.focusKey);
-                                  requestAnimationFrame(() => scrollReviewGroupIntoView(tab.title));
-                                }}
-                                style={{
-                                  border: `1px solid ${tab.isActive ? 'rgba(54,144,206,0.34)' : done ? 'rgba(32,178,108,0.22)' : 'rgba(13,47,96,0.12)'}`,
-                                  background: tab.isActive ? 'rgba(214,232,255,1)' : done ? 'rgba(32,178,108,0.08)' : '#ffffff',
-                                  color: tab.isActive ? '#061733' : done ? colours.green : '#334155',
-                                  padding: isMobileReview ? '7px 10px' : '5px 9px',
-                                  fontSize: isMobileReview ? 10 : 9,
-                                  fontWeight: 600,
-                                  cursor: 'pointer',
-                                }}
-                              >
-                                {tab.title}{!done && tab.totalCount > 1 ? ` (${tab.completedCount}/${tab.totalCount})` : done ? ' ✓' : ''}
-                              </button>
-                            );
-                          })}
-                        </div>
-                        {previewLegendItems.length > 0 && (
-                          <div ref={cclLegendRef} style={{ display: 'flex', flexWrap: 'wrap', gap: 5, paddingTop: 2, borderTop: '1px solid rgba(0,0,0,0.06)', maxHeight: 60, opacity: 1, transition: 'max-height 0.25s ease, opacity 0.2s ease, padding-top 0.25s ease' }}>
-                            {previewLegendItems.map((item) => (
-                              <span
-                                key={item.key}
-                                style={{
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: 5,
-                                  padding: isMobileReview ? '6px 8px' : '4px 7px',
-                                  fontSize: isMobileReview ? 10 : 9,
-                                  color: item.text,
-                                  background: 'rgba(255,255,255,0.75)',
-                                  border: '1px solid rgba(0,0,0,0.08)',
-                                }}
-                              >
-                                <span style={{ width: 10, height: 10, background: item.swatch, borderBottom: `1px solid ${item.border}`, boxShadow: item.key === 'reviewed' ? 'inset 0 -2px 0 rgba(32,178,108,0.7)' : 'none' }} />
-                                {item.label}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
                     <div ref={cclReviewPageRefCallback} data-ccl-page-container style={{
-                      maxWidth: isMobileReview ? '100%' : 680,
+                      maxWidth: previewDocumentMaxWidth,
                       margin: isMobileReview ? '0' : '0 auto',
-                      padding: isMobileReview ? '28px 24px 28px' : '24px 0 40px',
+                      padding: showReviewIntro
+                        ? (isMobileReview ? '18px 14px 20px' : '30px 28px 34px')
+                        : (isMobileReview ? '28px 24px 28px' : '24px 0 40px'),
                       color: '#0f172a',
                       boxSizing: 'border-box',
                       fontFamily: "'Raleway', Arial, Helvetica, sans-serif",
-                      fontSize: isMobileReview ? 14 : '10pt',
-                      lineHeight: isMobileReview ? 1.8 : 1.75,
+                      fontSize: isMobileReview ? 14 : previewDesktopFontSize,
+                      lineHeight: isMobileReview ? 1.8 : previewDesktopLineHeight,
                       background: isMobileReview ? '#ffffff' : 'transparent',
                       minHeight: isMobileReview ? 'calc(100% - 52px)' : 'auto',
                     }}>
-                    {/* Letterhead */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24, paddingBottom: 16, borderBottom: '1px solid rgba(0,0,0,0.08)' }}>
-                      <div>
-                        <img src="https://helix-law.co.uk/wp-content/uploads/2025/01/Asset-2@72x.png" alt="Helix Law" style={{ width: 140, height: 'auto', display: 'block' }} />
-                        <div style={{ fontSize: 8.5, color: '#94a3b8', lineHeight: 1.5, marginTop: 6 }}>
-                          Second Floor, Britannia House<br />21 Station Street, Brighton, BN1 4DE<br />0345 314 2044 · helix-law.com
-                        </div>
-                      </div>
-                      <div style={{ textAlign: 'right' as const, fontSize: 10.5, lineHeight: 1.5, color: '#94a3b8' }}>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: '#0D2F60', marginBottom: 2 }}>
-                          {matter?.displayNumber || ''}
-                        </div>
-                        <div>Client Care Letter</div>
-                        <div>{new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</div>
-                      </div>
-                    </div>
-                    <DocumentRenderer
-                      template={rawPreviewTemplate}
-                      fieldValues={structuredReviewFields}
-                      interactiveFieldKeys={allClickableFieldKeys}
-                      activeFieldKey={selectedFieldKey}
-                      placeholderLabels={placeholderLabels}
-                      fieldStates={previewFieldStates}
-                      fieldElementRefs={cclReviewFieldElementRefs}
-                      editableFieldKey={!structuredChoiceConfig ? selectedFieldKey : null}
-                      onFieldValueChange={!structuredChoiceConfig ? (_fieldKey, value) => applySelectedFieldValue(value) : undefined}
-                      onFieldClick={(fieldKey) => setFocusedReviewField(fieldKey === selectedFieldKey ? null : fieldKey)}
-                      rootRef={cclRendererRootRef}
-                      pageBreaks={isMobileReview ? undefined : cclPageBreaks}
-                      totalPages={cclTotalPages}
-                      contentPaddingX={isMobileReview ? 24 : 52}
-                      contentPaddingY={isMobileReview ? undefined : { top: 48, bottom: 56 }}
-                    />
+                    {showReviewIntro ? (
+                        <DocumentRenderer
+                          template={introPreviewTemplate}
+                          fieldValues={structuredReviewFields}
+                          interactiveFieldKeys={[]}
+                          activeFieldKey={null}
+                          placeholderLabels={placeholderLabels}
+                          fieldStates={{}}
+                          fieldElementRefs={cclReviewFieldElementRefs}
+                          editableFieldKey={null}
+                          onFieldValueChange={undefined}
+                          onFieldClick={undefined}
+                          rootRef={cclRendererRootRef}
+                          pageBreaks={isMobileReview ? undefined : cclIntroPageBreaks}
+                          totalPages={cclIntroTotalPages}
+                          currentPageNumber={previewCurrentPage}
+                          hoveredPageNumber={cclHoveredPreviewPage}
+                          contentPaddingX={previewDocumentPaddingX}
+                          contentPaddingY={isMobileReview ? { top: 26, bottom: 44 } : { top: 42, bottom: 56 }}
+                          firstPageHeader={previewFirstPageHeader}
+                          firstPageFooter={previewFirstPageFooter}
+                        />
+                    ) : (
+                        <DocumentRenderer
+                          template={rawPreviewTemplate}
+                          fieldValues={structuredReviewFields}
+                          interactiveFieldKeys={allClickableFieldKeys}
+                          activeFieldKey={selectedFieldKey}
+                          placeholderLabels={placeholderLabels}
+                          fieldStates={previewFieldStates}
+                          fieldElementRefs={cclReviewFieldElementRefs}
+                          editableFieldKey={structuredChoiceConfig ? null : selectedFieldKey}
+                          onFieldValueChange={!structuredChoiceConfig ? (_fieldKey, value) => applySelectedFieldValue(value) : undefined}
+                          onFieldClick={(fieldKey) => setFocusedReviewField(fieldKey === selectedFieldKey ? null : fieldKey)}
+                          rootRef={cclRendererRootRef}
+                          pageBreaks={isMobileReview ? undefined : cclPageBreaks}
+                          totalPages={cclTotalPages}
+                          currentPageNumber={previewCurrentPage}
+                          hoveredPageNumber={cclHoveredPreviewPage}
+                          contentPaddingX={previewDocumentPaddingX}
+                          contentPaddingY={isMobileReview ? undefined : { top: 48, bottom: 56 }}
+                          firstPageHeader={previewFirstPageHeader}
+                          firstPageFooter={previewFirstPageFooter}
+                        />
+                    )}
                     </div>
                     </div>
                   </div>
+                  </div>
+
+                {showReviewIntro && (
+                  <div style={{
+                    borderLeft: isMobileReview ? 'none' : '1px solid rgba(135, 243, 243, 0.08)',
+                    borderTop: isMobileReview ? '1px solid rgba(135, 243, 243, 0.12)' : 'none',
+                    background: 'rgba(6, 23, 51, 0.98)',
+                    padding: isMobileReview ? '22px 18px 20px' : '34px 32px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'center',
+                    gap: 18,
+                    minWidth: 0,
+                  }}>
+                    <div style={{ display: 'grid', gap: 8 }}>
+                      <div style={{ fontSize: 10, color: colours.accent, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 700 }}>
+                        CCL Review
+                      </div>
+                      <div style={{ fontSize: isMobileReview ? 24 : 30, lineHeight: 1.1, fontWeight: 700, color: '#f3f4f6' }}>
+                        {loadingReviewContext ? introHeadline : visibleReviewFieldCount > 0 ? `${visibleReviewFieldCount} point${visibleReviewFieldCount === 1 ? '' : 's'} to check` : 'Review draft'}
+                      </div>
+                      <div style={{ fontSize: isMobileReview ? 13 : 14, lineHeight: 1.65, color: '#d1d5db', maxWidth: 360 }}>
+                        {introBody}
+                      </div>
+                    </div>
+
+                    {loadingReviewContext && (
+                      <div style={{ display: 'grid', gap: 12, padding: '16px 0 0' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <div style={{
+                            width: 18,
+                            height: 18,
+                            border: '2px solid rgba(135, 243, 243, 0.12)',
+                            borderTopColor: colours.accent,
+                            borderRadius: '50%',
+                            animation: 'helix-spin 0.8s linear infinite',
+                            flexShrink: 0,
+                          }} />
+                          <div style={{ fontSize: 12, color: '#f3f4f6', fontWeight: 600 }}>
+                            {cclAiStreamLog.length > 0
+                              ? `${cclAiStreamLog.length} field${cclAiStreamLog.length === 1 ? '' : 's'} generated so far`
+                              : (aiStatusMessage || 'Loading matter context…')}
+                          </div>
+                        </div>
+                        <div style={{ height: 2, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+                          <div style={{
+                            width: '50%',
+                            height: '100%',
+                            background: `linear-gradient(90deg, transparent, ${colours.accent}, transparent)`,
+                            animation: 'cclLoadBar 1.8s ease-in-out infinite',
+                          }} />
+                        </div>
+                      </div>
+                    )}
+
+                    {noAiReviewContext && (
+                      <div style={{ display: 'grid', gap: 12, padding: '8px 0 0' }}>
+                        <div style={{ fontSize: 11, lineHeight: 1.55, color: '#94a3b8' }}>
+                          No saved AI run was found for this draft yet. Generate one now and the review workspace will open with the right checkpoints already prepared.
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => runHomeCclAiAutofill(cclLetterModal)}
+                          disabled={cclAiFillingMatter === cclLetterModal}
+                          style={{
+                            fontSize: isMobileReview ? 13 : 12,
+                            fontWeight: 700,
+                            color: '#061733',
+                            background: colours.accent,
+                            padding: isMobileReview ? '14px 14px' : '12px 14px',
+                            cursor: cclAiFillingMatter === cclLetterModal ? 'wait' : 'pointer',
+                            textAlign: 'center' as const,
+                            border: 'none',
+                            minHeight: isMobileReview ? 48 : 'auto',
+                          }}
+                        >
+                          {cclAiFillingMatter === cclLetterModal ? 'Generating AI review…' : 'Generate AI review'}
+                        </button>
+                      </div>
+                    )}
+
+                    {showSummaryLanding && (
+                      <div style={{ display: 'grid', gap: 14, padding: isMobileReview ? '12px 0 0' : '14px 0 0' }}>
+                        <div style={{ fontSize: 11, color: '#94a3b8', lineHeight: 1.55 }}>
+                          {visibleReviewFieldCount > 0
+                            ? 'Work through the remaining points with the draft open beside you.'
+                            : 'The draft is ready for a final read-through.'}
+                        </div>
+                        {aiRes?.durationMs && (
+                          <div style={{ fontSize: 10, color: '#94a3b8', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                            Draft prepared in {(aiRes.durationMs / 1000).toFixed(1)}s
+                          </div>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => { dismissReviewIntroForMatter(cclLetterModal); if (nextQueuedFieldKey) setFocusedReviewField(nextQueuedFieldKey); }}
+                          style={{
+                            fontSize: isMobileReview ? 14 : 13,
+                            fontWeight: 700,
+                            color: '#061733',
+                            background: colours.accent,
+                            padding: isMobileReview ? '15px 16px' : '13px 16px',
+                            cursor: 'pointer',
+                            textAlign: 'center' as const,
+                            border: 'none',
+                            minHeight: isMobileReview ? 50 : 'auto',
+                          }}
+                        >
+                          {visibleReviewFieldCount > 0 ? `Start review (${visibleReviewFieldCount})` : 'Open review workspace'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {shouldShowReviewRail && (
                   <div style={{
@@ -5786,69 +7768,59 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
                     maxHeight: isMobileReview ? '50vh' : 'none',
                     boxShadow: isMobileReview ? '0 -16px 32px rgba(0, 3, 25, 0.42)' : 'none',
                   }} className="ccl-review-scroll">
-                    <div key={`rail-header:${reviewRailContentKey}`} style={{ padding: isMobileReview ? '10px 16px' : '14px 18px', flexShrink: 0, animation: 'opsDashFadeIn 0.24s ease both' }}>
+                    <div key={`rail-header:${reviewRailContentKey}`} style={{ padding: isMobileReview ? '16px 16px 14px' : '22px 24px 18px', flexShrink: 0, animation: 'opsDashFadeIn 0.24s ease both' }}>
                       {isMobileReview && (
                         <div style={{ width: 44, height: 4, background: 'rgba(148,163,184,0.42)', borderRadius: 999, margin: '0 auto 10px' }} />
                       )}
                       {selectedFieldKey && selectedFieldMeta ? (
                         <>
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                            <div style={{ fontSize: isMobileReview ? 10 : 9, color: '#A0A0A0' }}>
-                              {currentDecisionNumber} / {visibleReviewFieldCount}
+                          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+                            <div style={{ display: 'grid', gap: 8, minWidth: 0 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: isMobileReview ? 11 : 10.5, color: colours.accent, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>
+                                  {currentDecisionNumber} of {selectedFieldSequenceCount || visibleReviewFieldCount}
+                                </span>
+                                <span style={{ fontSize: isMobileReview ? 11 : 10.5, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                  {selectedFieldMeta.group}
+                                </span>
+                              </div>
+                              <div style={{ fontSize: isMobileReview ? 22 : 24, fontWeight: 700, color: '#f3f4f6', lineHeight: 1.1 }}>
+                                {selectedFieldMeta.label}
+                              </div>
+                              <div style={{ fontSize: isMobileReview ? 13 : 12, color: '#d1d5db', lineHeight: 1.55, maxWidth: 420 }}>
+                                {selectedFieldDecisionReason}
+                              </div>
+                              {selectedFieldPressureTest?.flag && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', border: `1px solid ${colours.orange}`, background: 'rgba(255,140,0,0.08)', marginTop: 4 }}>
+                                  <span style={{ fontSize: 9, fontWeight: 700, color: colours.orange, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                                    Safety Net {selectedFieldPressureTest.score}/10
+                                  </span>
+                                  <span style={{ fontSize: 10, color: '#d1d5db', lineHeight: 1.4 }}>{selectedFieldPressureTest.reason}</span>
+                                </div>
+                              )}
+                              {selectedFieldPressureTest && !selectedFieldPressureTest.flag && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: colours.green, flexShrink: 0 }} />
+                                  <span style={{ fontSize: 9, color: colours.green, fontWeight: 600 }}>Verified {selectedFieldPressureTest.score}/10</span>
+                                </div>
+                              )}
                             </div>
                             <button
                               type="button"
                               onClick={() => setFocusedReviewField(null)}
-                              style={{ border: 'none', background: 'transparent', color: '#A0A0A0', cursor: 'pointer', padding: 0, fontSize: isMobileReview ? 10 : 9 }}
-                            >
-                              ← back
-                            </button>
-                          </div>
-                          <div style={{
-                            marginTop: 6,
-                            padding: isMobileReview ? '8px 10px' : '7px 9px',
-                            borderLeft: `3px solid ${selectedFieldCue.border}`,
-                            background: selectedFieldCue.swatch,
-                            display: 'grid',
-                            gap: 6,
-                          }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                              <span style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: 5,
-                                padding: '2px 6px',
+                              style={{
+                                border: '1px solid rgba(255,255,255,0.12)',
+                                background: 'rgba(255,255,255,0.02)',
+                                color: '#d1d5db',
+                                cursor: 'pointer',
+                                padding: isMobileReview ? '8px 10px' : '7px 9px',
                                 fontSize: isMobileReview ? 10 : 9,
                                 fontWeight: 700,
-                                color: selectedFieldCue.text,
-                                border: `1px solid ${selectedFieldCue.border}`,
-                                background: 'rgba(2, 6, 23, 0.18)',
-                                textTransform: 'uppercase',
-                                letterSpacing: '0.04em',
-                              }}>
-                                <span style={{ width: 8, height: 8, background: selectedFieldCue.swatch, borderBottom: `1px solid ${selectedFieldCue.border}` }} />
-                                {selectedFieldCue.label}
-                              </span>
-                              {selectedFieldState?.isReviewed && (
-                                <span style={{
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  padding: '2px 6px',
-                                  fontSize: isMobileReview ? 10 : 9,
-                                  fontWeight: 700,
-                                  color: colours.green,
-                                  border: '1px solid rgba(32,178,108,0.45)',
-                                  background: 'rgba(32,178,108,0.10)',
-                                  textTransform: 'uppercase',
-                                  letterSpacing: '0.04em',
-                                }}>
-                                  Approved
-                                </span>
-                              )}
-                            </div>
-                            <div style={{ fontSize: isMobileReview ? 15 : 14, fontWeight: 700, color: '#f3f4f6', lineHeight: 1.25 }}>
-                              {selectedFieldMeta.label}
-                            </div>
+                                flexShrink: 0,
+                              }}
+                            >
+                              Letter
+                            </button>
                           </div>
                         </>
                       ) : (
@@ -5868,7 +7840,23 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
                       )}
                     </div>
 
-                    <div key={`rail-body:${reviewRailContentKey}`} style={{ padding: isMobileReview ? '12px 16px' : '12px 18px', flex: 1, display: 'flex', flexDirection: 'column', gap: 14, alignContent: 'start', animation: 'opsDashFadeIn 0.24s ease both' }}>
+                      {visibleReviewFieldCount > 0 && !loadingReviewContext && !selectedFieldKey && (
+                        <div style={{ padding: '0 24px 12px', display: 'grid', gap: 6, flexShrink: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                            <span style={{ fontSize: isMobileReview ? 11 : 10.5, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                              Progress
+                            </span>
+                            <span style={{ fontSize: isMobileReview ? 11 : 10.5, color: reviewedDecisionCount === visibleReviewFieldCount ? colours.green : '#d1d5db', fontWeight: 700 }}>
+                              {reviewedDecisionCount}/{visibleReviewFieldCount}
+                            </span>
+                          </div>
+                          <div style={{ height: 3, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+                            <div style={{ width: `${selectionProgressPercent}%`, height: '100%', background: reviewedDecisionCount === visibleReviewFieldCount ? colours.green : colours.accent, transition: 'width 0.18s ease' }} />
+                          </div>
+                        </div>
+                      )}
+
+                    <div key={`rail-body:${reviewRailContentKey}`} style={{ padding: isMobileReview ? '14px 16px' : '14px 24px', flex: 1, display: 'flex', flexDirection: 'column', gap: 16, alignContent: 'start', animation: 'opsDashFadeIn 0.24s ease both' }}>
                       {showReviewRailSkeleton && (
                         <>
                           <div style={{
@@ -5993,7 +7981,11 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
                           {/* Review summary line */}
                           <div style={{ fontSize: isMobileReview ? 11 : 10.5, color: '#d1d5db', lineHeight: 1.5 }}>
                             {visibleReviewFieldCount > 0
-                              ? <><strong style={{ color: '#f3f4f6' }}>{visibleReviewFieldCount} field{visibleReviewFieldCount === 1 ? '' : 's'}</strong> need{visibleReviewFieldCount === 1 ? 's' : ''} review — AI-inferred or no data source.</>
+                              ? (ptResultHere && ptFlaggedCount > 0
+                                ? <><strong style={{ color: colours.orange }}>{ptFlaggedCount} field{ptFlaggedCount === 1 ? '' : 's'}</strong> flagged by Safety Net. The rest scored 8+ against source evidence.</>
+                                : ptResultHere && ptFlaggedCount === 0
+                                  ? <>All {ptTotalFields} fields passed Safety Net verification.</>
+                                  : <><strong style={{ color: '#f3f4f6' }}>{visibleReviewFieldCount} point{visibleReviewFieldCount === 1 ? '' : 's'}</strong> still need{visibleReviewFieldCount === 1 ? 's' : ''} sign-off.</>)
                               : 'All fields backed by hard data or standard templates.'}
                           </div>
 
@@ -6007,7 +7999,7 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
                           {/* Begin Review CTA */}
                           <button
                             type="button"
-                            onClick={() => setCclReviewSummaryDismissedByMatter((prev) => ({ ...prev, [cclLetterModal]: true }))}
+                            onClick={() => { dismissReviewIntroForMatter(cclLetterModal); if (nextQueuedFieldKey) setFocusedReviewField(nextQueuedFieldKey); }}
                             style={{
                               fontSize: isMobileReview ? 13 : 12,
                               fontWeight: 700,
@@ -6021,13 +8013,112 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
                               marginTop: 4,
                             }}
                           >
-                            {visibleReviewFieldCount > 0 ? `Begin Review (${visibleReviewFieldCount} field${visibleReviewFieldCount === 1 ? '' : 's'})` : 'Review Letter'} →
+                            {visibleReviewFieldCount > 0 ? `Start review (${visibleReviewFieldCount})` : 'Review letter'}
                           </button>
+                        </div>
+                      )}
+
+                      {showQueuedReviewLanding && (
+                        <div style={{ display: 'grid', gap: 12, animation: 'opsDashFadeIn 0.24s ease both' }}>
+                          <div style={{ display: 'grid', gap: 5 }}>
+                            <div style={{ fontSize: isMobileReview ? 10 : 9, color: colours.accent, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>
+                              Remaining Points
+                            </div>
+                            <div style={{ fontSize: isMobileReview ? 15 : 14, fontWeight: 700, color: '#f3f4f6', lineHeight: 1.3 }}>
+                              {visibleReviewFieldCount} point{visibleReviewFieldCount === 1 ? '' : 's'} left
+                            </div>
+                            <div style={{ fontSize: isMobileReview ? 11 : 10.5, color: '#d1d5db', lineHeight: 1.5 }}>
+                              The first page stays in view by default. Open the next point when you are ready, or click straight into the letter.
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                            {nextQueuedFieldKey && (
+                              <button
+                                type="button"
+                                onClick={() => setFocusedReviewField(nextQueuedFieldKey)}
+                                style={{
+                                  fontSize: isMobileReview ? 13 : 12,
+                                  fontWeight: 700,
+                                  color: '#061733',
+                                  background: colours.accent,
+                                  padding: isMobileReview ? '14px 14px' : '11px 14px',
+                                  cursor: 'pointer',
+                                  textAlign: 'center' as const,
+                                  border: 'none',
+                                  minHeight: isMobileReview ? 48 : 'auto',
+                                }}
+                              >
+                                Open first point
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => setFocusedReviewField(null)}
+                              style={{
+                                fontSize: isMobileReview ? 13 : 12,
+                                fontWeight: 700,
+                                color: '#d1d5db',
+                                background: 'transparent',
+                                padding: isMobileReview ? '14px 14px' : '11px 14px',
+                                cursor: 'pointer',
+                                textAlign: 'center' as const,
+                                border: '1px solid rgba(255,255,255,0.12)',
+                                minHeight: isMobileReview ? 48 : 'auto',
+                              }}
+                            >
+                              Stay on full letter
+                            </button>
+                          </div>
+                          {!ptResultHere && ptCanRun && (
+                            <div style={{ fontSize: isMobileReview ? 10 : 9.5, color: '#94a3b8', lineHeight: 1.5 }}>
+                              Safety Net has not narrowed these yet. Run it to cut the queue down to fields that are actually contradicted or unsupported by source evidence.
+                            </div>
+                          )}
                         </div>
                       )}
 
                       {noClarificationsQueued && (
                         <div style={{ display: 'grid', gap: 10, animation: 'opsDashFadeIn 0.2s ease 0.03s both' }}>
+                          {(compileSummaryHere || generationFieldCount > 0 || ptResultHere) && (
+                            <div style={{ display: 'grid', gap: 8 }}>
+                              <div style={{ fontSize: isMobileReview ? 10 : 9, color: '#A0A0A0', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                                Pipeline Insight
+                              </div>
+                              <div style={{ display: 'grid', gap: 8 }}>
+                                {compileSummaryHere && (
+                                  <div style={{ padding: '8px 10px', border: `1px solid ${isDarkMode ? 'rgba(135,243,243,0.18)' : 'rgba(54,144,206,0.18)'}`, background: isDarkMode ? 'rgba(135,243,243,0.06)' : 'rgba(54,144,206,0.05)' }}>
+                                    <div style={{ fontSize: 10.5, fontWeight: 700, color: isDarkMode ? colours.accent : colours.highlight }}>
+                                      Compiled {compileSummaryHere.readyCount || 0}/{compileSummaryHere.sourceCount || 0} evidence sources ready
+                                    </div>
+                                    <div style={{ fontSize: 10, color: '#94a3b8', lineHeight: 1.45, marginTop: 3 }}>
+                                      {compileSummaryHere.limitedCount || 0} limited, {compileSummaryHere.missingCount || 0} missing, {compileSummaryHere.contextFieldCount || 0} context fields, {compileSummaryHere.snippetCount || 0} evidence snippets.
+                                      {compiledAtHere ? ` Compiled ${new Date(compiledAtHere).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}.` : ''}
+                                    </div>
+                                  </div>
+                                )}
+                                {generationFieldCount > 0 && (
+                                  <div style={{ padding: '8px 10px', border: `1px solid ${isDarkMode ? 'rgba(135,243,243,0.12)' : 'rgba(54,144,206,0.12)'}`, background: isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(13,47,96,0.025)' }}>
+                                    <div style={{ fontSize: 10.5, fontWeight: 700, color: '#d1d5db' }}>
+                                      Generated {generationFieldCount} field{generationFieldCount === 1 ? '' : 's'}
+                                    </div>
+                                    <div style={{ fontSize: 10, color: '#94a3b8', lineHeight: 1.45, marginTop: 3 }}>
+                                      Confidence {generationConfidence || 'unknown'}{typeof ccl?.unresolvedCount === 'number' ? `, ${ccl.unresolvedCount} unresolved placeholder${ccl.unresolvedCount === 1 ? '' : 's'}.` : '.'}
+                                    </div>
+                                  </div>
+                                )}
+                                {ptResultHere && !ptRunningHere && (
+                                  <div style={{ padding: '8px 10px', border: `1px solid ${ptResultHere.flaggedCount > 0 ? colours.orange : colours.green}`, background: isDarkMode ? 'rgba(255,255,255,0.02)' : 'rgba(13,47,96,0.025)' }}>
+                                    <div style={{ fontSize: 10.5, fontWeight: 700, color: ptResultHere.flaggedCount > 0 ? colours.orange : colours.green }}>
+                                      Pressure tested {ptResultHere.totalFields} field{ptResultHere.totalFields === 1 ? '' : 's'}
+                                    </div>
+                                    <div style={{ fontSize: 10, color: '#94a3b8', lineHeight: 1.45, marginTop: 3 }}>
+                                      {ptResultHere.flaggedCount} flagged against source evidence.
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
                           <div style={{ fontSize: isMobileReview ? 10 : 9, color: '#A0A0A0', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                             Review Status
                           </div>
@@ -6042,7 +8133,7 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
                           {ptCanRun && (
                             <button
                               type="button"
-                              onClick={() => void runPressureTest(cclLetterModal)}
+                              onClick={() => void runPressureTest(cclLetterModal, { silent: true })}
                               style={{
                                 fontSize: isMobileReview ? 13 : 12,
                                 fontWeight: 700,
@@ -6157,88 +8248,121 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
                       <div style={{
                         padding: 0,
                         display: 'grid',
-                        gap: 8,
+                        gap: 14,
                         animation: 'opsDashFadeIn 0.2s ease 0.04s both',
                       }}>
-                        <div style={{ display: 'grid', gap: 4 }}>
-                          <div style={{ fontSize: isMobileReview ? 10 : 9, color: 'rgba(160,160,160,0.72)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                            Current Value
+                        <div style={{ display: 'grid', gap: 5 }}>
+                          <div style={{ fontSize: isMobileReview ? 11 : 10.5, color: colours.accent, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>
+                            Wording
+                          </div>
+                          <div style={{ fontSize: isMobileReview ? 12 : 11, color: '#94a3b8', lineHeight: 1.45 }}>
+                            Set the wording that should appear in the letter.
                           </div>
                         </div>
 
                         {!structuredChoiceConfig ? (
-                          <textarea
-                            key={selectedFieldKey || '__none'}
-                            ref={autoSizeReviewTextarea}
-                            value={selectedFieldOutput}
-                            onChange={(event) => {
-                              autoSizeReviewTextarea(event.target);
-                              applySelectedFieldValue(event.target.value);
-                            }}
-                            placeholder="Enter approved wording for this field"
-                            rows={1}
-                            style={{
-                              width: '100%',
-                              boxSizing: 'border-box',
-                              border: `1px solid ${colours.dark.borderColor}`,
-                              background: colours.dark.cardBackground,
-                              color: '#f3f4f6',
-                              padding: isMobileReview ? '10px 11px' : '9px 10px',
-                              fontSize: reviewValueFontSize,
-                              lineHeight: 1.5,
-                              resize: 'none',
-                              fontFamily: "'Raleway', Arial, Helvetica, sans-serif",
-                              minHeight: isMobileReview ? 90 : 78,
-                              overflow: 'hidden',
-                            }}
-                          />
+                          <div style={{
+                            border: `1px solid ${colours.dark.borderColor}`,
+                            background: 'rgba(8, 28, 48, 0.68)',
+                            padding: isMobileReview ? '10px 10px 8px' : '10px 10px 8px',
+                          }}>
+                            <textarea
+                              key={selectedFieldKey || '__none'}
+                              ref={autoSizeReviewTextarea}
+                              value={selectedFieldOutput}
+                              onChange={(event) => {
+                                autoSizeReviewTextarea(event.target);
+                                applySelectedFieldValue(event.target.value);
+                              }}
+                              placeholder="Enter the wording for this point"
+                              rows={1}
+                              style={{
+                                width: '100%',
+                                boxSizing: 'border-box',
+                                border: 'none',
+                                outline: 'none',
+                                background: 'transparent',
+                                color: '#f3f4f6',
+                                padding: isMobileReview ? '2px 2px 0' : '2px 2px 0',
+                                fontSize: isMobileReview ? 12 : 11,
+                                lineHeight: 1.7,
+                                resize: 'none',
+                                fontFamily: "'Raleway', Arial, Helvetica, sans-serif",
+                                minHeight: isMobileReview ? 108 : 96,
+                                overflow: 'hidden',
+                              }}
+                            />
+                          </div>
                         ) : (
                           <div style={{
-                            fontSize: reviewValueFontSize,
-                            color: selectedFieldOutput ? '#f3f4f6' : '#fca5a5',
-                            lineHeight: 1.5,
-                            whiteSpace: 'pre-wrap',
-                            wordBreak: 'break-word',
-                            padding: isMobileReview ? '10px 0 2px' : '8px 0 2px',
-                            minHeight: 48,
+                            border: `1px solid ${colours.dark.borderColor}`,
+                            background: 'rgba(8, 28, 48, 0.68)',
+                            padding: isMobileReview ? '12px 12px' : '11px 12px',
                           }}>
-                            {selectedFieldOutput || 'Needs input'}
+                            <div style={{
+                              fontSize: isMobileReview ? 12 : 11,
+                              color: selectedFieldOutput ? '#f3f4f6' : '#fca5a5',
+                              lineHeight: 1.7,
+                              whiteSpace: 'pre-wrap',
+                              wordBreak: 'break-word',
+                              minHeight: 56,
+                            }}>
+                              {selectedFieldOutput || 'Needs input'}
+                            </div>
                           </div>
                         )}
                       </div>
 
                       <div style={{
-                        paddingTop: 10,
-                        borderTop: '1px solid rgba(255,255,255,0.06)',
+                        paddingTop: 4,
                         display: 'grid',
-                        gap: 8,
+                        gap: 12,
                         animation: 'opsDashFadeIn 0.2s ease 0.16s both',
                       }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
-                          <div style={{ fontSize: isMobileReview ? 10 : 9, color: '#A0A0A0', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                            Step Action
-                          </div>
+                        <div style={{ fontSize: isMobileReview ? 12 : 11, color: '#94a3b8', lineHeight: 1.5 }}>
+                          {selectedFieldIsReviewed
+                            ? 'Marked complete. You can still edit the wording or reopen it.'
+                            : 'Mark this complete when the wording is settled.'}
+                        </div>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                          <button
+                            type="button"
+                            style={{ fontSize: isMobileReview ? 14 : 13, fontWeight: 700, color: '#061733', background: selectedFieldIsReviewed ? 'rgba(255,255,255,0.12)' : colours.accent, padding: isMobileReview ? '14px 16px' : '12px 16px', cursor: 'pointer', textAlign: 'center' as const, border: 'none', minHeight: isMobileReview ? 48 : 'auto', ...(selectedFieldIsReviewed ? { color: '#d1d5db' } : {}) }}
+                            onClick={() => {
+                              if (!selectedFieldKey) return;
+                              toggleFieldReviewed(selectedFieldKey);
+                              if (!selectedFieldIsReviewed) focusNextDecision();
+                            }}
+                          >
+                            {selectedFieldIsReviewed ? 'Reopen point' : 'Mark complete'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setFocusedReviewField(null)}
+                            style={{
+                              fontSize: isMobileReview ? 13 : 12,
+                              fontWeight: 700,
+                              color: '#d1d5db',
+                              background: 'transparent',
+                              padding: isMobileReview ? '14px 16px' : '12px 16px',
+                              cursor: 'pointer',
+                              textAlign: 'center' as const,
+                              border: '1px solid rgba(255,255,255,0.12)',
+                              minHeight: isMobileReview ? 48 : 'auto',
+                            }}
+                          >
+                            Back to letter
+                          </button>
                           {selectedFieldKey && !nextDecisionFieldKey && canApprove && (
                             <button
                               type="button"
-                              style={{ fontSize: isMobileReview ? 11 : 10, fontWeight: 700, color: '#fff', background: colours.green, padding: isMobileReview ? '10px 11px' : '8px 10px', cursor: cclApprovingMatter === cclLetterModal ? 'wait' : 'pointer', textAlign: 'center' as const, border: 'none' }}
+                              style={{ fontSize: isMobileReview ? 14 : 13, fontWeight: 700, color: '#061733', background: colours.green, padding: isMobileReview ? '14px 16px' : '12px 16px', cursor: cclApprovingMatter === cclLetterModal ? 'wait' : 'pointer', textAlign: 'center' as const, border: 'none', minHeight: isMobileReview ? 48 : 'auto' }}
                               onClick={handleApproveCurrentLetter}
                             >
                               {cclApprovingMatter === cclLetterModal ? 'Approving…' : 'Approve full letter'}
                             </button>
                           )}
                         </div>
-                        <button
-                          type="button"
-                          style={{ fontSize: isMobileReview ? 13 : 12, fontWeight: 700, color: '#061733', background: colours.green, padding: isMobileReview ? '14px 14px' : '11px 14px', cursor: 'pointer', textAlign: 'center' as const, border: 'none', minHeight: isMobileReview ? 48 : 'auto' }}
-                          onClick={() => {
-                            if (!selectedFieldKey) return;
-                            toggleFieldReviewed(selectedFieldKey);
-                            if (!selectedFieldIsReviewed) focusNextDecision();
-                          }}
-                        >
-                          {selectedFieldIsReviewed ? 'Undo approval' : 'Approve'}
-                        </button>
                       </div>
 
                       {structuredChoiceConfig && (
@@ -6281,281 +8405,202 @@ const OperationsDashboard: React.FC<OperationsDashboardProps> = ({
                         animation: 'opsDashFadeIn 0.2s ease 0.24s both',
                         position: 'relative',
                       }}>
-                        <div style={{ fontSize: 7, color: 'rgba(135, 243, 243, 0.38)', textTransform: 'uppercase', letterSpacing: '0.12em', fontWeight: 700, marginBottom: 2 }}>
-                          Dev Tools
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                          <div style={{ fontSize: isMobileReview ? 9 : 8, color: 'rgba(160,160,160,0.82)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                            Prompt Context
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => setCclPromptContextRevealByMatter((prev) => ({ ...prev, [cclLetterModal]: !prev[cclLetterModal] }))}
-                            style={{
-                              border: 'none',
-                              background: 'transparent',
-                              color: promptContextRevealActive ? 'rgba(209,213,219,0.92)' : 'rgba(160,160,160,0.78)',
-                              padding: 0,
-                              fontSize: isMobileReview ? 10 : 9,
-                              fontWeight: 600,
-                              cursor: 'pointer',
-                              letterSpacing: '0.02em',
-                              fontFamily: "'Raleway', Arial, Helvetica, sans-serif",
-                            }}
-                            title="Optional prompt context for this step"
-                          >
-                            {promptContextRevealActive ? 'Hide' : 'Show'}
-                          </button>
-                        </div>
-                        {!promptContextRevealActive && (
-                          <div style={{ fontSize: isMobileReview ? 10 : 9, color: 'rgba(148,163,184,0.72)', lineHeight: 1.4 }}>
-                            Optional context behind this step.
-                          </div>
-                        )}
-                        {promptContextRevealActive && (
-                          <>
-                            <div style={{
-                              display: 'grid',
-                              gap: 6,
-                              padding: isMobileReview ? '8px 9px' : '7px 8px',
-                              background: colours.darkBlue,
-                              border: `1px solid ${colours.dark.border}`,
-                            }}>
-                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                                <div style={{ fontSize: isMobileReview ? 10 : 9, color: '#A0A0A0', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                                  Field Placeholder
-                                </div>
-                                <button
-                                  type="button"
-                                  onMouseDown={() => setCclPlaceholderRevealByMatter((prev) => ({ ...prev, [cclLetterModal]: true }))}
-                                  onMouseUp={() => setCclPlaceholderRevealByMatter((prev) => ({ ...prev, [cclLetterModal]: false }))}
-                                  onMouseLeave={() => setCclPlaceholderRevealByMatter((prev) => ({ ...prev, [cclLetterModal]: false }))}
-                                  onTouchStart={() => setCclPlaceholderRevealByMatter((prev) => ({ ...prev, [cclLetterModal]: true }))}
-                                  onTouchEnd={() => setCclPlaceholderRevealByMatter((prev) => ({ ...prev, [cclLetterModal]: false }))}
-                                  onTouchCancel={() => setCclPlaceholderRevealByMatter((prev) => ({ ...prev, [cclLetterModal]: false }))}
-                                  style={{
-                                    border: 'none',
-                                    background: 'transparent',
-                                    color: placeholderRevealActive ? colours.accent : 'rgba(160,160,160,0.78)',
-                                    padding: 0,
-                                    fontSize: isMobileReview ? 10 : 9,
-                                    fontWeight: 600,
-                                    cursor: 'pointer',
-                                    letterSpacing: '0.02em',
-                                    fontFamily: "'Raleway', Arial, Helvetica, sans-serif",
-                                  }}
-                                  title={selectedFieldKey ? `Hold to reveal {{${selectedFieldKey}}}` : 'Hold to reveal field placeholder'}
-                                >
-                                  {placeholderRevealActive ? 'Showing' : 'Hold to reveal'}
-                                </button>
-                              </div>
-                              {placeholderRevealActive && (
-                                <div style={{
-                                  fontSize: reviewValueFontSize,
-                                  color: colours.accent,
-                                  lineHeight: 1.5,
-                                  whiteSpace: 'pre-wrap',
-                                  wordBreak: 'break-word',
-                                  padding: isMobileReview ? '6px 7px' : '5px 6px',
-                                  background: colours.dark.cardBackground,
-                                  border: `1px solid ${colours.dark.borderColor}`,
-                                }}>
-                                  {revealedPlaceholderToken || 'No placeholder token'}
-                                </div>
-                              )}
-                            </div>
-                            {hasSessionPrompts && (
-                              <div style={{
-                                display: 'grid',
-                                gap: 8,
-                                padding: isMobileReview ? '8px 9px' : '7px 8px',
-                                background: colours.darkBlue,
-                                border: `1px solid ${colours.dark.border}`,
-                              }}>
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
-                                  <div style={{ minWidth: 0 }}>
-                                    <div style={{ fontSize: isMobileReview ? 10 : 9, color: '#d1d5db', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                                      Full Prompt
-                                    </div>
-                                    <div style={{ fontSize: isMobileReview ? 10 : 9, color: '#94a3b8', lineHeight: 1.4, marginTop: 2 }}>
-                                      Run-level system and user instructions for the whole AI generation session.
-                                    </div>
+                        <details>
+                          <summary style={{ fontSize: isMobileReview ? 9 : 8, color: 'rgba(160,160,160,0.82)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 700, cursor: 'pointer', userSelect: 'none' }}>
+                            Dev tools
+                          </summary>
+                          <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
+
+                            {/* ── Evidence Fed to AI ── */}
+                            {(() => {
+                              const genSources = aiRes?.dataSources || [];
+                              const ptSources = ptResultHere?.dataSources || [];
+                              const hasCallsGen = genSources.some((s: string) => /call/i.test(s));
+                              const hasCallsPt = ptSources.some((s: string) => /call/i.test(s));
+                              const callsSkipped = genSources.some((s: string) => /no phone/i.test(s));
+                              return (
+                                <div style={{ display: 'grid', gap: 6, padding: '7px 8px', background: colours.darkBlue, border: `1px solid ${colours.dark.border}` }}>
+                                  <div style={{ fontSize: isMobileReview ? 9 : 8, color: colours.accent, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>
+                                    Evidence Fed to AI
                                   </div>
-                                  <button
-                                    type="button"
-                                    onClick={() => setCclSessionPromptExpandedByMatter((prev) => ({ ...prev, [cclLetterModal]: !prev[cclLetterModal] }))}
-                                    style={{
-                                      border: 'none',
-                                      background: 'transparent',
-                                      color: sessionPromptExpanded ? '#d1d5db' : 'rgba(160,160,160,0.82)',
-                                      padding: 0,
-                                      fontSize: isMobileReview ? 10 : 9,
-                                      fontWeight: 600,
-                                      letterSpacing: '0.02em',
-                                      cursor: 'pointer',
-                                      fontFamily: "'Raleway', Arial, Helvetica, sans-serif",
-                                    }}
-                                  >
-                                    {sessionPromptExpanded ? 'Hide full prompt' : 'Show full prompt'}
-                                  </button>
-                                </div>
 
-                                {sessionPromptExpanded && (
-                                  <div style={{ display: 'grid', gap: 8 }}>
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0, border: `1px solid ${colours.dark.border}` }}>
-                                      <button
-                                        type="button"
-                                        onClick={() => setCclSessionPromptTabByMatter((prev) => ({ ...prev, [cclLetterModal]: 'system' }))}
-                                        style={{
-                                          border: 'none',
-                                          borderRight: `1px solid ${colours.dark.border}`,
-                                          background: visiblePromptTab === 'system' ? colours.helixBlue : colours.darkBlue,
-                                          color: systemPromptText ? (visiblePromptTab === 'system' ? colours.accent : '#d1d5db') : '#6b7280',
-                                          padding: isMobileReview ? '8px 10px' : '7px 9px',
-                                          fontSize: isMobileReview ? 10 : 9,
-                                          fontWeight: 700,
-                                          textTransform: 'uppercase',
-                                          letterSpacing: '0.05em',
-                                          cursor: systemPromptText ? 'pointer' : 'default',
-                                          fontFamily: "'Raleway', Arial, Helvetica, sans-serif",
-                                        }}
-                                      >
-                                        System
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => setCclSessionPromptTabByMatter((prev) => ({ ...prev, [cclLetterModal]: 'user' }))}
-                                        style={{
-                                          border: 'none',
-                                          background: visiblePromptTab === 'user' ? colours.helixBlue : colours.darkBlue,
-                                          color: userPromptText ? (visiblePromptTab === 'user' ? colours.accent : '#d1d5db') : '#6b7280',
-                                          padding: isMobileReview ? '8px 10px' : '7px 9px',
-                                          fontSize: isMobileReview ? 10 : 9,
-                                          fontWeight: 700,
-                                          textTransform: 'uppercase',
-                                          letterSpacing: '0.05em',
-                                          cursor: userPromptText ? 'pointer' : 'default',
-                                          fontFamily: "'Raleway', Arial, Helvetica, sans-serif",
-                                        }}
-                                      >
-                                        User
-                                      </button>
-                                    </div>
+                                  {/* Call transcript status — always visible */}
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <span style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: hasCallsGen ? colours.green : callsSkipped ? colours.orange : colours.cta }} />
+                                    <span style={{ fontSize: isMobileReview ? 10 : 9, color: hasCallsGen ? colours.green : callsSkipped ? colours.orange : colours.cta, fontWeight: 700 }}>
+                                      {hasCallsGen ? 'Dubber call transcripts sent' : callsSkipped ? 'No phone — calls skipped' : 'No call data detected'}
+                                    </span>
+                                  </div>
 
-                                    <div style={{ display: 'grid', gap: 4 }}>
-                                      <div style={{ fontSize: isMobileReview ? 10 : 9, color: '#A0A0A0', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                                        {visiblePromptTab === 'system' ? 'System Prompt' : 'User Prompt'}
+                                  {/* Generation sources */}
+                                  {genSources.length > 0 && (
+                                    <div style={{ display: 'grid', gap: 3 }}>
+                                      <div style={{ fontSize: isMobileReview ? 9 : 8, color: '#A0A0A0', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                        Generation ({genSources.length} sources)
                                       </div>
-                                      <div style={{
-                                        fontSize: isMobileReview ? 11 : 10,
-                                        color: '#d1d5db',
-                                        lineHeight: 1.5,
-                                        whiteSpace: 'pre-wrap',
-                                        wordBreak: 'break-word',
-                                        maxHeight: isMobileReview ? 100 : 120,
-                                        overflow: 'auto',
-                                        scrollbarWidth: 'thin',
-                                        background: colours.dark.cardBackground,
-                                        border: `1px solid ${colours.dark.border}`,
-                                        padding: isMobileReview ? '8px 9px' : '7px 8px',
-                                      }}>
-                                        {visiblePromptTab === 'system' ? (systemPromptText || 'No system prompt captured for this run.') : (userPromptText || 'No user prompt captured for this run.')}
+                                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+                                        {genSources.map((source: string) => {
+                                          const isCall = /call/i.test(source);
+                                          const isSkipped = /no phone/i.test(source);
+                                          return (
+                                            <span key={source} style={{
+                                              fontSize: isMobileReview ? 10 : 9, padding: '2px 6px',
+                                              background: isCall ? 'rgba(32,178,108,0.12)' : isSkipped ? 'rgba(255,140,0,0.12)' : colours.dark.cardBackground,
+                                              border: `1px solid ${isCall ? colours.green : isSkipped ? colours.orange : colours.dark.border}`,
+                                              color: isCall ? colours.green : isSkipped ? colours.orange : '#d1d5db', fontWeight: 600,
+                                            }}>
+                                              {source}
+                                            </span>
+                                          );
+                                        })}
                                       </div>
                                     </div>
+                                  )}
+
+                                  {/* Safety Net sources */}
+                                  {ptSources.length > 0 && (
+                                    <div style={{ display: 'grid', gap: 3 }}>
+                                      <div style={{ fontSize: isMobileReview ? 9 : 8, color: '#A0A0A0', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                        Safety Net ({ptSources.length} sources)
+                                      </div>
+                                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+                                        {ptSources.map((source: string) => {
+                                          const isCall = /call/i.test(source);
+                                          return (
+                                            <span key={source} style={{
+                                              fontSize: isMobileReview ? 10 : 9, padding: '2px 6px',
+                                              background: isCall ? 'rgba(32,178,108,0.12)' : colours.dark.cardBackground,
+                                              border: `1px solid ${isCall ? colours.green : colours.dark.border}`,
+                                              color: isCall ? colours.green : '#d1d5db', fontWeight: 600,
+                                            }}>
+                                              {source}
+                                            </span>
+                                          );
+                                        })}
+                                      </div>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                                        <span style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: hasCallsPt ? colours.green : colours.cta }} />
+                                        <span style={{ fontSize: isMobileReview ? 10 : 9, color: hasCallsPt ? colours.green : colours.cta, fontWeight: 600 }}>
+                                          {hasCallsPt ? 'Calls verified in Safety Net' : 'No calls in Safety Net evidence'}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {genSources.length === 0 && ptSources.length === 0 && (
+                                    <div style={{ fontSize: isMobileReview ? 10 : 9, color: '#94a3b8', lineHeight: 1.4 }}>
+                                      No AI run data available yet.
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })()}
+
+                            {/* ── Field Context (when a field is selected) ── */}
+                            {selectedFieldKey && (
+                              <div style={{ display: 'grid', gap: 6, padding: '7px 8px', background: colours.darkBlue, border: `1px solid ${colours.dark.border}` }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                                  <div style={{ fontSize: isMobileReview ? 9 : 8, color: colours.accent, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>
+                                    Field Context
                                   </div>
+                                  <span style={{ fontSize: isMobileReview ? 10 : 9, color: '#94a3b8', fontFamily: 'monospace' }}>
+                                    {`{{${selectedFieldKey}}}`}
+                                  </span>
+                                </div>
+
+                                {selectedFieldPromptSections.length > 0 ? (
+                                  <div style={{ display: 'grid', gap: 6 }}>
+                                    {selectedFieldPromptSections.map((section) => (
+                                      <div key={section.key} style={{ display: 'grid', gap: 3 }}>
+                                        <div style={{ fontSize: isMobileReview ? 9 : 8, color: '#A0A0A0', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{section.title}</div>
+                                        <div style={{
+                                          fontSize: reviewValueFontSize, color: '#d1d5db', lineHeight: 1.45,
+                                          whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                                          padding: '5px 6px', background: colours.dark.cardBackground,
+                                          border: `1px solid ${colours.dark.borderColor}`,
+                                          maxHeight: 100, overflow: 'auto', scrollbarWidth: 'thin' as const,
+                                        }}>{section.body}</div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : selectedFieldDataFedRows.length > 0 ? (
+                                  <div style={{ display: 'grid', gap: 4 }}>
+                                    {selectedFieldDataFedRows.map((row) => (
+                                      <div key={row.key} style={{ display: 'grid', gap: 2 }}>
+                                        <div style={{ fontSize: isMobileReview ? 9 : 8, color: '#A0A0A0', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{row.label}</div>
+                                        <div style={{ fontSize: reviewValueFontSize, color: '#d1d5db', lineHeight: 1.45, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{row.value}</div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <div style={{ fontSize: reviewValueFontSize, color: '#d1d5db', lineHeight: 1.45 }}>{selectedFieldDecisionReason}</div>
+                                )}
+
+                                {selectedFieldSnippetRows.length > 0 && (
+                                  <details>
+                                    <summary style={{ fontSize: isMobileReview ? 10 : 9, color: colours.accent, cursor: 'pointer', fontWeight: 600 }}>
+                                      Trace snippets ({selectedFieldSnippetRows.length})
+                                    </summary>
+                                    <div style={{ display: 'grid', gap: 4, marginTop: 6 }}>
+                                      {selectedFieldSnippetRows.map((row) => (
+                                        <div key={row.key} style={{ display: 'grid', gap: 2 }}>
+                                          <div style={{ fontSize: isMobileReview ? 9 : 8, color: '#A0A0A0', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{row.label}</div>
+                                          <div style={{ fontSize: reviewValueFontSize, color: '#d1d5db', lineHeight: 1.45, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{row.value}</div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </details>
                                 )}
                               </div>
                             )}
-                            {aiRes.dataSources && aiRes.dataSources.length > 0 && (
-                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                                {aiRes.dataSources.map((source) => (
-                                  <span
-                                    key={source}
-                                    style={{
-                                      fontSize: isMobileReview ? 10 : 9,
-                                      padding: '2px 6px',
-                                      background: colours.darkBlue,
-                                      border: `1px solid ${colours.dark.border}`,
-                                      color: '#d1d5db',
-                                      fontWeight: 600,
-                                    }}
-                                  >
-                                    {source}
-                                  </span>
-                                ))}
-                              </div>
-                            )}
-                            {selectedFieldPromptSections.length > 0 ? (
-                              <div style={{ display: 'grid', gap: 6 }}>
-                                {selectedFieldPromptSections.map((section) => (
-                                  <div key={section.key} style={{ display: 'grid', gap: 4 }}>
-                                    <div style={{ fontSize: isMobileReview ? 10 : 9, color: '#A0A0A0', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                                      {section.title}
-                                    </div>
-                                    <div style={{
-                                      fontSize: reviewValueFontSize,
-                                      color: '#d1d5db',
-                                      lineHeight: 1.45,
-                                      whiteSpace: 'pre-wrap',
-                                      wordBreak: 'break-word',
-                                      padding: isMobileReview ? '8px 9px' : '7px 8px',
-                                      background: colours.dark.cardBackground,
-                                      border: `1px solid ${colours.dark.borderColor}`,
-                                      maxHeight: isMobileReview ? 110 : 130,
-                                      overflow: 'auto',
-                                      scrollbarWidth: 'thin',
-                                    }}>
-                                      {section.body}
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            ) : selectedFieldDataFedRows.length > 0 ? (
-                              <div style={{ display: 'grid', gap: 6 }}>
-                                {selectedFieldDataFedRows.map((row) => (
-                                  <div key={row.key} style={{ display: 'grid', gap: 2 }}>
-                                    <div style={{ fontSize: isMobileReview ? 10 : 9, color: '#A0A0A0', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                                      {row.label}
-                                    </div>
-                                    <div style={{ fontSize: reviewValueFontSize, color: '#d1d5db', lineHeight: 1.45, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                                      {row.value}
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            ) : (
-                              <div style={{ fontSize: reviewValueFontSize, color: '#d1d5db', lineHeight: 1.45 }}>
-                                {selectedFieldDecisionReason}
-                              </div>
-                            )}
-                            {selectedFieldSnippetRows.length > 0 && (
+
+                            {/* ── Prompts ── */}
+                            {hasSessionPrompts && (
                               <details>
-                                <summary style={{ fontSize: isMobileReview ? 10 : 9, color: colours.accent, cursor: 'pointer', fontWeight: 600 }}>
-                                  View trace snippets
+                                <summary style={{ fontSize: isMobileReview ? 9 : 8, color: 'rgba(160,160,160,0.82)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700, cursor: 'pointer', userSelect: 'none' }}>
+                                  Prompts
                                 </summary>
-                                <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>
-                                  {selectedFieldSnippetRows.map((row) => (
-                                    <div key={row.key} style={{ display: 'grid', gap: 2 }}>
-                                      <div style={{ fontSize: isMobileReview ? 10 : 9, color: '#A0A0A0', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                                        {row.label}
-                                      </div>
-                                      <div style={{ fontSize: reviewValueFontSize, color: '#d1d5db', lineHeight: 1.45, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                                        {row.value}
-                                      </div>
-                                    </div>
-                                  ))}
+                                <div style={{ display: 'grid', gap: 6, marginTop: 6 }}>
+                                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0, border: `1px solid ${colours.dark.border}` }}>
+                                    <button type="button" onClick={() => setCclSessionPromptTabByMatter((prev) => ({ ...prev, [cclLetterModal]: 'system' }))} style={{
+                                      border: 'none', borderRight: `1px solid ${colours.dark.border}`,
+                                      background: visiblePromptTab === 'system' ? colours.helixBlue : colours.darkBlue,
+                                      color: systemPromptText ? (visiblePromptTab === 'system' ? colours.accent : '#d1d5db') : '#6b7280',
+                                      padding: '6px 8px', fontSize: isMobileReview ? 10 : 9, fontWeight: 700,
+                                      textTransform: 'uppercase', letterSpacing: '0.05em',
+                                      cursor: systemPromptText ? 'pointer' : 'default', fontFamily: "'Raleway', Arial, Helvetica, sans-serif",
+                                    }}>System</button>
+                                    <button type="button" onClick={() => setCclSessionPromptTabByMatter((prev) => ({ ...prev, [cclLetterModal]: 'user' }))} style={{
+                                      border: 'none',
+                                      background: visiblePromptTab === 'user' ? colours.helixBlue : colours.darkBlue,
+                                      color: userPromptText ? (visiblePromptTab === 'user' ? colours.accent : '#d1d5db') : '#6b7280',
+                                      padding: '6px 8px', fontSize: isMobileReview ? 10 : 9, fontWeight: 700,
+                                      textTransform: 'uppercase', letterSpacing: '0.05em',
+                                      cursor: userPromptText ? 'pointer' : 'default', fontFamily: "'Raleway', Arial, Helvetica, sans-serif",
+                                    }}>User</button>
+                                  </div>
+                                  <div style={{
+                                    fontSize: isMobileReview ? 11 : 10, color: '#d1d5db', lineHeight: 1.5,
+                                    whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                                    maxHeight: 120, overflow: 'auto', scrollbarWidth: 'thin' as const,
+                                    background: colours.dark.cardBackground, border: `1px solid ${colours.dark.border}`,
+                                    padding: '6px 8px',
+                                  }}>
+                                    {visiblePromptTab === 'system' ? (systemPromptText || 'No system prompt captured.') : (userPromptText || 'No user prompt captured.')}
+                                  </div>
                                 </div>
                               </details>
                             )}
-                          </>
-                        )}
+
+                          </div>
+                        </details>
                       </div>
                       )}
                         </>
                       )}
                     </div>
 
-                    <div style={{ padding: isMobileReview ? '12px 16px max(16px, env(safe-area-inset-bottom))' : '12px 18px 16px', borderTop: '1px solid rgba(255, 255, 255, 0.06)', display: 'grid', gap: 8, flexShrink: 0, background: 'rgba(2, 6, 23, 0.98)', position: 'sticky', bottom: 0, animation: 'opsDashFadeIn 0.2s ease 0.24s both' }}>
+                    <div style={{ padding: isMobileReview ? '14px 16px max(16px, env(safe-area-inset-bottom))' : '14px 24px 18px', borderTop: '1px solid rgba(255, 255, 255, 0.06)', display: 'grid', gap: 10, flexShrink: 0, background: 'rgba(2, 6, 23, 0.98)', position: 'sticky', bottom: 0, animation: 'opsDashFadeIn 0.2s ease 0.24s both' }}>
                       {!selectedFieldKey && (
                         <div style={{ fontSize: isMobileReview ? 11 : 10, color: '#94a3b8', lineHeight: 1.45 }}>
                           {loadingReviewContext

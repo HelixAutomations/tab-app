@@ -22,12 +22,17 @@ import { useServiceHealthMonitor } from './functionality/useServiceHealthMonitor
 
 const proxyBaseUrl = getProxyBaseUrl();
 
-const Home = lazy(() => import('../tabs/home/Home'));
-const Enquiries = lazy(() => import('../tabs/enquiries/Enquiries'));
-const Instructions = lazy(() => import('../tabs/instructions/Instructions'));
-const Matters = lazy(() => import('../tabs/matters/Matters'));
+const loadHomeTab = () => import('../tabs/home/Home');
+const loadEnquiriesTab = () => import('../tabs/enquiries/Enquiries');
+const loadInstructionsTab = () => import('../tabs/instructions/Instructions');
+const loadReportingTab = () => import('../tabs/Reporting/ReportingHome');
+const Home = lazy(loadHomeTab);
+const Enquiries = lazy(loadEnquiriesTab);
+const Instructions = lazy(loadInstructionsTab);
+const loadMattersTab = () => import('../tabs/matters/Matters');
+const Matters = lazy(loadMattersTab);
 const Roadmap = lazy(() => import('../tabs/roadmap/Roadmap'));
-const ReportingHome = lazy(() => import('../tabs/Reporting/ReportingHome')); // Replace ReportingCode with ReportingHome
+const ReportingHome = lazy(loadReportingTab); // Replace ReportingCode with ReportingHome
 
 type LocalInstructionFixtures = {
   instructionData: InstructionData[];
@@ -163,6 +168,7 @@ const App: React.FC<AppProps> = ({
   const [pendingShowCcl, setPendingShowCcl] = useState(false);
   const [pendingEnquiryId, setPendingEnquiryId] = useState<string | null>(null);
   const [pendingEnquirySubTab, setPendingEnquirySubTab] = useState<string | null>(null);
+  const [pendingEnquiryPitchScenario, setPendingEnquiryPitchScenario] = useState<string | null>(null);
   const [reportingNavigationRequest, setReportingNavigationRequest] = useState<ReportingNavigationRequest | null>(null);
   const [demoModeEnabled, setDemoModeEnabled] = useState<boolean>(() => {
     try {
@@ -308,9 +314,9 @@ const App: React.FC<AppProps> = ({
       const parsed = saved ? JSON.parse(saved) : {};
       // rateChangeTracker defaults to false - users opt-in via UserBubble
       // showAttendance defaults to true - annual leave visible by default
-      return { rateChangeTracker: false, showPhasedOutCustomTab: false, showAttendance: true, cclGuideMode: false, showOpsQueue: true, ...parsed };
+      return { rateChangeTracker: false, showPhasedOutCustomTab: false, showAttendance: true, cclGuideMode: false, showOpsQueue: true, showHomeOpsCclDates: false, ...parsed };
     } catch {
-      return { rateChangeTracker: false, showPhasedOutCustomTab: false, showAttendance: true, cclGuideMode: false, showOpsQueue: true };
+      return { rateChangeTracker: false, showPhasedOutCustomTab: false, showAttendance: true, cclGuideMode: false, showOpsQueue: true, showHomeOpsCclDates: false };
     }
   });
 
@@ -386,6 +392,24 @@ const App: React.FC<AppProps> = ({
       return next;
     });
   }, [featureToggles?.showPhasedOutCustomTab, isLocalDev, isProductionPreview]);
+
+  useEffect(() => {
+    try {
+      const migrationKey = 'featureToggles.homeOpsCclDates.defaultHidden.v1';
+      if (localStorage.getItem(migrationKey) === 'true') {
+        return;
+      }
+
+      setFeatureToggles(prev => {
+        const next = { ...prev, showHomeOpsCclDates: false };
+        localStorage.setItem('featureToggles', JSON.stringify(next));
+        localStorage.setItem(migrationKey, 'true');
+        return next;
+      });
+    } catch {
+      // Ignore storage failures and keep runtime defaults.
+    }
+  }, []);
   
   const handleFeatureToggle = useCallback((feature: string, enabled: boolean) => {
     setFeatureToggles(prev => {
@@ -590,15 +614,18 @@ const App: React.FC<AppProps> = ({
     if (!teamsContext || !userData?.[0]) return;
 
     let cancelled = false;
-    const warmEnquiriesChunk = () => {
+    const warmNavigationChunks = () => {
       if (cancelled) return;
-      void import('../tabs/enquiries/Enquiries');
+      void loadEnquiriesTab();
+      void loadInstructionsTab();
+      void loadMattersTab();
+      void loadReportingTab();
     };
 
     if ('requestIdleCallback' in window) {
       const idleId = (window as typeof window & {
         requestIdleCallback: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
-      }).requestIdleCallback(() => warmEnquiriesChunk(), { timeout: 300 });
+      }).requestIdleCallback(() => warmNavigationChunks(), { timeout: 600 });
 
       return () => {
         cancelled = true;
@@ -608,7 +635,7 @@ const App: React.FC<AppProps> = ({
       };
     }
 
-    const timer = globalThis.setTimeout(() => warmEnquiriesChunk(), 150);
+    const timer = globalThis.setTimeout(() => warmNavigationChunks(), 350);
     return () => {
       cancelled = true;
       globalThis.clearTimeout(timer);
@@ -686,6 +713,7 @@ const App: React.FC<AppProps> = ({
   const handlePendingEnquiryHandled = useCallback(() => {
     setPendingEnquiryId(null);
     setPendingEnquirySubTab(null);
+    setPendingEnquiryPitchScenario(null);
   }, []);
   const handlePendingMatterHandled = useCallback(() => {
     setPendingMatterId(null);
@@ -695,6 +723,33 @@ const App: React.FC<AppProps> = ({
   const handleAllMattersFetched = (fetchedMatters: Matter[]) => {
     setAllMattersFromHome(fetchedMatters);
   };
+
+  const warmMattersTab = useCallback(() => {
+    void loadMattersTab();
+    setMattersEverVisited(true);
+  }, []);
+
+  const warmTabByKey = useCallback((key: string) => {
+    switch (key) {
+      case 'home':
+        void loadHomeTab();
+        break;
+      case 'enquiries':
+        void loadEnquiriesTab();
+        break;
+      case 'instructions':
+        void loadInstructionsTab();
+        break;
+      case 'matters':
+        warmMattersTab();
+        break;
+      case 'reporting':
+        void loadReportingTab();
+        break;
+      default:
+        break;
+    }
+  }, [warmMattersTab]);
 
   const handleOutstandingBalancesFetched = (data: any) => {
     setOutstandingBalances(data);
@@ -784,6 +839,7 @@ const App: React.FC<AppProps> = ({
       if (detail?.enquiryId) {
         setPendingEnquiryId(String(detail.enquiryId));
         if (detail.subTab) setPendingEnquirySubTab(detail.subTab);
+        setPendingEnquiryPitchScenario(typeof detail.pitchScenario === 'string' ? detail.pitchScenario : null);
         if (detail.timelineItem) {
           try { localStorage.setItem('navigateToTimelineItem', detail.timelineItem); } catch {}
         }
@@ -803,11 +859,15 @@ const App: React.FC<AppProps> = ({
     };
     const handleNavigateToMatter = (e: Event) => {
       const detail = (e as CustomEvent).detail;
+      warmMattersTab();
       if (detail?.matterId) {
         setPendingMatterId(detail.matterId);
       }
       setPendingShowCcl(!!detail?.showCcl);
       setActiveTab('matters');
+    };
+    const handleWarmMattersTab = () => {
+      warmMattersTab();
     };
 
     window.addEventListener('navigateToHome', handleNavigateToHome);
@@ -816,6 +876,7 @@ const App: React.FC<AppProps> = ({
     window.addEventListener('navigateToEnquiry', handleNavigateToEnquiry);
     window.addEventListener('navigateToReporting', handleNavigateToReporting);
     window.addEventListener('navigateToMatter', handleNavigateToMatter);
+    window.addEventListener('warmMattersTab', handleWarmMattersTab);
 
     return () => {
       window.removeEventListener('navigateToHome', handleNavigateToHome);
@@ -824,8 +885,9 @@ const App: React.FC<AppProps> = ({
       window.removeEventListener('navigateToEnquiry', handleNavigateToEnquiry);
       window.removeEventListener('navigateToReporting', handleNavigateToReporting);
       window.removeEventListener('navigateToMatter', handleNavigateToMatter);
+      window.removeEventListener('warmMattersTab', handleWarmMattersTab);
     };
-  }, [showPhasedOutCustomTab]);
+  }, [showPhasedOutCustomTab, warmMattersTab]);
 
   // State to trigger instruction data refresh
   const [instructionRefreshTrigger, setInstructionRefreshTrigger] = useState<number>(0);
@@ -1195,6 +1257,7 @@ const App: React.FC<AppProps> = ({
           <CustomTabs
             selectedKey={activeTab}
             onTabSelect={(key) => setActiveTab(key)}
+            onTabWarm={warmTabByKey}
             onHomeClick={() => setActiveTab('home')}
             tabs={tabs}
             ariaLabel="Main Navigation Tabs"
@@ -1319,6 +1382,9 @@ const App: React.FC<AppProps> = ({
                   context={teamsContext}
                   userData={userData}
                   enquiries={enquiries}
+                  enquiriesUsingSnapshot={enquiriesUsingSnapshot}
+                  enquiriesLiveRefreshInFlight={enquiriesLiveRefreshInFlight}
+                  enquiriesLastLiveSyncAt={enquiriesLastLiveSyncAt}
                   isActive={activeTab === 'home'}
                   matters={matters}
                   instructionData={instructionData}
@@ -1361,6 +1427,7 @@ const App: React.FC<AppProps> = ({
                     onTeamWideEnquiriesLoaded={setTeamWideEnquiries}
                     pendingEnquiryId={pendingEnquiryId}
                     pendingEnquirySubTab={pendingEnquirySubTab}
+                    pendingEnquiryPitchScenario={pendingEnquiryPitchScenario}
                     onPendingEnquiryHandled={handlePendingEnquiryHandled}
                   />
                 </Suspense>

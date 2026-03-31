@@ -228,6 +228,7 @@ const sendEmailRouter = require('./routes/sendEmail');
 const forwardEmailRouter = require('./routes/forwardEmail');
 const searchInboxRouter = require('./routes/searchInbox');
 const callrailCallsRouter = require('./routes/callrailCalls');
+const dubberCallsRouter = require('./routes/dubberCalls');
 const attendanceRouter = require('./routes/attendance');
 const resourcesAnalyticsRouter = require('./routes/resources-analytics');
 const resourcesCoreRouter = require('./routes/resources-core');
@@ -393,6 +394,8 @@ app.use('/api', forwardEmailRouter);
 app.use('/api', searchInboxRouter);
 // CallRail calls route for call tracking sync functionality
 app.use('/api', callrailCallsRouter);
+// Dubber calls route for Dubber recording/transcript queries
+app.use('/api', dubberCallsRouter);
 // app.post('/api/update-enquiry', require('../api/update-enquiry')); // Moved to enquiries-unified/update
 // Register deal update endpoints (used by instruction cards editing)
 app.post('/api/update-deal', require('./routes/updateDeal'));

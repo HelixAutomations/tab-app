@@ -301,6 +301,10 @@ Users:        20 (all AI-enabled DUB points)
 Admin:        lz-helix-law-com (Lukasz Zemanek)
 ```
 
+### ⚠️ SPEAKER DIARISATION — NOT AVAILABLE
+
+**Confirmed 27 Mar 2026**: Dubber does NOT provide speaker diarisation. Every sentence returns `"speaker": "Multiple speakers"` across all recordings. The sentence object has exactly 3 fields (`speaker`, `content`, `sentiment`) — no hidden speaker data. Endpoints `/speakers`, `/diarization`, `/insights`, `/analysis` all return 404. This is a platform limitation on DUR_T_02, not a config issue. Email sent to Dubber to confirm. The Hub UI handles this: shows sentence numbers instead of speaker labels, with a "diarisation pending" note. If Dubber ever enables it, distinct speaker labels will render automatically.
+
 ### AI/Transcript Response Shape
 
 ```json
