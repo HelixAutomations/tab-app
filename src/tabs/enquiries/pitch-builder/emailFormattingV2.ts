@@ -69,6 +69,28 @@ function mergeInlineStyles(...styleFragments: Array<string | undefined>): string
     .concat(';');
 }
 
+function replaceInTextSegments(
+  html: string,
+  pattern: RegExp,
+  replacer: (match: string) => string
+): string {
+  if (!html) {
+    return '';
+  }
+
+  return html
+    .split(/(<[^>]+>)/g)
+    .map((segment) => {
+      if (!segment || segment.startsWith('<')) {
+        return segment;
+      }
+
+      pattern.lastIndex = 0;
+      return segment.replace(pattern, replacer);
+    })
+    .join('');
+}
+
 function stripProperties(style: string, properties: string[]): string {
   if (!style) {
     return '';
@@ -518,12 +540,14 @@ export function protectNumbersFromOutlook(html: string): string {
 
   let processed = html;
 
-  processed = processed.replace(
+  processed = replaceInTextSegments(
+    processed,
     /£[\d,]+(?:\.[\d]{1,2})?(?:\s*\+\s*VAT)?/gi,
     (match) => `<span style="font-weight:normal!important;text-decoration:none!important;">${match}</span>`
   );
 
-  processed = processed.replace(
+  processed = replaceInTextSegments(
+    processed,
     /\b\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?\b/g,
     (match) => {
       const numericValue = parseFloat(match.replace(/,/g, ''));
@@ -533,7 +557,8 @@ export function protectNumbersFromOutlook(html: string): string {
     }
   );
 
-  processed = processed.replace(
+  processed = replaceInTextSegments(
+    processed,
     /\b\d+(?:\.\d+)?%/g,
     (match) => `<span style="font-weight:normal!important;">${match}</span>`
   );

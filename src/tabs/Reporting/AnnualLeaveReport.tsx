@@ -200,7 +200,7 @@ const getDatePickerStyles = (isDarkMode: boolean): Partial<IDatePickerStyles> =>
       },
     },
     icon: {
-      color: `${isDarkMode ? colours.highlight : colours.missedBlue} !important`,
+      color: `${isDarkMode ? colours.highlight : colours.helixBlue} !important`,
       fontSize: '16px !important',
       fontWeight: 'bold !important',
     },
@@ -376,7 +376,7 @@ const getTeamButtonStyles = (
       fontSize: 12,
       border: activeBorder,
       background: activeBackground,
-      color: active ? '#ffffff' : (isDarkMode ? '#E2E8F0' : colours.missedBlue),
+      color: active ? '#ffffff' : (isDarkMode ? '#E2E8F0' : colours.helixBlue),
       boxShadow: active
         ? (isDarkMode ? '0 2px 8px rgba(54, 144, 206, 0.3)' : '0 2px 8px rgba(54, 144, 206, 0.25)')
         : 'none',
@@ -433,7 +433,7 @@ const dateStampButtonStyle = (isDarkMode: boolean): React.CSSProperties => ({
   borderRadius: 10,
   border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(13, 47, 96, 0.16)'}`,
   background: isDarkMode ? 'rgba(15, 23, 42, 0.8)' : 'rgba(255, 255, 255, 0.95)',
-  color: isDarkMode ? '#E2E8F0' : colours.missedBlue,
+  color: isDarkMode ? '#E2E8F0' : colours.helixBlue,
   minWidth: 120,
   cursor: 'pointer',
   transition: 'all 0.2s ease',
@@ -1076,7 +1076,7 @@ const AnnualLeaveReport: React.FC<Props> = ({
                   background: isDarkMode ? "rgba(15, 23, 42, 0.8)" : "rgba(255, 255, 255, 0.95)",
                   fontSize: 12,
                   fontWeight: 600,
-                  color: isDarkMode ? "#E2E8F0" : colours.missedBlue,
+                  color: isDarkMode ? "#E2E8F0" : colours.helixBlue,
                   transition: "border-color 1s ease",
                 }}
                 title={
@@ -1127,7 +1127,7 @@ const AnnualLeaveReport: React.FC<Props> = ({
                     borderRadius: 8,
                     border: `1px solid ${isDarkMode ? "rgba(148, 163, 184, 0.24)" : "rgba(13, 47, 96, 0.16)"}`,
                     background: isDarkMode ? "rgba(15, 23, 42, 0.8)" : "rgba(255, 255, 255, 0.95)",
-                    color: isDarkMode ? "#E2E8F0" : colours.missedBlue,
+                    color: isDarkMode ? "#E2E8F0" : colours.helixBlue,
                     cursor: isFetching ? "default" : "pointer",
                     opacity: isFetching ? 0.6 : 1,
                     transition: "all 0.2s ease",
@@ -1500,7 +1500,7 @@ const AnnualLeaveReport: React.FC<Props> = ({
                   borderRadius: 4,
                   border: `1px solid ${isDarkMode ? "rgba(148, 163, 184, 0.24)" : "rgba(13, 47, 96, 0.16)"}`,
                   background: "transparent",
-                  color: isDarkMode ? "#E2E8F0" : colours.missedBlue,
+                  color: isDarkMode ? "#E2E8F0" : colours.helixBlue,
                   cursor: "pointer",
                   fontSize: 16,
                 }}

@@ -3,6 +3,12 @@ const path = require('path');
 // ── Application Insights (must init BEFORE express so HTTP is auto-instrumented) ──
 const appInsights = require('./utils/appInsights');
 appInsights.init();
+const { trackEvent, trackException, trackMetric } = appInsights;
+const serverBootStartedAt = Date.now();
+trackEvent('Server.Boot.Started', {
+    pid: process.pid,
+    env: process.env.NODE_ENV || 'development',
+});
 
 //
 // 🟢 THIS IS THE MAIN SERVER FILE - server/index.js 🟢
@@ -94,6 +100,10 @@ async function hydrateSqlConnectionStringsFromKeyVault() {
 
 // Warm up connections in background (non-blocking)
 async function warmupConnections() {
+    trackEvent('Server.Boot.Warmup.Scheduled', {
+        tier1DelayMs: 3000,
+        tier2DelayMs: 5000,
+    });
     // Warm up Redis
     getRedisClient()
         .then(() => { _connStatus.redis = true; setServerStatus('redis', true); devStatus('Redis', true, 'connected'); })
@@ -137,16 +147,53 @@ async function warmupConnections() {
     setTimeout(() => {
         const http = require('http');
         const port = process.env.PORT || 8080;
+        trackEvent('Server.Boot.Warmup.Tier1.Started', { port });
 
         const warmup = (ep) => {
             const body = ep.body ? JSON.stringify(ep.body) : '';
             const headers = { 'Content-Type': 'application/json' };
             if (body) headers['Content-Length'] = Buffer.byteLength(body);
+            const startedAt = Date.now();
             const req = http.request({ hostname: '127.0.0.1', port, path: ep.path, method: ep.method, headers }, (res) => {
                 res.resume();
                 devStatus(`Warmup ${ep.label || ep.path}`, res.statusCode < 400, `${res.statusCode}`);
+                const durationMs = Date.now() - startedAt;
+                trackEvent('Server.Boot.Warmup.Endpoint.Completed', {
+                    label: ep.label || ep.path,
+                    path: ep.path,
+                    method: ep.method,
+                    statusCode: res.statusCode,
+                    success: res.statusCode < 400,
+                });
+                trackMetric('Server.Boot.Warmup.Endpoint.Duration', durationMs, {
+                    label: ep.label || ep.path,
+                    path: ep.path,
+                    method: ep.method,
+                    statusCode: res.statusCode,
+                });
             });
-            req.on('error', () => { /* best-effort */ });
+            req.on('error', (error) => {
+                const durationMs = Date.now() - startedAt;
+                trackException(error instanceof Error ? error : new Error(String(error)), {
+                    component: 'ServerBoot',
+                    operation: 'WarmupEndpoint',
+                    label: ep.label || ep.path,
+                    path: ep.path,
+                    method: ep.method,
+                });
+                trackEvent('Server.Boot.Warmup.Endpoint.Failed', {
+                    label: ep.label || ep.path,
+                    path: ep.path,
+                    method: ep.method,
+                    error: error?.message || String(error),
+                });
+                trackMetric('Server.Boot.Warmup.Endpoint.Duration', durationMs, {
+                    label: ep.label || ep.path,
+                    path: ep.path,
+                    method: ep.method,
+                    statusCode: 'error',
+                });
+            });
             if (body) req.write(body);
             req.end();
         };
@@ -166,6 +213,7 @@ async function warmupConnections() {
         // Tier 2 — team WIP aggregate (Clio API, ~30-90s but pre-fills all 32 per-user caches)
         // Delayed 5s extra to let Clio creds finish warming
         setTimeout(() => {
+            trackEvent('Server.Boot.Warmup.Tier2.Started', { port, label: 'Team WIP (aggregate)' });
             warmup({ path: '/api/home-wip/team', method: 'GET', label: 'Team WIP (aggregate)' });
         }, 5000);
 
@@ -178,9 +226,26 @@ async function warmupConnections() {
 // Hydrate SQL secrets from Key Vault BEFORE accepting requests.
 // Stored as a module-level promise so app.listen() can await it.
 const _hydrationReady = (async () => {
-    await hydrateSqlConnectionStringsFromKeyVault();
-    warmupConnections();
-})().catch(() => warmupConnections());
+    const startedAt = Date.now();
+    try {
+        await hydrateSqlConnectionStringsFromKeyVault();
+        const durationMs = Date.now() - startedAt;
+        trackEvent('Server.Boot.Secrets.Completed', {});
+        trackMetric('Server.Boot.Secrets.Duration', durationMs, {});
+        warmupConnections();
+    } catch (error) {
+        const durationMs = Date.now() - startedAt;
+        trackException(error instanceof Error ? error : new Error(String(error)), {
+            component: 'ServerBoot',
+            operation: 'HydrateSecrets',
+        });
+        trackEvent('Server.Boot.Secrets.Failed', {
+            error: error?.message || String(error),
+        });
+        trackMetric('Server.Boot.Secrets.Duration', durationMs, { status: 'failed' });
+        warmupConnections();
+    }
+})();
 const keysRouter = require('./routes/keys');
 const refreshRouter = require('./routes/refresh');
 const matterRequestsRouter = require('./routes/matterRequests');
@@ -199,6 +264,7 @@ const riskAssessmentsRouter = require('./routes/riskAssessments');
 const bundleRouter = require('./routes/bundle');
 const { router: cclRouter, CCL_DIR } = require('./routes/ccl');
 const cclAiRouter = require('./routes/ccl-ai');
+const aiCommsRouter = require('./routes/ai-comms');
 const cclAdminRouter = require('./routes/ccl-admin');
 
 const updateEnquiryPOCRouter = require('./routes/updateEnquiryPOC');
@@ -376,6 +442,7 @@ app.use('/api/getAllMatters', (req, res) => {
 });
 app.use('/api/ccl', cclRouter);
 app.use('/api/ccl-ai', cclAiRouter);
+app.use('/api/ai/pressure-test-comms', aiCommsRouter);
 app.use('/api/ccl-admin', cclAdminRouter);
 app.use('/api/ccl-ops', cclOpsRouter);
 app.use('/api/enquiries-unified', enquiriesUnifiedRouter);
@@ -596,6 +663,7 @@ app.use((error, req, res, next) => {
 // ELOGIN race where routes query SQL before credentials are hydrated.
 _hydrationReady.then(() => {
     app.listen(PORT, () => {
+        const bootDurationMs = Date.now() - serverBootStartedAt;
         banner({
             port: PORT,
             redis: _connStatus.redis,
@@ -606,6 +674,8 @@ _hydrationReady.then(() => {
         });
         setServerStatus('scheduler', true);
         startDataOperationsScheduler();
+        trackEvent('Server.Boot.ListenReady', { port: PORT });
+        trackMetric('Server.Boot.Listen.Duration', bootDurationMs, { port: PORT });
     });
 });
 

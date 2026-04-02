@@ -53,7 +53,7 @@ import EnquiryTimeline from './EnquiryTimeline';
 import { colours } from '../../app/styles/colours';
 import InlineExpansionChevron from '../../components/InlineExpansionChevron';
 import SegmentedControl from '../../components/filter/SegmentedControl';
-import { isAdminUser, hasInstructionsAccess } from '../../app/admin';
+import { isAdminUser, hasInstructionsAccess, isDevOwner } from '../../app/admin';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { useNavigatorActions } from '../../app/functionality/NavigatorContext';
 import UnclaimedEnquiries from './UnclaimedEnquiries';
@@ -532,6 +532,7 @@ interface EnquiriesProps {
   }) => void) => () => void;
   instructionData?: any[]; // For detecting promoted enquiries
   featureToggles?: Record<string, boolean>;
+  originalAdminUser?: UserData | null;
   isActive?: boolean; // Whether this tab is currently active
   demoModeEnabled?: boolean;
   onTeamWideEnquiriesLoaded?: (enquiries: Enquiry[]) => void;
@@ -935,6 +936,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   subscribeToEnquiryStream,
   instructionData,
   featureToggles = {},
+  originalAdminUser,
   isActive = false,
   demoModeEnabled: demoModeEnabledProp,
   onTeamWideEnquiriesLoaded,
@@ -1843,7 +1845,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     }, delay);
   }, []);
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     const el = pipelineGridMeasureRef.current;
     if (!el || typeof ResizeObserver === 'undefined') {
       schedulePipelineRemeasure();
@@ -3085,6 +3087,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const [selectedAreas, setSelectedAreas] = useState<string[]>([]);
   const [userManuallyChangedAreas, setUserManuallyChangedAreas] = useState(false);
   const [selectedPersonInitials, setSelectedPersonInitials] = useState<string | null>(null);
+  const [devOwnerMineOverrideEmail, setDevOwnerMineOverrideEmail] = useState<string | null>(null);
 
   const normalizedSearchTerm = useMemo(() => normalizeSearchEmailArtifacts(debouncedSearchTerm), [debouncedSearchTerm]);
   const searchTokens = useMemo(() => normalizedSearchTerm.split(' ').filter(Boolean), [normalizedSearchTerm]);
@@ -3127,6 +3130,16 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       }))
     });
   }, [enquiries, userData]);
+
+  const actualEnquiryIdentity = useMemo(() => ({
+    email: String(userData?.[0]?.Email || '').trim().toLowerCase(),
+    initials: String(userData?.[0]?.Initials || '').trim().toUpperCase(),
+  }), [userData]);
+
+  const canUseDevOwnerMineOverride = useMemo(
+    () => isLocalhost && isDevOwner(userData?.[0] || null) && !originalAdminUser,
+    [isLocalhost, originalAdminUser, userData]
+  );
 
   // Normalize all incoming enquiries once (unfiltered by toggle)
   useEffect(() => {
@@ -3195,32 +3208,102 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     setAllEnquiries(normalised);
   }, [enquiries, isAdmin, showMineOnly, demoModeEnabled]);
 
-  const effectiveEnquiryIdentity = useMemo(() => {
-    const rawEmail = String(userData?.[0]?.Email || '').trim().toLowerCase();
-    const rawInitials = String(userData?.[0]?.Initials || '').trim().toUpperCase();
-    const isLocalHost = typeof window !== 'undefined'
-      && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+  const devOwnerMineOptions = useMemo(() => {
+    if (!canUseDevOwnerMineOverride) return [] as Array<{ email: string; label: string; fullLabel: string; initials: string; isSelf: boolean }>;
 
-    if (!isLocalHost || rawInitials !== 'LZ' || !teamData?.length) {
-      return { email: rawEmail, initials: rawInitials };
+    const seen = new Set<string>();
+    const options: Array<{ email: string; label: string; fullLabel: string; initials: string; isSelf: boolean }> = [];
+    const pushOption = (email: string, label: string, fullLabel: string, initials: string, isSelf: boolean) => {
+      const normalisedEmail = String(email || '').trim().toLowerCase();
+      if (!normalisedEmail || seen.has(normalisedEmail) || normalisedEmail === 'team@helix-law.com') return;
+      seen.add(normalisedEmail);
+      options.push({ email: normalisedEmail, label, fullLabel, initials, isSelf });
+    };
+
+    const actualEmail = actualEnquiryIdentity.email;
+    const actualInitials = actualEnquiryIdentity.initials || actualEmail.split('@')[0]?.slice(0, 2).toUpperCase() || 'ME';
+    const actualFirst = String(userData?.[0]?.First || '').trim();
+    const actualFull = String(
+      userData?.[0]?.FullName
+      || `${userData?.[0]?.First || ''} ${userData?.[0]?.Last || ''}`.trim()
+      || actualEmail
+    ).trim();
+
+    if (actualEmail) {
+      pushOption(actualEmail, actualFirst || actualInitials, actualFull, actualInitials, true);
     }
 
-    const alex = teamData.find((member) => {
-      const memberInitials = String(member?.Initials || '').trim().toUpperCase();
-      const memberFirst = String((member as any)?.First || '').trim().toLowerCase();
-      return memberInitials === 'AC' || memberFirst === 'alex';
-    });
+    (teamData || [])
+      .filter((member) => {
+        const email = String(member?.Email || '').trim().toLowerCase();
+        const status = String((member as any)?.status || '').trim().toLowerCase();
+        return Boolean(email) && email !== 'team@helix-law.com' && status !== 'inactive';
+      })
+      .sort((a, b) => {
+        const aName = String((a as any)?.First || a?.['Full Name'] || a?.Email || '').toLowerCase();
+        const bName = String((b as any)?.First || b?.['Full Name'] || b?.Email || '').toLowerCase();
+        return aName.localeCompare(bName);
+      })
+      .forEach((member) => {
+        const email = String(member?.Email || '').trim().toLowerCase();
+        const initials = String(member?.Initials || '').trim().toUpperCase() || email.split('@')[0]?.slice(0, 2).toUpperCase() || 'TM';
+        const first = String((member as any)?.First || '').trim();
+        const fullName = String(member?.['Full Name'] || `${(member as any)?.First || ''} ${(member as any)?.Last || ''}`.trim() || member?.Email || '').trim();
+        pushOption(email, first || initials, fullName || email, initials, email === actualEmail);
+      });
 
+    return options;
+  }, [actualEnquiryIdentity.email, actualEnquiryIdentity.initials, canUseDevOwnerMineOverride, teamData, userData]);
+
+  const mineScopeIdentity = useMemo(() => {
+    if (!canUseDevOwnerMineOverride || !devOwnerMineOverrideEmail) {
+      return actualEnquiryIdentity;
+    }
+
+    const overrideMember = (teamData || []).find((member) => String(member?.Email || '').trim().toLowerCase() === devOwnerMineOverrideEmail);
     return {
-      email: String(alex?.Email || rawEmail).trim().toLowerCase(),
-      initials: String(alex?.Initials || rawInitials).trim().toUpperCase(),
+      email: devOwnerMineOverrideEmail,
+      initials: String(overrideMember?.Initials || '').trim().toUpperCase()
+        || devOwnerMineOverrideEmail.split('@')[0]?.slice(0, 2).toUpperCase()
+        || actualEnquiryIdentity.initials,
     };
-  }, [teamData, userData]);
+  }, [actualEnquiryIdentity, canUseDevOwnerMineOverride, devOwnerMineOverrideEmail, teamData]);
+
+  const devOwnerMineOptionsKey = useMemo(
+    () => devOwnerMineOptions.map((option) => `${option.email}:${option.label}`).join('|'),
+    [devOwnerMineOptions]
+  );
+  const selectedAreasKey = useMemo(() => selectedAreas.join('|'), [selectedAreas]);
+  const hasAreaFilterAccess = Boolean(userData && userData[0]?.AOW);
+  const navigatorRefreshLoading = isRefreshing || isRealtimeQueueSyncing || isLoadingAllData || enquiriesLiveRefreshInFlight;
+
+  const handleSetDevOwnerMineOverride = useCallback((email: string) => {
+    const nextEmail = String(email || '').trim().toLowerCase();
+    const baseEmail = actualEnquiryIdentity.email;
+    setDevOwnerMineOverrideEmail(nextEmail && nextEmail !== baseEmail ? nextEmail : null);
+    setSelectedPersonInitials(null);
+    setSelectedPocFilter(null);
+    setPipelineScrollOffset(0);
+  }, [actualEnquiryIdentity.email]);
+
+  useEffect(() => {
+    if (!canUseDevOwnerMineOverride && devOwnerMineOverrideEmail) {
+      setDevOwnerMineOverrideEmail(null);
+    }
+  }, [canUseDevOwnerMineOverride, devOwnerMineOverrideEmail]);
+
+  useEffect(() => {
+    if (!devOwnerMineOverrideEmail) return;
+    const stillExists = devOwnerMineOptions.some((option) => option.email === devOwnerMineOverrideEmail);
+    if (!stillExists) {
+      setDevOwnerMineOverrideEmail(null);
+    }
+  }, [devOwnerMineOptions, devOwnerMineOverrideEmail]);
 
   // Calculate counts for Mine/All scope badges
   const scopeCounts = useMemo(() => {
     // Mine count = enquiries claimed by the current user (where Point_of_Contact matches user email)
-    const userEmail = effectiveEnquiryIdentity.email;
+    const userEmail = mineScopeIdentity.email;
     const mineCount = userEmail 
       ? allEnquiries.filter(e => {
           const poc = ((e as any).Point_of_Contact || (e as any).poc || '').toLowerCase().trim();
@@ -3229,7 +3312,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       : 0;
     const allCount = hasFetchedAllData.current ? teamWideEnquiries.length : null;
     return { mineCount, allCount };
-  }, [allEnquiries, effectiveEnquiryIdentity.email, teamWideEnquiries.length]);
+  }, [allEnquiries, mineScopeIdentity.email, teamWideEnquiries.length]);
 
   // Map for claimer quick lookup
   const claimerMap = useMemo(() => {
@@ -3240,8 +3323,8 @@ const Enquiries: React.FC<EnquiriesProps> = ({
 
   // Pre-computed POC dropdown options (avoids O(n²) findIndex dedup on every render)
   const pocOptionsMemo = useMemo(() => {
-    const currentUserEmail = effectiveEnquiryIdentity.email;
-    const currentUserInitials = effectiveEnquiryIdentity.initials ||
+    const currentUserEmail = mineScopeIdentity.email;
+    const currentUserInitials = mineScopeIdentity.initials ||
       claimerMap[currentUserEmail]?.Initials ||
       currentUserEmail.split('@')[0]?.slice(0, 2).toUpperCase() || 'ME';
     const seen = new Set<string>();
@@ -3261,7 +3344,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       addIfNew(email, label);
     });
     return { options, currentUserEmail, currentUserInitials };
-  }, [claimerMap, effectiveEnquiryIdentity.email, effectiveEnquiryIdentity.initials, teamData]);
+  }, [claimerMap, mineScopeIdentity.email, mineScopeIdentity.initials, teamData]);
 
   // Team member options for reassignment dropdown
   const teamMemberOptions = useMemo(() => {
@@ -3434,7 +3517,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   // Single select handler (pitch builder path)
 
   // Apply dataset toggle to derive display list without losing the other dataset
-  useLayoutEffect(() => {
+  useEffect(() => {
     debugLog('📊 Display derivation effect:', {
       allEnquiriesLength: allEnquiries.length,
       teamWideLength: teamWideEnquiries.length,
@@ -3550,7 +3633,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   useEffect(() => {
     // Only auto-adjust in Mine/Claimed mode, and only if user hasn't manually changed areas
     if (showMineOnly && activeState === 'Claimed' && !userManuallyChangedAreas) {
-      const userEmail = effectiveEnquiryIdentity.email;
+      const userEmail = mineScopeIdentity.email;
       if (!userEmail) return;
 
       // Use the UNFILTERED dataset (allEnquiries) to find what areas user actually has claimed
@@ -3596,7 +3679,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         }
       }
     }
-  }, [showMineOnly, activeState, allEnquiries, effectiveEnquiryIdentity.email, userManuallyChangedAreas, selectedAreas]);
+  }, [showMineOnly, activeState, allEnquiries, mineScopeIdentity.email, userManuallyChangedAreas, selectedAreas]);
 
   // Auto-enable all area filters for admin users
   useEffect(() => {
@@ -4321,7 +4404,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       return 'id' in e || 'datetime' in e || 'stage' in e || 'claim' in e;
     };
 
-    const currentUserEmail = effectiveEnquiryIdentity.email;
+    const currentUserEmail = mineScopeIdentity.email;
     const pickBetter = (a: any, b: any): any => {
       // If we're in Mine view, bias towards the record assigned to the current user
       if (showMineOnly && currentUserEmail) {
@@ -4431,7 +4514,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     }
     
     return Array.from(map.values()) as NormalizedEnquiry[];
-  }, [displayEnquiries, showMineOnly, effectiveEnquiryIdentity.email, activeState]);
+  }, [displayEnquiries, showMineOnly, mineScopeIdentity.email, activeState]);
 
   // Build a suppression index: if a claimed record exists for the same contact on the same day, suppress unclaimed copies
   // IMPORTANT: Use teamWideEnquiries (includes all team members' claims), not allEnquiries (may be filtered to current user)
@@ -4654,9 +4737,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     }, [isActive, pendingEnquiryId, pendingEnquiryPitchScenario, pendingEnquirySubTab, displayEnquiries, onPendingEnquiryHandled]);
 
   const ensureDemoEnquiryPresent = useCallback(() => {
-    const currentUserEmail = userData && userData[0] && userData[0].Email
-      ? userData[0].Email
-      : 'lz@helix-law.com';
+    const currentUserEmail = actualEnquiryIdentity.email || 'lz@helix-law.com';
     const alternateDemoOwnerEmail = currentUserEmail.toLowerCase() === 'cb@helix-law.com'
       ? 'lz@helix-law.com'
       : 'cb@helix-law.com';
@@ -4867,7 +4948,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       }
       return newMap;
     });
-  }, [userData, demoSharedSimulationById]);
+  }, [actualEnquiryIdentity.email, demoSharedSimulationById]);
 
   // Listen for demo mode event (from UserBubble menu)
   useEffect(() => {
@@ -5424,7 +5505,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   const filteredEnquiries = useMemo(() => {
     let filtered = dedupedEnquiries; // Use deduped full dataset, not slider range
 
-    const userEmail = effectiveEnquiryIdentity.email;
+    const userEmail = mineScopeIdentity.email;
 
     const effectiveUserEmail = userEmail;
 
@@ -5703,6 +5784,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     enquiryPipelineFilters, // For pipeline filtering
     selectedPocFilter, // For POC dropdown filter
     inlineWorkbenchByEnquiryId,
+    mineScopeIdentity.email,
   ]);
 
   // Build a quick lookup of every enquiry keyed by ID so special shared IDs can hydrate their history.
@@ -7008,7 +7090,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   }, []);
 
   // Global Navigator: list vs detail
-  useLayoutEffect(() => {
+  useEffect(() => {
     // Add CSS animation for spinning refresh icon
     if (typeof document !== 'undefined' && !document.getElementById('refreshSpinAnimation')) {
       const style = document.createElement('style');
@@ -7060,7 +7142,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
           }
           secondaryFilter={(
             <div className="enq-filter-secondary-cluster" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'nowrap', minWidth: 0, overflow: 'hidden' }}>
-              {userData && userData[0]?.AOW && (
+              {hasAreaFilterAccess && (
                 <IconAreaFilter
                   selectedAreas={selectedAreas}
                   availableAreas={ALL_AREAS_OF_WORK}
@@ -7068,6 +7150,57 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                   ariaLabel="Filter enquiries by area of work"
                   variant="glyph"
                 />
+              )}
+              {canUseDevOwnerMineOverride && devOwnerMineOptions.length > 0 && (
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    minWidth: 0,
+                    maxWidth: 250,
+                    height: 30,
+                    padding: '0 8px',
+                    border: `1px solid ${isDarkMode ? 'rgba(135,243,243,0.2)' : 'rgba(54,144,206,0.18)'}`,
+                    background: isDarkMode ? 'rgba(135,243,243,0.06)' : 'rgba(54,144,206,0.04)',
+                    color: isDarkMode ? '#d1d5db' : colours.greyText,
+                    overflow: 'hidden',
+                  }}
+                  title="Local Luke-only prospects scope. This changes the Mine view without switching user."
+                >
+                  <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: isDarkMode ? colours.accent : colours.highlight, flexShrink: 0 }}>
+                    Showing as:
+                  </span>
+                  <select
+                    aria-label="Choose whose claimed prospects to show in Mine"
+                    value={devOwnerMineOverrideEmail || actualEnquiryIdentity.email}
+                    onChange={(event) => handleSetDevOwnerMineOverride(event.target.value)}
+                    style={{
+                      minWidth: 0,
+                      flex: 1,
+                      height: 22,
+                      padding: '0 22px 0 8px',
+                      border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(6,23,51,0.08)'}`,
+                      borderRadius: 0,
+                      outline: 'none',
+                      background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.78)',
+                      color: isDarkMode ? '#f3f4f6' : colours.darkBlue,
+                      fontSize: 11,
+                      fontWeight: 600,
+                      fontFamily: 'Raleway, sans-serif',
+                      appearance: 'none',
+                      cursor: 'pointer',
+                    }}
+                    title="Choose whose claimed prospects to inspect"
+                  >
+                    {devOwnerMineOptions.map((option) => (
+                      <option key={option.email} value={option.email}>
+                        {option.fullLabel}
+                      </option>
+                    ))}
+                  </select>
+                  <Icon iconName="ChevronDown" style={{ fontSize: 10, color: isDarkMode ? colours.accent : colours.highlight, marginLeft: -20, pointerEvents: 'none', flexShrink: 0 }} />
+                </div>
               )}
             </div>
           )}
@@ -7107,7 +7240,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
           }
           refresh={{
             onRefresh: handleManualRefresh,
-            isLoading: isRefreshing || isRealtimeQueueSyncing || isLoadingAllData || enquiriesLiveRefreshInFlight,
+            isLoading: navigatorRefreshLoading,
             progressPercentage: Math.round((nextRefreshIn / 60) * 100),
             countdownLabel: `0:${nextRefreshIn < 10 ? '0' : ''}${nextRefreshIn}`,
           }}
@@ -7159,10 +7292,11 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     isDarkMode,
     selectedEnquiry,
     activeState,
-    selectedAreas,
-    scopeCounts,
+    selectedAreasKey,
+    scopeCounts.mineCount,
+    scopeCounts.allCount,
     debouncedSearchTerm,
-    userData,
+    hasAreaFilterAccess,
     isAdmin,
     showMineOnly,
     activeSubTab,
@@ -7170,15 +7304,17 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     handleSetActiveState,
     handleManualAreaChange,
     isLocalhost,
-    isLoadingAllData,
-    isRealtimeQueueSyncing,
-    isRefreshing,
+    navigatorRefreshLoading,
     handleManualRefresh,
     nextRefreshIn,
     manualFilterTransitioning,
     selectedPersonInitials,
+    devOwnerMineOverrideEmail,
+    canUseDevOwnerMineOverride,
+    devOwnerMineOptionsKey,
+    actualEnquiryIdentity.email,
+    handleSetDevOwnerMineOverride,
     isActive,
-    enquiriesLiveRefreshInFlight,
   ]);
 
   useEffect(() => () => {
@@ -7249,6 +7385,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     || Boolean(selectedPocFilter)
     || Boolean(debouncedSearchTerm)
     || Boolean(selectedPersonInitials)
+    || Boolean(devOwnerMineOverrideEmail)
     || (selectedAreas.length > 0 && userManuallyChangedAreas);
   const prospectsLoadingLabel = enquiries === null
     ? 'Loading prospects…'
@@ -7595,6 +7732,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                 setDebouncedSearchTerm('');
                                 setSelectedAreas([]);
                                 setSelectedPersonInitials(null);
+                                setDevOwnerMineOverrideEmail(null);
                                 setPipelineScrollOffset(0);
                                 setPipelineRemeasureKey(k => k + 1);
                               },

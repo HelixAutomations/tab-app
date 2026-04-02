@@ -800,6 +800,122 @@ customEvents | where name startswith "MatterOpening.ClioMatter" or name == "Clie
 customMetrics | where name startswith "MatterOpening" | summarize avg(value) by name | order by avg_value desc
 ```
 
+### Boot / First-Load Telemetry (Critical for startup diagnosis)
+
+The app now emits a dedicated boot trace for both server bootstrap and browser first-load hydration. Use this when prod feels slow after a deploy, recycle, cache expiry, or a cold user hit.
+
+**Server boot events**
+- `Server.Boot.Started`
+- `Server.Boot.Secrets.Completed` / `Server.Boot.Secrets.Failed`
+- `Server.Boot.ListenReady`
+- `Server.Boot.Warmup.Scheduled`
+- `Server.Boot.Warmup.Tier1.Started`
+- `Server.Boot.Warmup.Tier2.Started`
+- `Server.Boot.Warmup.Endpoint.Completed` / `Server.Boot.Warmup.Endpoint.Failed`
+
+**Client boot events**
+- `Client.Boot.stage`
+- `Client.Boot.summary`
+
+**Important client dimensions**
+- `bootTraceId` — correlates one browser boot session end-to-end
+- `flow` — `local` | `teams` | `gate`
+- `stage` — `snapshot` | `enquiries-cache` | `team-data` | `user-data` | `enquiries` | `matters` | `core-home` | `prime-user-dependent`
+- `status` — `started` | `completed` | `failed` | `restored`
+- `restoredSnapshot` / `restoredCache` — whether stale-first paint was used
+- `fetchAll` / `devOwner` — whether boot used the team-wide data scope
+
+**Important server dimensions**
+- `label` / `path` / `method` for warmup endpoints
+- `statusCode` and `success` for warmup results
+
+**Boot timing metrics**
+- `Server.Boot.Secrets.Duration`
+- `Server.Boot.Listen.Duration`
+- `Server.Boot.Warmup.Endpoint.Duration`
+- `Client.Boot.stage.Duration`
+- `Client.Boot.summary.Duration`
+
+**KQL: recent server boot sequence**
+```kql
+customEvents
+| where name startswith "Server.Boot"
+| where timestamp > ago(24h)
+| project timestamp, name, customDimensions
+| order by timestamp desc
+```
+
+**KQL: warmup endpoints sorted by slowest**
+```kql
+customMetrics
+| where name == "Server.Boot.Warmup.Endpoint.Duration"
+| where timestamp > ago(24h)
+| extend label = tostring(customDimensions.label), path = tostring(customDimensions.path), method = tostring(customDimensions.method), statusCode = tostring(customDimensions.statusCode)
+| summarize avgMs = round(avg(value), 1), maxMs = round(max(value), 1), hits = count() by label, path, method, statusCode
+| order by maxMs desc
+```
+
+**KQL: browser boot summaries**
+```kql
+customEvents
+| where name == "Client.Boot.summary"
+| where timestamp > ago(24h)
+| extend flow = tostring(customDimensions.flow), bootTraceId = tostring(customDimensions.bootTraceId), entry = tostring(customDimensions.entry), restoredSnapshot = tostring(customDimensions.restoredSnapshot), enquiriesCount = tostring(customDimensions.enquiriesCount), coreHomeMs = todouble(customMeasurements.durationMs)
+| project timestamp, flow, entry, bootTraceId, restoredSnapshot, enquiriesCount, coreHomeMs, customDimensions
+| order by timestamp desc
+```
+
+**KQL: browser boot stages for one trace**
+```kql
+let bootId = "PASTE_BOOT_TRACE_ID_HERE";
+customEvents
+| where name == "Client.Boot.stage"
+| extend bootTraceId = tostring(customDimensions.bootTraceId), flow = tostring(customDimensions.flow), stage = tostring(customDimensions.stage), status = tostring(customDimensions.status)
+| where bootTraceId == bootId
+| project timestamp, flow, stage, status, customMeasurements, customDimensions
+| order by timestamp asc
+```
+
+**KQL: slow network requests around a boot window**
+```kql
+customEvents
+| where name == "Client.Network.request-slow"
+| where timestamp > ago(24h)
+| extend path = tostring(customDimensions.path), method = tostring(customDimensions.method), status = tostring(customDimensions.status)
+| project timestamp, path, method, status, customMeasurements, customDimensions
+| order by timestamp desc
+```
+
+**What to paste back into chat after a prod test**
+1. The last 1-3 rows from `Client.Boot.summary`
+2. The full stage sequence for one `bootTraceId`
+3. The last 10-20 rows from `Client.Network.request-slow`
+4. The last 10-20 rows from `Server.Boot*` if the app had just restarted or been deployed
+
+**Paste format**
+```text
+BOOT_TRACE_ID: <value>
+
+Client.Boot.summary
+<rows>
+
+Client.Boot.stage
+<rows>
+
+Client.Network.request-slow
+<rows>
+
+Server.Boot*
+<rows>
+```
+
+This gives enough signal to separate:
+- App Service / Node restart delay
+- secret hydration delay
+- self-warmup delay
+- browser boot orchestration delay
+- slow endpoint latency vs client-side request queueing
+
 ### Auto-Instrumentation (free from SDK)
 - HTTP request/response tracking (all Express routes)
 - Unhandled exceptions

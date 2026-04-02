@@ -86,18 +86,14 @@ const actionButtonStyle = (isDarkMode: boolean, isSelected: boolean) =>
   mergeStyles({
     padding: '10px 20px',
     backgroundColor: isSelected
-      ? isDarkMode
-        ? colours.dark.buttonBackground
-        : colours.light.buttonBackground
+      ? colours.highlight
       : isDarkMode
       ? colours.dark.cardBackground
       : colours.light.cardBackground,
     border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`,
     borderRadius: 0,
     color: isSelected
-      ? isDarkMode
-        ? colours.dark.buttonText
-        : colours.light.buttonText
+      ? '#ffffff'
       : isDarkMode
       ? colours.dark.text
       : colours.light.text,
@@ -110,9 +106,7 @@ const actionButtonStyle = (isDarkMode: boolean, isSelected: boolean) =>
     height: '50px', // Adjusted height
     ':hover': {
       backgroundColor: isSelected
-        ? isDarkMode
-          ? colours.dark.hoverBackground
-          : colours.light.hoverBackground
+        ? colours.helixBlue
         : isDarkMode
         ? colours.dark.cardHover
         : colours.light.cardHover,
@@ -213,12 +207,10 @@ const ResourceDetails: React.FC<ResourceDetailsProps> = ({ resource, onClose }) 
                     styles={{
                       root: actionButtonStyle(isDarkMode, selectedAction === action),
                       label: {
-                        color: isDarkMode
-                          ? selectedAction === action
-                            ? colours.dark.buttonText
-                            : colours.dark.text
-                          : selectedAction === action
-                          ? colours.light.buttonText
+                        color: selectedAction === action
+                          ? '#ffffff'
+                          : isDarkMode
+                          ? colours.dark.text
                           : colours.light.text,
                         fontWeight: '600',
                       },

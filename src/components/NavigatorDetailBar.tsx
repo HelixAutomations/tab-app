@@ -254,7 +254,7 @@ const NavigatorDetailBar: React.FC<NavigatorDetailBarProps> = ({
               fontSize: 13,
               fontWeight: 600,
               fontFamily: 'Raleway, sans-serif',
-              color: isDarkMode ? colours.dark.text : colours.missedBlue,
+              color: isDarkMode ? colours.dark.text : colours.helixBlue,
             }}
           >
             {staticLabel}

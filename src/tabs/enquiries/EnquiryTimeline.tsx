@@ -843,8 +843,8 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
   const [showPitchConfirm, setShowPitchConfirm] = useState(false);
   const [selectedScenario, setSelectedScenario] = useState<string | null>(null);
   const [isWorkbenchCollapsed, setIsWorkbenchCollapsed] = useState<boolean>(false);
-  type WorkbenchTabKey = 'details' | 'identity' | 'payment' | 'risk' | 'matter' | 'documents';
-  type ContextStageKey = 'enquiry' | 'pitch' | 'instructed';
+  type WorkbenchTabKey = 'details' | 'identity' | 'payment' | 'risk' | 'matter' | 'documents' | 'pitch';
+  type ContextStageKey = 'enquiry' | 'instructed';
   const [selectedWorkbenchTab, setSelectedWorkbenchTab] = useState<WorkbenchTabKey>(
     (initialWorkbenchTab as WorkbenchTabKey) || 'details'
   );
@@ -5276,13 +5276,13 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   : stage.key === 'risk' ? 'risk'
                   : stage.key === 'matter' ? 'matter'
                   : stage.key === 'documents' ? 'documents'
+                  : stage.key === 'pitch' ? 'pitch'
                   : 'details';
 
-                const contextStage: ContextStageKey = stage.key === 'pitch' ? 'pitch'
-                  : stage.key === 'enquiry' ? 'enquiry'
+                const contextStage: ContextStageKey = stage.key === 'enquiry' ? 'enquiry'
                   : 'instructed';
 
-                const isContextStage = ['enquiry', 'pitch', 'instructed'].includes(stage.key);
+                const isContextStage = ['enquiry', 'instructed'].includes(stage.key);
 
                 // Determine active state matches InlineWorkbench logic
                 const isActive = selectedContextStage
@@ -5349,9 +5349,9 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                         return;
                       }
 
-                      if (['enquiry', 'pitch', 'instructed'].includes(stage.key)) {
+                      if (['enquiry', 'instructed'].includes(stage.key)) {
                         setSelectedWorkbenchTab('details');
-                        if (stage.key === 'enquiry' || stage.key === 'pitch') {
+                        if (stage.key === 'enquiry') {
                           setSelectedContextStage(stage.contextStage);
                         } else {
                           setSelectedContextStage('instructed');
@@ -5386,7 +5386,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               enableContextStageChips={false}
               enableTabStages={false}
               flatEmbedMode={true}
-              contextStageKeys={['enquiry', 'pitch', 'instructed']}
+              contextStageKeys={['enquiry', 'instructed']}
               onOpenDocumentWorkspace={() => {
                 if (existingWorkspace) {
                   setSelectedPortalLaunchModel(null);
@@ -6613,7 +6613,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                                 transition: 'all 0.2s',
                               }}
                               onMouseEnter={(e) => {
-                                e.currentTarget.style.background = colours.light.hoverBackground;
+                                e.currentTarget.style.background = colours.helixBlue;
                               }}
                               onMouseLeave={(e) => {
                                 e.currentTarget.style.background = colours.highlight;

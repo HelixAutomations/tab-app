@@ -170,7 +170,6 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
   }, [enquiry.Rating]);
   const [copiedPhone, setCopiedPhone] = useState(false);
   const [isPitchHovered, setIsPitchHovered] = useState(false);
-  // Removed inline pitch builder modal usage; pitch now handled by parent detail view
   const clampRef = useRef<HTMLDivElement>(null);
   const [isOverflowing, setIsOverflowing] = useState(false);
 
@@ -1811,8 +1810,6 @@ const ClaimedEnquiryCard: React.FC<Props> = ({
           </div>
         </div>
       )}
-      
-  {/* Removed inline pitch builder modal */}
     </div>
   );
 };

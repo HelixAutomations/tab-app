@@ -163,8 +163,8 @@ type DetailViewMode = 'all' | 'clio' | 'nd';
    just reflected here read-only.
 ------------------------------------------------------------------ */
 
-type WorkbenchTabKeyType = 'details' | 'identity' | 'payment' | 'risk' | 'matter' | 'documents';
-type ContextStageKeyType = 'enquiry' | 'pitch' | 'instructed';
+type WorkbenchTabKeyType = 'details' | 'identity' | 'payment' | 'risk' | 'matter' | 'documents' | 'pitch';
+type ContextStageKeyType = 'enquiry' | 'instructed';
 
 interface PipelineSectionProps {
   derivedWorkbenchItem: any;
@@ -495,13 +495,13 @@ const PipelineSection: React.FC<PipelineSectionProps> = ({
       : stage.key === 'risk' ? 'risk'
       : stage.key === 'matter' ? 'matter'
       : stage.key === 'documents' ? 'documents'
+      : stage.key === 'pitch' ? 'pitch'
       : 'details';
 
-    const contextStage: ContextStageKeyType = stage.key === 'pitch' ? 'pitch'
-      : stage.key === 'enquiry' ? 'enquiry'
+    const contextStage: ContextStageKeyType = stage.key === 'enquiry' ? 'enquiry'
       : 'instructed';
 
-    const isContextStage = ['enquiry', 'pitch', 'instructed'].includes(stage.key);
+    const isContextStage = ['enquiry', 'instructed'].includes(stage.key);
 
     const isActive = stage.key === 'ccl'
       ? selectedMatterStage === 'ccl'
@@ -636,7 +636,7 @@ const PipelineSection: React.FC<PipelineSectionProps> = ({
               initialContextStage={selectedContextStage}
               enableContextStageChips={false}
               enableTabStages={false}
-              contextStageKeys={['enquiry', 'pitch', 'instructed']}
+              contextStageKeys={['enquiry', 'instructed']}
               demoModeEnabled={demoModeEnabled}
               flatEmbedMode={true}
             />
@@ -991,8 +991,8 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
   }, [loadNetDocumentsFolder, netDocumentsBreadcrumbs]);
 
   // ─── Pipeline pill bar state (mirrors EnquiryTimeline) ───
-  type WorkbenchTabKey = 'details' | 'identity' | 'payment' | 'risk' | 'matter' | 'documents';
-  type ContextStageKey = 'enquiry' | 'pitch' | 'instructed';
+  type WorkbenchTabKey = 'details' | 'identity' | 'payment' | 'risk' | 'matter' | 'documents' | 'pitch';
+  type ContextStageKey = 'enquiry' | 'instructed';
   const [selectedWorkbenchTab, setSelectedWorkbenchTab] = useState<WorkbenchTabKey>('details');
   const [selectedContextStage, setSelectedContextStage] = useState<ContextStageKey | null>('enquiry');
   const [selectedMatterStage, setSelectedMatterStage] = useState<'ccl' | null>(null);
@@ -1568,7 +1568,7 @@ const MatterOverview: React.FC<MatterOverviewProps> = ({
     {
       role: 'Originating Solicitor',
       name: matter.originatingSolicitor,
-      color: colours.missedBlue,
+      color: colours.helixBlue,
     },
     {
       role: 'Supervising Partner',

@@ -204,7 +204,7 @@ const PIE_COLORS = [
   colours.blue,           // #3690CE - Primary brand blue
   colours.darkBlue,       // #061733 - Dark brand blue
   colours.websiteBlue,    // #000319 - Website blue
-  colours.missedBlue,     // #0d2f60 - Missed blue
+  colours.helixBlue,     // #0d2f60 - Helix blue
   colours.accent,         // #87F3F3 - Brand accent
   colours.highlight,      // #3690CE - Highlight (same as blue)
   colours.dark.subText,   // #3690CE - Sub text blue
@@ -508,7 +508,7 @@ const getDatePickerStyles = (isDarkMode: boolean): Partial<IDatePickerStyles> =>
       },
     },
     icon: {
-      color: `${isDarkMode ? colours.highlight : colours.missedBlue} !important`,
+      color: `${isDarkMode ? colours.highlight : colours.helixBlue} !important`,
       fontSize: '16px !important',
       fontWeight: 'bold !important',
     },
@@ -531,7 +531,7 @@ const getRangeButtonStyles = (
   active: boolean,
   disabled: boolean = false,
 ): IButtonStyles => {
-  const inactiveColor = isDarkMode ? colours.dark.text : colours.missedBlue;
+  const inactiveColor = isDarkMode ? colours.dark.text : colours.helixBlue;
   const disabledColor = isDarkMode ? colours.subtleGrey : colours.greyText;
 
   const resolvedBackground = disabled
@@ -612,7 +612,7 @@ const getTeamButtonStyles = (
     ? (isDarkMode ? colours.accent : colours.highlight)
     : greyedOut
       ? (isDarkMode ? colours.subtleGrey : colours.greyText)
-      : (isDarkMode ? colours.dark.text : colours.missedBlue);
+      : (isDarkMode ? colours.dark.text : colours.helixBlue);
 
   return {
     root: {
@@ -653,7 +653,7 @@ const getRoleButtonStyles = (isDarkMode: boolean, active: boolean, hasData: bool
     ? `1px solid ${isDarkMode ? `${colours.blue}33` : `${colours.blue}25`}`
     : `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}40` : 'rgba(6, 23, 51, 0.12)'}`;
 
-  const textColor = active ? (isDarkMode ? colours.highlight : colours.helixBlue) : (isDarkMode ? colours.dark.text : colours.missedBlue);
+  const textColor = active ? (isDarkMode ? colours.highlight : colours.helixBlue) : (isDarkMode ? colours.dark.text : colours.helixBlue);
   const opacity = hasData ? 1 : 0.55;
 
   return {
@@ -2758,7 +2758,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
             border: `0.5px solid ${isDarkMode ? `${colours.dark.border}30` : 'rgba(6, 23, 51, 0.08)'}`,
           }}>
             <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.7, marginBottom: 6 }}>Enquiries</div>
-            <div style={{ fontSize: 28, fontWeight: 800, color: isDarkMode ? colours.dark.text : colours.missedBlue }}>
+            <div style={{ fontSize: 28, fontWeight: 800, color: isDarkMode ? colours.dark.text : colours.helixBlue }}>
               {filtered.length.toLocaleString()}
             </div>
             <div style={{ fontSize: 12, opacity: 0.8, marginTop: 6 }}>~ {Math.round(stats.perDay)} per working day</div>
@@ -2773,7 +2773,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
             border: `0.5px solid ${isDarkMode ? `${colours.dark.border}30` : 'rgba(6, 23, 51, 0.08)'}`,
           }}>
             <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.7, marginBottom: 6 }}>Claimed</div>
-            <div style={{ fontSize: 28, fontWeight: 800, color: isDarkMode ? colours.dark.text : colours.missedBlue }}>
+            <div style={{ fontSize: 28, fontWeight: 800, color: isDarkMode ? colours.dark.text : colours.helixBlue }}>
               {stats.claimed.toLocaleString()}
             </div>
             <div style={{ fontSize: 12, opacity: 0.8, marginTop: 6 }}>
@@ -2790,7 +2790,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
             border: `0.5px solid ${isDarkMode ? `${colours.dark.border}30` : 'rgba(6, 23, 51, 0.08)'}`,
           }}>
             <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.7, marginBottom: 6 }}>Unclaimed</div>
-            <div style={{ fontSize: 28, fontWeight: 800, color: isDarkMode ? colours.dark.text : colours.missedBlue }}>
+            <div style={{ fontSize: 28, fontWeight: 800, color: isDarkMode ? colours.dark.text : colours.helixBlue }}>
               {stats.unclaimed.toLocaleString()}
             </div>
             <div style={{ fontSize: 12, opacity: 0.8, marginTop: 6 }}>
@@ -3482,7 +3482,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                 year: 'numeric'
               });
               // Connector accent: brand accent in dark mode (higher alpha), standard blue in light mode
-              const accent = isDarkMode ? 'rgba(135, 243, 243, 0.55)' : colours.missedBlue;
+              const accent = isDarkMode ? 'rgba(135, 243, 243, 0.55)' : colours.helixBlue;
               const connectorStyle: React.CSSProperties = {
                 position: 'absolute',
                 left: 10,
@@ -4060,7 +4060,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                         const initialsPillStyle: React.CSSProperties = {
                           display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                           width: 22, height: 22, borderRadius: 999, fontSize: 10, fontWeight: 800,
-                          color: isDarkMode ? colours.dark.text : colours.missedBlue,
+                          color: isDarkMode ? colours.dark.text : colours.helixBlue,
                           background: isDarkMode ? colours.dark.sectionBackground : colours.grey,
                           border: isDarkMode ? `0.5px solid ${colours.dark.border}59` : `0.5px solid rgba(6, 23, 51, 0.18)`,
                           boxShadow: isDarkMode ? '0 1px 2px rgba(0,0,0,0.35)' : '0 1px 2px rgba(6, 23, 51, 0.08)',
@@ -5053,7 +5053,7 @@ const EnquiriesReport: React.FC<EnquiriesReportProps> = ({
                 color: isDarkMode ? colours.dark.text : colours.light.text
               },
               rootHovered: {
-                backgroundColor: isDarkMode ? colours.dark.hoverBackground : colours.light.hoverBackground
+                backgroundColor: isDarkMode ? colours.dark.cardHover : colours.light.cardHover
               }
             }}
           />

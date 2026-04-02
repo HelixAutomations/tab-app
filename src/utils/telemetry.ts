@@ -1,4 +1,5 @@
 type TelemetryData = Record<string, unknown>;
+type BootStatus = 'started' | 'completed' | 'failed' | 'restored' | 'skipped';
 
 interface TrackOptions {
   duration?: number;
@@ -8,6 +9,7 @@ interface TrackOptions {
 }
 
 const SESSION_KEY = '__helixTelemetrySessionId';
+const BOOT_TRACE_KEY = '__helixBootTraceId';
 const lastSentAt = new Map<string, number>();
 const EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 const LONG_NUMBER_PATTERN = /\b\d{6,}\b/g;
@@ -21,6 +23,18 @@ function getSessionId(): string {
     return created;
   } catch {
     return `sess-${Date.now()}`;
+  }
+}
+
+function getBootTraceId(): string {
+  try {
+    const existing = window.sessionStorage.getItem(BOOT_TRACE_KEY);
+    if (existing) return existing;
+    const created = `boot-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    window.sessionStorage.setItem(BOOT_TRACE_KEY, created);
+    return created;
+  } catch {
+    return `boot-${Date.now()}`;
   }
 }
 
@@ -125,4 +139,36 @@ export function trackClientEvent(source: string, type: string, data: TelemetryDa
 export function trackClientError(source: string, type: string, error: unknown, data: TelemetryData = {}, opts: Omit<TrackOptions, 'error'> = {}) {
   const message = error instanceof Error ? error.message : String(error || 'Unknown error');
   trackClientEvent(source, type, data, { ...opts, error: message });
+}
+
+export function trackBootStage(
+  flow: string,
+  stage: string,
+  status: BootStatus,
+  data: TelemetryData = {},
+  opts: TrackOptions = {},
+) {
+  trackClientEvent('Boot', 'stage', {
+    bootTraceId: getBootTraceId(),
+    flow,
+    stage,
+    status,
+    ...data,
+  }, opts);
+}
+
+export function trackBootSummary(
+  flow: string,
+  data: TelemetryData = {},
+  opts: TrackOptions = {},
+) {
+  trackClientEvent('Boot', 'summary', {
+    bootTraceId: getBootTraceId(),
+    flow,
+    ...data,
+  }, opts);
+}
+
+export function currentBootTraceId(): string {
+  return getBootTraceId();
 }

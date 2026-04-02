@@ -54,7 +54,7 @@ interface PersonalAttendanceConfirmProps {
 type StatusType = 'office' | 'wfh' | 'away' | 'sick' | 'ooo' | 'unset';
 
 const STATUS_CONFIG: Record<StatusType, { label: string; shortLabel: string; color: string; icon: string; darkColor: string }> = {
-    office: { label: 'In Office', shortLabel: 'Office', color: colours.missedBlue, darkColor: colours.highlight, icon: 'CityNext' },
+    office: { label: 'In Office', shortLabel: 'Office', color: colours.helixBlue, darkColor: colours.highlight, icon: 'CityNext' },
     wfh: { label: 'Work From Home', shortLabel: 'WFH', color: colours.green, darkColor: colours.green, icon: 'Home' },
     away: { label: 'Away / Leave', shortLabel: 'Away', color: '#9CA3AF', darkColor: '#9CA3AF', icon: 'Airplane' },
     sick: { label: 'Off Sick', shortLabel: 'Sick', color: colours.cta, darkColor: colours.cta, icon: 'Health' },

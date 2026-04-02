@@ -24,7 +24,6 @@ export const colours = {
   websiteBlue: '#000319',
   darkBlue: '#061733',
   helixBlue: '#0D2F60',
-  missedBlue: '#0D2F60',  // @deprecated — legacy alias for helixBlue. Migrate to helixBlue over time (~50 refs).
   blue: '#3690CE',
   highlight: '#3690CE',   // Alias for blue — both are valid
   accent: '#87F3F3',      // Teal accent — sparingly at anchor points only
@@ -66,11 +65,6 @@ export const colours = {
     highlight: '#3690CE',
     grey: '#374151',
 
-    // Button / interaction tokens
-    buttonBackground: '#0078d4', // @deprecated — low usage (1 ref). Use blue or helixBlue instead.
-    buttonText: '#ffffff',       // @deprecated — low usage (2 refs). Just use '#ffffff'.
-    hoverBackground: '#005a9e',  // @deprecated — low usage (2 refs in src). Submodules still reference.
-
     // State tokens
     disabledBackground: '#374151',
     borderColor: '#4b5563',
@@ -90,11 +84,6 @@ export const colours = {
     previewBackground: '#f9f9f9',
     highlight: '#3690CE',
     grey: '#F4F4F6',
-
-    // Button / interaction tokens
-    buttonBackground: '#0078d4',
-    buttonText: '#ffffff',
-    hoverBackground: '#005a9e',
 
     // State tokens
     disabledBackground: '#F4F4F6',
@@ -127,7 +116,6 @@ export const colours = {
 
   // ── Component-specific ──────────────────────────────────────
   tagBackground: '#e1dfdd',
-  secondaryButtonBackground: '#F4F4F6', // @deprecated — same as grey. Prefer colours.grey.
 
   // ── Reporting (light-mode table styling) ────────────────────
   reporting: {

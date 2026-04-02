@@ -27,8 +27,8 @@ interface DocumentRendererProps {
     fieldStates?: Record<string, DocumentFieldState>;
     fieldElementRefs?: React.MutableRefObject<Record<string, HTMLSpanElement | null>>;
     rootRef?: React.Ref<HTMLDivElement>;
-    /** Page break data: array of { beforeSectionIdx, pageNumber }. Drives A4 page gap rendering. */
-    pageBreaks?: Array<{ beforeSectionIdx: number; pageNumber: number }>;
+    /** Page break data: array of { beforeBlockId, pageNumber }. Drives A4 page gap rendering. */
+    pageBreaks?: Array<{ beforeBlockId: string; pageNumber: number }>;
     /** Total page count — used for "Page N / Total" labels. */
     totalPages?: number;
     /** Horizontal content padding in px — used to extend page gaps edge-to-edge. */
@@ -60,6 +60,15 @@ interface RenderContext {
 type DocumentSection = {
     id: string;
     lines: string[];
+};
+
+type RenderBlock = {
+    id: string;
+    sectionId: string;
+    sectionIdx: number;
+    node: React.ReactNode;
+    startsTopLevelSection: boolean;
+    trailingSpace: number;
 };
 
 function isHeadingOnlySection(lines: string[]): boolean {
@@ -170,15 +179,8 @@ function renderBracketPromptText(text: string, keyPrefix: string): React.ReactNo
                     <span
                         key={`${keyPrefix}-prompt-${index}`}
                         style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            padding: '2px 6px',
-                            margin: '1px 0',
-                            background: 'rgba(255,140,0,0.10)',
-                            border: '1px solid rgba(255,140,0,0.28)',
-                            color: '#7c2d12',
-                            fontSize: '0.92em',
-                            fontWeight: 600,
+                            color: '#64748b',
+                            fontStyle: 'italic',
                             lineHeight: 1.35,
                         }}
                         title="AI placeholder prompt"
@@ -381,24 +383,37 @@ function renderSectionContent(lines: string[], sectionKey: string, context: Rend
         const line = lines[idx].trimEnd();
         if (!line.trim()) {
             idx++;
+            elements.push(<div key={`${sectionKey}-break-${idx}`} style={{ height: '0.85em' }} />);
             continue;
         }
 
         const sectionMatch = line.match(sectionRe);
         if (sectionMatch) {
             const isSubsection = sectionMatch[1].includes('.');
+            const sectionNumber = sectionMatch[1];
+            const hangingNumberWidth = isSubsection ? 28 : 18;
+            const hangingGap = 8;
             elements.push(
                 <div
                     key={`${sectionKey}-heading-${idx}`}
                     style={{
-                        fontSize: isSubsection ? 11.5 : 12.5,
-                        fontWeight: 700,
+                        display: 'grid',
+                        gridTemplateColumns: `${hangingNumberWidth}px minmax(0, 1fr)`,
+                        columnGap: hangingGap,
+                        marginLeft: -(hangingNumberWidth + hangingGap),
+                        fontSize: 'inherit',
+                        fontWeight: 600,
                         color: '#0D2F60',
-                        lineHeight: isSubsection ? 1.28 : 1.32,
-                        margin: isSubsection ? '6px 0 2px' : '5px 0 3px',
+                        lineHeight: 1.32,
+                        marginTop: isSubsection ? 6 : 5,
+                        marginRight: 0,
+                        marginBottom: isSubsection ? 2 : 3,
+                        fontFamily: "'Raleway', Arial, Helvetica, sans-serif",
+                        alignItems: 'start',
                     }}
                 >
-                    {sectionMatch[1]} {renderInlineContent(sectionMatch[2], `${sectionKey}-heading-text-${idx}`, context)}
+                    <span style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{sectionNumber}</span>
+                    <span>{renderInlineContent(sectionMatch[2], `${sectionKey}-heading-text-${idx}`, context)}</span>
                 </div>
             );
             idx++;
@@ -605,23 +620,41 @@ export const DocumentRenderer = ({ template, fieldValues, interactiveFieldKeys =
 
     const topLevelSectionRe = /^(\d+)\s+(.+)$/;
     const padY = contentPaddingY || { top: 48, bottom: 56 };
+    const pageFooterInsetBottom = 46;
+    const pageFooterLaneMinHeight = Math.max(padY.bottom - pageFooterInsetBottom - 10, 22);
 
     /* ── Discrete A4 page cards (desktop with page break data) ── */
     if (pageBreaks) {
-        // Group sections into pages
+        const blocks: RenderBlock[] = sections.flatMap((section, sectionIdx) => {
+            const firstLine = section.lines.find((l) => l.trim());
+            const isTopLevelSection = firstLine ? topLevelSectionRe.test(firstLine.trimEnd()) : false;
+            const contentBlocks = renderSectionContent(section.lines, `section-${sectionIdx}`, context);
+
+            return contentBlocks.map((node, blockIdx) => ({
+                id: `${section.id}-block-${blockIdx}`,
+                sectionId: section.id,
+                sectionIdx,
+                node,
+                startsTopLevelSection: isTopLevelSection && blockIdx === 0,
+                trailingSpace: blockIdx === contentBlocks.length - 1 ? (isTopLevelSection ? 16 : 10) : 0,
+            }));
+        });
+
+        const blockIndexById = new Map(blocks.map((block, index) => [block.id, index]));
         const pages: Array<{ startIdx: number; endIdx: number; pageNumber: number }> = [];
         if (pageBreaks.length === 0) {
-            // Single page
-            pages.push({ startIdx: 0, endIdx: sections.length - 1, pageNumber: 1 });
+            pages.push({ startIdx: 0, endIdx: blocks.length - 1, pageNumber: 1 });
         } else {
-            // First page: sections before the first break
-            pages.push({ startIdx: 0, endIdx: pageBreaks[0].beforeSectionIdx - 1, pageNumber: 1 });
+            const firstBreakIdx = blockIndexById.get(pageBreaks[0].beforeBlockId) ?? blocks.length;
+            pages.push({ startIdx: 0, endIdx: firstBreakIdx - 1, pageNumber: 1 });
             for (let i = 0; i < pageBreaks.length; i++) {
+                const startIdx = blockIndexById.get(pageBreaks[i].beforeBlockId);
+                if (startIdx === undefined) continue;
                 const nextEnd = i + 1 < pageBreaks.length
-                    ? pageBreaks[i + 1].beforeSectionIdx - 1
-                    : sections.length - 1;
+                    ? (blockIndexById.get(pageBreaks[i + 1].beforeBlockId) ?? blocks.length) - 1
+                    : blocks.length - 1;
                 pages.push({
-                    startIdx: pageBreaks[i].beforeSectionIdx,
+                    startIdx,
                     endIdx: nextEnd,
                     pageNumber: pageBreaks[i].pageNumber,
                 });
@@ -678,27 +711,41 @@ export const DocumentRenderer = ({ template, fieldValues, interactiveFieldKeys =
                                 {firstPageHeader}
                             </div>
                         )}
-                        {sections.slice(page.startIdx, page.endIdx + 1).map((section, localIdx) => {
-                            const sectionIdx = page.startIdx + localIdx;
-                            const firstLine = section.lines.find((l) => l.trim());
-                            const isTopLevelSection = firstLine ? topLevelSectionRe.test(firstLine.trimEnd()) : false;
-                            return (
-                                <React.Fragment key={section.id}>
-                                    <div data-section-idx={sectionIdx} style={{ marginBottom: isTopLevelSection ? 16 : 10, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                                        {renderSectionContent(section.lines, `section-${sectionIdx}`, context)}
-                                    </div>
-                                </React.Fragment>
-                            );
-                        })}
+                        {blocks.slice(page.startIdx, page.endIdx + 1).map((block) => (
+                            <div
+                                key={block.id}
+                                data-ccl-block-id={block.id}
+                                data-ccl-top-level-start={block.startsTopLevelSection ? 'true' : undefined}
+                                data-section-idx={block.sectionIdx}
+                                style={{ marginBottom: block.trailingSpace, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
+                            >
+                                {block.node}
+                            </div>
+                        ))}
                         {page.pageNumber === 1 && firstPageFooter && (
                             <div style={{
                                 position: 'absolute',
                                 left: contentPaddingX,
                                 right: contentPaddingX,
-                                bottom: 46,
+                                bottom: pageFooterInsetBottom,
                             }}>
-                                {firstPageFooter}
+                                <div data-ccl-first-page-footer>
+                                    {firstPageFooter}
+                                </div>
                             </div>
+                        )}
+                        {!(page.pageNumber === 1 && firstPageFooter) && (
+                            <div
+                                aria-hidden="true"
+                                style={{
+                                    position: 'absolute',
+                                    left: contentPaddingX,
+                                    right: contentPaddingX,
+                                    bottom: pageFooterInsetBottom,
+                                    minHeight: pageFooterLaneMinHeight,
+                                    pointerEvents: 'none',
+                                }}
+                            />
                         )}
                         {/* Page number footer */}
                         <span style={{

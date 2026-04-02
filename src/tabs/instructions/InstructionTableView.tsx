@@ -5,7 +5,7 @@ import { format } from 'date-fns';
 import { colours } from '../../app/styles/colours';
 import { renderAreaOfWorkGlyph } from '../../components/filter/areaGlyphs';
 import { TeamData } from '../../app/functionality/types';
-import { groupInstructionsByClient, shouldGroupInstructions } from '../../utils/tableGrouping';
+import { groupInstructionsByClient } from '../../utils/tableGrouping';
 import InlineExpansionChevron from '../../components/InlineExpansionChevron';
 import InlineWorkbench from './InlineWorkbench';
 import { FaCreditCard, FaShieldAlt, FaIdCard, FaPoundSign, FaBuilding, FaFileAlt, FaRegFileAlt, FaFolder, FaRegFolder } from 'react-icons/fa';
@@ -60,7 +60,6 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
   const [collapsedDays, setCollapsedDays] = useState<Set<string>>(new Set());
   const [expandedClientsInTable, setExpandedClientsInTable] = useState<Set<string>>(new Set());
   const [hoveredDayKey, setHoveredDayKey] = useState<string | null>(null);
-  const [hoveredRowKey, setHoveredRowKey] = useState<string | null>(null);
   const [areActionsEnabled, setAreActionsEnabled] = useState(false);
   const [sortColumn, setSortColumn] = useState<string>('date');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
@@ -475,24 +474,6 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
     
     return result;
   }, [sortedTableData, collapsedDays, sortColumn, sortDirection]);
-
-  // Client-based grouping data for inline expansion
-  const clientGroupedData = useMemo(() => {
-    if (sortColumn && sortColumn !== 'date') {
-      // Don't group by client when sorting by other columns
-      return [];
-    }
-    
-    const shouldGroup = shouldGroupInstructions(sortedTableData);
-    if (!shouldGroup) {
-      return [];
-    }
-    
-    // Group instructions by client
-    const grouped = groupInstructionsByClient(sortedTableData);
-    return grouped;
-  }, [sortedTableData, sortColumn]);
-
 
   // Helper to process day groups and add client sub-grouping
   const processedGroupedData = useMemo(() => {
@@ -1024,83 +1005,6 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
     );
   };
 
-  // Amount renderer with pitch type
-  const renderAmount = (item: any) => {
-    const amount = item.amount;
-    if (!amount || amount === 0) return <span style={{ opacity: 0.5 }}>—</span>;
-    
-    // Extract pitch type from rawData
-    const rawData = item.rawData || {};
-    const deal = rawData.deal || {};
-    const pitchContent = deal.PitchContent;
-    
-    // Try to parse pitch content for scenario
-    let pitchType = '';
-    if (pitchContent) {
-      try {
-        const parsed = typeof pitchContent === 'string' ? JSON.parse(pitchContent) : pitchContent;
-        // Look for scenario or id field in pitch content
-        pitchType = parsed?.scenario || parsed?.id || parsed?.ScenarioDisplay || '';
-      } catch {
-        // If not JSON, try to extract from string
-        const match = String(pitchContent).match(/"(cfa|toe|tc|after-call|standard|triage)"/i);
-        if (match) pitchType = match[1].toUpperCase();
-      }
-    }
-    
-    // Check if triage pitch (PitchedBy field)
-    const isTriage = deal.PitchedBy?.toLowerCase() === 'triage';
-    
-    return (
-      <div style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 4
-      }}>
-        <div style={{
-          fontWeight: '600',
-          color: '#22c55e'
-        }}>
-          £{amount.toLocaleString()}
-        </div>
-        {(pitchType || isTriage) && (
-          <div style={{
-            display: 'flex',
-            gap: 6,
-            alignItems: 'center',
-            fontSize: 10,
-            fontWeight: 500
-          }}>
-            {pitchType && (
-              <span style={{
-                padding: '2px 6px',
-                backgroundColor: isDarkMode ? 'rgba(96, 165, 250, 0.15)' : 'rgba(54, 144, 206, 0.1)',
-                color: isDarkMode ? '#60a5fa' : '#3690CE',
-                borderRadius: 3,
-                textTransform: 'uppercase',
-                letterSpacing: 0.5
-              }}>
-                {pitchType}
-              </span>
-            )}
-            {isTriage && (
-              <span style={{
-                padding: '2px 6px',
-                backgroundColor: isDarkMode ? 'rgba(248, 113, 113, 0.15)' : 'rgba(239, 68, 68, 0.1)',
-                color: isDarkMode ? '#f87171' : '#ef4444',
-                borderRadius: 3,
-                textTransform: 'uppercase',
-                letterSpacing: 0.5
-              }}>
-                Triage
-              </span>
-            )}
-          </div>
-        )}
-      </div>
-    );
-  };
-
   // Actions renderer
   const renderActions = (item: any) => {    
     return (
@@ -1203,7 +1107,6 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
 
   // Client renderer
   const renderClient = (item: any) => {
-    const rowKey = getRowKey(item);
     return (
       <div style={{ position: 'relative', minHeight: 26, paddingTop: 2, paddingBottom: 2, overflow: 'hidden' }}>
         <div style={{ 
@@ -1440,7 +1343,6 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
               {tableConfig.columns.map((col, index) => {
                 const key = String(col.key);
                 const isActions = key === 'actions';
-                const isSorted = sortColumn === key;
                 const justifyContent =
                   key === 'area'
                     ? 'center'
@@ -1946,11 +1848,9 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
                               }}
                               onMouseEnter={(e) => {
                                 e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.06)';
-                                setHoveredRowKey(`client-${group.date}-${clientGroup.clientKey}`);
                               }}
                               onMouseLeave={(e) => {
                                 e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.04)' : 'rgba(54, 144, 206, 0.03)';
-                                setHoveredRowKey((prev) => (prev === `client-${group.date}-${clientGroup.clientKey}` ? null : prev));
                               }}
                             >
                               {/* Timeline cell - empty for group headers */}
@@ -2026,7 +1926,6 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
                                   const latestItem = clientGroup.latestItem;
                                   const clientName = latestItem.clientName || 'Unknown Client';
                                   const clientEmail = latestItem.clientEmail || latestItem.rawData?.instruction?.ClientEmail || latestItem.rawData?.instruction?.Email;
-                                  const rowKey = `client-${group.date}-${clientGroup.clientKey}`;
                                   
                                   return (
                                     <div key={col.key} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -2118,7 +2017,6 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
                             {/* Expanded client instructions */}
                             {clientGroup.isExpanded && clientGroup.items.map((item: any, idx: number) => {
                               const notesKey = item.id || item.reference || '';
-                              const rowKey = getRowKey(item) || notesKey;
                               const isExpanded = expandedNotes.has(notesKey);
                               const rawData = item.rawData;
                               return (
@@ -2158,11 +2056,9 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
                                     }}
                                     onMouseEnter={(e) => {
                                       e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.02)';
-                                      setHoveredRowKey(rowKey);
                                     }}
                                     onMouseLeave={(e) => {
                                       e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(255, 255, 255, 0.01)' : 'rgba(0, 0, 0, 0.005)';
-                                      setHoveredRowKey((prev) => (prev === rowKey ? null : prev));
                                     }}
                                   >
                                     {/* Timeline cell - connector to parent */}
@@ -2238,7 +2134,6 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
                         // Single instruction from this client - render normally
                         const item = clientGroup.items[0];
                         const notesKey = item.id || item.reference || '';
-                        const rowKey = getRowKey(item) || notesKey;
                         const isExpanded = expandedNotes.has(notesKey);
                         const rawData = item.rawData;
                         return (
@@ -2278,12 +2173,10 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
                               onMouseEnter={(e) => {
                                 e.currentTarget.style.backgroundColor = isDarkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.02)';
                                 setHoveredDayKey(group.date);
-                                setHoveredRowKey(rowKey);
                               }}
                               onMouseLeave={(e) => {
                                 e.currentTarget.style.backgroundColor = 'transparent';
                                 setHoveredDayKey((prev) => (prev === group.date ? null : prev));
-                                setHoveredRowKey((prev) => (prev === rowKey ? null : prev));
                               }}
                             >
                               {/* Timeline cell */}
@@ -2356,8 +2249,6 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
                     const isExpanded = expandedNotes.has(notesKey);
 
                     const rawData = item.rawData;
-                    const inst = rawData?.instruction;
-                    const deal = rawData?.deal;
 
                     return (
                       <div key={notesKey}>
@@ -2400,14 +2291,12 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
                               ? 'rgba(255, 255, 255, 0.05)'
                               : 'rgba(0, 0, 0, 0.02)';
                             setHoveredDayKey(group.date);
-                            setHoveredRowKey(rowKey);
                           }}
                           onMouseLeave={(e) => {
                             e.currentTarget.style.backgroundColor = idx % 2 === 0
                               ? (isDarkMode ? 'rgba(255, 255, 255, 0.02)' : 'rgba(0, 0, 0, 0.01)')
                               : 'transparent';
                             setHoveredDayKey((prev) => (prev === group.date ? null : prev));
-                            setHoveredRowKey((prev) => (prev === rowKey ? null : prev));
                           }}
                         >
                           {/* Timeline cell */}

@@ -960,7 +960,7 @@ const statusPillStyle = (
   fontSize: 11,
   fontWeight: 600,
   background: isDarkMode ? palette.darkBg : palette.lightBg,
-  color: isDarkMode ? colours.dark.text : colours.missedBlue,
+  color: isDarkMode ? colours.dark.text : colours.helixBlue,
   boxShadow: 'none',
   letterSpacing: 0.2,
 });
@@ -974,7 +974,7 @@ const statusDotStyle = (colour: string): CSSProperties => ({
 
 const statusIconStyle = (isDarkMode: boolean): CSSProperties => ({
   fontSize: 12,
-  color: isDarkMode ? colours.dark.text : colours.missedBlue,
+  color: isDarkMode ? colours.dark.text : colours.helixBlue,
 });
 
 const reportCardsGridStyle = (): CSSProperties => ({
@@ -1099,7 +1099,7 @@ const refreshProgressHeaderStyle = (isDarkMode: boolean): CSSProperties => ({
   gap: 10,
   fontSize: 14,
   fontWeight: 600,
-  color: isDarkMode ? colours.dark.text : colours.missedBlue,
+  color: isDarkMode ? colours.dark.text : colours.helixBlue,
 });
 
 const refreshProgressDetailStyle = (isDarkMode: boolean): CSSProperties => ({
@@ -1131,7 +1131,7 @@ const refreshProgressDatasetLabelStyle = (isDarkMode: boolean): CSSProperties =>
   gap: 8,
   fontSize: 12,
   fontWeight: 600,
-  color: isDarkMode ? colours.dark.text : colours.missedBlue,
+  color: isDarkMode ? colours.dark.text : colours.helixBlue,
 });
 
 const refreshProgressDatasetStatusStyle = (isDarkMode: boolean): CSSProperties => ({
@@ -1211,7 +1211,7 @@ const heroMetaChipStyle = (isDarkMode: boolean): CSSProperties => ({
   background: isDarkMode ? 'rgba(10, 28, 50, 0.5)' : 'rgba(255, 255, 255, 0.7)',
   border: `0.5px solid ${subtleStroke(isDarkMode)}`,
   boxShadow: 'none',
-  color: isDarkMode ? colours.dark.text : colours.missedBlue,
+  color: isDarkMode ? colours.dark.text : colours.helixBlue,
   fontSize: 12,
 });
 

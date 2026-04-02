@@ -77,7 +77,10 @@ router.post('/', (req, res) => {
 
     // Fire direct App Insights events for all client-side telemetry
     const eventName = `Client.${source}.${type}`;
-    trackEvent(eventName, telemetryLog);
+    const measurements = Number.isFinite(durationNumber)
+      ? { durationMs: durationNumber }
+      : {};
+    trackEvent(eventName, telemetryLog, measurements);
     if (Number.isFinite(durationNumber)) {
       trackMetric(`${eventName}.Duration`, durationNumber, {
         source,
@@ -89,10 +92,10 @@ router.post('/', (req, res) => {
     // Track errors/failures as exceptions in App Insights
     if (type.includes('error') || type.includes('failed') || type.includes('Failed') || sanitizedError) {
       trackException(new Error(sanitizedError || `${source}:${type}`), {
-        component: 'MatterOpening',
+        component: 'Client',
         operation: type,
         source,
-        instructionRef: '',
+        clientSessionId: sessionId || '',
         feeEarner: sanitizedFeeEarner || ''
       });
     }

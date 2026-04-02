@@ -31,7 +31,7 @@ describe('emailFormattingV2', () => {
 
     // 3 paragraphs => 2 structural breaks => 2 <br> occurrences.
     expect(countOccurrences(out, '<br>')).toBe(2);
-      expect(out.toLowerCase()).toContain('<div style="line-height:1.4');
+    expect(out.toLowerCase()).toContain('<div data-hlx-email-container="true" style="line-height:1.6');
   });
 
   it('does not split paragraphs on double <br> inside table/signature blocks', () => {
@@ -94,5 +94,16 @@ describe('emailFormattingV2', () => {
     // The plain text run should be wrapped into a paragraph using the base style.
     expect(out).toMatch(/<p[^>]*style="[^"]*font-family:raleway/i);
     expect(out.toLowerCase()).toContain('in terms of costs');
+  });
+
+  it('does not wrap numbers inside style attributes when protecting numbers from Outlook', () => {
+    const html = '<p><span style="font-weight:700;">The Dispute</span> We discussed a valuation of £5,000 and a 30% shareholding.</p>';
+
+    const out = processEmailContentV2(html);
+
+    expect(out).toContain('<span style="font-weight:700;">The Dispute</span>');
+    expect(out).not.toContain('>700;">');
+    expect(out).toMatch(/£(?:<span[^>]*>)?5,000/i);
+    expect(out).toMatch(/30%/i);
   });
 });

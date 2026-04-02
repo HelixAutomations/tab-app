@@ -878,6 +878,39 @@ async function markAssessmentApplied(assessmentId, appliedBy) {
     trackEvent('CCL.Assessment.Applied', { assessmentId: String(assessmentId), appliedBy });
 }
 
+/**
+ * Persist a pressure-test result against the latest CclContent row for a matter.
+ */
+async function savePressureTestResult(matterId, result) {
+    const connStr = await getConnStr();
+    if (!connStr) return;
+
+    const pool = await getPool(connStr);
+    if (!(await tableExists(pool, 'CclContent'))) return;
+
+    await pool.request()
+        .input('MatterId', sql.NVarChar(50), matterId)
+        .input('PressureTestJson', sql.NVarChar(sql.MAX), JSON.stringify(result.fieldScores || result))
+        .input('PressureTestAt', sql.DateTime2, new Date())
+        .input('PressureTestFlaggedCount', sql.Int, result.flaggedCount ?? null)
+        .input('PressureTestDataSources', sql.NVarChar(500), result.dataSources ? JSON.stringify(result.dataSources) : null)
+        .input('PressureTestDurationMs', sql.Int, result.durationMs ?? null)
+        .input('PressureTestTrackingId', sql.NVarChar(50), result.trackingId ?? null)
+        .query(`UPDATE CclContent
+                SET PressureTestJson = @PressureTestJson,
+                    PressureTestAt = @PressureTestAt,
+                    PressureTestFlaggedCount = @PressureTestFlaggedCount,
+                    PressureTestDataSources = @PressureTestDataSources,
+                    PressureTestDurationMs = @PressureTestDurationMs,
+                    PressureTestTrackingId = @PressureTestTrackingId
+                WHERE CclContentId = (
+                    SELECT TOP 1 CclContentId FROM CclContent
+                    WHERE MatterId = @MatterId ORDER BY Version DESC
+                )`);
+
+    trackEvent('CCL.PressureTest.Persisted', { matterId, flaggedCount: String(result.flaggedCount ?? 0), trackingId: result.trackingId ?? '' });
+}
+
 module.exports = {
     saveCclContent,
     getLatestCclContent,
@@ -901,4 +934,5 @@ module.exports = {
     getAssessmentAccuracySummary,
     markAssessmentApplied,
     updateCclStatus,
+    savePressureTestResult,
 };

@@ -1910,7 +1910,7 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                   bgColor = colours.green;
                   textColor = colours.dark.text;
                 } else {
-                  bgColor = isDarkMode ? colours.highlight : colours.missedBlue;
+                  bgColor = isDarkMode ? colours.highlight : colours.helixBlue;
                   textColor = colours.dark.text;
                 }
               } else if (dayInfo.isOwnLeave) {
@@ -2038,7 +2038,7 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
               marginBottom: '8px'
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <div style={{ width: 10, height: 10, background: isDarkMode ? colours.highlight : colours.missedBlue, borderRadius: 0 }} />
+                <div style={{ width: 10, height: 10, background: isDarkMode ? colours.highlight : colours.helixBlue, borderRadius: 0 }} />
                 <span style={{ color: textMuted }}>Standard</span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -2280,7 +2280,7 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                   <Text style={{ 
                     fontSize: '11px', 
                     color: textMuted,
-                    borderBottom: `1px solid ${isDarkMode ? colours.highlight : colours.missedBlue}`,
+                    borderBottom: `1px solid ${isDarkMode ? colours.highlight : colours.helixBlue}`,
                     paddingBottom: '2px'
                   }}>Standard Entitlement</Text>
                   <Text style={{ fontSize: '13px', fontWeight: 600, color: isDarkMode ? colours.accent : colours.highlight }}>{entitlement}</Text>
@@ -2923,7 +2923,7 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
                   const leaveTypeColor = 
                     normalizedLeaveType === 'purchase' ? (isDarkMode ? colours.accent : colours.highlight) :
                     normalizedLeaveType === 'sale' ? colours.green :
-                    (isDarkMode ? colours.highlight : colours.missedBlue);
+                    (isDarkMode ? colours.highlight : colours.helixBlue);
                   
                   const statusColor = 
                     record.status === 'approved' ? colours.green :
@@ -3140,7 +3140,7 @@ export const AnnualLeaveModal: React.FC<AnnualLeaveModalProps> = ({
               </Text>
             </div>
             {[
-              { type: 'standard' as const, label: 'Standard Leave', desc: 'Your annual entitlement', color: isDarkMode ? colours.highlight : colours.missedBlue },
+              { type: 'standard' as const, label: 'Standard Leave', desc: 'Your annual entitlement', color: isDarkMode ? colours.highlight : colours.helixBlue },
               { type: 'purchase' as const, label: 'Purchase Leave', desc: 'Buy extra days (deducted from wages)', color: isDarkMode ? colours.accent : colours.highlight },
               { type: 'sale' as const, label: 'Sale Leave', desc: 'Sell unused days back for wages', color: colours.green }
             ].map(option => {

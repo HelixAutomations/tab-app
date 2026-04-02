@@ -140,7 +140,7 @@ const getDatePickerStyles = (isDarkMode: boolean): Partial<IDatePickerStyles> =>
       },
     },
     icon: {
-      color: `${isDarkMode ? colours.highlight : colours.missedBlue} !important`,
+      color: `${isDarkMode ? colours.highlight : colours.helixBlue} !important`,
       fontSize: '16px !important',
       fontWeight: 'bold !important',
     },
@@ -159,7 +159,7 @@ const getDatePickerStyles = (isDarkMode: boolean): Partial<IDatePickerStyles> =>
 };
 
 const getRangeButtonStyles = (isDarkMode: boolean, active: boolean, disabled: boolean = false): IButtonStyles => {
-  const inactiveColor = isDarkMode ? colours.dark.text : colours.missedBlue;
+  const inactiveColor = isDarkMode ? colours.dark.text : colours.helixBlue;
   const disabledColor = isDarkMode ? colours.subtleGrey : colours.greyText;
 
   const resolvedBackground = disabled
@@ -253,7 +253,7 @@ const getTeamButtonStyles = (isDarkMode: boolean, active: boolean, hasWorked: bo
       ? (isDarkMode ? colours.dark.text : colours.helixBlue)
       : excluded
         ? (isDarkMode ? colours.subtleGrey : colours.greyText)
-        : (isDarkMode ? '#f3f4f6' : colours.missedBlue);
+        : (isDarkMode ? '#f3f4f6' : colours.helixBlue);
 
   return {
     root: {
@@ -304,7 +304,7 @@ const getRoleButtonStyles = (isDarkMode: boolean, active: boolean, allIncluded?:
       ? `1px solid ${isDarkMode ? `${colours.highlight}40` : 'rgba(54, 144, 206, 0.25)'}`
       : `0.5px solid ${isDarkMode ? `${colours.dark.borderColor}40` : 'rgba(6, 23, 51, 0.12)'}`;
 
-  const textColor = active ? (isDarkMode ? colours.highlight : colours.helixBlue) : (isDarkMode ? '#f3f4f6' : colours.missedBlue);
+  const textColor = active ? (isDarkMode ? colours.highlight : colours.helixBlue) : (isDarkMode ? '#f3f4f6' : colours.helixBlue);
 
   return {
     root: {

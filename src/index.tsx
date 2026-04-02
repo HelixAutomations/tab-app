@@ -12,7 +12,7 @@ import { getCachedData, setCachedData, cleanupOldCache } from "./utils/storageHe
 import { debugLog } from "./utils/debug";
 import { isDevOwner } from "./app/admin";
 import { appendDefaultEnquiryProcessingParams, enquiryReferencesId } from "./app/functionality/enquiryProcessingModel";
-import { trackClientError, trackClientEvent } from "./utils/telemetry";
+import { trackBootStage, trackBootSummary, trackClientError, trackClientEvent } from "./utils/telemetry";
 
 import "./utils/callLogger";
 import { initializeIcons } from '@fluentui/react/lib/Icons';
@@ -353,17 +353,63 @@ function dedupFetchJson(
   key: string,
   url: string,
   init?: RequestInit,
-): Promise<{ ok: boolean; status: number; data?: any }> {
+): Promise<{ ok: boolean; status: number; data?: any; networkError?: boolean }> {
   const existing = inflightJsonRequests.get(key);
   if (existing) return existing;
   const p = (async () => {
-    const resp = await fetch(url, init);
-    if (!resp.ok) return { ok: false, status: resp.status };
-    const data = await resp.json();
-    return { ok: true, status: resp.status, data };
+    try {
+      const resp = await fetch(url, init);
+      if (!resp.ok) return { ok: false, status: resp.status };
+      const data = await resp.json();
+      return { ok: true, status: resp.status, data };
+    } catch {
+      return { ok: false, status: 0, networkError: true };
+    }
   })().finally(() => inflightJsonRequests.delete(key));
   inflightJsonRequests.set(key, p);
   return p;
+}
+
+const LOCAL_API_READY_MAX_WAIT_MS = 30000;
+const LOCAL_API_READY_INITIAL_DELAY_MS = 150;
+
+async function waitForLocalApiReady(): Promise<boolean> {
+  if (typeof window === 'undefined') return true;
+
+  const hostname = window.location.hostname;
+  const isLocalHost = hostname === 'localhost' || hostname === '127.0.0.1';
+  if (!isLocalHost) {
+    return true;
+  }
+
+  return dedup('local-api-ready', async () => {
+    const startedAt = Date.now();
+    let attempt = 0;
+
+    while (Date.now() - startedAt < LOCAL_API_READY_MAX_WAIT_MS) {
+      try {
+        const response = await fetch('/api/health', {
+          method: 'GET',
+          cache: 'no-store',
+          headers: {
+            'Cache-Control': 'no-store',
+          },
+        });
+
+        if (response.ok) {
+          return true;
+        }
+      } catch {
+        // Local API is still starting; keep polling quietly.
+      }
+
+      attempt += 1;
+      const delayMs = Math.min(1500, LOCAL_API_READY_INITIAL_DELAY_MS * (2 ** Math.min(attempt, 4)));
+      await new Promise((resolve) => window.setTimeout(resolve, delayMs));
+    }
+
+    return false;
+  });
 }
 
 async function fetchEnquiries(
@@ -380,6 +426,7 @@ async function fetchEnquiries(
   const cacheScope = fetchAll ? 'all-unscoped' : (userAow || 'mine');
   const cacheKey = `enquiries-v3-${email}-${userInitials}-${dateFrom}-${dateTo}-${cacheScope}`;
   let unifiedRequestSucceeded = false;
+  let unifiedRequestNetworkError = false;
   
   if (!bypassCache && !forceNoCaching) {
     // Try in-memory cache first (for large datasets)
@@ -478,17 +525,19 @@ async function fetchEnquiries(
           enquiries = cached;
         }
       }
+    } else if (result.networkError) {
+      unifiedRequestNetworkError = true;
     }
   } catch {
     // non-blocking; fallback below
   }
 
-  if (!fetchAll && !bypassCache && enquiries.length === 0) {
+  if (!fetchAll && !bypassCache && enquiries.length === 0 && !unifiedRequestNetworkError) {
     return fetchEnquiries(email, dateFrom, dateTo, userAow, userInitials, fetchAll, true);
   }
 
   // If unified call failed (e.g. ECONNREFUSED during boot), retry once after a short delay
-  if (!unifiedRequestSucceeded && enquiries.length === 0) {
+  if (!unifiedRequestSucceeded && enquiries.length === 0 && !unifiedRequestNetworkError) {
     try {
       await new Promise(r => setTimeout(r, 1500));
       return fetchEnquiries(email, dateFrom, dateTo, userAow, userInitials, fetchAll, true);
@@ -1320,11 +1369,19 @@ const AppWithContext: React.FC = () => {
       setUserData(initialUserData as UserData[]);
 
       const gateSnapshot = readShellBootSnapshot(gateSnapshotId);
+      let restoredGateSnapshot = false;
+      let restoredGateCache = false;
       if (gateSnapshot) {
         if (gateSnapshot.enquiries?.length) setEnquiries(gateSnapshot.enquiries);
         if (gateSnapshot.teamData) setTeamData(gateSnapshot.teamData);
         setEnquiriesUsingSnapshot(Boolean(gateSnapshot.enquiries?.length));
+        restoredGateSnapshot = true;
         console.info('[Boot:Gate] Shell snapshot restored — stale-first paint');
+        trackBootStage('gate', 'snapshot', 'restored', {
+          entry: 'passcode',
+          hasEnquiries: Boolean(gateSnapshot.enquiries?.length),
+          hasTeamData: Boolean(gateSnapshot.teamData),
+        });
       } else {
         const cachedEffectiveUser = resolveEffectiveDatasetUser(initialUserData[0] as UserData, teamUserData);
         const cachedEnquiries = getCachedEnquiriesSnapshot(
@@ -1339,7 +1396,12 @@ const AppWithContext: React.FC = () => {
         if (cachedEnquiries?.length) {
           setEnquiries(cachedEnquiries);
           setEnquiriesUsingSnapshot(true);
+          restoredGateCache = true;
           console.info(`[Boot:Gate] Enquiries cache restored — stale-first paint (${cachedEnquiries.length} rows)`);
+          trackBootStage('gate', 'enquiries-cache', 'restored', {
+            entry: 'passcode',
+            enquiriesCount: cachedEnquiries.length,
+          });
         }
       }
 
@@ -1350,9 +1412,14 @@ const AppWithContext: React.FC = () => {
       const { dateFrom, dateTo } = getDateRange();
       const effectiveUser = resolveEffectiveDatasetUser(initialUserData[0] as UserData, teamUserData);
 
+      const gateBoot = performance.now();
       try {
-        const gateBoot = performance.now();
         console.info('[Boot:Gate] Starting core data fetch');
+        trackBootStage('gate', 'core-home', 'started', {
+          entry: 'passcode',
+          restoredSnapshot: restoredGateSnapshot,
+          restoredCache: restoredGateCache,
+        });
         const userInitials = effectiveUser.initials;
         const enquiriesEmail = effectiveUser.email;
         setEnquiriesLiveRefreshInFlight(true);
@@ -1366,9 +1433,35 @@ const AppWithContext: React.FC = () => {
         setEnquiries(enquiriesRes);
         setLastEnquiriesLiveSyncAt(Date.now());
         setEnquiriesUsingSnapshot(false);
-        console.info(`[Boot:Gate] Core Home data ready in ${Math.round(performance.now() - gateBoot)}ms`);
+        const coreHomeMs = Math.round(performance.now() - gateBoot);
+        console.info(`[Boot:Gate] Core Home data ready in ${coreHomeMs}ms`);
+        trackBootStage('gate', 'core-home', 'completed', {
+          entry: 'passcode',
+          enquiriesCount: Array.isArray(enquiriesRes) ? enquiriesRes.length : 0,
+          restoredSnapshot: restoredGateSnapshot,
+          restoredCache: restoredGateCache,
+        }, {
+          duration: coreHomeMs,
+        });
+        trackBootSummary('gate', {
+          entry: 'passcode',
+          coreHomeMs,
+          enquiriesCount: Array.isArray(enquiriesRes) ? enquiriesRes.length : 0,
+          restoredSnapshot: restoredGateSnapshot,
+          restoredCache: restoredGateCache,
+        }, {
+          duration: coreHomeMs,
+        });
       } catch (err) {
         console.error('❌ Unexpected error in entry gate:', err);
+        trackBootStage('gate', 'core-home', 'failed', {
+          entry: 'passcode',
+          restoredSnapshot: restoredGateSnapshot,
+          restoredCache: restoredGateCache,
+        }, {
+          duration: Math.round(performance.now() - gateBoot),
+          error: err instanceof Error ? err.message : String(err),
+        });
         const { getLiveLocalEnquiries } = await import('./tabs/home/Home');
         setEnquiries(getLiveLocalEnquiries(initialUserData[0].Email) as Enquiry[]);
         setEnquiriesUsingSnapshot(false);
@@ -1414,6 +1507,22 @@ const AppWithContext: React.FC = () => {
           const objectId = ctx.user?.id || "";
           setEnquiriesUsingSnapshot(false);
 
+          const teamsApiReadyStart = performance.now();
+          trackBootStage('teams', 'api-ready', 'started', { entry: 'teams' });
+          const teamsApiReady = await waitForLocalApiReady();
+          if (!teamsApiReady) {
+            trackBootStage('teams', 'api-ready', 'failed', { entry: 'teams' }, {
+              duration: Math.round(performance.now() - teamsApiReadyStart),
+              error: 'local-api-readiness-timeout',
+            });
+            setError('Local API did not start in time. Please wait a moment and refresh.');
+            setLoading(false);
+            return;
+          }
+          trackBootStage('teams', 'api-ready', 'completed', { entry: 'teams' }, {
+            duration: Math.round(performance.now() - teamsApiReadyStart),
+          });
+
           // ── Snapshot-first paint ─────────────────────────────────────
           // Restore cached boot data so components mount with data instead
           // of empty arrays.  Live fetches below will overwrite silently.
@@ -1425,6 +1534,12 @@ const AppWithContext: React.FC = () => {
             if (shellSnapshot.teamData) setTeamData(shellSnapshot.teamData);
             setEnquiriesUsingSnapshot(Boolean(shellSnapshot.enquiries?.length));
             console.info('[Boot:Teams] Shell snapshot restored — stale-first paint');
+            trackBootStage('teams', 'snapshot', 'restored', {
+              entry: 'teams',
+              hasUserData: Boolean(shellSnapshot.userData?.length),
+              hasEnquiries: Boolean(shellSnapshot.enquiries?.length),
+              hasTeamData: Boolean(shellSnapshot.teamData),
+            });
           }
 
           setLoading(false);
@@ -1442,6 +1557,11 @@ const AppWithContext: React.FC = () => {
             }
             const primeStart = performance.now();
             console.info('[Boot:Teams] Priming user-dependent data (parallel)');
+            trackBootStage('teams', 'prime-user-dependent', 'started', {
+              entry: 'teams',
+              restoredSnapshot: restoredShellSnapshot,
+              devOwner: isDevOwner(primaryUser),
+            });
 
             const fullName =
               `${primaryUser?.First ?? ''} ${primaryUser?.Last ?? ''}`.trim();
@@ -1452,6 +1572,11 @@ const AppWithContext: React.FC = () => {
 
             const t0Enq = performance.now();
             setEnquiriesLiveRefreshInFlight(true);
+            trackBootStage('teams', 'enquiries', 'started', {
+              entry: 'teams',
+              restoredSnapshot: restoredShellSnapshot,
+              fetchAll: isDevOwner(primaryUser),
+            });
             fetchEnquiries(
               enquiriesEmail,
               dateFrom,
@@ -1461,45 +1586,127 @@ const AppWithContext: React.FC = () => {
               isDevOwner(primaryUser),
               true,
             ).then(res => {
-              console.info(`[Boot:Teams] Enquiries: ${Math.round(performance.now() - t0Enq)}ms (${res.length} rows)`);
+              const enquiriesMs = Math.round(performance.now() - t0Enq);
+              console.info(`[Boot:Teams] Enquiries: ${enquiriesMs}ms (${res.length} rows)`);
               setEnquiries(res);
               setLastEnquiriesLiveSyncAt(Date.now());
               setEnquiriesUsingSnapshot(false);
+              trackBootStage('teams', 'enquiries', 'completed', {
+                entry: 'teams',
+                restoredSnapshot: restoredShellSnapshot,
+                fetchAll: isDevOwner(primaryUser),
+                enquiriesCount: res.length,
+              }, {
+                duration: enquiriesMs,
+              });
+              trackBootSummary('teams', {
+                entry: 'teams',
+                restoredSnapshot: restoredShellSnapshot,
+                devOwner: isDevOwner(primaryUser),
+                coreHomeMs: Math.round(performance.now() - primeStart),
+                enquiriesMs,
+                enquiriesCount: res.length,
+              }, {
+                duration: Math.round(performance.now() - primeStart),
+              });
             }).catch(err => {
-              console.warn(`[Boot:Teams] Enquiries failed (${Math.round(performance.now() - t0Enq)}ms):`, err);
+              const enquiriesMs = Math.round(performance.now() - t0Enq);
+              console.warn(`[Boot:Teams] Enquiries failed (${enquiriesMs}ms):`, err);
+              trackBootStage('teams', 'enquiries', 'failed', {
+                entry: 'teams',
+                restoredSnapshot: restoredShellSnapshot,
+                fetchAll: isDevOwner(primaryUser),
+              }, {
+                duration: enquiriesMs,
+                error: err instanceof Error ? err.message : String(err),
+              });
             }).finally(() => {
               setEnquiriesLiveRefreshInFlight(false);
-            });
+              if (isDevOwner(primaryUser)) {
+                trackBootStage('teams', 'matters', 'skipped', {
+                  entry: 'teams',
+                  devOwner: true,
+                  reason: 'deferred-from-core-home',
+                });
 
-            // Dev owner: also load matters on boot (normally lazy-loaded)
-            if (isDevOwner(primaryUser)) {
-              fetchAllMatterSources(fullName, '')
-                .then(normalized => {
-                  console.info(`[Boot:Teams:DevOwner] Matters: ${normalized.length} rows`);
-                  setMatters(normalized);
-                })
-                .catch(err => console.warn('[Boot:Teams:DevOwner] Matters fetch failed:', err));
-            }
+                const runDeferredMattersFetch = () => {
+                  trackBootStage('teams', 'matters', 'started', {
+                    entry: 'teams',
+                    devOwner: true,
+                    reason: 'deferred-from-core-home',
+                  });
+                  fetchAllMatterSources(fullName, '')
+                    .then(normalized => {
+                      console.info(`[Boot:Teams:DevOwner] Matters: ${normalized.length} rows`);
+                      setMatters(normalized);
+                      trackBootStage('teams', 'matters', 'completed', {
+                        entry: 'teams',
+                        devOwner: true,
+                        mattersCount: normalized.length,
+                        reason: 'deferred-from-core-home',
+                      });
+                    })
+                    .catch(err => {
+                      console.warn('[Boot:Teams:DevOwner] Matters fetch failed:', err);
+                      trackBootStage('teams', 'matters', 'failed', {
+                        entry: 'teams',
+                        devOwner: true,
+                        reason: 'deferred-from-core-home',
+                      }, {
+                        error: err instanceof Error ? err.message : String(err),
+                      });
+                    });
+                };
+
+                if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+                  (window as typeof window & {
+                    requestIdleCallback: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
+                  }).requestIdleCallback(() => runDeferredMattersFetch(), { timeout: 2500 });
+                } else {
+                  (window as Window).setTimeout(runDeferredMattersFetch, 1800);
+                }
+              }
+            });
           };
 
           // Fire team-data alongside user-data — it's a global dataset with no user dependency.
           // This saves ~400ms by overlapping with user-data instead of waiting for it.
           const t0Team = performance.now();
+          trackBootStage('teams', 'team-data', 'started', { entry: 'teams' });
           fetchTeamData()
             .then(res => {
-              console.info(`[Boot:Teams] TeamData: ${Math.round(performance.now() - t0Team)}ms`);
+              const teamMs = Math.round(performance.now() - t0Team);
+              console.info(`[Boot:Teams] TeamData: ${teamMs}ms`);
               setTeamData(res);
+              trackBootStage('teams', 'team-data', 'completed', {
+                entry: 'teams',
+                teamCount: Array.isArray(res) ? res.length : 0,
+              }, {
+                duration: teamMs,
+              });
             })
             .catch(err => {
-              console.warn(`[Boot:Teams] TeamData failed (${Math.round(performance.now() - t0Team)}ms):`, err);
+              const teamMs = Math.round(performance.now() - t0Team);
+              console.warn(`[Boot:Teams] TeamData failed (${teamMs}ms):`, err);
+              trackBootStage('teams', 'team-data', 'failed', {
+                entry: 'teams',
+              }, {
+                duration: teamMs,
+                error: err instanceof Error ? err.message : String(err),
+              });
               if (!restoredShellSnapshot) {
                 setTeamData(null);
               }
             });
 
+          trackBootStage('teams', 'user-data', 'started', { entry: 'teams' });
           fetchUserData(objectId)
             .then((userDataRes) => {
               setUserData(userDataRes);
+              trackBootStage('teams', 'user-data', 'completed', {
+                entry: 'teams',
+                userCount: Array.isArray(userDataRes) ? userDataRes.length : 0,
+              });
               if (!Array.isArray(userDataRes) || userDataRes.length === 0) {
                 console.warn('User data fetch returned no records for objectId:', objectId);
                 setError(restoredShellSnapshot
@@ -1516,6 +1723,11 @@ const AppWithContext: React.FC = () => {
             })
             .catch((userErr) => {
               console.error("Failed to load user data:", userErr);
+              trackBootStage('teams', 'user-data', 'failed', {
+                entry: 'teams',
+              }, {
+                error: userErr instanceof Error ? userErr.message : String(userErr),
+              });
               setError(restoredShellSnapshot
                 ? 'Live profile refresh failed. Showing recent cached data while we retry.'
                 : 'Failed to load user profile. Please refresh.');
@@ -1537,149 +1749,282 @@ const AppWithContext: React.FC = () => {
         if (isLocalDevEnv && !isWebEntry) {
           // Local development: skip prompts and use default local user
           try {
-            setTeamsContext({
-              user: {
-                id: "local",
-                userPrincipalName: "lz@helix-law.com",
-              },
-              app: {
-                theme: "default",
-              },
-            } as app.Context);
+            await dedup(`local-init:${localSelectedAreas.join('|')}`, async () => {
+              setTeamsContext({
+                user: {
+                  id: "local",
+                  userPrincipalName: "lz@helix-law.com",
+                },
+                app: {
+                  theme: "default",
+                },
+              } as app.Context);
 
-            // Initialize local user data with selected areas
-            const { default: localUserData } = await import('./localData/localUserData.json');
-            const initialUserData = [{
-              ...localUserData[0],
-              AOW: localSelectedAreas.join(', ')
-            }];
-            setUserData(initialUserData as UserData[]);
+              // Initialize local user data with selected areas
+              const { default: localUserData } = await import('./localData/localUserData.json');
+              const initialUserData = [{
+                ...localUserData[0],
+                AOW: localSelectedAreas.join(', ')
+              }];
+              setUserData(initialUserData as UserData[]);
 
-            // ── Snapshot-first paint (local dev) ────────────────────────
-            const localSnapshot = readShellBootSnapshot('local');
-            if (localSnapshot) {
-              if (localSnapshot.enquiries?.length) setEnquiries(localSnapshot.enquiries);
-              if (localSnapshot.teamData) setTeamData(localSnapshot.teamData);
-              setEnquiriesUsingSnapshot(Boolean(localSnapshot.enquiries?.length));
-              setLoading(false);
-              console.info('[Boot:Local] Shell snapshot restored — stale-first paint');
-            }
-            if (!localSnapshot) {
-              setLoading(false);
-            }
-
-            // Resolve the effective local dataset identity first so boot doesn't
-            // fetch the main enquiries dataset as raw LZ and then correct later.
-            // Keep boot enquiry-first: matters hydrate only when the user visits Matters.
-            const { dateFrom, dateTo } = getDateRange();
-            const bootStart = performance.now();
-            console.info('[Boot] Starting core data fetch');
-
-            try {
-              const cachedTeam = localSnapshot?.teamData || getCachedData<TeamData[]>('teamData');
-              if (!localSnapshot && cachedTeam?.length) {
-                setTeamData(cachedTeam);
-              }
-
-              const cachedEffectiveUser = resolveEffectiveDatasetUser(initialUserData[0] as UserData, cachedTeam || null);
-              const cachedUserInitials = cachedEffectiveUser.initials || "";
-              const cachedEnquiriesEmail = cachedEffectiveUser.email || "";
-
-              if (!localSnapshot) {
-                const devOwnerBoot = isDevOwner(initialUserData[0] as UserData);
-                const cachedEnquiries = getCachedEnquiriesSnapshot(
-                  cachedEnquiriesEmail,
-                  dateFrom,
-                  dateTo,
-                  "",
-                  cachedUserInitials,
-                  devOwnerBoot,
-                );
-
-                if (cachedEnquiries?.length) {
-                  setEnquiries(cachedEnquiries);
-                  setEnquiriesUsingSnapshot(true);
-                  console.info(`[Boot:Local] Enquiries cache restored — stale-first paint (${cachedEnquiries.length} rows)`);
-                }
-              }
-
-              const t0Team = performance.now();
-              const liveTeamPromise = fetchTeamData()
-                .then((liveTeam) => {
-                  console.info(`[Boot] TeamData: ${Math.round(performance.now() - t0Team)}ms`);
-                  setTeamData(liveTeam);
-                  return liveTeam;
-                })
-                .catch((err) => {
-                  console.warn(`[Boot] TeamData failed (${Math.round(performance.now() - t0Team)}ms):`, err);
-                  return cachedTeam || null;
+              const apiReadyStart = performance.now();
+              trackBootStage('local', 'api-ready', 'started', { entry: 'local-dev' });
+              const apiReady = await waitForLocalApiReady();
+              if (!apiReady) {
+                trackBootStage('local', 'api-ready', 'failed', { entry: 'local-dev' }, {
+                  duration: Math.round(performance.now() - apiReadyStart),
+                  error: 'local-api-readiness-timeout',
                 });
+                setError('Local API did not start in time. Please wait a moment and refresh.');
+                setLoading(false);
+                return;
+              }
+              trackBootStage('local', 'api-ready', 'completed', { entry: 'local-dev' }, {
+                duration: Math.round(performance.now() - apiReadyStart),
+              });
 
-              setEnquiriesLiveRefreshInFlight(true);
+              // ── Snapshot-first paint (local dev) ────────────────────────
+              const localSnapshot = readShellBootSnapshot('local');
+              if (localSnapshot) {
+                if (localSnapshot.enquiries?.length) setEnquiries(localSnapshot.enquiries);
+                if (localSnapshot.teamData) setTeamData(localSnapshot.teamData);
+                setEnquiriesUsingSnapshot(Boolean(localSnapshot.enquiries?.length));
+                setLoading(false);
+                console.info('[Boot:Local] Shell snapshot restored — stale-first paint');
+                trackBootStage('local', 'snapshot', 'restored', {
+                  entry: 'local-dev',
+                  hasEnquiries: Boolean(localSnapshot.enquiries?.length),
+                  hasTeamData: Boolean(localSnapshot.teamData),
+                });
+              }
+              if (!localSnapshot) {
+                setLoading(false);
+              }
 
-              const refreshLocalEnquiries = async (teamForIdentity: TeamData[] | null) => {
-                const effectiveUser = resolveEffectiveDatasetUser(initialUserData[0] as UserData, teamForIdentity);
-                const userInitials = effectiveUser.initials || "";
-                const enquiriesEmail = effectiveUser.email || "";
-                const fetchAll = isDevOwner(initialUserData[0] as UserData);
-                console.info(`[Boot] Enquiries fetch: email=${enquiriesEmail} initials=${userInitials} fetchAll=${fetchAll}`);
-                const t0 = performance.now();
+              // Resolve the effective local dataset identity first so boot doesn't
+              // fetch the main enquiries dataset as raw LZ and then correct later.
+              // Keep boot enquiry-first: matters hydrate only when the user visits Matters.
+              const { dateFrom, dateTo } = getDateRange();
+              const bootStart = performance.now();
+              console.info('[Boot] Starting core data fetch');
+              trackBootStage('local', 'core-home', 'started', {
+                entry: 'local-dev',
+                restoredSnapshot: Boolean(localSnapshot),
+              });
 
-                try {
-                  const res = await fetchEnquiries(
-                    enquiriesEmail,
+              try {
+                const cachedTeam = localSnapshot?.teamData || getCachedData<TeamData[]>('teamData');
+                if (!localSnapshot && cachedTeam?.length) {
+                  setTeamData(cachedTeam);
+                }
+
+                const cachedEffectiveUser = resolveEffectiveDatasetUser(initialUserData[0] as UserData, cachedTeam || null);
+                const cachedUserInitials = cachedEffectiveUser.initials || "";
+                const cachedEnquiriesEmail = cachedEffectiveUser.email || "";
+
+                if (!localSnapshot) {
+                  const devOwnerBoot = isDevOwner(initialUserData[0] as UserData);
+                  const cachedEnquiries = getCachedEnquiriesSnapshot(
+                    cachedEnquiriesEmail,
                     dateFrom,
                     dateTo,
                     "",
-                    userInitials,
-                    fetchAll,
-                    true,
+                    cachedUserInitials,
+                    devOwnerBoot,
                   );
-                  console.info(`[Boot] Enquiries: ${Math.round(performance.now() - t0)}ms (${res.length} rows)`);
-                  setEnquiries(res);
-                  setLastEnquiriesLiveSyncAt(Date.now());
-                  setEnquiriesUsingSnapshot(false);
-                  console.info(`[Boot] Core Home data ready in ${Math.round(performance.now() - bootStart)}ms`);
-                  return { email: enquiriesEmail, initials: userInitials };
-                } catch (err) {
-                  console.warn(`[Boot] Enquiries failed (${Math.round(performance.now() - t0)}ms):`, err);
-                  const { getLiveLocalEnquiries } = await import('./tabs/home/Home');
-                  setEnquiries(getLiveLocalEnquiries(enquiriesEmail || initialUserData[0].Email) as Enquiry[]);
-                  setEnquiriesUsingSnapshot(false);
-                  return { email: enquiriesEmail, initials: userInitials };
+
+                  if (cachedEnquiries?.length) {
+                    setEnquiries(cachedEnquiries);
+                    setEnquiriesUsingSnapshot(true);
+                    console.info(`[Boot:Local] Enquiries cache restored — stale-first paint (${cachedEnquiries.length} rows)`);
+                    trackBootStage('local', 'enquiries-cache', 'restored', {
+                      entry: 'local-dev',
+                      enquiriesCount: cachedEnquiries.length,
+                    });
+                  }
                 }
-              };
 
-              const initialRefreshIdentity = await refreshLocalEnquiries(cachedTeam || null);
-              const liveTeam = await liveTeamPromise;
-              const liveEffectiveUser = resolveEffectiveDatasetUser(initialUserData[0] as UserData, liveTeam);
-              const liveIdentityChanged =
-                liveEffectiveUser.email !== initialRefreshIdentity.email
-                || liveEffectiveUser.initials !== initialRefreshIdentity.initials;
-
-              if (liveIdentityChanged) {
-                await refreshLocalEnquiries(liveTeam);
-              }
-
-              setEnquiriesLiveRefreshInFlight(false);
-
-              // Dev owner: also load matters on boot (normally lazy-loaded)
-              if (isDevOwner(initialUserData[0] as UserData)) {
-                const effectiveUser = resolveEffectiveDatasetUser(initialUserData[0] as UserData, liveTeam);
-                fetchAllMatterSources(effectiveUser.fullName, '')
-                  .then(normalized => {
-                    console.info(`[Boot:DevOwner] Matters: ${normalized.length} rows`);
-                    setMatters(normalized);
+                const t0Team = performance.now();
+                trackBootStage('local', 'team-data', 'started', { entry: 'local-dev' });
+                const liveTeamPromise = fetchTeamData()
+                  .then((liveTeam) => {
+                    const teamMs = Math.round(performance.now() - t0Team);
+                    console.info(`[Boot] TeamData: ${teamMs}ms`);
+                    setTeamData(liveTeam);
+                    trackBootStage('local', 'team-data', 'completed', {
+                      entry: 'local-dev',
+                      teamCount: Array.isArray(liveTeam) ? liveTeam.length : 0,
+                    }, {
+                      duration: teamMs,
+                    });
+                    return liveTeam;
                   })
-                  .catch(err => console.warn('[Boot:DevOwner] Matters fetch failed:', err));
+                  .catch((err) => {
+                    const teamMs = Math.round(performance.now() - t0Team);
+                    console.warn(`[Boot] TeamData failed (${teamMs}ms):`, err);
+                    trackBootStage('local', 'team-data', 'failed', {
+                      entry: 'local-dev',
+                    }, {
+                      duration: teamMs,
+                      error: err instanceof Error ? err.message : String(err),
+                    });
+                    return cachedTeam || null;
+                  });
+
+                setEnquiriesLiveRefreshInFlight(true);
+
+                const refreshLocalEnquiries = async (teamForIdentity: TeamData[] | null) => {
+                  const effectiveUser = resolveEffectiveDatasetUser(initialUserData[0] as UserData, teamForIdentity);
+                  const userInitials = effectiveUser.initials || "";
+                  const enquiriesEmail = effectiveUser.email || "";
+                  const fetchAll = isDevOwner(initialUserData[0] as UserData);
+                  console.info(`[Boot] Enquiries fetch: email=${enquiriesEmail} initials=${userInitials} fetchAll=${fetchAll}`);
+                  const t0 = performance.now();
+                  trackBootStage('local', 'enquiries', 'started', {
+                    entry: 'local-dev',
+                    fetchAll,
+                  });
+
+                  try {
+                    const res = await fetchEnquiries(
+                      enquiriesEmail,
+                      dateFrom,
+                      dateTo,
+                      "",
+                      userInitials,
+                      fetchAll,
+                      true,
+                    );
+                    const enquiriesMs = Math.round(performance.now() - t0);
+                    console.info(`[Boot] Enquiries: ${enquiriesMs}ms (${res.length} rows)`);
+                    setEnquiries(res);
+                    setLastEnquiriesLiveSyncAt(Date.now());
+                    setEnquiriesUsingSnapshot(false);
+                    const coreHomeMs = Math.round(performance.now() - bootStart);
+                    console.info(`[Boot] Core Home data ready in ${coreHomeMs}ms`);
+                    trackBootStage('local', 'enquiries', 'completed', {
+                      entry: 'local-dev',
+                      fetchAll,
+                      enquiriesCount: res.length,
+                    }, {
+                      duration: enquiriesMs,
+                    });
+                    trackBootStage('local', 'core-home', 'completed', {
+                      entry: 'local-dev',
+                      fetchAll,
+                      enquiriesCount: res.length,
+                    }, {
+                      duration: coreHomeMs,
+                    });
+                    trackBootSummary('local', {
+                      entry: 'local-dev',
+                      fetchAll,
+                      enquiriesCount: res.length,
+                      coreHomeMs,
+                      enquiriesMs,
+                      restoredSnapshot: Boolean(localSnapshot),
+                    }, {
+                      duration: coreHomeMs,
+                    });
+                    return { email: enquiriesEmail, initials: userInitials };
+                  } catch (err) {
+                    const enquiriesMs = Math.round(performance.now() - t0);
+                    console.warn(`[Boot] Enquiries failed (${enquiriesMs}ms):`, err);
+                    trackBootStage('local', 'enquiries', 'failed', {
+                      entry: 'local-dev',
+                      fetchAll,
+                    }, {
+                      duration: enquiriesMs,
+                      error: err instanceof Error ? err.message : String(err),
+                    });
+                    trackBootStage('local', 'core-home', 'failed', {
+                      entry: 'local-dev',
+                      fetchAll,
+                    }, {
+                      duration: Math.round(performance.now() - bootStart),
+                      error: err instanceof Error ? err.message : String(err),
+                    });
+                    const { getLiveLocalEnquiries } = await import('./tabs/home/Home');
+                    setEnquiries(getLiveLocalEnquiries(enquiriesEmail || initialUserData[0].Email) as Enquiry[]);
+                    setEnquiriesUsingSnapshot(false);
+                    return { email: enquiriesEmail, initials: userInitials };
+                  }
+                };
+
+                const initialRefreshIdentity = await refreshLocalEnquiries(cachedTeam || null);
+                const liveTeam = await liveTeamPromise;
+                const liveEffectiveUser = resolveEffectiveDatasetUser(initialUserData[0] as UserData, liveTeam);
+                const liveIdentityChanged =
+                  liveEffectiveUser.email !== initialRefreshIdentity.email
+                  || liveEffectiveUser.initials !== initialRefreshIdentity.initials;
+
+                if (liveIdentityChanged) {
+                  await refreshLocalEnquiries(liveTeam);
+                }
+
+                setEnquiriesLiveRefreshInFlight(false);
+
+                // Dev owner matters stay out of the critical boot path.
+                if (isDevOwner(initialUserData[0] as UserData)) {
+                  const effectiveUser = resolveEffectiveDatasetUser(initialUserData[0] as UserData, liveTeam);
+                  trackBootStage('local', 'matters', 'skipped', {
+                    entry: 'local-dev',
+                    devOwner: true,
+                    reason: 'deferred-from-core-home',
+                  });
+
+                  const runDeferredMattersFetch = () => {
+                    trackBootStage('local', 'matters', 'started', {
+                      entry: 'local-dev',
+                      devOwner: true,
+                      reason: 'deferred-from-core-home',
+                    });
+                    fetchAllMatterSources(effectiveUser.fullName, '')
+                      .then(normalized => {
+                        console.info(`[Boot:DevOwner] Matters: ${normalized.length} rows`);
+                        setMatters(normalized);
+                        trackBootStage('local', 'matters', 'completed', {
+                          entry: 'local-dev',
+                          devOwner: true,
+                          mattersCount: normalized.length,
+                          reason: 'deferred-from-core-home',
+                        });
+                      })
+                      .catch(err => {
+                        console.warn('[Boot:DevOwner] Matters fetch failed:', err);
+                        trackBootStage('local', 'matters', 'failed', {
+                          entry: 'local-dev',
+                          devOwner: true,
+                          reason: 'deferred-from-core-home',
+                        }, {
+                          error: err instanceof Error ? err.message : String(err),
+                        });
+                      });
+                  };
+
+                  if ('requestIdleCallback' in window) {
+                    (window as typeof window & {
+                      requestIdleCallback: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
+                    }).requestIdleCallback(() => runDeferredMattersFetch(), { timeout: 2500 });
+                  } else {
+                    (window as Window).setTimeout(runDeferredMattersFetch, 1800);
+                  }
+                }
+              } catch (err) {
+                console.error('❌ Unexpected error in local dev:', err);
+                trackBootStage('local', 'core-home', 'failed', {
+                  entry: 'local-dev',
+                }, {
+                  duration: Math.round(performance.now() - bootStart),
+                  error: err instanceof Error ? err.message : String(err),
+                });
+                const { getLiveLocalEnquiries } = await import('./tabs/home/Home');
+                setEnquiries(getLiveLocalEnquiries(initialUserData[0].Email) as Enquiry[]);
+                setTeamData(null);
+                setEnquiriesLiveRefreshInFlight(false);
               }
-            } catch (err) {
-              console.error('❌ Unexpected error in local dev:', err);
-              const { getLiveLocalEnquiries } = await import('./tabs/home/Home');
-              setEnquiries(getLiveLocalEnquiries(initialUserData[0].Email) as Enquiry[]);
-              setTeamData(null);
-              setEnquiriesLiveRefreshInFlight(false);
-            }
+            });
           } catch (e) {
             console.error('❌ Local init failed:', e);
             setLoading(false);

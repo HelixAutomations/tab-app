@@ -123,7 +123,7 @@ const getDatePickerStyles = (isDarkMode: boolean): Partial<IDatePickerStyles> =>
         }
       },
       field: {
-        color: isDarkMode ? '#E2E8F0' : colours.missedBlue,
+        color: isDarkMode ? '#E2E8F0' : colours.helixBlue,
         fontSize: 13,
         fontWeight: 600,
         fontFamily: 'Raleway, sans-serif',
@@ -153,7 +153,7 @@ const getRangeButtonStyles = (isDarkMode: boolean, active: boolean, disabled: bo
     ? (isDarkMode ? '#64748B' : '#94A3B8')
     : active
       ? '#ffffff'
-      : (isDarkMode ? '#E2E8F0' : colours.missedBlue);
+      : (isDarkMode ? '#E2E8F0' : colours.helixBlue);
 
   return {
     root: {
@@ -737,7 +737,7 @@ const SeoReport: React.FC<SeoReportProps> = ({
             margin: '0 0 16px 0', 
             fontSize: 16, 
             fontWeight: 600,
-            color: isDarkMode ? '#E2E8F0' : colours.missedBlue,
+            color: isDarkMode ? '#E2E8F0' : colours.helixBlue,
             display: 'flex',
             alignItems: 'center',
             gap: 8
@@ -758,7 +758,7 @@ const SeoReport: React.FC<SeoReportProps> = ({
               }}>
                 <span style={{ 
                   fontWeight: 500,
-                  color: isDarkMode ? '#E2E8F0' : colours.missedBlue
+                  color: isDarkMode ? '#E2E8F0' : colours.helixBlue
                 }}>
                   {source.sourceMedium.split(' / ')[0]}
                 </span>
@@ -786,7 +786,7 @@ const SeoReport: React.FC<SeoReportProps> = ({
             margin: '0 0 16px 0', 
             fontSize: 16, 
             fontWeight: 600,
-            color: isDarkMode ? '#E2E8F0' : colours.missedBlue,
+            color: isDarkMode ? '#E2E8F0' : colours.helixBlue,
             display: 'flex',
             alignItems: 'center',
             gap: 8
@@ -807,7 +807,7 @@ const SeoReport: React.FC<SeoReportProps> = ({
               }}>
                 <span style={{ 
                   fontWeight: 500,
-                  color: isDarkMode ? '#E2E8F0' : colours.missedBlue,
+                  color: isDarkMode ? '#E2E8F0' : colours.helixBlue,
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap',
@@ -841,7 +841,7 @@ const SeoReport: React.FC<SeoReportProps> = ({
           margin: '0 0 16px 0', 
           fontSize: 16, 
           fontWeight: 600,
-          color: isDarkMode ? '#E2E8F0' : colours.missedBlue,
+          color: isDarkMode ? '#E2E8F0' : colours.helixBlue,
           display: 'flex',
           alignItems: 'center',
           gap: 8
@@ -892,7 +892,7 @@ const SeoReport: React.FC<SeoReportProps> = ({
         border: `1px solid ${isDarkMode ? 'rgba(59, 130, 246, 0.2)' : 'rgba(59, 130, 246, 0.15)'}`,
         borderRadius: 8,
         fontSize: 12,
-        color: isDarkMode ? '#E2E8F0' : colours.missedBlue,
+        color: isDarkMode ? '#E2E8F0' : colours.helixBlue,
         opacity: 0.8
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>

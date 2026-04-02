@@ -77,7 +77,7 @@ const calculateInstructionProgress = (): number => {
     value={calculateInstructionProgress()}
     showPercentage={false}
     size="small"
-    color={isPitchedDeal ? colours.highlight : colours.missedBlue}
+    color={isPitchedDeal ? colours.highlight : colours.helixBlue}
     isDarkMode={isDarkMode}
   />
 </div>

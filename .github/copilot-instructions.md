@@ -27,6 +27,65 @@ This is a lean startup operating model: small safe deposits, shipped continuousl
 
 Communication tempo: brief by default. Match depth to complexity, not to politeness. The user operates under cognitive load — every unnecessary sentence is friction. Ship signal, not paragraphs.
 
+## Communication Frameworks (Pressure-Tested Output)
+
+Every outbound communication — client emails, internal briefs, proposals, status updates, legal correspondence — should pass through a framework-specific pressure test before sending. The goal is not polish for polish's sake; it is catching misaligned tone, missing information, unclear next steps, and regulatory red flags before they reach a recipient.
+
+### Framework Taxonomy
+
+Each framework defines a persona, structural expectations, mandatory elements, and red flags to catch. The server holds prompt templates for each under `server/prompts/communication-frameworks.js`.
+
+| Framework | Use case | Core rules |
+|-----------|----------|------------|
+| **Management** | Leadership comms, delegation, status updates | Clear ownership, deadline, escalation path. No ambiguity about who does what by when. |
+| **Tasking** | Work assignments, specs, acceptance criteria | Measurable outcome, definition of done, dependencies listed. No open-ended "look into this". |
+| **Feedback** | Performance, code review, client feedback | Specific observation → impact → request. No vague praise or criticism. |
+| **Projects** | Scope, milestones, stakeholder updates | Status against plan, blockers with owners, next milestone with date. No status without trajectory. |
+| **Communication** | Client emails, pitch follow-ups, internal announcements | Recipient-appropriate tone, clear ask or next step, context the reader needs (not what the writer knows). |
+| **Legal** | Compliance tone, duty of care, regulatory language | Accuracy of legal position, appropriate caveats, no overcommitment, SRA-aligned language. |
+
+### How It Works
+
+1. **Draft** your communication normally.
+2. **Select** the appropriate framework (or let the system infer it from context).
+3. **Pressure test** via `POST /api/ai/pressure-test-comms` — the AI scores tone, completeness, clarity, and red flags.
+4. **Review** flagged items and accept/reject suggestions. The system does not auto-send.
+
+### Rules for Agents
+
+- When generating any outbound text (email drafts, client letters, internal updates), identify which framework applies and follow its structural rules.
+- When asked to "pressure test" or "review" a draft, use the communication framework route, not free-form AI.
+- The pressure test is a second pass — like CCL Safety Net — not a rewrite. Flag problems; don't silently change meaning.
+
+## Architectural Transparency (Blueprints & Observability)
+
+As complexity grows, the system must be self-documenting. Three pillars:
+
+### 1. Visual Blueprints
+
+Interactive maps of infrastructure, data flow, permissions, and database schema. Not static diagrams that rot — living manifests rendered from source data. The Blueprints tab (`src/tabs/blueprints/`) renders these.
+
+Reference: `.github/instructions/ARCHITECTURE_DATA_FLOW.md` is the current living text reference. Blueprints are the visual complement.
+
+### 2. Telemetry Surfaced to the Team
+
+Application Insights telemetry is currently dev-facing only. The team should see:
+- What the system is doing right now (active syncs, AI calls, matter-opening steps)
+- Whether it succeeded or failed (without needing KQL)
+- Processing duration trends (is the system getting slower?)
+
+This is not a full observability dashboard — it is a transparency strip that builds trust.
+
+### 3. Processing Transparency
+
+Every long-running server operation should surface its state to connected clients. The user should never wonder "is it still working?" The pattern: emit SSE events for start/progress/complete/fail, render a compact status strip in the UI.
+
+### Rules for Agents
+
+- When adding a new server-side process, add telemetry (per existing App Insights rules) AND consider whether the team should see its status.
+- When building new UI surfaces, consider whether a blueprint entry should accompany the feature.
+- Prefer manifests and data-driven rendering over hand-drawn diagrams.
+
 ## Cross-App Execution Contract
 
 Before implementing, identify where the requested outcome sits in the 3-stage system:

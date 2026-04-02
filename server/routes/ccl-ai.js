@@ -14,7 +14,7 @@ const sql = require('mssql');
 const { chatCompletion, chatCompletionStream, DEPLOYMENT } = require('../utils/aiClient');
 const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
 const { getPool } = require('../utils/db');
-const { saveCclAiTrace } = require('../utils/cclPersistence');
+const { saveCclAiTrace, savePressureTestResult } = require('../utils/cclPersistence');
 const { resolveRequestActor } = require('../utils/requestActor');
 
 const router = express.Router();
@@ -1684,6 +1684,110 @@ function stripHtmlForVerification(html) {
         .trim();
 }
 
+/**
+ * Core pressure-test logic — callable from HTTP handler or background pipeline.
+ * Returns { ok, fieldScores, flaggedCount, totalFields, dataSources, durationMs, trackingId }.
+ */
+async function runPressureTestInternal({ matterId, instructionRef, generatedFields, practiceArea, clientName, feeEarnerEmail, prospectEmail }) {
+    const sanitisedGeneratedFields = sanitisePressureTestFields(generatedFields);
+    if (Object.keys(sanitisedGeneratedFields).length === 0) {
+        return { ok: false, error: 'No AI review fields were available to pressure test.' };
+    }
+
+    const trackingId = Math.random().toString(36).slice(2, 10);
+    const startMs = Date.now();
+
+    trackEvent('CCL.PressureTest.Started', {
+        trackingId,
+        matterId: String(matterId),
+        fieldCount: String(Object.keys(sanitisedGeneratedFields).length),
+    });
+
+    // Phase 1: Gather the original context
+    const dbContext = await gatherFullContext(matterId, instructionRef);
+
+    // Phase 2: Gather extended verification evidence
+    const resolvedFeeEarnerEmail = feeEarnerEmail || dbContext.feeEarnerEmail || '';
+    const resolvedProspectEmail = prospectEmail || dbContext.prospectEmail || '';
+    const resolvedPhone = dbContext.phone || '';
+
+    const externalEvidence = await gatherVerificationEvidence(
+        matterId, instructionRef, resolvedFeeEarnerEmail, resolvedProspectEmail, resolvedPhone,
+    );
+
+    // Phase 3: Build the verification evidence package
+    const evidencePackage = {
+        pitchContent: dbContext.pitchEmailBody || '',
+        pitchServiceDescription: dbContext.pitchServiceDescription || '',
+        pitchAmount: dbContext.pitchAmount || '',
+        dealAmount: dbContext.dealAmount || '',
+        dealServiceDescription: dbContext.dealServiceDescription || '',
+        initialCallNotes: dbContext.initialCallNotes || '',
+        enquiryNotes: dbContext.enquiryNotes || '',
+        instructionNotes: dbContext.instructionNotes || '',
+        practiceArea: practiceArea || dbContext.areaOfWork || '',
+        clientName: clientName || '',
+        ...externalEvidence,
+    };
+
+    const dataSources = [];
+    if (evidencePackage.pitchContent) dataSources.push('Pitch email');
+    if (evidencePackage.dealAmount) dataSources.push('Deal data');
+    if (evidencePackage.initialCallNotes) dataSources.push('Initial call notes');
+    if (evidencePackage.enquiryNotes) dataSources.push('Enquiry notes');
+    if (evidencePackage.instructionNotes) dataSources.push('Instruction notes');
+    if (externalEvidence.emailsIn?.length) dataSources.push(`${externalEvidence.emailsIn.length} inbound emails`);
+    if (externalEvidence.emailsOut?.length) dataSources.push(`${externalEvidence.emailsOut.length} outbound emails`);
+    if (externalEvidence.callTranscripts?.length) dataSources.push(`${externalEvidence.callTranscripts.length} call transcripts`);
+    if (externalEvidence.documents?.length) dataSources.push(`${externalEvidence.documents.length} documents`);
+
+    // Phase 4: Call AI for verification scoring
+    const userPrompt = buildPressureTestUserPrompt(sanitisedGeneratedFields, evidencePackage);
+
+    const verificationResult = await chatCompletion(
+        PRESSURE_TEST_SYSTEM_PROMPT,
+        userPrompt,
+        { temperature: 0.1 },
+    );
+
+    const durationMs = Date.now() - startMs;
+
+    // Normalise the result
+    const fieldScores = {};
+    let flaggedCount = 0;
+    for (const [key, value] of Object.entries(sanitisedGeneratedFields)) {
+        if (key.startsWith('_')) continue;
+        const aiScore = verificationResult[key];
+        if (aiScore && typeof aiScore === 'object') {
+            const score = typeof aiScore.score === 'number' ? aiScore.score : 5;
+            const flag = score <= 7;
+            fieldScores[key] = { score, reason: String(aiScore.reason || 'No reason provided'), flag };
+            if (flag) flaggedCount++;
+        } else {
+            fieldScores[key] = { score: 5, reason: 'Verification AI did not return a score for this field — requires manual review', flag: true };
+            flaggedCount++;
+        }
+    }
+
+    const result = { ok: true, fieldScores, flaggedCount, totalFields: Object.keys(fieldScores).length, dataSources, durationMs, trackingId };
+
+    // Persist to DB (fire-and-forget when called from background)
+    savePressureTestResult(matterId, result).catch(err => {
+        console.warn(`[CCL-AI] PT persist failed for ${matterId}:`, err.message);
+        trackException(err, { operation: 'CCL.PressureTest.Persist', matterId: String(matterId), trackingId });
+    });
+
+    trackEvent('CCL.PressureTest.Completed', {
+        trackingId, matterId: String(matterId), durationMs: String(durationMs),
+        fieldCount: String(Object.keys(fieldScores).length),
+        flaggedCount: String(flaggedCount),
+        dataSourceCount: String(dataSources.length),
+    });
+    trackMetric('CCL.PressureTest.Duration', durationMs, { matterId: String(matterId) });
+
+    return result;
+}
+
 router.post('/pressure-test', async (req, res) => {
     const {
         matterId, instructionRef, generatedFields, practiceArea, clientName,
@@ -1694,126 +1798,21 @@ router.post('/pressure-test', async (req, res) => {
         return res.status(400).json({ error: 'matterId and generatedFields are required' });
     }
 
-    const sanitisedGeneratedFields = sanitisePressureTestFields(generatedFields);
-    if (Object.keys(sanitisedGeneratedFields).length === 0) {
-        return res.status(400).json({ error: 'No AI review fields were available to pressure test.' });
-    }
-
-    const trackingId = Math.random().toString(36).slice(2, 10);
-    const startMs = Date.now();
-    const actor = resolveRequestActor(req);
-
-    trackEvent('CCL.PressureTest.Started', {
-        trackingId,
-        matterId: String(matterId),
-        fieldCount: String(Object.keys(sanitisedGeneratedFields).length),
-        rawFieldCount: String(Object.keys(generatedFields).length),
-    });
-
     try {
-        // Phase 1: Gather the original context (reuse gatherFullContext)
-        const dbContext = await gatherFullContext(matterId, instructionRef);
+        const result = await runPressureTestInternal({
+            matterId, instructionRef, generatedFields, practiceArea, clientName,
+            feeEarnerEmail, prospectEmail,
+        });
 
-        // Phase 2: Gather extended verification evidence (emails, transcripts, documents)
-        const resolvedFeeEarnerEmail = feeEarnerEmail || dbContext.feeEarnerEmail || '';
-        const resolvedProspectEmail = prospectEmail || dbContext.prospectEmail || '';
-        const resolvedPhone = dbContext.phone || '';
-
-        const externalEvidence = await gatherVerificationEvidence(
-            matterId, instructionRef, resolvedFeeEarnerEmail, resolvedProspectEmail, resolvedPhone,
-        );
-
-        // Phase 3: Build the verification evidence package
-        const evidencePackage = {
-            // From original context
-            pitchContent: dbContext.pitchEmailBody || '',
-            pitchServiceDescription: dbContext.pitchServiceDescription || '',
-            pitchAmount: dbContext.pitchAmount || '',
-            dealAmount: dbContext.dealAmount || '',
-            dealServiceDescription: dbContext.dealServiceDescription || '',
-            initialCallNotes: dbContext.initialCallNotes || '',
-            enquiryNotes: dbContext.enquiryNotes || '',
-            instructionNotes: dbContext.instructionNotes || '',
-            practiceArea: practiceArea || dbContext.areaOfWork || '',
-            clientName: clientName || '',
-            // From extended evidence
-            ...externalEvidence,
-        };
-
-        const dataSources = [];
-        if (evidencePackage.pitchContent) dataSources.push('Pitch email');
-        if (evidencePackage.dealAmount) dataSources.push('Deal data');
-        if (evidencePackage.initialCallNotes) dataSources.push('Initial call notes');
-        if (evidencePackage.enquiryNotes) dataSources.push('Enquiry notes');
-        if (evidencePackage.instructionNotes) dataSources.push('Instruction notes');
-        if (externalEvidence.emailsIn?.length) dataSources.push(`${externalEvidence.emailsIn.length} inbound emails`);
-        if (externalEvidence.emailsOut?.length) dataSources.push(`${externalEvidence.emailsOut.length} outbound emails`);
-        if (externalEvidence.callTranscripts?.length) dataSources.push(`${externalEvidence.callTranscripts.length} call transcripts`);
-        if (externalEvidence.documents?.length) dataSources.push(`${externalEvidence.documents.length} documents`);
-
-        // Phase 4: Call AI for verification scoring
-        const userPrompt = buildPressureTestUserPrompt(sanitisedGeneratedFields, evidencePackage);
-
-        const verificationResult = await chatCompletion(
-            PRESSURE_TEST_SYSTEM_PROMPT,
-            userPrompt,
-            { temperature: 0.1 },
-        );
-
-        const durationMs = Date.now() - startMs;
-
-        // Normalise the result — ensure every field has score/reason/flag
-        const fieldScores = {};
-        let flaggedCount = 0;
-        for (const [key, value] of Object.entries(sanitisedGeneratedFields)) {
-            if (key.startsWith('_')) continue;
-            const aiScore = verificationResult[key];
-            if (aiScore && typeof aiScore === 'object') {
-                const score = typeof aiScore.score === 'number' ? aiScore.score : 5;
-                const flag = score <= 7;
-                fieldScores[key] = {
-                    score,
-                    reason: String(aiScore.reason || 'No reason provided'),
-                    flag,
-                };
-                if (flag) flaggedCount++;
-            } else {
-                // AI didn't score this field — flag it by default
-                fieldScores[key] = {
-                    score: 5,
-                    reason: 'Verification AI did not return a score for this field — requires manual review',
-                    flag: true,
-                };
-                flaggedCount++;
-            }
+        if (!result.ok) {
+            return res.status(400).json({ error: result.error });
         }
 
-        trackEvent('CCL.PressureTest.Completed', {
-            trackingId, matterId: String(matterId), durationMs: String(durationMs),
-            fieldCount: String(Object.keys(fieldScores).length),
-            flaggedCount: String(flaggedCount),
-            dataSourceCount: String(dataSources.length),
-        });
-        trackMetric('CCL.PressureTest.Duration', durationMs, { matterId: String(matterId) });
-
-        return res.json({
-            ok: true,
-            fieldScores,
-            flaggedCount,
-            totalFields: Object.keys(fieldScores).length,
-            dataSources,
-            durationMs,
-            trackingId,
-        });
-
+        return res.json(result);
     } catch (err) {
-        const durationMs = Date.now() - startMs;
-        console.error(`[CCL-AI] Pressure test failed (trackingId: ${trackingId}):`, err.message);
-        trackException(err, { operation: 'CCL.PressureTest', trackingId, matterId: String(matterId) });
-        trackEvent('CCL.PressureTest.Failed', {
-            trackingId, matterId: String(matterId), error: err.message, durationMs: String(durationMs),
-        });
-
+        console.error(`[CCL-AI] Pressure test failed:`, err.message);
+        trackException(err, { operation: 'CCL.PressureTest', matterId: String(matterId) });
+        trackEvent('CCL.PressureTest.Failed', { matterId: String(matterId), error: err.message });
         return res.status(500).json({ error: 'Pressure test failed', message: err.message });
     }
 });
@@ -1821,6 +1820,7 @@ router.post('/pressure-test', async (req, res) => {
 router.buildCclContextPackage = buildCclContextPackage;
 router.previewCclContext = previewCclContext;
 router.runCclAiFill = runCclAiFill;
+router.runPressureTestInternal = runPressureTestInternal;
 router.CCL_PROMPT_VERSION = CCL_PROMPT_VERSION;
 
 module.exports = router;

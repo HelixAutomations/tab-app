@@ -78,7 +78,7 @@ const rangeButtonStyles = (isDarkMode: boolean, isActive: boolean): IButtonStyle
       : isDarkMode
         ? 'rgba(148, 163, 184, 0.18)'
         : 'rgba(54, 144, 206, 0.12)',
-    color: isActive ? '#FFFFFF' : isDarkMode ? '#E2E8F0' : colours.missedBlue,
+    color: isActive ? '#FFFFFF' : isDarkMode ? '#E2E8F0' : colours.helixBlue,
     border: isActive
       ? '1px solid rgba(13, 47, 96, 0.42)'
       : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.28)' : 'rgba(13, 47, 96, 0.18)'}`,

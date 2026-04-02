@@ -57,8 +57,8 @@ import CompactMatterWizard from './MatterOpening/CompactMatterWizard';
 import type { POID } from '../../app/functionality/types';
 
 type StageStatus = 'pending' | 'processing' | 'warning' | 'review' | 'complete' | 'neutral';
-type WorkbenchTab = 'details' | 'identity' | 'payment' | 'risk' | 'matter' | 'documents';
-type ContextStageKey = 'enquiry' | 'pitch' | 'instructed';
+type WorkbenchTab = 'details' | 'identity' | 'payment' | 'risk' | 'matter' | 'documents' | 'pitch';
+type ContextStageKey = 'enquiry' | 'instructed';
 type MatterClientTypeOption = 'Individual' | 'Company' | 'Multiple Individuals' | 'Existing Client';
 
 type MatterClientCandidate = {
@@ -131,6 +131,7 @@ type InlineWorkbenchProps = {
   flatEmbedMode?: boolean;
 };
 const workbenchEntryMotionLastPlayedAt = new Map<string, number>();
+const LazyPitchComposer = React.lazy(() => import('../enquiries/pitch-composer/PitchComposer'));
 
 const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   item,
@@ -587,7 +588,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     const prospectIdStr = prospectId ? String(prospectId) : null;
     
     const shouldFetch = 
-      activeContextStage === 'pitch' && 
+      activeTab === 'pitch' && 
       prospectIdStr && 
       !pitch && 
       !fetchedPitchContent && 
@@ -680,9 +681,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     const sources: any[] =
       contextStage === 'enquiry'
         ? [enquiry]
-        : contextStage === 'pitch'
-          ? [deal, pitch, enquiry] // Include enquiry as fallback for name fields
-          : [inst, clients?.[0]];
+        : [inst, clients?.[0]];
 
     for (const field of fields) {
       for (const source of sources) {
@@ -1159,7 +1158,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     const ratio = Math.min(diffDays / maxDays, 1);
     if (ratio >= 0.9) return { color: colours.highlight, label: '' }; // Full blue
     if (ratio >= 0.66) return { color: colours.blue, label: '' }; // Mid blue
-    return { color: colours.missedBlue, label: '' }; // Deep blue
+    return { color: colours.helixBlue, label: '' }; // Deep blue
   };
   
   // Address
@@ -3178,7 +3177,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         isComplete: !!pitchDateRaw,
         hasIssue: false,
         status: (pitchDateRaw ? 'complete' : 'pending') as StageStatus,
-        navigatesTo: 'details' as WorkbenchTab,
+        navigatesTo: 'pitch' as WorkbenchTab,
       },
       { 
         key: 'instructed' as const,
@@ -3256,13 +3255,13 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     // Otherwise use provided keys or default to all
     return contextStageKeys && contextStageKeys.length > 0
       ? contextStageKeys
-      : (['enquiry', 'pitch', 'instructed'] as ContextStageKey[]);
+      : (['enquiry', 'instructed'] as ContextStageKey[]);
   }, [enableContextStageChips, contextStageKeys?.join('|')]);
 
   const pipelineStages = useMemo(() => {
     const allowedContextStages = new Set(contextStageKeyList);
     return timelineStages.filter((stage) => {
-      if (['enquiry', 'pitch', 'instructed'].includes(stage.key)) {
+      if (['enquiry', 'instructed'].includes(stage.key)) {
         return allowedContextStages.has(stage.key as ContextStageKey);
       }
       if (!enableTabStages) return false;
@@ -4141,8 +4140,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
           {pipelineStages.map((stage, idx) => {
             const prevStage = idx > 0 ? pipelineStages[idx - 1] : null;
             // Enquiry and Pitch are context stages (data views)
-            const isContextStage = ['enquiry', 'pitch', 'instructed'].includes(stage.key);
-            const isTabStage = ['identity', 'payment', 'risk', 'matter', 'documents'].includes(stage.key);
+            const isContextStage = ['enquiry', 'instructed'].includes(stage.key);
+            const isTabStage = ['identity', 'payment', 'risk', 'matter', 'documents', 'pitch'].includes(stage.key);
             
             // Skip tab stages if disabled (they're shown in the parent pipeline)
             if (isTabStage && !enableTabStages) return null;
@@ -4174,9 +4173,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
               if (isContextStage) {
                  setActiveTab('details');
                  // Toggle logic or set context
-                 if (stage.key === 'enquiry' || stage.key === 'pitch') {
-                   // If already active, maybe toggle off? User usually expects "click to view". 
-                   // Let's keep it simple: Click sets it.
+                 if (stage.key === 'enquiry') {
+                   // Click sets the enquiry context stage
                    setActiveContextStage(stage.key as ContextStageKey);
                  } else {
                    // Instructed -> Clear context stage (shows default details)
@@ -4936,8 +4934,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                           );
                         }
 
-                        // Pitch context - show deal/pitch data in rich enquiry-style layout
-                        if (contextStage === 'pitch') {
+                        // Pitch context content moved to PitchComposer tab
+                        if (false as boolean) {
                           const dealId = deal?.DealId || deal?.dealId || effectivePitch?.DealId || effectivePitch?.dealId || '';
                           const dealPasscode = deal?.Passcode || deal?.passcode || effectivePitch?.Passcode || effectivePitch?.passcode || '';
                           const dealAmount = deal?.Amount || deal?.amount || deal?.FeeAmount || deal?.feeAmount || effectivePitch?.Amount || effectivePitch?.amount;
@@ -10017,6 +10015,33 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
               </>
             )}
           </div>
+        )}
+
+        {/* ── Pitch Composer tab ── */}
+        {activeTab === 'pitch' && (
+          <React.Suspense
+            fallback={(
+              <div
+                style={{
+                  padding: '12px 14px',
+                  border: `1px solid ${isDarkMode ? `${colours.dark.border}40` : 'rgba(6, 23, 51, 0.08)'}`,
+                  background: isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(244, 244, 246, 0.4)',
+                  color: isDarkMode ? 'rgba(209, 213, 219, 0.88)' : '#374151',
+                  fontSize: 12,
+                }}
+              >
+                Loading pitch composer...
+              </div>
+            )}
+          >
+            <LazyPitchComposer
+              enquiry={item}
+              userData={teamData as any}
+              isDarkMode={isDarkMode}
+              userEmail={currentUser?.Email}
+              onPitchSent={() => onRefreshData?.()}
+            />
+          </React.Suspense>
         )}
 
       </div>

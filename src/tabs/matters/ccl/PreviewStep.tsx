@@ -784,7 +784,7 @@ const PreviewStep: React.FC<PreviewStepProps> = ({ content, templateContent, mat
     empty: { border: isDarkMode ? 'rgba(214,85,65,0.6)' : 'rgba(214,85,65,0.7)', bg: isDarkMode ? 'rgba(214,85,65,0.05)' : 'rgba(214,85,65,0.03)', bgHover: isDarkMode ? 'rgba(214,85,65,0.1)' : 'rgba(214,85,65,0.08)' },
     default: { border: isDarkMode ? 'rgba(148,163,184,0.45)' : 'rgba(100,116,139,0.35)', bg: isDarkMode ? 'rgba(148,163,184,0.05)' : 'rgba(148,163,184,0.04)', bgHover: isDarkMode ? 'rgba(148,163,184,0.10)' : 'rgba(148,163,184,0.08)' },
     scaffold: { border: isDarkMode ? 'rgba(250,204,21,0.65)' : 'rgba(202,138,4,0.7)', bg: isDarkMode ? 'rgba(250,204,21,0.06)' : 'rgba(250,204,21,0.08)', bgHover: isDarkMode ? 'rgba(250,204,21,0.11)' : 'rgba(250,204,21,0.12)' },
-    user: { border: isDarkMode ? colours.blue : colours.missedBlue, bg: isDarkMode ? 'rgba(54,144,206,0.06)' : 'rgba(13,47,96,0.04)', bgHover: isDarkMode ? 'rgba(54,144,206,0.12)' : 'rgba(13,47,96,0.08)' },
+    user: { border: isDarkMode ? colours.blue : colours.helixBlue, bg: isDarkMode ? 'rgba(54,144,206,0.06)' : 'rgba(13,47,96,0.04)', bgHover: isDarkMode ? 'rgba(54,144,206,0.12)' : 'rgba(13,47,96,0.08)' },
   }), [isDarkMode, accentBlue]);
 
   // ─── Pressure Test state ───

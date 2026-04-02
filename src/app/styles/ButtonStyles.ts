@@ -55,7 +55,7 @@ export const sharedDefaultButtonStyles: IButtonStyles = {
   root: {
     padding: '6px 12px',
     borderRadius: '4px',
-    backgroundColor: colours.secondaryButtonBackground,
+    backgroundColor: colours.grey,
     border: 'none',
     height: '40px',
     fontWeight: 'normal',
@@ -70,21 +70,21 @@ export const sharedDefaultButtonStyles: IButtonStyles = {
     },
   },
   rootHovered: {
-    background: `radial-gradient(circle at center, rgba(0,0,0,0) 0%, rgba(0,0,0,0.1) 100%), ${colours.secondaryButtonBackground} !important`,
+    background: `radial-gradient(circle at center, rgba(0,0,0,0) 0%, rgba(0,0,0,0.1) 100%), ${colours.grey} !important`,
     boxShadow: '0 2px 6px rgba(0,0,0,0.15) !important',
     transform: 'none !important',
     outline: 'none !important',
     border: 'none !important',
   },
   rootPressed: {
-    background: `radial-gradient(circle at center, rgba(0,0,0,0) 0%, rgba(0,0,0,0.15) 100%), ${colours.secondaryButtonBackground} !important`,
+    background: `radial-gradient(circle at center, rgba(0,0,0,0) 0%, rgba(0,0,0,0.15) 100%), ${colours.grey} !important`,
     boxShadow: '0 0 8px rgba(0,0,0,0.2) !important',
     transform: 'none !important',
     outline: 'none !important',
     border: 'none !important',
   },
   rootFocused: {
-    backgroundColor: `${colours.secondaryButtonBackground} !important`,
+    backgroundColor: `${colours.grey} !important`,
     transform: 'none !important',
     outline: 'none !important',
     border: 'none !important',

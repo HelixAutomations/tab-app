@@ -113,7 +113,7 @@ export const statusBadgeStyle = (status: 'active' | 'closed', isDarkMode: boolea
       status === 'active'
         ? isDarkMode
           ? colours.blue
-          : colours.missedBlue
+          : colours.helixBlue
         : isDarkMode
         ? '#94a3b8'
         : '#64748b',

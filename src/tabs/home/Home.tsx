@@ -6158,6 +6158,7 @@ const conversionRate = displayEnquiriesMonthToDate
                 userInitials={isWaitingForLocalDashboardIdentity ? '' : effectiveDashboardIdentity.initials}
                 recentMatters={recentMatters}
                 demoModeEnabled={demoModeEnabled}
+                isActive={isActive}
                 teamData={teamData ?? undefined}
                 wipDailyData={wipClioData ? {
                   currentWeek: Object.fromEntries(

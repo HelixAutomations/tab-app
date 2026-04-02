@@ -12,6 +12,7 @@ import RefreshDataModal from './RefreshDataModal';
 import LegacyMigrationTool from './LegacyMigrationTool';
 import AdminControlsSection from './command-centre/AdminControlsSection';
 import LocalDevSection from './command-centre/LocalDevSection';
+import SystemStatusSection from './command-centre/SystemStatusSection';
 import WorkspaceViewsSection from './command-centre/WorkspaceViewsSection';
 import { BubbleToastTone, CommandCentreTokens } from './command-centre/types';
 
@@ -99,7 +100,6 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
         { env: 'local', status: 'loading', data: null, error: null },
         { env: 'production', status: 'loading', data: null, error: null },
     ]);
-    const [routeExpanded, setRouteExpanded] = useState(false);
     const routeProbed = useRef(false);
 
     const chipRef = useRef<HTMLButtonElement | null>(null);
@@ -784,6 +784,17 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
                                 />
                             )}
 
+                            <SystemStatusSection
+                                tokens={tokens}
+                                healthData={healthData}
+                                healthLoading={healthLoading}
+                                routeResults={routeResults}
+                                onRefreshRoutes={runRouteProbes}
+                                enquiriesLiveRefreshInFlight={enquiriesLiveRefreshInFlight}
+                                enquiriesUsingSnapshot={enquiriesUsingSnapshot}
+                                enquiriesLastLiveSyncAt={enquiriesLastLiveSyncAt}
+                            />
+
                             <LocalDevSection
                                     tokens={tokens}
                                     onFeatureToggle={onFeatureToggle}
@@ -797,222 +808,52 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
                                     onOpenDemoMatter={onOpenDemoMatter ? (showCcl) => { onOpenDemoMatter(showCcl); closePanel(); } : undefined}
                                 />
 
-                            <div style={{ display: 'grid', gap: 8, marginBottom: 8 }}>
-                                <div style={tokens.sectionTitle}>
-                                    <span style={{ width: 6, height: 6, borderRadius: 999, background: environmentColour }} />
-                                    Reporting utilities
-                                </div>
+                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                <button
+                                    onClick={() => openReportingUtility('logMonitor')}
+                                    style={{ ...tokens.actionBtn, flex: 1, justifyContent: 'center', minWidth: 0 }}
+                                    onMouseEnter={(e) => {
+                                        tokens.applyRowHover(e.currentTarget);
+                                        e.currentTarget.style.color = textPrimary;
+                                    }}
+                                    onMouseLeave={(e) => {
+                                        tokens.resetRowHover(e.currentTarget);
+                                        e.currentTarget.style.color = textBody;
+                                    }}
+                                >
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <path d="M3 4h18v12H3z"/>
+                                        <path d="M7 20h10"/>
+                                        <path d="M9 8h6"/>
+                                        <path d="M9 12h3"/>
+                                    </svg>
+                                    Activity
+                                </button>
 
-                                <div style={{ display: 'flex', gap: 8 }}>
-                                    <button
-                                        onClick={() => openReportingUtility('logMonitor')}
-                                        style={{ ...tokens.actionBtn, flex: 1, justifyContent: 'center' }}
-                                        onMouseEnter={(e) => {
-                                            tokens.applyRowHover(e.currentTarget);
-                                            e.currentTarget.style.color = textPrimary;
-                                        }}
-                                        onMouseLeave={(e) => {
-                                            tokens.resetRowHover(e.currentTarget);
-                                            e.currentTarget.style.color = textBody;
-                                        }}
-                                    >
-                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                            <path d="M3 4h18v12H3z"/>
-                                            <path d="M7 20h10"/>
-                                            <path d="M9 8h6"/>
-                                            <path d="M9 12h3"/>
-                                        </svg>
-                                        Activity monitor
-                                    </button>
+                                <button
+                                    onClick={() => openReportingUtility('dataCentre')}
+                                    style={{ ...tokens.actionBtn, flex: 1, justifyContent: 'center', minWidth: 0 }}
+                                    onMouseEnter={(e) => {
+                                        tokens.applyRowHover(e.currentTarget);
+                                        e.currentTarget.style.color = textPrimary;
+                                    }}
+                                    onMouseLeave={(e) => {
+                                        tokens.resetRowHover(e.currentTarget);
+                                        e.currentTarget.style.color = textBody;
+                                    }}
+                                >
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <path d="M4 4h16v4H4z"/>
+                                        <path d="M4 12h7v8H4z"/>
+                                        <path d="M13 12h7v3h-7z"/>
+                                        <path d="M13 17h7v3h-7z"/>
+                                    </svg>
+                                    Data
+                                </button>
 
-                                    <button
-                                        onClick={() => openReportingUtility('dataCentre')}
-                                        style={{ ...tokens.actionBtn, flex: 1, justifyContent: 'center' }}
-                                        onMouseEnter={(e) => {
-                                            tokens.applyRowHover(e.currentTarget);
-                                            e.currentTarget.style.color = textPrimary;
-                                        }}
-                                        onMouseLeave={(e) => {
-                                            tokens.resetRowHover(e.currentTarget);
-                                            e.currentTarget.style.color = textBody;
-                                        }}
-                                    >
-                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                            <path d="M4 4h16v4H4z"/>
-                                            <path d="M4 12h7v8H4z"/>
-                                            <path d="M13 12h7v3h-7z"/>
-                                            <path d="M13 17h7v3h-7z"/>
-                                        </svg>
-                                        Data centre
-                                    </button>
-                                </div>
-                            </div>
-
-                            {/* Server health */}
-                            <div style={{ display: 'grid', gap: 6, marginBottom: 8 }}>
-                                <div style={tokens.sectionTitle}>
-                                    <span style={{ width: 6, height: 6, borderRadius: 999, background: healthData?.overall === 'healthy' ? colours.green : healthData?.overall === 'degraded' ? colours.orange : colours.subtleGrey }} />
-                                    Server health
-                                    {healthLoading && <span style={{ fontSize: 9, color: colours.subtleGrey, marginLeft: 'auto' }}>polling…</span>}
-                                </div>
-                                {healthData ? (
-                                    <>
-                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
-                                            {Object.entries(healthData.components).map(([name, comp]) => (
-                                                <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: textBody, padding: '3px 0' }}>
-                                                    <span style={{
-                                                        width: 6, height: 6, borderRadius: 999, flexShrink: 0,
-                                                        background: comp.status === 'connected' || comp.status === 'running' ? colours.green
-                                                            : comp.status === 'disconnected' || comp.status === 'stopped' ? colours.cta
-                                                            : colours.subtleGrey
-                                                    }} />
-                                                    {name}
-                                                </div>
-                                            ))}
-                                        </div>
-                                        <div style={{ display: 'flex', gap: 12, fontSize: 10, color: colours.subtleGrey }}>
-                                            <span>Up {healthData.uptimeSeconds < 3600
-                                                ? `${Math.floor(healthData.uptimeSeconds / 60)}m`
-                                                : `${Math.floor(healthData.uptimeSeconds / 3600)}h ${Math.floor((healthData.uptimeSeconds % 3600) / 60)}m`
-                                            }</span>
-                                            <span>Heap {Math.round(healthData.memory.heapUsed / 1024 / 1024)}MB</span>
-                                        </div>
-                                    </>
-                                ) : (
-                                    <div style={{ fontSize: 11, color: colours.subtleGrey }}>
-                                        {healthLoading ? 'Loading…' : 'Unavailable'}
-                                    </div>
-                                )}
-
-                                {/* SSE stream */}
-                                {healthData && (
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: textBody, marginTop: 2 }}>
-                                        <span style={{
-                                            width: 6, height: 6, borderRadius: 999,
-                                            background: healthData.sse.clients > 0 ? colours.green : colours.subtleGrey
-                                        }} />
-                                        SSE {healthData.sse.clients} client{healthData.sse.clients !== 1 ? 's' : ''}
-                                    </div>
-                                )}
-
-                                {/* Data freshness */}
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: textBody, marginTop: 2 }}>
-                                    <span style={{
-                                        width: 6, height: 6, borderRadius: 999,
-                                        background: enquiriesLiveRefreshInFlight ? colours.highlight
-                                            : enquiriesUsingSnapshot ? colours.orange
-                                            : enquiriesLastLiveSyncAt ? colours.green
-                                            : colours.subtleGrey
-                                    }} />
-                                    {enquiriesLiveRefreshInFlight ? 'Syncing…'
-                                        : enquiriesUsingSnapshot ? 'Snapshot (stale)'
-                                        : enquiriesLastLiveSyncAt
-                                            ? (() => {
-                                                const age = Math.round((Date.now() - enquiriesLastLiveSyncAt) / 1000);
-                                                return age < 60 ? 'Live (just now)'
-                                                    : age < 3600 ? `Live (${Math.floor(age / 60)}m ago)`
-                                                    : `Live (${Math.floor(age / 3600)}h ago)`;
-                                            })()
-                                            : 'Awaiting sync'}
-                                </div>
-                            </div>
-
-                            {/* Route status */}
-                            {(() => {
-                                const allOk = routeResults.every(r => r.status === 'ok' && r.data?.summary.unhealthy === 0);
-                                const anyFail = routeResults.some(r => r.status === 'fail');
-                                const anyLoading = routeResults.some(r => r.status === 'loading');
-                                const overallDot = anyLoading ? colours.subtleGrey : allOk ? colours.green : anyFail ? colours.cta : colours.orange;
-                                const envDot = (r: EnvResult) =>
-                                    r.status === 'loading' ? colours.subtleGrey
-                                    : r.status === 'fail' ? colours.cta
-                                    : (r.data && r.data.summary.unhealthy > 0) ? colours.orange
-                                    : colours.green;
-
-                                return (
-                                    <div style={{ display: 'grid', gap: 6, marginBottom: 8 }}>
-                                        <div
-                                            style={{ ...tokens.sectionTitle, cursor: 'pointer' }}
-                                            onClick={() => setRouteExpanded(p => !p)}
-                                        >
-                                            <span style={{
-                                                width: 6, height: 6, borderRadius: 999,
-                                                background: overallDot,
-                                                boxShadow: `0 0 4px ${overallDot}88`,
-                                            }} />
-                                            Route status
-                                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
-                                                {routeResults.map(r => (
-                                                    <span key={r.env} style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                                                        <span style={{ width: 4, height: 4, borderRadius: 999, background: envDot(r) }} />
-                                                        <span style={{ fontSize: 9, color: textMuted }}>
-                                                            {r.env === 'local' ? 'L' : 'P'}
-                                                            {r.status === 'ok' && r.data ? `:${r.data.summary.healthy}/${r.data.summary.total}` : ''}
-                                                        </span>
-                                                    </span>
-                                                ))}
-                                            </span>
-                                            <svg
-                                                width="8" height="8" viewBox="0 0 24 24" fill="none" stroke={textMuted} strokeWidth="2.5"
-                                                style={{ transition: 'transform 0.2s ease', transform: routeExpanded ? 'rotate(180deg)' : 'rotate(0deg)' }}
-                                            >
-                                                <path d="M6 9l6 6 6-6"/>
-                                            </svg>
-                                        </div>
-
-                                        <div style={{
-                                            maxHeight: routeExpanded ? 500 : 0,
-                                            opacity: routeExpanded ? 1 : 0,
-                                            overflow: 'hidden',
-                                            transition: 'max-height 0.25s ease, opacity 0.2s ease',
-                                        }}>
-                                            {routeResults.map(r => (
-                                                <div key={r.env} style={{ marginBottom: 6 }}>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-                                                        <span style={{ width: 5, height: 5, borderRadius: 999, background: envDot(r), flexShrink: 0 }} />
-                                                        <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.06em', color: textPrimary }}>{r.env}</span>
-                                                        {r.status === 'ok' && r.data && (
-                                                            <span style={{ marginLeft: 'auto', fontSize: 9, color: textMuted }}>{r.data.summary.healthy}/{r.data.summary.total} · {r.data.durationMs}ms</span>
-                                                        )}
-                                                        {r.status === 'fail' && (
-                                                            <span style={{ marginLeft: 'auto', fontSize: 9, color: colours.cta }}>{r.error}</span>
-                                                        )}
-                                                        {r.status === 'loading' && (
-                                                            <span style={{ marginLeft: 'auto', fontSize: 9, color: textMuted, opacity: 0.6 }}>probing…</span>
-                                                        )}
-                                                    </div>
-                                                    {r.status === 'ok' && r.data && (
-                                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, paddingLeft: 12 }}>
-                                                            {r.data.checks.map(c => (
-                                                                <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, color: textBody, padding: '1px 0' }}>
-                                                                    <span style={{ width: 4, height: 4, borderRadius: 999, background: c.status === 'healthy' ? colours.green : colours.cta, flexShrink: 0 }} />
-                                                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{c.name}</span>
-                                                                    {c.responseMs != null && <span style={{ fontSize: 8, color: textMuted, flexShrink: 0 }}>{c.responseMs}ms</span>}
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            ))}
-                                            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
-                                                <button
-                                                    onClick={() => { runRouteProbes(); showToast('Probing routes…', 'info'); }}
-                                                    style={{ ...tokens.actionBtn, fontSize: 9, padding: '3px 10px', width: 'auto' }}
-                                                    onMouseEnter={(e) => { tokens.applyRowHover(e.currentTarget); e.currentTarget.style.color = textPrimary; }}
-                                                    onMouseLeave={(e) => { tokens.resetRowHover(e.currentTarget); e.currentTarget.style.color = textBody; }}
-                                                >
-                                                    ↻ refresh
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                );
-                            })()}
-
-                            <div style={{ display: 'flex', gap: 8 }}>
                                 <button
                                     onClick={() => setShowRefreshModal(true)}
-                                    style={{ ...tokens.actionBtn, flex: 1, justifyContent: 'center' }}
+                                    style={{ ...tokens.actionBtn, flex: 1, justifyContent: 'center', minWidth: 0 }}
                                     onMouseEnter={(e) => {
                                         tokens.applyRowHover(e.currentTarget);
                                         e.currentTarget.style.color = textPrimary;
@@ -1025,7 +866,7 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
                                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                         <path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
                                     </svg>
-                                    Refresh data
+                                    Refresh
                                 </button>
 
                                 {originalAdminUser && onReturnToAdmin && (
@@ -1038,6 +879,7 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
                                             ...tokens.actionBtn,
                                             flex: 1,
                                             justifyContent: 'center',
+                                            minWidth: 0,
                                             background: ctaPrimary,
                                             color: '#fff',
                                             border: `1px solid ${ctaPrimary}`
@@ -1046,7 +888,7 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
                                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                                             <path d="M19 12H5M12 19l-7-7 7-7"/>
                                         </svg>
-                                        Return to admin
+                                        Return
                                     </button>
                                 )}
                             </div>

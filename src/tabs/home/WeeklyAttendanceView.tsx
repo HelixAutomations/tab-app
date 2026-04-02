@@ -714,7 +714,7 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
 
   const getDayColor = (status: 'wfh' | 'office' | 'away' | 'off-sick' | 'out-of-office') => {
     switch (status) {
-      case 'office': return isDarkMode ? colours.blue : colours.missedBlue;  // Accent in dark mode
+      case 'office': return isDarkMode ? colours.blue : colours.helixBlue;  // Accent in dark mode
       case 'wfh': return colours.green;       // WFH - Helix Green  
       case 'away': return colours.subtleGrey; // Away - Subtle Grey
       case 'off-sick': return colours.cta;  // Off Sick - CTA Red
@@ -815,10 +815,10 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
     padding: '12px 16px',
     margin: '1px 0',
     background: isUser 
-      ? (isDark ? `linear-gradient(135deg, ${colours.blue}20 0%, ${colours.dark.cardBackground} 100%)` : `linear-gradient(135deg, ${colours.missedBlue}12 0%, ${colours.light.cardBackground} 100%)`)
+      ? (isDark ? `linear-gradient(135deg, ${colours.blue}20 0%, ${colours.dark.cardBackground} 100%)` : `linear-gradient(135deg, ${colours.helixBlue}12 0%, ${colours.light.cardBackground} 100%)`)
       : (isDark ? colours.dark.cardBackground : colours.light.cardBackground),
     border: isUser 
-      ? `3px solid ${isDark ? colours.blue : colours.missedBlue}` 
+      ? `3px solid ${isDark ? colours.blue : colours.helixBlue}` 
       : `1px solid ${isDark ? 'rgba(54, 144, 206, 0.08)' : colours.light.border}`,
     borderRadius: '2px',
     transition: 'all 0.2s ease',
@@ -831,7 +831,7 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
     
     '&:hover': {
       background: isUser
-        ? (isDark ? `linear-gradient(135deg, ${colours.blue}35 0%, ${colours.dark.sectionBackground} 100%)` : `linear-gradient(135deg, ${colours.missedBlue}18 0%, ${colours.light.sectionBackground} 100%)`)
+        ? (isDark ? `linear-gradient(135deg, ${colours.blue}35 0%, ${colours.dark.sectionBackground} 100%)` : `linear-gradient(135deg, ${colours.helixBlue}18 0%, ${colours.light.sectionBackground} 100%)`)
         : (isDark ? colours.dark.sectionBackground : colours.light.sectionBackground),
       transform: isUser ? 'translateY(-2px)' : 'none',
       boxShadow: isUser 
@@ -847,7 +847,7 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
       right: '-3px',
       bottom: '-3px',
       borderRadius: '2px',
-      background: `linear-gradient(135deg, ${isDark ? colours.blue : colours.missedBlue} 0%, ${colours.blue} 100%)`,
+      background: `linear-gradient(135deg, ${isDark ? colours.blue : colours.helixBlue} 0%, ${colours.blue} 100%)`,
       zIndex: -1,
       opacity: 0.6
     } : {}
@@ -857,7 +857,7 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
     fontSize: '13px',
     fontWeight: isUser ? '700' : '500',
     color: isUser 
-      ? (isDark ? colours.blue : colours.missedBlue)
+      ? (isDark ? colours.blue : colours.helixBlue)
       : (isDark ? colours.dark.text : colours.light.text),
     minWidth: '90px',
     maxWidth: '90px',
@@ -1499,7 +1499,7 @@ const WeeklyAttendanceView: React.FC<WeeklyAttendanceViewProps> = ({
             }, {} as Record<string, number>);
             
             const summaryItems = [
-              { status: 'office', label: 'Office', color: isDarkMode ? colours.blue : colours.missedBlue },
+              { status: 'office', label: 'Office', color: isDarkMode ? colours.blue : colours.helixBlue },
               { status: 'wfh', label: 'WFH', color: colours.green },
               { status: 'away', label: 'Away', color: colours.subtleGrey },
               { status: 'off-sick', label: 'Sick', color: colours.cta },

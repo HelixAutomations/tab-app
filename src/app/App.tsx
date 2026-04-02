@@ -552,7 +552,17 @@ const App: React.FC<AppProps> = ({
   // Check for active matter opening every 2 seconds
   useEffect(() => {
     const checkActiveMatter = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        return;
+      }
       setHasActiveMatter(hasActiveMatterOpening(isInMatterOpeningWorkflow));
+    };
+
+    const handleVisibilityChange = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        return;
+      }
+      checkActiveMatter();
     };
     
     // Initial check
@@ -560,8 +570,16 @@ const App: React.FC<AppProps> = ({
     
     // Set up polling
     const interval = setInterval(checkActiveMatter, 2000);
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+    }
     
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      }
+    };
   }, [isInMatterOpeningWorkflow]);
 
   // Modal handlers with mutual exclusivity
@@ -1422,6 +1440,7 @@ const App: React.FC<AppProps> = ({
                     subscribeToEnquiryStream={subscribeToEnquiryStream}
                     instructionData={allInstructionData}
                     featureToggles={featureToggles}
+                    originalAdminUser={originalAdminUser}
                     demoModeEnabled={demoModeEnabled}
                     isActive={activeTab === 'enquiries'}
                     onTeamWideEnquiriesLoaded={setTeamWideEnquiries}

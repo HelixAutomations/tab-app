@@ -101,6 +101,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ isOpen, onClose, inspec
   const [opsIntervalMs, setOpsIntervalMs] = useState(5000);
   const [expandedOpsRows, setExpandedOpsRows] = useState<Record<string, boolean>>({});
   const opsListRef = useRef<VariableSizeList | null>(null);
+  const isDocumentVisible = useCallback(
+    () => typeof document === 'undefined' || document.visibilityState !== 'hidden',
+    []
+  );
 
   // ── Tree helpers ────────────────────────────────────────────
   const toggleTreeNode = useCallback((path: string) => {
@@ -365,10 +369,27 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ isOpen, onClose, inspec
   useEffect(() => {
     if (selectedSection !== 'health') return;
     if (!autoPingEnabled) return;
-    void checkEndpoints(baseEndpointDefinitions);
-    const timer = setInterval(() => { void checkEndpoints(baseEndpointDefinitions); }, autoPingIntervalMs);
-    return () => clearInterval(timer);
-  }, [selectedSection, autoPingEnabled, autoPingIntervalMs, checkEndpoints, baseEndpointDefinitions]);
+    const runHealthCheck = () => {
+      if (!isDocumentVisible()) return;
+      void checkEndpoints(baseEndpointDefinitions);
+    };
+    const handleVisibilityChange = () => {
+      if (!isDocumentVisible()) return;
+      const refocusDelayMs = Math.min(1500, Math.max(250, Math.round(autoPingIntervalMs / 10)));
+      window.setTimeout(runHealthCheck, refocusDelayMs);
+    };
+    runHealthCheck();
+    const timer = setInterval(runHealthCheck, autoPingIntervalMs);
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+    }
+    return () => {
+      clearInterval(timer);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      }
+    };
+  }, [selectedSection, autoPingEnabled, autoPingIntervalMs, checkEndpoints, baseEndpointDefinitions, isDocumentVisible]);
 
   useEffect(() => {
     if (selectedSection === 'files' && !fileMap && !loadingFiles) void loadFileMap();
@@ -380,9 +401,26 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ isOpen, onClose, inspec
 
   useEffect(() => {
     if (selectedSection !== 'ops' || !opsAutoRefresh) return;
-    const timer = setInterval(() => { void loadOps(); }, opsIntervalMs);
-    return () => clearInterval(timer);
-  }, [selectedSection, opsAutoRefresh, opsIntervalMs, loadOps]);
+    const runOpsRefresh = () => {
+      if (!isDocumentVisible()) return;
+      void loadOps();
+    };
+    const handleVisibilityChange = () => {
+      if (!isDocumentVisible()) return;
+      const refocusDelayMs = Math.min(1000, Math.max(150, Math.round(opsIntervalMs / 10)));
+      window.setTimeout(runOpsRefresh, refocusDelayMs);
+    };
+    const timer = setInterval(runOpsRefresh, opsIntervalMs);
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+    }
+    return () => {
+      clearInterval(timer);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      }
+    };
+  }, [selectedSection, opsAutoRefresh, opsIntervalMs, loadOps, isDocumentVisible]);
 
   // ── Shared inline styles ────────────────────────────────────
   const card: React.CSSProperties = {

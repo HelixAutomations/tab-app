@@ -175,6 +175,47 @@ function ensureNoopenerRelForBlankTargets(html) {
   });
 }
 
+function sanitizeSignatureHtml(signatureHtml) {
+  let html = String(signatureHtml || '').trim();
+  if (!html) return html;
+
+  html = html.replace(/^\uFEFF/, '');
+
+  const firstTagIndex = html.indexOf('<');
+  if (firstTagIndex > 0) {
+    html = html.slice(firstTagIndex);
+  }
+
+  html = html
+    .replace(/<\?xml[\s\S]*?\?>/gi, '')
+    .replace(/<!DOCTYPE[^>]*>/gi, '')
+    .replace(/<head\b[^>]*>[\s\S]*?<\/head>/gi, '')
+    .replace(/<html\b[^>]*>/gi, '')
+    .replace(/<\/html>/gi, '')
+    .replace(/<body\b[^>]*>/gi, '')
+    .replace(/<\/body>/gi, '')
+    .replace(/<!--\[if[\s\S]*?<!\[endif\]-->/gi, '')
+    .replace(/<!\[if[\s\S]*?\]>/gi, '')
+    .replace(/<!\[endif\]>/gi, '')
+    .replace(/<!--(?!\s*\[if)[\s\S]*?-->/gi, '');
+
+  html = html.replace(
+    /<u>\s*([a-z0-9._%+-]+)\s*<a\b([^>]*?)href=(['"])mailto:([^'"]+)\3([^>]*)>\s*(@?[^<]*)\s*<\/a>\s*<\/u>/gi,
+    (_match, prefix, preAttrs, quote, hrefEmail, postAttrs, anchorText) => {
+      const normalizedHrefEmail = String(hrefEmail || '').trim();
+      const normalizedPrefix = String(prefix || '').trim();
+      const normalizedAnchorText = String(anchorText || '').trim();
+      const displayEmail = normalizedAnchorText.startsWith('@')
+        ? `${normalizedPrefix}${normalizedAnchorText}`
+        : normalizedHrefEmail;
+
+      return `<u><a${preAttrs}href=${quote}mailto:${normalizedHrefEmail}${quote}${postAttrs}>${displayEmail}</a></u>`;
+    }
+  );
+
+  return html.trim();
+}
+
 function pickSignatureFileFromDir(dirPath, fromEmail) {
   let files = [];
   try {
@@ -212,7 +253,9 @@ function loadPersonalSignatureHtml({ signatureInitials, fromEmail }) {
     const picked = pickSignatureFileFromDir(folderPath, fromEmail);
     if (!picked) continue;
     const html = safeReadTextFile(path.join(folderPath, picked));
-    if (html && html.trim()) return ensureNoopenerRelForBlankTargets(html);
+    if (html && html.trim()) {
+      return ensureNoopenerRelForBlankTargets(sanitizeSignatureHtml(html));
+    }
   }
 
   return null;

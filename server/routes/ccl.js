@@ -896,6 +896,22 @@ router.post('/service/run', async (req, res) => {
             aiTraceId: aiResult.aiTraceId || null,
         });
 
+        // Background pressure test — runs after persistence, does not block the response
+        if (cclAiRouter.runPressureTestInternal && aiResult.fields && Object.keys(aiResult.fields).length > 0) {
+            cclAiRouter.runPressureTestInternal({
+                matterId,
+                instructionRef,
+                generatedFields: aiResult.fields,
+                practiceArea,
+                clientName,
+                feeEarnerEmail: preview?.contextFields?.feeEarnerEmail || '',
+                prospectEmail: preview?.contextFields?.prospectEmail || '',
+            }).catch(err => {
+                console.warn(`[ccl] Background PT failed for ${matterId}:`, err.message);
+                trackEvent('CCL.PressureTest.BackgroundFailed', { matterId: String(matterId), error: err.message, triggeredBy: user });
+            });
+        }
+
         const durationMs = Date.now() - startMs;
         trackEvent('CCL.Service.Run.Completed', {
             matterId: String(matterId),
@@ -1371,11 +1387,32 @@ router.get('/:matterId', async (req, res) => {
         matterId: String(matterId), exists: String(exists), source,
         hasDraft: String(!!json),
     });
+    // Hydrate persisted pressure-test result if available
+    let pressureTest = null;
+    if (latestContent?.PressureTestJson) {
+        try {
+            const fieldScores = safeParseJson(latestContent.PressureTestJson, null);
+            if (fieldScores) {
+                pressureTest = {
+                    ok: true,
+                    fieldScores,
+                    flaggedCount: latestContent.PressureTestFlaggedCount ?? 0,
+                    totalFields: Object.keys(fieldScores).length,
+                    dataSources: safeParseJson(latestContent.PressureTestDataSources, []),
+                    durationMs: latestContent.PressureTestDurationMs ?? 0,
+                    trackingId: latestContent.PressureTestTrackingId ?? '',
+                    completedAt: latestContent.PressureTestAt || null,
+                };
+            }
+        } catch { }
+    }
+
     res.json({
         ok: true,
         exists,
         url: exists ? `/ccls/${matterId}.docx` : undefined,
         json,
+        pressureTest,
         loadInfo: {
             source,
             hasStoredDraft: Boolean(json),

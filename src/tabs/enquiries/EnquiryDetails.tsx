@@ -8,11 +8,10 @@ import { PrimaryButton, DefaultButton, IconButton } from '@fluentui/react/lib/Bu
 import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
 import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { TooltipHost } from '@fluentui/react/lib/Tooltip';
-import { Enquiry } from '../../app/functionality/types'; // Adjust the import path as needed
-import { colours } from '../../app/styles/colours'; // Adjust the import path as needed
-import BubbleTextField from '../../app/styles/BubbleTextField'; // Adjust the import path as needed
-import { useTheme } from '../../app/functionality/ThemeContext'; // Adjust the import path as needed
-// invisible change
+import { Enquiry } from '../../app/functionality/types';
+import { colours } from '../../app/styles/colours';
+import BubbleTextField from '../../app/styles/BubbleTextField';
+import { useTheme } from '../../app/functionality/ThemeContext';
 
 /* ------------------------------------------------------------------
    1. UTILITY FUNCTIONS & CONSTANTS

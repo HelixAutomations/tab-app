@@ -1322,7 +1322,7 @@ const MetaMetricsReport: React.FC<MetaMetricsReportProps> = ({
                     <XAxis dataKey="date" tick={{ fontSize: 9, fill: isDarkMode ? colours.dark.subText : colours.light.subText }} stroke={isDarkMode ? colours.dark.border : colours.light.border} tickLine={false} />
                     <YAxis tick={{ fontSize: 9, fill: isDarkMode ? colours.dark.subText : colours.light.subText }} stroke={isDarkMode ? colours.dark.border : colours.light.border} tickLine={false} width={30} />
                     <Tooltip contentStyle={{ backgroundColor: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground, border: `1px solid ${isDarkMode ? colours.dark.border : colours.light.border}`, borderRadius: 0, fontSize: 11 }} />
-                    <Line type="monotone" dataKey="clicks" stroke={isDarkMode ? colours.highlight : colours.missedBlue} strokeWidth={1.5} name="Clicks" dot={false} />
+                    <Line type="monotone" dataKey="clicks" stroke={isDarkMode ? colours.highlight : colours.helixBlue} strokeWidth={1.5} name="Clicks" dot={false} />
                     <Line type="monotone" dataKey="conversions" stroke={colours.green} strokeWidth={1.5} name="Conversions" dot={false} />
                   </LineChart>
                 </ResponsiveContainer>

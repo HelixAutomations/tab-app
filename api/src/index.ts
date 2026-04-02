@@ -52,8 +52,6 @@ import "./functions/sendEmail";
 import "./functions/submitSnippetEdit";
 import "./functions/updateAnnualLeave";
 import "./functions/updateEnquiryPOC";
-// updateEnquiryRating was dead code (never called)
-// import "./functions/updateEnquiryRating";
 import "./functions/updateTransactions";
 import "./functions/updateInstructionStatus";
 

@@ -215,7 +215,7 @@ const getDatePickerStyles = (isDarkMode: boolean): Partial<IDatePickerStyles> =>
       },
     },
     icon: {
-      color: `${isDarkMode ? colours.highlight : colours.missedBlue} !important`,
+      color: `${isDarkMode ? colours.highlight : colours.helixBlue} !important`,
       fontSize: '16px !important',
       fontWeight: 'bold !important',
     },
@@ -246,10 +246,10 @@ const getRangeButtonStyles = (isDarkMode: boolean, active: boolean, disabled: bo
     : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(13, 47, 96, 0.16)'}`;
 
   const resolvedColor = disabled
-    ? (isDarkMode ? '#E2E8F0' : colours.missedBlue)
+    ? (isDarkMode ? '#E2E8F0' : colours.helixBlue)
     : active
       ? '#ffffff'
-      : (isDarkMode ? '#E2E8F0' : colours.missedBlue);
+      : (isDarkMode ? '#E2E8F0' : colours.helixBlue);
 
   return {
     root: {
@@ -311,7 +311,7 @@ const subtleActionButtonStyles = (isDarkMode: boolean): IButtonStyles => ({
     padding: '0 10px',
     background: 'transparent',
     border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.25)' : 'rgba(148, 163, 184, 0.18)'}`,
-    color: isDarkMode ? '#E2E8F0' : colours.missedBlue,
+    color: isDarkMode ? '#E2E8F0' : colours.helixBlue,
     minWidth: 'unset',
   },
   rootHovered: {
@@ -508,7 +508,7 @@ const clearFilterButtonStyle = (isDarkMode: boolean): IButtonStyles => ({
     borderRadius: 18,
     border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.3)' : 'rgba(54, 144, 206, 0.3)'}`,
     background: isDarkMode ? 'rgba(15, 23, 42, 0.8)' : 'rgba(255, 255, 255, 0.95)',
-    color: isDarkMode ? '#E2E8F0' : colours.missedBlue,
+    color: isDarkMode ? '#E2E8F0' : colours.helixBlue,
     fontFamily: 'Raleway, sans-serif',
     fontWeight: 600,
     fontSize: 13,
@@ -991,7 +991,7 @@ const PpcReport: React.FC<PpcReportProps> = ({
           border: `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.28)' : 'rgba(148, 163, 184, 0.18)'}`,
           maxWidth: 260,
           fontSize: 11.5,
-          color: isDarkMode ? '#E2E8F0' : colours.missedBlue,
+          color: isDarkMode ? '#E2E8F0' : colours.helixBlue,
           display: 'flex',
           flexDirection: 'column',
           gap: 6,
@@ -1424,7 +1424,7 @@ const PpcReport: React.FC<PpcReportProps> = ({
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <Icon iconName="BarChartVertical" style={{ fontSize: 16, color: colours.highlight }} />
-            <span style={{ fontSize: 16, fontWeight: 600, color: isDarkMode ? '#E2E8F0' : colours.missedBlue }}>
+            <span style={{ fontSize: 16, fontWeight: 600, color: isDarkMode ? '#E2E8F0' : colours.helixBlue }}>
               Daily Performance Breakdown
             </span>
             <span style={{ 
@@ -1541,7 +1541,7 @@ const PpcReport: React.FC<PpcReportProps> = ({
                       <div style={{ 
                         fontWeight: 600,
                         fontSize: 13,
-                        color: isDarkMode ? '#E2E8F0' : colours.missedBlue,
+                        color: isDarkMode ? '#E2E8F0' : colours.helixBlue,
                         display: 'flex',
                         alignItems: 'center',
                         gap: 8
@@ -1574,7 +1574,7 @@ const PpcReport: React.FC<PpcReportProps> = ({
                         {metaEnquiryCount > 0 && (
                           <div style={{
                             background: isDarkMode ? 'rgba(148, 163, 184, 0.2)' : 'rgba(148, 163, 184, 0.15)',
-                            color: isDarkMode ? '#E2E8F0' : colours.missedBlue,
+                            color: isDarkMode ? '#E2E8F0' : colours.helixBlue,
                             padding: '2px 8px',
                             borderRadius: 12,
                             fontSize: 10,

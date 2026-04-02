@@ -327,7 +327,7 @@ const getTeamButtonStyles = (isDarkMode: boolean, active: boolean): IButtonStyle
         ? `2px solid ${isDarkMode ? '#87ceeb' : colours.highlight}`
         : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(13, 47, 96, 0.16)'}`;
 
-    const textColor = active ? '#ffffff' : (isDarkMode ? '#E2E8F0' : colours.missedBlue);
+    const textColor = active ? '#ffffff' : (isDarkMode ? '#E2E8F0' : colours.helixBlue);
 
     return {
         root: {
@@ -374,7 +374,7 @@ const getRoleButtonStyles = (isDarkMode: boolean, active: boolean): IButtonStyle
         ? `2px solid ${isDarkMode ? '#87ceeb' : colours.highlight}`
         : `1px solid ${isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(13, 47, 96, 0.16)'}`;
 
-    const textColor = active ? '#ffffff' : (isDarkMode ? '#E2E8F0' : colours.missedBlue);
+    const textColor = active ? '#ffffff' : (isDarkMode ? '#E2E8F0' : colours.helixBlue);
 
     return {
         root: {
@@ -2884,7 +2884,7 @@ const MattersReport: React.FC<MattersReportProps> = ({
                 },
             },
             icon: {
-                color: `${isDarkMode ? colours.highlight : colours.missedBlue} !important`,
+                color: `${isDarkMode ? colours.highlight : colours.helixBlue} !important`,
                 fontSize: '16px !important',
                 fontWeight: 'bold !important',
             },

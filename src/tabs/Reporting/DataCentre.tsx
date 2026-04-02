@@ -2181,7 +2181,7 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
                 gap: 8,
                 animation: 'helix-slide-in-up 250ms cubic-bezier(0, 0, 0.2, 1)',
               }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: isDarkMode ? colours.blue : colours.missedBlue }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: isDarkMode ? colours.blue : colours.helixBlue }}>
                   Confirm Sync — Collected Time
                 </div>
                 <div style={{ fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText, lineHeight: 1.5 }}>

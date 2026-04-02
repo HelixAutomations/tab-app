@@ -86,6 +86,7 @@ interface CallsAndNotesProps {
   userInitials: string;
   userEmail?: string;
   isNarrow?: boolean;
+  isActive?: boolean;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -124,7 +125,7 @@ function externalPartyName(call: CallRecord): string {
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
-export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, isNarrow }: CallsAndNotesProps) {
+export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, isNarrow, isActive = true }: CallsAndNotesProps) {
   const showAll = isDevOwner({ Initials: userInitials, Email: userEmail || '' } as any);
   // Shared tokens — match OperationsDashboard
   const cardBg = isDarkMode ? 'rgba(6, 23, 51, 0.55)' : '#FFFFFF';
@@ -139,8 +140,8 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, isN
   // ── State ──
   const [calls, setCalls] = useState<CallRecord[]>([]);
   const [activities, setActivities] = useState<ClioActivity[]>([]);
-  const [isLoadingCalls, setIsLoadingCalls] = useState(true);
-  const [isLoadingActivities, setIsLoadingActivities] = useState(true);
+  const [isLoadingCalls, setIsLoadingCalls] = useState(false);
+  const [isLoadingActivities, setIsLoadingActivities] = useState(false);
   const [callTab, setCallTab] = useState<'external' | 'internal'>('external');
   const [selectedCallId, setSelectedCallId] = useState<string | null>(null);
   const [generatingNoteFor, setGeneratingNoteFor] = useState<string | null>(null);
@@ -149,6 +150,11 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, isN
   const [transcriptCache, setTranscriptCache] = useState<Record<string, TranscriptData>>({});
   const [loadingTranscript, setLoadingTranscript] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const callsLoadedKeyRef = useRef<string | null>(null);
+  const activitiesLoadedKeyRef = useRef<string | null>(null);
+  const activitiesScheduledKeyRef = useRef<string | null>(null);
+  const [panelVisible, setPanelVisible] = useState(false);
 
   // ── Note pipeline state ──
   const [pipeline, setPipeline] = useState<NotePipelineState>({
@@ -170,6 +176,55 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, isN
     if (matterDropdownOpen) document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
   }, [matterDropdownOpen]);
+
+  useEffect(() => {
+    callsLoadedKeyRef.current = null;
+    activitiesLoadedKeyRef.current = null;
+    activitiesScheduledKeyRef.current = null;
+    setCalls([]);
+    setActivities([]);
+    setIsLoadingCalls(false);
+    setIsLoadingActivities(false);
+    setSelectedCallId(null);
+    setGeneratedNote(null);
+  }, [userInitials, userEmail, showAll]);
+
+  useEffect(() => {
+    if (!isActive) {
+      setPanelVisible(false);
+      return;
+    }
+
+    const node = rootRef.current;
+    if (!node) return;
+
+    if (typeof IntersectionObserver === 'undefined') {
+      setPanelVisible(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setPanelVisible(true);
+          observer.disconnect();
+        }
+      },
+      {
+        root: null,
+        threshold: 0.15,
+        rootMargin: '200px 0px',
+      },
+    );
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [isActive]);
+
+  const panelActivated = isActive && panelVisible;
+  const callsFetchKey = `${userInitials}:${userEmail || ''}`;
+  const activitiesFetchKey = `${userInitials}:${showAll ? 'all' : 'user'}`;
+  const callsPendingActivation = panelActivated && callsLoadedKeyRef.current !== callsFetchKey && !isLoadingCalls && calls.length === 0;
 
   // ── Fetch calls ──
   const fetchCalls = useCallback(async () => {
@@ -197,7 +252,50 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, isN
     finally { setIsLoadingActivities(false); }
   }, [userInitials, showAll]);
 
-  useEffect(() => { fetchCalls(); fetchActivities(); }, [fetchCalls, fetchActivities]);
+  useEffect(() => {
+    if (!panelActivated) return;
+    if (callsLoadedKeyRef.current === callsFetchKey) return;
+    callsLoadedKeyRef.current = callsFetchKey;
+    void fetchCalls();
+  }, [panelActivated, fetchCalls, callsFetchKey]);
+
+  useEffect(() => {
+    if (!panelActivated) return;
+    if (activitiesLoadedKeyRef.current === activitiesFetchKey || activitiesScheduledKeyRef.current === activitiesFetchKey) return;
+    activitiesScheduledKeyRef.current = activitiesFetchKey;
+    setIsLoadingActivities(true);
+
+    let disposed = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let idleId: number | null = null;
+
+    const run = () => {
+      if (disposed) return;
+      activitiesScheduledKeyRef.current = null;
+      activitiesLoadedKeyRef.current = activitiesFetchKey;
+      void fetchActivities();
+    };
+
+    if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+      idleId = (window as typeof window & {
+        requestIdleCallback: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
+      }).requestIdleCallback(() => run(), { timeout: 1500 });
+    } else {
+      timeoutId = setTimeout(run, 1200);
+    }
+
+    return () => {
+      disposed = true;
+      if (activitiesScheduledKeyRef.current === activitiesFetchKey) {
+        activitiesScheduledKeyRef.current = null;
+        setIsLoadingActivities(false);
+      }
+      if (timeoutId) clearTimeout(timeoutId);
+      if (idleId !== null && typeof window !== 'undefined' && 'cancelIdleCallback' in window) {
+        (window as typeof window & { cancelIdleCallback: (id: number) => void }).cancelIdleCallback(idleId);
+      }
+    };
+  }, [panelActivated, fetchActivities, activitiesFetchKey]);
 
   // ── Generate attendance note ──
   const generateNote = useCallback(async (recordingId: string) => {
@@ -346,7 +444,7 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, isN
 
   // ── Render ──
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: isNarrow ? '1fr' : '1fr 2fr', gap: 6 }}>
+    <div ref={rootRef} style={{ display: 'grid', gridTemplateColumns: isNarrow ? '1fr' : '1fr 2fr', gap: 6 }}>
 
       {/* ── LEFT: Attendance Notes & Time Entries ── */}
       <div>
@@ -526,7 +624,12 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, isN
           ) : (
             /* Recent time entries */
             <div style={{ flex: 1 }}>
-              {isLoadingActivities ? (
+              {!panelActivated ? (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, gap: 6 }}>
+                  <FiClock size={12} style={{ color: muted, opacity: 0.45 }} />
+                  <span style={{ fontSize: 10, color: muted }}>Loads when visible</span>
+                </div>
+                ) : isLoadingActivities ? (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, gap: 6 }}>
                   <FiRefreshCw size={12} style={{ color: accent, animation: 'opsDashSpin 1s linear infinite' }} />
                   <span style={{ fontSize: 10, color: muted }}>Loading time entries…</span>
@@ -619,7 +722,12 @@ export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, isN
 
           {/* Call list */}
           <div ref={scrollRef} className="ops-dash-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', maxHeight: 280 }}>
-            {isLoadingCalls ? (
+            {!panelActivated ? (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, gap: 6 }}>
+                <FiPhone size={12} style={{ color: muted, opacity: 0.45 }} />
+                <span style={{ fontSize: 10, color: muted }}>Loads when visible</span>
+              </div>
+            ) : (isLoadingCalls || callsPendingActivation) ? (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, gap: 6 }}>
                 <FiRefreshCw size={12} style={{ color: accent, animation: 'opsDashSpin 1s linear infinite' }} />
                 <span style={{ fontSize: 10, color: muted }}>Loading calls…</span>

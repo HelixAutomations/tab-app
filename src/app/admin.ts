@@ -65,6 +65,38 @@ export function isDevOwner(user?: UserData | null): boolean {
     return result;
 }
 
+/**
+ * User access tier — single source of truth for progressive disclosure.
+ * Agents can reference by shorthand: 'dev', 'devGroup', 'admin', 'user'.
+ *
+ * - dev: LZ only — god mode, data-scope override, all features
+ * - devGroup: LZ + AC — feature preview, supervision access
+ * - admin: LZ, AC, KW, JW, LA — trusted internal feature tier
+ * - user: everyone else — role/AoW personalised content
+ */
+export type UserTier = 'dev' | 'devGroup' | 'admin' | 'user';
+
+export function getUserTier(user?: UserData | null): UserTier {
+    if (!user) return 'user';
+    if (isDevOwner(user)) return 'dev';
+    const initials = user.Initials?.toUpperCase().trim();
+    const first = user.First?.toLowerCase().trim();
+    if (
+        initials === 'AC' ||
+        first === 'alex' ||
+        user.Nickname?.toLowerCase().trim() === 'alex' ||
+        user.Email?.toLowerCase().trim() === 'ac@helix-law.com'
+    ) return 'devGroup';
+    if (isAdminUser(user)) return 'admin';
+    return 'user';
+}
+
+/** Quick check: is user in devGroup or higher (dev)? */
+export function isDevGroupOrHigher(user?: UserData | null): boolean {
+    const tier = getUserTier(user);
+    return tier === 'dev' || tier === 'devGroup';
+}
+
 // Helper to determine if a user can access the Instructions tab
 export function hasInstructionsAccess(user?: UserData | null): boolean {
     // Instructions tab is now open to all users

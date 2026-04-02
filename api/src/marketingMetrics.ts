@@ -127,9 +127,7 @@ async function fetchGoogleAnalyticsData(startDate: string, endDate: string) {
  * Fetch Google Ads data using the Google Ads API
  */
 async function fetchGoogleAdsData(startDate: string, endDate: string) {
-  // Note: This requires the Google Ads API client library
-  // For now, returning mock data structure
-  // TODO: Implement actual Google Ads API integration
+  // Temporary stub data until Google Ads integration is wired.
   
   const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID;
   
@@ -137,7 +135,6 @@ async function fetchGoogleAdsData(startDate: string, endDate: string) {
     throw new Error('GOOGLE_ADS_CUSTOMER_ID environment variable not set');
   }
 
-  // Mock implementation - replace with actual Google Ads API calls
   const mockData = [];
   const start = new Date(startDate);
   const end = new Date(endDate);
@@ -167,9 +164,7 @@ async function fetchGoogleAdsData(startDate: string, endDate: string) {
  * Fetch Meta (Facebook) Ads data using the Marketing API
  */
 async function fetchMetaAdsData(startDate: string, endDate: string) {
-  // Note: This requires the Facebook Business SDK
-  // For now, returning mock data structure
-  // TODO: Implement actual Meta Marketing API integration
+  // Temporary stub data until Meta Marketing API integration is wired.
   
   const adAccountId = process.env.META_AD_ACCOUNT_ID;
   const accessToken = process.env.META_ACCESS_TOKEN;
@@ -178,7 +173,6 @@ async function fetchMetaAdsData(startDate: string, endDate: string) {
     throw new Error('META_AD_ACCOUNT_ID or META_ACCESS_TOKEN environment variables not set');
   }
 
-  // Mock implementation - replace with actual Meta Marketing API calls
   const mockData = [];
   const start = new Date(startDate);
   const end = new Date(endDate);
@@ -214,11 +208,6 @@ export const getAggregatedMarketingMetrics = async (req: Request, res: Response)
     
     // Get raw data from all sources
     const rawDataResponse = await getMarketingMetrics(req, res);
-    
-    // TODO: Implement aggregation logic for different time periods
-    // - Daily aggregation (default)
-    // - Weekly aggregation
-    // - Monthly aggregation
     
     res.json({
       success: true,

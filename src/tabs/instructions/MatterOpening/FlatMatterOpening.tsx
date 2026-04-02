@@ -3622,7 +3622,6 @@ ${JSON.stringify(debugInfo, null, 2)}
                                                     .map(p => (p as any).nationality as string | undefined)
                                                     .filter(Boolean) as string[];
                                                 const uniqueNationalities = Array.from(new Set(allNationalities.map(n => n.trim())));
-                                                // nationalitySummary removed (unused)
 
                                                 // Shared styles for the unified card layout
                                                 const mutedColor = isDarkMode ? '#6B7280' : '#9CA3AF';

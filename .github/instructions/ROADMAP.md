@@ -99,6 +99,13 @@ Status: **Stream A complete as of 17 March 2026.** All 7 workstream items delive
 - Normalise status grammar across payments, transactions, debts, and CCL so action ownership is readable from the same vocabulary.
 - Calls/Time Entries follow-up: keep the Home split at 50/50 and add left-side telephone attendance controls once the current Power Automate flow is handed over, including matter confirmation from the enquiry link and optional Clio unit capture for matter-linked calls.
 
+**Bundle cleanup follow-ups (parked 2 Apr):**
+- `InlineWorkbench` now lazy-loads `PitchComposer`; keep other optional tabs honest and avoid reintroducing eager imports for pitch-only flows.
+- `react-quill` has been removed from the root package because there is no live editor path using it. Keep it out unless a real editor path returns.
+- Treat `docx` / `docx-templates` as server-install footprint work, not browser bundle work. Current CCL and attendance doc generation paths are server-side.
+- Defer `axios` 1.x until root server routes and `api/` Azure Functions are audited together; current call sites assume existing error shapes and header defaults.
+- Fluent UI v8 migration needs a staged inventory-first pass. Start with high-fanout primitives (`Button`, `Text`, `Stack`, `Icon`, `Modal`, `Styling`) before touching feature-specific components.
+
 1. ~~Unify Home and Prospects around one operational enquiry contract.~~ ✅
 2. ~~Collapse duplicate boot and dashboard fetch logic.~~ ✅
 3. ~~Introduce snapshot-first paint with background reconciliation.~~ ✅
@@ -167,6 +174,34 @@ Status: **In progress — started 17 March 2026.**
 - [ ] Identify which Azure resources need creating, updating, or reconfiguring as part of this rework.
 - [ ] Document resource requirements in a manifest (what exists, what's needed, what needs changing).
 - [ ] Plan any new infrastructure (Web PubSub, Service Bus, additional Function Apps) with IaC or CLI scripts.
+
+#### Stream E — Frameworks, Blueprints, and Telemetry Transparency
+
+Owner: this repo (tab-app)
+
+Status: **In progress — started 2 April 2026.**
+
+##### E1. Communication Frameworks + Pressure Test (IN PROGRESS)
+- [x] Cultural pillar added to `copilot-instructions.md` — Communication Frameworks and Architectural Transparency sections.
+- [x] Framework prompt templates created (`server/prompts/communication-frameworks.js`) — 6 frameworks: management, tasking, feedback, projects, communication, legal.
+- [x] Server route `POST /api/ai/pressure-test-comms` with App Insights telemetry.
+- [x] Frontend `CommsFrameworkPanel.tsx` — standalone pressure-test panel, admin-gated.
+- [x] PitchBuilder integration — "Pressure Test" button in email composer toolbar.
+- [ ] Framework prompt iteration — refine based on real usage feedback.
+- [ ] Editable frameworks in-app (Phase 2.5) — move from hardcoded prompts to DB-stored templates.
+
+##### E2. Blueprints Tab (IN PROGRESS)
+- [x] Blueprints tab skeleton (`src/tabs/blueprints/Blueprints.tsx`) — admin-gated, lazy-loaded.
+- [ ] Infrastructure blueprint — Azure resource map from static manifest, upgrade to live API.
+- [ ] Data flow blueprint — visual ARCHITECTURE_DATA_FLOW.md rendering.
+- [ ] Permissions & security blueprint — AAD app registrations, network topology.
+- [ ] Database schema blueprint — visual DATABASE_SCHEMA_REFERENCE.md rendering.
+
+##### E3. Telemetry Transparency (IN PROGRESS)
+- [x] Processing transparency strip skeleton (`src/components/ProcessingTransparency.tsx`).
+- [ ] Wire to live SSE or `/api/processing-status` endpoint.
+- [ ] Team-facing telemetry dashboard — simplified App Insights view, admin-gated.
+- [ ] Responsive design pass at 768px and 480px breakpoints.
 
 ### First Delivery Order
 

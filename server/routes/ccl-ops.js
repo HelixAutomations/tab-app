@@ -23,6 +23,7 @@ const { getCclContentById, getLatestCclContent, markCclUploaded } = require('../
 const CCL_DIR = path.join(process.cwd(), 'public', 'ccls');
 const CCL_OUTPUT_DIR = path.join(process.cwd(), 'logs', 'ccl-outputs');
 const DEMO_ND_WORKSPACE_REF = process.env.CCL_ND_DEMO_WORKSPACE || '5257922/HELIX01-01';
+const CCL_ND_UPLOAD_FOLDER = process.env.CCL_ND_UPLOAD_FOLDER || '4126-8772-0295'; // luke-sandbox folder in HELIX01-01
 let netDocumentsTokenCache = { token: null, exp: 0 };
 
 async function safeGetSecret(name) {
@@ -788,7 +789,7 @@ router.post('/upload-nd', async (req, res) => {
     });
 
     const ndPayload = await uploadDocumentToNetDocuments({
-      workspaceId: workspace.workspaceId,
+      workspaceId: CCL_ND_UPLOAD_FOLDER,
       fileName: prepared.docxName,
       fileBuffer,
     });

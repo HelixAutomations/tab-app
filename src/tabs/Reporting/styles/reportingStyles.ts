@@ -88,7 +88,7 @@ export function getDatePickerStyles(isDarkMode: boolean): Partial<IDatePickerSty
       },
     },
     icon: {
-      color: `${isDarkMode ? colours.highlight : colours.missedBlue} !important`,
+      color: `${isDarkMode ? colours.highlight : colours.helixBlue} !important`,
       fontSize: '16px !important',
       fontWeight: 'bold !important',
     },
@@ -111,7 +111,7 @@ export function getRangeButtonStyles(
   active: boolean,
   disabled: boolean = false,
 ): IButtonStyles {
-  const inactiveColor = isDarkMode ? colours.dark.text : colours.missedBlue;
+  const inactiveColor = isDarkMode ? colours.dark.text : colours.helixBlue;
   const disabledColor = isDarkMode ? colours.subtleGrey : colours.greyText;
   const activeTextColor = isDarkMode ? colours.highlight : colours.helixBlue;
 

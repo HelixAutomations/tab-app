@@ -4,32 +4,19 @@ import { format } from "date-fns";
 // Clean admin tools - legacy toggles removed - cache cleared
 import { Stack } from '@fluentui/react/lib/Stack';
 import { mergeStyles } from '@fluentui/react/lib/Styling';
-import { Pivot, PivotItem } from '@fluentui/react/lib/Pivot';
 import { Text } from '@fluentui/react/lib/Text';
-import { PrimaryButton, DefaultButton, IconButton } from '@fluentui/react/lib/Button';
-import { Dialog, DialogType, DialogFooter } from '@fluentui/react/lib/Dialog';
-import { DatePicker } from '@fluentui/react/lib/DatePicker';
-import type { IDatePickerStyles } from '@fluentui/react/lib/DatePicker';
+import { IconButton } from '@fluentui/react/lib/Button';
 import { Icon } from '@fluentui/react/lib/Icon';
-import { TooltipHost } from '@fluentui/react/lib/Tooltip';
 import DocumentPreviewModal from "../../components/DocumentPreviewModal";
-import { ActionFeedback } from "../../components/feedback/FeedbackComponents";
 import { useToast } from "../../components/feedback/ToastProvider";
 import {
-  FaIdBadge,
-  FaRegIdBadge,
   FaFileAlt,
-  FaRegFileAlt,
   FaFolder,
-  FaRegFolder,
-  FaCheckCircle,
-  FaExclamationTriangle,
   FaUser,
   FaBuilding,
 } from 'react-icons/fa';
-import { MdOutlineArticle, MdArticle, MdOutlineWarning, MdWarning, MdAssessment, MdOutlineAssessment, MdSync, MdExpandMore, MdChevronRight } from 'react-icons/md';
-import { FaShieldAlt, FaIdCard, FaCreditCard, FaCog, FaEllipsisH } from 'react-icons/fa';
-import QuickActionsCard from "../home/QuickActionsCard"; // legacy, to be removed after full migration
+import { MdSync, MdExpandMore } from 'react-icons/md';
+import { FaShieldAlt, FaIdCard, FaCreditCard, FaEllipsisH } from 'react-icons/fa';
 import { useTheme } from "../../app/functionality/ThemeContext";
 import { appendDefaultEnquiryProcessingParams } from "../../app/functionality/enquiryProcessingModel";
 import { useNavigatorActions } from "../../app/functionality/NavigatorContext";
@@ -39,19 +26,15 @@ import InstructionCard from "./InstructionCard";
 import OverridePills from "./OverridePills";
 import RiskComplianceCard from "./RiskComplianceCard";
 import MatterOperations from "./MatterOperations";
-import JointClientCard, { ClientInfo } from "./JointClientCard";
-import DealCard from "./DealCard";
-import type { DealSummary } from "./JointClientCard";
+import type { ClientInfo } from "./JointClientCard";
 import { InstructionData, POID, TeamData, UserData, Matter } from "../../app/functionality/types";
-import { hasActiveMatterOpening, clearMatterOpeningDraft } from "../../app/functionality/matterOpeningUtils";
+import { hasActiveMatterOpening } from "../../app/functionality/matterOpeningUtils";
 import { isAdminUser } from "../../app/admin";
 import FlatMatterOpening from "./MatterOpening/FlatMatterOpening";
 import RiskAssessmentPage from "./RiskAssessmentPage";
 import EIDCheckPage from "./EIDCheckPage";
-import InstructionEditor from "./components/InstructionEditor";
 import "../../app/styles/InstructionsBanner.css";
 // invisible change 2.2
-import DocumentEditorPage from "./DocumentEditorPage";
 import DocumentsV3 from "./DocumentsV3";
 import localUserData from "../../localData/localUserData.json";
 import SegmentedControl from '../../components/filter/SegmentedControl';
@@ -119,15 +102,15 @@ const Instructions: React.FC<InstructionsProps> = ({
 }) => {
   const { isDarkMode } = useTheme();
   const { setContent } = useNavigatorActions();
-  const { showToast, updateToast } = useToast();
+  const { showToast } = useToast();
   const [showNewMatterPage, setShowNewMatterPage] = useState<boolean>(false);
   const [showRiskPage, setShowRiskPage] = useState<boolean>(false);
   // Core selection + workflow state (restored after resume/new workflow removal)
   const [selectedInstruction, setSelectedInstruction] = useState<any | null>(null);
   const [showEIDPage, setShowEIDPage] = useState<boolean>(false);
   // forceNewMatter was previously used to bust FlatMatterOpening internal draft keys; keep minimal for now
-  const [forceNewMatter, setForceNewMatter] = useState<boolean>(false);
-  const [pendingInstructionRef, setPendingInstructionRef] = useState<string>('');
+  const [forceNewMatter] = useState<boolean>(false);
+  const [, setPendingInstructionRef] = useState<string>('');
   const [selectedRisk, setSelectedRisk] = useState<any | null>(null);
   const [showCclDraftPage, setShowCclDraftPage] = useState(false);
   // ID Verification review modal state (still required post-simplification)
@@ -249,86 +232,6 @@ const Instructions: React.FC<InstructionsProps> = ({
     ]
   };
 
-  // Modern DatePicker styles from ReportingHome
-  const getDatePickerStyles = (isDarkMode: boolean): Partial<IDatePickerStyles> => {
-    const baseBorder = isDarkMode ? 'rgba(148, 163, 184, 0.24)' : 'rgba(13, 47, 96, 0.18)';
-    const hoverBorder = isDarkMode ? 'rgba(135, 206, 255, 0.5)' : 'rgba(54, 144, 206, 0.4)';
-    const focusBorder = isDarkMode ? '#87ceeb' : colours.blue;
-    const backgroundColour = isDarkMode ? colours.dark.cardBackground : 'rgba(255, 255, 255, 0.95)';
-    const hoverBackground = isDarkMode ? colours.darkBlue : 'rgba(248, 250, 252, 1)';
-    const focusBackground = isDarkMode ? colours.darkBlue : 'rgba(255, 255, 255, 1)';
-
-    return {
-      root: { 
-        maxWidth: 180,
-        '.ms-DatePicker': {
-          fontFamily: 'Raleway, sans-serif !important',
-        }
-      },
-      textField: {
-        root: {
-          fontFamily: 'Raleway, sans-serif !important',
-          width: '100% !important',
-        },
-        fieldGroup: {
-          height: '28px !important',
-          borderRadius: '6px !important',
-          border: `1px solid ${baseBorder} !important`,
-          background: `${backgroundColour} !important`,
-          padding: '0 10px !important',
-          boxShadow: isDarkMode 
-            ? '0 2px 4px rgba(0, 0, 0, 0.2) !important' 
-            : '0 1px 3px rgba(15, 23, 42, 0.08) !important',
-          transition: 'all 0.2s ease !important',
-          selectors: {
-            ':hover': {
-              border: `1px solid ${hoverBorder} !important`,
-              background: `${hoverBackground} !important`,
-              boxShadow: isDarkMode 
-                ? '0 4px 8px rgba(0, 0, 0, 0.25) !important' 
-                : '0 2px 6px rgba(15, 23, 42, 0.12) !important',
-              transform: 'translateY(-1px) !important',
-            },
-            ':focus-within': {
-              border: `1px solid ${focusBorder} !important`,
-              background: `${focusBackground} !important`,
-              boxShadow: isDarkMode 
-                ? `0 0 0 3px rgba(135, 206, 235, 0.1), 0 4px 12px rgba(0, 0, 0, 0.25) !important`
-                : `0 0 0 3px rgba(54, 144, 206, 0.1), 0 2px 8px rgba(15, 23, 42, 0.15) !important`,
-              transform: 'translateY(-1px) !important',
-            }
-          }
-        },
-        field: {
-          fontSize: '10px !important',
-          color: `${isDarkMode ? colours.dark.text : colours.light.text} !important`,
-          fontFamily: 'Raleway, sans-serif !important',
-          fontWeight: '500 !important',
-          background: 'transparent !important',
-          lineHeight: '16px !important',
-          border: 'none !important',
-          outline: 'none !important',
-        },
-      },
-      icon: {
-        color: `${isDarkMode ? colours.blue : colours.blue} !important`,
-        fontSize: '12px !important',
-        fontWeight: 'bold !important',
-      },
-      callout: {
-        fontSize: '12px !important',
-        borderRadius: '8px !important',
-        border: `1px solid ${baseBorder} !important`,
-        boxShadow: isDarkMode 
-          ? '0 8px 24px rgba(0, 0, 0, 0.4) !important' 
-          : '0 6px 20px rgba(15, 23, 42, 0.15) !important',
-      },
-      wrapper: { 
-        borderRadius: '8px !important',
-      },
-    };
-  };
-
   // Handle field editing
   // Risk assessment field options
   const riskFieldOptions: Record<string, { key: number; text: string }[]> = {
@@ -367,10 +270,6 @@ const Instructions: React.FC<InstructionsProps> = ({
       { key: 2, text: 'Medium' },
       { key: 3, text: 'High' },
     ],
-  };
-
-  const handleFieldEdit = (category: string, field: string, currentValue: any) => {
-    setEditingField({ category, field, currentValue });
   };
 
   const handleFieldSave = async (newValue: string) => {
@@ -497,11 +396,8 @@ const Instructions: React.FC<InstructionsProps> = ({
   };
   
   // Modal states for workbench operations
-  const [showRiskDetails, setShowRiskDetails] = useState(false);
-  const [showPaymentDetails, setShowPaymentDetails] = useState(false);
   const [paymentToDelete, setPaymentToDelete] = useState<string | null>(null);
   const [removingPayments, setRemovingPayments] = useState<Set<string>>(new Set());
-  const [showMatterDetails, setShowMatterDetails] = useState(false);
   
   // Workbench resize handlers
   const handleMouseDown = useCallback(() => {
@@ -1093,7 +989,7 @@ const Instructions: React.FC<InstructionsProps> = ({
   
 
   // Filter states
-  const [clientsActionFilter, setClientsActionFilter] = useState<'All' | 'Verify ID' | 'Assess Risk' | 'Open Matter' | 'CCL Service' | 'Complete'>('All');
+  const clientsActionFilter = 'All' as const;
   const [pitchesStatusFilter, setPitchesStatusFilter] = useState<'All' | 'Open' | 'Closed'>('All');
   const [riskStatusFilter, setRiskStatusFilter] = useState<'All' | 'Outstanding' | 'Completed'>('All');
   
@@ -1110,11 +1006,9 @@ const Instructions: React.FC<InstructionsProps> = ({
   const [riskFilterRef, setRiskFilterRef] = useState<string | null>(null);
   const [showAllInstructions, setShowAllInstructions] = useState<boolean>(false); // User toggle for mine vs all instructions - defaults to false (show user's own data first)
   // Layout: 1 or 2 columns for overview grid
-  const [twoColumn, setTwoColumn] = useState<boolean>(false);
+  const twoColumn = false;
   // View mode: card or table
   const [viewMode, setViewMode] = useState<'card' | 'table'>('table');
-  // Track expanded descriptions in table view
-  const [expandedDescriptions, setExpandedDescriptions] = useState<Set<string>>(new Set());
   
   // Pipeline stage filter - map of stage to selected states (null = no filter, Set = specific states)
   type PipelineStage = 'id' | 'payment' | 'risk' | 'matter' | 'docs';
@@ -1126,7 +1020,7 @@ const Instructions: React.FC<InstructionsProps> = ({
   const [selectedAreaFilters, setSelectedAreaFilters] = useState<string[]>(ALL_AREAS_OF_WORK);
   
   // Auto-refresh state (5 minute interval like Enquiries)
-  const [lastRefreshTime, setLastRefreshTime] = useState<Date>(new Date());
+  const [, setLastRefreshTime] = useState<Date>(new Date());
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [nextRefreshIn, setNextRefreshIn] = useState<number>(60); // 60 seconds
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -1138,18 +1032,6 @@ const Instructions: React.FC<InstructionsProps> = ({
   const isAdmin = isAdminUser(userData?.[0] || null);
   // Use checkIsLocalDev - respects "View as Production" toggle
   const isLocalhost = checkIsLocalDev(featureToggles);
-  
-  // State for showing only user's own pitches/deals (defaults to true for non-admin users)
-  const [showOnlyMyDeals, setShowOnlyMyDeals] = useState<boolean>(!isAdmin);
-
-  // Update showOnlyMyDeals when user changes (for user switching)
-  useEffect(() => {
-    // For non-admin users, always show only their deals
-    // For admin users, keep current state or default to false (show everyone's)
-    if (!isAdmin) {
-      setShowOnlyMyDeals(true);
-    }
-  }, [isAdmin, currentUser?.Email]);
 
   // Reset admin toggle when user changes to ensure proper initial state
   useEffect(() => {
@@ -1556,8 +1438,6 @@ const Instructions: React.FC<InstructionsProps> = ({
       };
     }
   }, [activeTab, userInstructionData, allInstructionData]);
-  
-  const showDraftPivot = true; // Allow all users to see Document editor
 
   // Unified filter configuration
   const allFilterOptions: TwoLayerFilterOption[] = [
@@ -1657,39 +1537,6 @@ const Instructions: React.FC<InstructionsProps> = ({
   const CUSTOM_TABS_HEIGHT = 48;
   const ACTION_BAR_HEIGHT = 48;
 
-  const quickLinksStyle = (dark: boolean) =>
-    mergeStyles({
-      backgroundColor: dark
-        ? colours.darkBlue
-        : colours.light.sectionBackground,
-      boxShadow: dark
-        ? "0 2px 6px rgba(0,0,0,0.5)"
-        : "0 2px 6px rgba(0,0,0,0.12)",
-      padding: "10px 24px 12px 24px", // Taller bar like Enquiries
-      transition: "background-color 0.3s",
-      display: "flex",
-      flexDirection: "row",
-      gap: "8px",
-      overflowX: "auto",
-      msOverflowStyle: "none",
-      scrollbarWidth: "none",
-      alignItems: "center",
-      position: "sticky",
-      top: CUSTOM_TABS_HEIGHT + ACTION_BAR_HEIGHT,
-      zIndex: 999,
-      borderTopLeftRadius: 0,
-      borderTopRightRadius: 0,
-      selectors: {
-        '::-webkit-scrollbar': {
-          display: 'none',
-        },
-        '@media (max-width: 768px)': {
-          flexWrap: 'wrap',
-          padding: '10px 16px 12px 16px',
-        }
-      },
-    });
-
   const detailNavStyle = (dark: boolean) =>
     mergeStyles({
       backgroundColor: dark
@@ -1711,35 +1558,6 @@ const Instructions: React.FC<InstructionsProps> = ({
       zIndex: 999,
     });
 
-  const pivotBarStyle = (dark: boolean) =>
-    mergeStyles({
-      backgroundColor: dark
-        ? colours.darkBlue
-        : colours.light.sectionBackground,
-      boxShadow: dark
-        ? "0 2px 4px rgba(0,0,0,0.4)"
-        : "0 2px 4px rgba(0,0,0,0.1)",
-      borderTop: dark
-        ? "1px solid rgba(255,255,255,0.1)"
-        : "1px solid rgba(0,0,0,0.05)",
-      padding: "0 24px",
-      transition: "background-color 0.3s",
-      position: "sticky",
-      top: CUSTOM_TABS_HEIGHT + ACTION_BAR_HEIGHT * 2,
-      zIndex: 998,
-      // Responsive padding
-      '@media (max-width: 768px)': {
-        padding: "0 16px",
-      },
-      '@media (max-width: 480px)': {
-        padding: "0 12px",
-      },
-    });
-
-  const useLocalData =
-    (typeof process !== 'undefined' && process.env && process.env.REACT_APP_USE_LOCAL_DATA === "true") ||
-    window.location.hostname === "localhost";
-
 const workbenchPanelBackground = (isDarkMode: boolean): string => (
   isDarkMode
     ? colours.dark.cardBackground
@@ -1749,41 +1567,16 @@ const workbenchPanelBackground = (isDarkMode: boolean): string => (
 const workbenchHeaderBackground = (isDarkMode: boolean): string => (
   isDarkMode 
     ? 'linear-gradient(135deg, rgba(6, 23, 51, 0.95) 0%, rgba(13, 47, 96, 0.98) 100%)'
-    : `linear-gradient(135deg, ${colours.darkBlue} 0%, ${colours.missedBlue} 100%)`
-);
-
-const workbenchCardBackground = (isDarkMode: boolean): string => (
-  isDarkMode
-    ? colours.dark.cardBackground
-    : '#FFFFFF'
+    : `linear-gradient(135deg, ${colours.darkBlue} 0%, ${colours.helixBlue} 100%)`
 );
 
 const workbenchBorderColour = (isDarkMode: boolean): string => (
   isDarkMode ? 'rgba(54, 144, 206, 0.2)' : '#e2e8f0'
 );
 
-const workbenchMutedText = (isDarkMode: boolean): string => (
-  isDarkMode ? 'rgba(226, 232, 240, 0.72)' : '#64748b'
-);
-
 const workbenchButtonHover = (isDarkMode: boolean): string => (
   isDarkMode ? 'rgba(59, 130, 246, 0.2)' : '#f0f9ff'
 );
-
-  const isProduction = (typeof process !== 'undefined' && process.env && process.env.NODE_ENV === "production") && !useLocalData;
-  // Subtle Helix watermark generator – three rounded ribbons rotated slightly
-  const helixWatermarkSvg = (dark: boolean) => {
-    const fill = dark ? '%23FFFFFF' : '%23061733';
-    const opacity = dark ? '0.06' : '0.035';
-    const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='900' height='900' viewBox='0 0 900 900'>
-      <g transform='rotate(-12 450 450)'>
-        <path d='M160 242 C160 226 176 210 200 210 L560 210 Q640 235 560 274 L200 274 C176 274 160 258 160 242 Z' fill='${fill}' fill-opacity='${opacity}'/>
-        <path d='M160 362 C160 346 176 330 200 330 L560 330 Q640 355 560 394 L200 394 C176 394 160 378 160 362 Z' fill='${fill}' fill-opacity='${opacity}'/>
-        <path d='M160 482 C160 466 176 450 200 450 L560 450 Q640 475 560 514 L200 514 C176 514 160 498 160 482 Z' fill='${fill}' fill-opacity='${opacity}'/>
-      </g>
-    </svg>`;
-    return `url("data:image/svg+xml,${svg}")`;
-  };
 
   const handleBack = () => {
     if (showNewMatterPage) {
@@ -2622,7 +2415,6 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
     selectedOverviewItem?.eid?.EIDOverallResult?.toLowerCase() ?? "";
   const eidStatus = selectedOverviewItem?.eid?.EIDStatus?.toLowerCase() ?? "";
   const poidPassed = poidResult === "passed" || poidResult === "approved" || poidResult === "verified";
-  const verificationFound = !!selectedOverviewItem?.eid;
   
   // Match InstructionCard logic for verification status
   let verifyIdStatus: 'pending' | 'received' | 'review' | 'complete';
@@ -2740,36 +2532,6 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
     ? (isDarkMode ? '#bbf7d0' : colours.green)
     : (isDarkMode ? '#bfdbfe' : colours.blue);
 
-  // Derive current matter display number for the selected instruction (fallback across common field names)
-  const currentMatterDisplayNumber = useMemo(() => {
-    const mid = selectedInstruction?.MatterId;
-    const iref = selectedInstruction?.InstructionRef;
-
-    const getDisplay = (m: unknown): string | '' => {
-      if (!m || typeof m !== 'object') return '';
-      const mm = m as Record<string, unknown>;
-      const dn = (mm.DisplayNumber || mm['Display Number'] || mm.displayNumber || mm.display_number);
-      return typeof dn === 'string' ? dn : '';
-    };
-
-    // 1) Check top-level matters prop if provided
-    const fromMatters = (matters || []).find((m: any) =>
-      (m?.MatterID && mid && m.MatterID === mid) || (m?.InstructionRef && iref && m.InstructionRef === iref)
-    );
-    const dnFromMatters = getDisplay(fromMatters);
-    if (dnFromMatters) return dnFromMatters;
-
-    // 2) Check prospect-scoped matters within effectiveInstructionData
-    const prospect = effectiveInstructionData.find(p => p.instructions?.some((inst: any) => inst.InstructionRef === iref));
-    const fromProspect = prospect?.matters?.find((m: any) =>
-      (m?.MatterID && mid && m.MatterID === mid) || (m?.InstructionRef && iref && m.InstructionRef === iref)
-    );
-    const dnFromProspect = getDisplay(fromProspect);
-    if (dnFromProspect) return dnFromProspect;
-
-    return '';
-  }, [selectedInstruction, matters, effectiveInstructionData]);
-  
   // Helper function to get area of work color
   const getAreaColor = (area?: string): string => {
     if (!area) return colours.blue;
@@ -2817,150 +2579,6 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
   };
   
   const nextReadyAction = getNextReadyAction();
-  
-  const disableOtherActions = false; // Enable all actions regardless of selection
-
-  const unlinkedDeals = useMemo(
-    () =>
-      effectiveInstructionData.flatMap((p) =>
-        (p.deals ?? []).filter((d) => !d.InstructionRef),
-      ),
-    [effectiveInstructionData],
-  );
-
-  const instructionRefs = useRef<Record<string, HTMLDivElement | null>>({});
-
-  const deals = useMemo(
-    () =>
-      effectiveInstructionData.flatMap((p) =>
-        (p.deals ?? []).map((d) => {
-          // Attempt to derive lead client name from available data
-          let firstName = '';
-          let lastName = '';
-
-          // First priority: Look up by ProspectId in enquiries data
-          if (d.ProspectId || d.prospectId) {
-            const prospectIdLookup = getClientNameByProspectId(d.ProspectId || d.prospectId);
-            if (prospectIdLookup.firstName || prospectIdLookup.lastName) {
-              firstName = prospectIdLookup.firstName;
-              lastName = prospectIdLookup.lastName;
-            }
-          }
-
-          // Second priority: Use existing email-based lookup if no name found from ACID
-          if ((!firstName && !lastName) && d.LeadClientEmail) {
-            const emailLc = d.LeadClientEmail.toLowerCase();
-
-            // Look in instruction-level data for a matching client
-            const matchingInstruction = (p.instructions ?? []).find((inst: any) =>
-              inst.Email?.toLowerCase() === emailLc
-            );
-
-            if (matchingInstruction) {
-              firstName = matchingInstruction.FirstName || '';
-              lastName = matchingInstruction.LastName || '';
-            } else {
-              // Fall back to joint client records
-              const jointSources = [
-                ...(p.jointClients ?? p.joinedClients ?? []),
-                ...(d.jointClients ?? []),
-              ];
-              const jointClient = jointSources.find((jc: any) =>
-                jc.ClientEmail?.toLowerCase() === emailLc
-              );
-
-              if (jointClient) {
-                firstName = jointClient.FirstName || jointClient.Name?.split(' ')[0] || '';
-                lastName =
-                  jointClient.LastName || jointClient.Name?.split(' ').slice(1).join(' ') || '';
-              }
-            }
-          }
-
-          return {
-            ...d,
-            firstName,
-            lastName,
-            jointClients: [
-              // Only include prospect-level joint clients that match this deal's DealId
-              ...(p.jointClients ?? p.joinedClients ?? []).filter((jc) => jc.DealId === d.DealId),
-              // Include deal-level joint clients
-              ...(d.jointClients ?? []),
-            ],
-            documents: [
-              // Include prospect-level documents that match this deal's DealId
-              ...(p.documents ?? []).filter((doc) => doc.DealId === d.DealId),
-              // Include deal-level documents
-              ...(d.documents ?? []),
-              // Include instruction-level documents if deal has an instruction
-              ...(d.instruction?.documents ?? []),
-            ],
-          };
-        })
-      ),
-    [effectiveInstructionData, enquiries],
-  );
-  const clients: ClientInfo[] = useMemo(() => {
-    const map: Record<string, ClientInfo> = {};
-    effectiveInstructionData.forEach((p) => {
-      const deals = p.deals ?? [];
-      deals.forEach((d) => {
-        if (d.LeadClientEmail) {
-          const key = d.LeadClientEmail;
-          const entry = map[key] || {
-            ClientEmail: key,
-            Lead: true,
-            deals: [] as DealSummary[],
-          };
-          entry.Lead = true;
-          (entry.deals as DealSummary[]).push({
-            DealId: d.DealId,
-            InstructionRef: d.InstructionRef,
-            ServiceDescription: d.ServiceDescription,
-            Status: d.Status,
-          });
-          map[key] = entry;
-        }
-      });
-      // Process joint clients - combine prospect-level and deal-level, but filter prospect-level by DealId
-      const allJointClients = [
-        // Prospect-level joint clients (filter by DealId)
-        ...(p.jointClients ?? p.joinedClients ?? []),
-        // Deal-level joint clients  
-        ...deals.flatMap((d) => d.jointClients ?? [])
-      ];
-      
-      allJointClients.forEach((jc) => {
-        const key = jc.ClientEmail;
-        const entry = map[key] || {
-          ClientEmail: jc.ClientEmail,
-          HasSubmitted: jc.HasSubmitted,
-          Lead: false,
-          deals: [] as DealSummary[],
-          // Only include specific fields we want to display
-          DealJointClientId: jc.DealJointClientId,
-          DealId: jc.DealId,
-          SubmissionDateTime: jc.SubmissionDateTime,
-        };
-        // Update only the fields we want
-        entry.HasSubmitted = jc.HasSubmitted;
-        entry.DealJointClientId = jc.DealJointClientId;
-        entry.DealId = jc.DealId;
-        entry.SubmissionDateTime = jc.SubmissionDateTime;
-        const deal = deals.find((dd) => dd.DealId === jc.DealId);
-        if (deal) {
-          (entry.deals as DealSummary[]).push({
-            DealId: deal.DealId,
-            InstructionRef: deal.InstructionRef,
-            ServiceDescription: deal.ServiceDescription,
-            Status: deal.Status,
-          });
-        }
-        map[key] = entry;
-      });
-    });
-    return Object.values(map);
-  }, [effectiveInstructionData]);
 
   const riskComplianceData = useMemo(
     () =>
@@ -3382,7 +3000,6 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
 
     demoEidCompletedAtRef.current = null;
     setDemoEidState('processing');
-    const config = readDemoEidSimConfig();
 
     return new Promise<void>((resolve) => {
       demoEidTimerRef.current = window.setTimeout(() => {
@@ -3862,8 +3479,6 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
     
     // Try alternative field names for ID verification data
     const altEidResult = (inst.eidOverallResult || inst.eid_overall_result || inst.overallResult)?.toLowerCase();
-    const altAddressResult = (inst.addressVerificationResult || inst.AddressVerificationResult || inst.address_verification_result)?.toLowerCase();
-    const altPepResult = (inst.pepAndSanctionsCheckResult || inst.PEPAndSanctionsCheckResult || inst.pep_and_sanctions_check_result)?.toLowerCase();
     
     const poidPassed = inst.EIDOverallResult?.toLowerCase() === 'passed' || inst.EIDOverallResult?.toLowerCase() === 'complete' || inst.EIDOverallResult?.toLowerCase() === 'verified';
     const stageComplete = inst.stage === 'proof-of-id-complete';
@@ -4383,37 +3998,6 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedInstruction?.InstructionRef]);
 
-  // Inline EID review: request additional documents via server route (same as modal)
-  const requestEidDocumentsInline = async (instructionRef: string) => {
-    try {
-      const response = await fetch(`/api/verify-id/${instructionRef}/request-documents`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      });
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to send email');
-      }
-      const result = await response.json();
-      showToast({ type: 'success', message: `Document request email sent to ${result.recipient}` });
-    } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : String(error);
-      showToast({ type: 'error', message: `Failed to send document request: ${msg}` });
-    }
-  };
-
-
-  // Always open the CCL surface for the global CCL service action
-  const handleOpenDraftCcl = (ref: string) => {
-    setSelectedInstruction({ InstructionRef: ref } as any);
-    // Set a global variable or state to force initialTemplate to 'ccl'
-    // If DocumentsV3 is rendered here, pass initialTemplate='ccl' directly
-    // If not, ensure the prop is always 'ccl' for this action
-    setShowCclDraftPage(true);
-    // Optionally, if you use a state for initialTemplate, set it here:
-    // setInitialTemplate('ccl');
-  };
-
   const gridContainerStyle = mergeStyles({
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(350px, 1fr))",
@@ -4570,16 +4154,6 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
       setSelectorAction('verify');
       setShowInstructionSelector(true);
     }
-  };
-
-
-  const handleStartNewMatter = () => {
-    // Simplified: just show matter page with current selectedInstruction
-    if (!selectedInstruction) return;
-    clearMatterOpeningDraft();
-    setShowNewMatterPage(true);
-  // Removed smooth scroll to prevent jolt
-  // setTimeout(() => window.scrollTo({ top: 0 }), 0);
   };
 
 
@@ -5729,7 +5303,7 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                     if (selectedInstruction && !isWorkbenchVisible) {
                       e.currentTarget.style.background = isDarkMode 
                         ? 'linear-gradient(135deg, rgba(13, 47, 96, 1) 0%, rgba(6, 23, 51, 1) 100%)'
-                        : `linear-gradient(135deg, ${colours.missedBlue} 0%, ${colours.websiteBlue} 100%)`;
+                        : `linear-gradient(135deg, ${colours.helixBlue} 0%, ${colours.websiteBlue} 100%)`;
                       e.currentTarget.style.boxShadow = isDarkMode 
                         ? '0 4px 20px rgba(13, 47, 96, 0.6), inset 0 1px 0 rgba(255,255,255,0.15)'
                         : `0 4px 20px rgba(6, 23, 51, 0.4), inset 0 1px 0 rgba(255,255,255,0.2)`;
@@ -7396,7 +6970,6 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
                                     const status = payment.payment_status || payment.internal_status || 'unknown';
                                     const isSuccess = status === 'succeeded' || status === 'confirmed' || status === 'completed';
                                     const isFailed = status === 'failed' || status === 'canceled';
-                                    const isPending = !isSuccess && !isFailed;
                                     
                                     // Parse metadata if it's a string
                                     let metadata: any = {};

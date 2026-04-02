@@ -3,29 +3,17 @@ import { format, formatDistanceToNow } from 'date-fns';
 import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { TextField } from '@fluentui/react/lib/TextField';
 import { DefaultButton, PrimaryButton } from '@fluentui/react/lib/Button';
-import { Dropdown } from '@fluentui/react/lib/Dropdown';
-import type { IDropdownOption } from '@fluentui/react/lib/Dropdown';
 import { Icon } from '@fluentui/react/lib/Icon';
 import { colours } from '../../app/styles/colours';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import OperationStatusToast from '../enquiries/pitch-builder/OperationStatusToast';
 import { TeamData } from '../../app/functionality/types';
 import { ProgressIndicator } from '../../components/feedback/FeedbackComponents';
-import { createTransition, ANIMATION_DURATION, EASING } from '../../app/styles/animations';
 import {
   FaUser,
-  FaUsers,
   FaFileAlt,
-  FaDownload,
-  FaPlayCircle,
-  FaSpinner,
-  FaUserEdit,
-  FaIdBadge,
   FaEnvelope,
   FaPhone,
-  FaCalendarAlt,
-  FaInfoCircle,
-  FaFileUpload,
   FaIdCard,
   FaPoundSign,
   FaShieldAlt,
@@ -34,25 +22,45 @@ import {
   FaBuilding
 } from 'react-icons/fa';
 
-// Format bytes helper
 const formatBytes = (bytes?: number): string => {
-  if (!bytes || isNaN(bytes)) return '-';
-  const units = ['B','KB','MB','GB','TB'];
-  let i = 0; let v = bytes;
-  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
-  return `${v.toFixed(v < 10 && i>0 ? 1 : 0)} ${units[i]}`;
+  if (!bytes || Number.isNaN(bytes)) return '-';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let unitIndex = 0;
+  let value = bytes;
+
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+
+  return `${value.toFixed(value < 10 && unitIndex > 0 ? 1 : 0)} ${units[unitIndex]}`;
 };
 
-// Choose icon colour by extension
 const getFileColour = (ext: string, coloursRef: typeof colours): string => {
-  switch(ext) {
-    case 'pdf': return coloursRef.red || '#dc2626';
-    case 'doc': case 'docx': return coloursRef.blue;
-    case 'xls': case 'xlsx': return coloursRef.green;
-    case 'ppt': case 'pptx': return coloursRef.orange || '#ea580c';
-    case 'zip': case 'rar': case '7z': return coloursRef.greyText;
-  case 'png': case 'jpg': case 'jpeg': case 'gif': case 'webp': return coloursRef.blue;
-    default: return coloursRef.blue;
+  switch (ext) {
+    case 'pdf':
+      return coloursRef.red || '#dc2626';
+    case 'doc':
+    case 'docx':
+      return coloursRef.blue;
+    case 'xls':
+    case 'xlsx':
+      return coloursRef.green;
+    case 'ppt':
+    case 'pptx':
+      return coloursRef.orange || '#ea580c';
+    case 'zip':
+    case 'rar':
+    case '7z':
+      return coloursRef.greyText;
+    case 'png':
+    case 'jpg':
+    case 'jpeg':
+    case 'gif':
+    case 'webp':
+      return coloursRef.blue;
+    default:
+      return coloursRef.blue;
   }
 };
 
@@ -68,34 +76,33 @@ type PitchContentShape = {
 
 const coercePitchContent = (value: unknown): PitchContentShape | null => {
   if (!value) return null;
+
   if (Array.isArray(value)) {
     const first = value.find(Boolean);
     return coercePitchContent(first);
   }
+
   if (typeof value === 'string') {
     const trimmed = value.trim();
     if (!trimmed) return null;
+
     try {
       const parsed = JSON.parse(trimmed);
       if (parsed && typeof parsed === 'object') {
         return parsed as PitchContentShape;
       }
     } catch {
-      // Fall through to treat as raw HTML body
+      return { EmailBodyHtml: trimmed };
     }
-    return { EmailBodyHtml: trimmed };
   }
+
   if (typeof value === 'object') {
     return value as PitchContentShape;
   }
+
   return null;
 };
 
-// Move interface to separate file
-/**
- * Compact instruction card with clear information hierarchy for legibility.
- * TODO(ac): Narrow any-based shapes to precise interfaces where feasible.
- */
 export interface InstructionCardProps {
   instruction: any | null;
   index: number;
@@ -163,75 +170,6 @@ export interface InstructionCardProps {
   onRefreshData?: () => void;
 }
 
-// Component definition with CopyableText
-const CopyableText: React.FC<{ value: string; label?: string; className?: string }> = ({ value, label, className }) => {
-  const [copied, setCopied] = useState(false);
-  const [isHovered, setIsHovered] = useState(false);
-
-  const handleCopy = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error('Failed to copy text: ', err);
-    }
-  };
-
-  return (
-    <span 
-      className={className}
-      onClick={handleCopy}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-      style={{ 
-        cursor: 'pointer', 
-        position: 'relative',
-        padding: '2px 4px',
-        borderRadius: '4px',
-        transition: 'all 0.2s ease',
-        backgroundColor: copied ? 'rgba(67, 160, 71, 0.1)' : (isHovered ? 'rgba(54, 144, 206, 0.1)' : 'transparent'),
-        color: copied ? '#43a047' : (isHovered ? colours.cta : 'inherit'),
-        border: `1px solid ${copied ? '#43a047' : (isHovered ? colours.cta : 'transparent')}`
-      }}
-      title={copied ? `Copied "${value}"!` : `Click to copy ${label || 'text'}`}
-    >
-      {value}
-      {copied && (
-        <span style={{
-          position: 'absolute',
-          top: '-30px',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          background: '#43a047',
-          color: 'white',
-          padding: '4px 8px',
-          borderRadius: '4px',
-          fontSize: '12px',
-          whiteSpace: 'nowrap',
-          zIndex: 1000,
-          boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-          animation: 'fadeInScale 0.2s ease-out'
-        }}>
-          ✓ Copied!
-          <div style={{
-            position: 'absolute',
-            top: '100%',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            width: 0,
-            height: 0,
-            borderLeft: '4px solid transparent',
-            borderRight: '4px solid transparent',
-            borderTop: '4px solid #43a047'
-          }} />
-        </span>
-      )}
-    </span>
-  );
-};
-
 const InstructionCard: React.FC<InstructionCardProps> = ({
   instruction,
   index,
@@ -272,8 +210,8 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
   onRiskAssessmentComplete,
   onMatterOpenComplete
 }) => {
-  const [isHovered, setIsHovered] = useState(false);
-  const [showDetails, setShowDetails] = useState(false);
+  const [, setIsHovered] = useState(false);
+  const [, setShowDetails] = useState(false);
   const [clickedForActions, setClickedForActions] = useState(false);
   const [isEditingDeal, setIsEditingDeal] = useState(false);
   const [editDealData, setEditDealData] = useState({
@@ -281,10 +219,6 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
     Amount: ''
   });
 
-  // Manual status override state
-  const [showStatusOverride, setShowStatusOverride] = useState(false); // TODO: Remove - now handled in WorkbenchPanel
-  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
-  
   // Toast state for API feedback
   const [toast, setToast] = useState<{
     show: boolean;
@@ -292,19 +226,18 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
     message: string;
   }>({ show: false, type: 'success', message: '' });
   const [isSavingDeal, setIsSavingDeal] = useState(false);
-  const [activeStep, setActiveStep] = useState<string>('');
-  const [showRiskDetails, setShowRiskDetails] = useState(false);
-  const [showPaymentDetails, setShowPaymentDetails] = useState(false);
+  const [showRiskDetails] = useState(false);
+  const [showPaymentDetails] = useState(false);
   const [loadingPaymentDetails, setLoadingPaymentDetails] = useState(false);
   const [paymentData, setPaymentData] = useState<any[]>([]);
-  const [showInstructionDetails, setShowInstructionDetails] = useState(false);
+  const [showInstructionDetails] = useState(false);
   const [loadingInstructionDetails, setLoadingInstructionDetails] = useState(false);
   const [instructionData, setInstructionData] = useState<any>(null);
-  const [showDocumentDetails, setShowDocumentDetails] = useState(false);
+  const [showDocumentDetails] = useState(false);
   // Selected document index for inline preview when documents pill expanded
   const [selectedDocumentIndex, setSelectedDocumentIndex] = useState<number>(0);
   const [fetchedDocuments, setFetchedDocuments] = useState<any[]>([]);
-  const [isLoadingDocuments, setIsLoadingDocuments] = useState(false);
+  const [, setIsLoadingDocuments] = useState(false);
   const [isVerifyingId, setIsVerifyingId] = useState(false);
   const [showPitchDetails, setShowPitchDetails] = useState(false);
   const resolvedDeal = deal ?? (instruction as any)?.deal ?? null;
@@ -312,46 +245,6 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
   // Use fetched documents if available, otherwise fall back to props
   const documentsToUse = fetchedDocuments.length > 0 ? fetchedDocuments : (documents || []);
   const { isDarkMode } = useTheme();
-
-  // Helper to get initials from team data by full name (kept for potential future use)
-  const getInitialsFromTeamData = (fullName: string): string | null => {
-    if (!teamData || !fullName) return null;
-    
-    // First try exact full name match
-    let teamMember = teamData.find(member => 
-      member['Full Name']?.toLowerCase().trim() === fullName.toLowerCase().trim()
-    );
-    
-    // If no exact match, try initials match
-    if (!teamMember) {
-      teamMember = teamData.find(member => 
-        member.Initials?.toLowerCase() === fullName.toLowerCase()
-      );
-    }
-    
-    // If still no match, try first name + last name match
-    if (!teamMember) {
-      teamMember = teamData.find(member => {
-        const first = member.First?.toLowerCase().trim();
-        const last = member.Last?.toLowerCase().trim();
-        const inputLower = fullName.toLowerCase().trim();
-        return first && last && (
-          inputLower.includes(first) && inputLower.includes(last)
-        );
-      });
-    }
-    
-    return teamMember?.Initials || null;
-  };
-
-  // Deal edit handlers
-  const handleEditDealClick = () => {
-    setIsEditingDeal(true);
-    setEditDealData({
-      ServiceDescription: resolvedDeal?.ServiceDescription || '',
-      Amount: resolvedDeal?.Amount?.toString() || ''
-    });
-  };
 
   const handleCancelEditDeal = () => {
     setIsEditingDeal(false);
@@ -394,90 +287,6 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
       setIsSavingDeal(false);
     }
   };
-
-  // Manual status override handlers
-  const handleManualStatusOverride = async (status: 'initialised' | 'processing' | 'instructed' | 'pitched', label: string) => {
-    const instructionRef = instruction?.InstructionRef;
-    if (!instructionRef) return;
-
-    setIsUpdatingStatus(true);
-    
-    try {
-      // Map UI status to database values
-      const statusMapping = {
-        'initialised': { stage: 'initialised', internalStatus: 'pitch' },
-        'processing': { stage: 'proof-of-id-complete', internalStatus: 'poid' },
-        'instructed': { stage: 'proof-of-id-complete', internalStatus: 'paid' },
-        'pitched': { stage: 'initialised', internalStatus: 'pitch' }
-      };
-
-      const { stage, internalStatus } = statusMapping[status];
-
-      const response = await fetch('/api/update-instruction-status', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          instructionRef,
-          stage,
-          internalStatus,
-          overrideReason: `Manual override to ${label} via UI`,
-          userInitials: 'UI' // Could get from auth context in production
-        })
-      });
-
-      const result = await response.json();
-
-      if (result.success) {
-        // Update local instruction object to reflect changes immediately
-        if (instruction) {
-          instruction.Stage = stage;
-          instruction.InternalStatus = internalStatus;
-          instruction.LastUpdated = new Date().toISOString();
-        }
-
-        setToast({
-          show: true,
-          type: 'success',
-          message: `Status updated to ${label}`
-        });
-
-        // Auto-hide success toast
-        setTimeout(() => setToast(prev => ({ ...prev, show: false })), 2000);
-        
-        // Trigger parent data refresh
-        if (onRefreshData) {
-          onRefreshData();
-        }
-        
-      } else {
-        throw new Error(result.error || 'Failed to update status');
-      }
-      
-    } catch (error) {
-      console.error('Failed to update instruction status:', error);
-      
-      setToast({
-        show: true,
-        type: 'error',
-        message: `Failed to update status: ${error instanceof Error ? error.message : 'Unknown error'}`
-      });
-      
-      // Auto-hide error toast
-      setTimeout(() => setToast(prev => ({ ...prev, show: false })), 4000);
-    } finally {
-      setIsUpdatingStatus(false);
-      setShowStatusOverride(false);
-    }
-  };
-
-  const statusOptions: IDropdownOption[] = [
-    { key: 'initialised', text: 'Initialised' },
-    { key: 'processing', text: 'ID Completed' },
-    { key: 'instructed', text: 'Instructed' },
-    { key: 'pitched', text: 'Pitched' }
-  ];
 
   // Matter details fetching removed - handled by WorkbenchPanel
 
@@ -555,7 +364,6 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
 
   // Clear local data when instruction changes to force refetch
   useEffect(() => {
-    const currentRef = instruction?.InstructionRef || instruction?.instructionRef;
     return () => {
       // Cleanup when instruction changes
       setPaymentData([]);
@@ -676,8 +484,6 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
   
   // Also check instruction stage for ID completion
   const stageComplete = instruction?.Stage === 'proof-of-id-complete' || instruction?.stage === 'proof-of-id-complete';
-  const stageLower_ = ((instruction?.Stage || instruction?.stage || '') + '').trim().toLowerCase();
-  const isInstructedOrLater = stageLower_ === 'proof-of-id-complete' || stageLower_ === 'completed';
 
   // When a fresh EID result arrives, clear the local "verifying" flag so the
   // chip/pill can reflect the real backend status instead of staying in limbo.
@@ -786,17 +592,6 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
   };
   
   const paymentStatus = getPaymentStatus();
-  // Payment evidence exists only if there's at least one payment record with gateway success or internal completion on that record
-  const paymentRecords = (instruction?.payments || payments || []) as any[];
-  const hasPaymentEvidence = paymentRecords.some(p => 
-    (p.payment_status && String(p.payment_status).toLowerCase() === 'succeeded') ||
-    (p.internal_status && ['completed','paid'].includes(String(p.internal_status).toLowerCase()))
-  );
-  const fastTrackedPayment = isInstructedOrLater && !hasPaymentEvidence;
-  const fastTrackedId = isInstructedOrLater && !poidPassed;
-
-  // Documents status - neutral if none required, green if at least one uploaded, pending if required but missing
-  const documentStatus = (documentsToUse && documentsToUse.length > 0) ? 'complete' : 'neutral';
 
   // Risk status based on risk assessment result
   const riskResultRaw = risk?.RiskAssessmentResult?.toString().toLowerCase() ?? "";
@@ -936,43 +731,6 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
     return (completedSteps / 5) * 100;
   };
 
-  // Pitch date formatting (used for timeline status & detail) – use local time and fallback to deal when missing
-  let pitchWhen: string | null = null;
-  try {
-    const combineLocal = (dateStr?: string, timeStr?: string): Date | null => {
-      if (!dateStr && !timeStr) return null;
-      if (dateStr) {
-        const d = new Date(dateStr);
-        if (timeStr) {
-          const t = new Date(timeStr);
-          // Use local hours/minutes to respect user's timezone
-          const h = t.getHours();
-          const m = t.getMinutes();
-          const s = t.getSeconds();
-          d.setHours(h, m, s, 0);
-        }
-        return isNaN(d.getTime()) ? null : d;
-      }
-      const onlyT = new Date(timeStr as string);
-      return isNaN(onlyT.getTime()) ? null : onlyT;
-    };
-
-    let dt: Date | null = null;
-    if (instruction?.SubmissionDate || instruction?.SubmissionTime) {
-      dt = combineLocal(instruction?.SubmissionDate, instruction?.SubmissionTime);
-    }
-    if (!dt && (resolvedDeal?.PitchedDate || resolvedDeal?.PitchedTime)) {
-      dt = combineLocal(resolvedDeal?.PitchedDate, resolvedDeal?.PitchedTime);
-    }
-    if (dt && !isNaN(dt.getTime())) {
-      const now = new Date();
-      const sameDay = dt.getFullYear()===now.getFullYear() && dt.getMonth()===now.getMonth() && dt.getDate()===now.getDate();
-      pitchWhen = sameDay ? format(dt,'HH:mm') : format(dt,'d MMM');
-    }
-  } catch {/* ignore */}
-
-  const isCompleted = cclStatus === 'complete';
-
   // Get area color (same logic as enquiry cards)
   const getAreaColor = (area: string): string => {
     switch (area?.toLowerCase()) {
@@ -1092,19 +850,6 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
     return typeof found === 'string' ? found.trim() : null;
   }, [instruction, instructionData, resolvedDeal]);
 
-  const normalizedSolicitor = solicitorContact?.toLowerCase() ?? '';
-  // Generic contact identifiers used to detect unclaimed/placeholder contacts
-  const GENERIC_CONTACT_IDENTIFIERS = new Set<string>([
-    'admin',
-    'helix',
-    'team',
-    'unassigned',
-    'info',
-    'support'
-  ]);
-  const isGenericContact = normalizedSolicitor && GENERIC_CONTACT_IDENTIFIERS.has(normalizedSolicitor);
-  const isClaimedInstruction = Boolean(!isPitchedDeal && solicitorContact && !isGenericContact);
-
   // Determine next action step
   // For pitched deals, use different logic
   if (isPitchedDeal) {
@@ -1118,63 +863,6 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
                        (!instruction?.payments || instruction?.payments.length === 0) &&
                        (!documents || documents.length === 0);
 
-  // Determine the pitch stage - one bubble that changes
-  const getPitchStage = () => {
-    // Normalise stage and internal status for robust matching
-    const stageLower = (instruction?.Stage || instruction?.stage || '').toLowerCase();
-    const internalStatus = (instruction?.InternalStatus || instruction?.internalStatus || '').toLowerCase();
-    
-    // Check if this was manually overridden (has OverrideReason)
-    const isManualOverride = instruction?.OverrideReason;
-    
-    // Instructed: proof-of-id-complete stage with paid status indicates fully instructed
-    if (instruction?.InstructionRef && stageLower === 'proof-of-id-complete') {
-      if (internalStatus === 'paid') {
-        return { 
-          key: 'instructed', 
-          label: isManualOverride ? 'Instructed*' : 'Instructed', 
-          icon: isManualOverride ? <FaUserEdit /> : <FaIdBadge />, 
-          colour: colours.green 
-        };
-      } else {
-        // proof-of-id-complete but not paid - all cases show as ID Completed
-        return { 
-          key: 'processing', 
-          label: isManualOverride ? 'ID Completed*' : 'ID Completed', 
-          icon: isManualOverride ? <FaUserEdit /> : <FaSpinner />, 
-          colour: colours.orange 
-        };
-      }
-    }
-    
-    // Initialised for cases without proof-of-id-complete (including pitch status without ID completion)
-    if (instruction?.InstructionRef && stageLower === 'initialised') {
-      return { 
-        key: 'initialised', 
-        label: isManualOverride ? 'Initialised*' : 'Initialised', 
-        icon: isManualOverride ? <FaUserEdit /> : <FaPlayCircle />, 
-        colour: colours.blue 
-      };
-    }
-    
-    // Pitched = deal exists (pitch sent)
-    if (hasDeal) {
-      const label = pitchWhen ? `Pitched ${pitchWhen}` : 'Pitched';
-      const overrideLabel = isManualOverride ? `${label}*` : label;
-      return { 
-        key: 'pitched', 
-        label: overrideLabel, 
-        icon: isManualOverride ? <FaUserEdit /> : <FaEnvelope />, 
-        colour: colours.greyText 
-      };
-    }
-    
-    // Default state
-    return { key: 'pitched', label: 'Pitched', icon: <FaEnvelope />, colour: colours.greyText };
-  };
-
-  const pitchStage = getPitchStage();
-
   const nextActionStep = isPitchedDeal 
     ? null // Pitched deals don't have an auto-active next action
     : isInitialised ? 'initialised' :
@@ -1185,31 +873,10 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
     matterStatus !== 'complete' ? 'matter' :
     cclStatus !== 'complete' ? 'ccl' : null;
 
-  // Get next action label and icon
-  const getNextActionDetails = (step: string) => {
-    const actionMap = {
-      'follow-up': { label: 'Follow Up', icon: <FaPhone /> },
-      'send-reminder': { label: 'Send Reminder', icon: <FaEnvelope /> },
-      'schedule-call': { label: 'Schedule Call', icon: <FaCalendarAlt /> },
-      'initialised': { label: 'Awaiting Instructions', icon: <FaInfoCircle /> },
-      'instruction': { label: 'Complete Instructions', icon: <FaFileAlt /> },
-      'id': { label: 'Verify Identity', icon: <FaIdCard /> },
-      'payment': { label: 'Process Payment', icon: <FaPoundSign /> },
-      'documents': { label: 'Upload Documents', icon: <FaFileUpload /> },
-      'risk': { label: 'Risk Assessment', icon: <FaShieldAlt /> },
-      'matter': { label: 'Create Matter', icon: <FaFolder /> },
-      'ccl': { label: 'Complete CCL', icon: <FaClipboardCheck /> }
-    };
-    return actionMap[step as keyof typeof actionMap] || null;
-  };
-
-  const nextActionDetails = nextActionStep ? getNextActionDetails(nextActionStep) : null;
-
   // Do not auto-open details; only highlight nextActionStep via pulse.
 
   // Visual styling – simplified, gradient background for legibility
   const bgGradientLight = 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)';
-  const bgGradientDark = 'linear-gradient(135deg, #151a22 0%, #11161d 100%)';
   
   // Code-like dark mode with high contrast, minimal gradients/shadows
   const selectedBg = isDarkMode 
@@ -1218,7 +885,7 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
   
   const cardBorderColor = isDarkMode 
     ? colours.accent 
-    : (isPitchedDeal ? colours.highlight : colours.missedBlue);
+    : (isPitchedDeal ? colours.highlight : colours.helixBlue);
   
   const selectedBorder = isDarkMode
     ? `1px solid ${cardBorderColor}`
@@ -2221,26 +1888,8 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
                 onClick: null // CCL functionality would be added here
               });
             }
-            
-            const stepsLen = keySteps.length;
-            return keySteps.map((step, index) => {
-              const statusColour = (() => {
-                const statusText = step.status.toLowerCase();
-                const isAttentionState = (step.key === 'id') && (statusText.includes('click to verify') || statusText.includes('verifying'));
-                if (isAttentionState) {
-                  return '#f59e0b';
-                }
-                if (statusText.includes('complete') || statusText.includes('paid') || statusText.includes('assessed') || statusText.includes('opened') || statusText.includes('verified') || statusText.includes('uploaded') || statusText.includes('generated')) {
-                  return colours.green;
-                } else if (statusText.includes('review') || statusText.includes('high risk')) {
-                  return '#ef4444';
-                } else if (statusText.includes('processing') || statusText.includes('under review')) {
-                  return '#f59e0b';
-                } else {
-                  return isDarkMode ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.25)';
-                }
-              })();
 
+            return keySteps.map((step, index) => {
               const isNextAction = step.key === nextActionStep;
               
               return (
