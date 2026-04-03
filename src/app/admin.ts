@@ -53,13 +53,15 @@ export function isAdminUser(user?: UserData | null): boolean {
  */
 export function isDevOwner(user?: UserData | null): boolean {
     if (!user) {
-        if (process.env.NODE_ENV === 'development') console.warn('[isDevOwner] called with null/undefined user');
+        if (process.env.NODE_ENV === 'development' && process.env.REACT_APP_LOG_DEV_OWNER_CHECKS === 'true') {
+            console.warn('[isDevOwner] called with null/undefined user');
+        }
         return false;
     }
     const initials = user.Initials?.toUpperCase().trim();
     const email = user.Email?.toLowerCase().trim();
     const result = initials === 'LZ' || email === 'lz@helix-law.com';
-    if (process.env.NODE_ENV === 'development') {
+    if (process.env.NODE_ENV === 'development' && process.env.REACT_APP_LOG_DEV_OWNER_CHECKS === 'true') {
         console.info(`[isDevOwner] initials=${initials} email=${email} → ${result}`);
     }
     return result;

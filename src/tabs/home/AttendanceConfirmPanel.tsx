@@ -1,4 +1,4 @@
-import React, { useState, useMemo, forwardRef, useImperativeHandle } from 'react';
+import React, { useState, useMemo, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { DefaultButton } from '@fluentui/react/lib/Button';
 import { mergeStyles } from '@fluentui/react/lib/Styling';
 import { Icon } from '@fluentui/react/lib/Icon';
@@ -107,10 +107,18 @@ const AttendanceConfirmPanel = forwardRef<
 }, ref) => {
     const weekDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
-    const safeAttendanceRecords: AttendanceRecord[] = Array.isArray(attendanceRecords) ? attendanceRecords : [];
-    const safeTeamData: any[] = Array.isArray(teamData) ? teamData : [];
-    const safeAnnualLeaveRecords: AnnualLeaveRecord[] = Array.isArray(annualLeaveRecords) ? annualLeaveRecords : [];
-    const safeFutureLeaveRecords: AnnualLeaveRecord[] = Array.isArray(futureLeaveRecords) ? futureLeaveRecords : [];
+    const safeAttendanceRecords = useMemo<AttendanceRecord[]>(() => (
+        Array.isArray(attendanceRecords) ? attendanceRecords : []
+    ), [attendanceRecords]);
+    const safeTeamData = useMemo<any[]>(() => (
+        Array.isArray(teamData) ? teamData : []
+    ), [teamData]);
+    const safeAnnualLeaveRecords = useMemo<AnnualLeaveRecord[]>(() => (
+        Array.isArray(annualLeaveRecords) ? annualLeaveRecords : []
+    ), [annualLeaveRecords]);
+    const safeFutureLeaveRecords = useMemo<AnnualLeaveRecord[]>(() => (
+        Array.isArray(futureLeaveRecords) ? futureLeaveRecords : []
+    ), [futureLeaveRecords]);
 
     const toIsoDate = (value: unknown): string | null => {
         if (!value) return null;
@@ -194,16 +202,16 @@ const AttendanceConfirmPanel = forwardRef<
     const useNextWeek = (londonNow.getDay() === 5 && afterFiveThirty) || londonNow.getDay() === 6 || londonNow.getDay() === 0;
     const weekStartToUse = useNextWeek ? nextWeekStart : currentWeekStart;
 
-    const getMemberWeek = (initials: string): string => {
+    const getMemberWeek = useCallback((initials: string): string => {
         const records = safeAttendanceRecords.filter(
             (rec) =>
                 rec.Initials === initials &&
                 (toIsoDate(rec.Week_Start) ?? String(rec.Week_Start ?? '')) === weekStartToUse
         );
         return records.map((rec) => rec.Attendance_Days || '').filter(Boolean).join(',');
-    };
+    }, [safeAttendanceRecords, weekStartToUse]);
 
-    const getStatus = (personAttendance: string, initials: string): 'office' | 'home' | 'away' => {
+    const getStatus = useCallback((personAttendance: string, initials: string): 'office' | 'home' | 'away' => {
         const isOnLeave = combinedLeaveRecords.some(
             (leave) => {
                 if (leave.status !== 'booked') return false;
@@ -229,7 +237,7 @@ const AttendanceConfirmPanel = forwardRef<
             ? personAttendance.split(',').map((s) => dayMap[s.trim()] || s.trim())
             : [];
         return attendedDays.includes(targetDayLabel) ? 'office' : 'home';
-    };
+    }, [combinedLeaveRecords, targetDayLabel, targetDayStr]);
 
     const groups = useMemo(() => {
         const group = { office: [] as any[], home: [] as any[], away: [] as any[] };
@@ -241,7 +249,7 @@ const AttendanceConfirmPanel = forwardRef<
             else group.away.push(teamMember);
         });
         return group;
-    }, [safeAttendanceRecords, safeTeamData, combinedLeaveRecords, targetDayLabel, targetDayStr, weekStartToUse]);
+    }, [safeTeamData, getMemberWeek, getStatus]);
 
     useImperativeHandle(ref, () => ({
         setWeek: () => { },

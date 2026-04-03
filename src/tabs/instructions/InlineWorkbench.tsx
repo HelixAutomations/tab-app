@@ -217,6 +217,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   // Pitch content fetch state (for when deal exists but pitch email content wasn't included)
   const [fetchedPitchContent, setFetchedPitchContent] = useState<any>(null);
   const [isFetchingPitchContent, setIsFetchingPitchContent] = useState(false);
+    const [showPitchComposerPanel, setShowPitchComposerPanel] = useState(false);
 
   // Hub-side document management state
   const [hubDocuments, setHubDocuments] = useState<any[]>([]);
@@ -626,6 +627,70 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
   // Merge fetched pitch content with existing pitch data
   const effectivePitch = pitch || fetchedPitchContent;
+  const pitchStatusValue = String(deal?.Status || deal?.status || effectivePitch?.Status || effectivePitch?.status || '').trim().toUpperCase();
+  const pitchSubject = String(effectivePitch?.EmailSubject || effectivePitch?.emailSubject || '').trim();
+  const pitchBodyHtml = String(effectivePitch?.EmailBody || effectivePitch?.emailBody || '').trim();
+  const pitchSentAtRaw =
+    deal?.PitchedDate ||
+    deal?.pitchedDate ||
+    effectivePitch?.PitchedDate ||
+    effectivePitch?.pitchedDate ||
+    (pitchStatusValue && pitchStatusValue !== 'CHECKOUT_LINK'
+      ? (effectivePitch?.CreatedAt || effectivePitch?.createdAt || null)
+      : null);
+  const pitchDealId = String(deal?.DealId || deal?.dealId || effectivePitch?.DealId || effectivePitch?.dealId || '').trim();
+  const pitchInstructionRef = String(deal?.InstructionRef || deal?.instructionRef || effectivePitch?.InstructionRef || effectivePitch?.instructionRef || '').trim();
+  const pitchPasscode = String(deal?.Passcode || deal?.passcode || effectivePitch?.Passcode || effectivePitch?.passcode || '').trim();
+  const pitchScenario = String(
+    effectivePitch?.scenarioLabel ||
+    effectivePitch?.scenario ||
+    effectivePitch?.ServiceDescription ||
+    deal?.ServiceDescription ||
+    deal?.serviceDescription ||
+    ''
+  ).trim();
+  const pitchAmount = deal?.Amount || deal?.amount || deal?.FeeAmount || deal?.feeAmount || effectivePitch?.Amount || effectivePitch?.amount;
+  const pitchCreatedBy = String(effectivePitch?.CreatedBy || effectivePitch?.createdBy || deal?.PitchedBy || deal?.pitchedBy || '').trim();
+  const pitchLink = String(
+    effectivePitch?.CheckoutLink ||
+    effectivePitch?.checkoutLink ||
+    effectivePitch?.PitchLink ||
+    effectivePitch?.pitchLink ||
+    effectivePitch?.CheckoutUrl ||
+    effectivePitch?.checkoutUrl ||
+    deal?.CheckoutLink ||
+    deal?.checkoutLink ||
+    deal?.PaymentLink ||
+    deal?.paymentLink ||
+    ''
+  ).trim();
+  const pitchBodyPreview = pitchBodyHtml
+    ? pitchBodyHtml
+      .replace(/<div><br><\/div>/gi, '\n')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/div>/gi, '\n')
+      .replace(/<div>/gi, '')
+      .replace(/<[^>]+>/g, '')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
+    : '';
+  const hasExistingPitchRecord = Boolean(
+    pitchSubject ||
+    pitchBodyPreview ||
+    (pitchStatusValue && pitchStatusValue !== 'CHECKOUT_LINK' && (pitchSentAtRaw || pitchScenario))
+  );
+
+  useEffect(() => {
+    if (activeTab !== 'pitch') return;
+
+    if (isFetchingPitchContent && !pitch && !fetchedPitchContent) {
+      setShowPitchComposerPanel(false);
+      return;
+    }
+
+    setShowPitchComposerPanel(!hasExistingPitchRecord);
+  }, [activeTab, baseInstructionRef, prospectId, hasExistingPitchRecord, isFetchingPitchContent, pitch, fetchedPitchContent]);
 
   const teamsIdentifier = useMemo(() => {
     const asNumber = (v: any): number | null => {
@@ -961,6 +1026,12 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   // 'Touchpoint_Date' is the legacy enquiry date. 'created_at' is DB insertion time (can match claim time — DO NOT use for duration).
   const submissionDateRaw = getValue(['Touchpoint_Date', 'Date_Created', 'DateCreated', 'datetime', 'SubmissionDate', 'submission_date', 'DateSubmitted', 'InstructionDate']);
   const submissionDate = formatDate(submissionDateRaw);
+  const instructionSubmittedRaw =
+    inst?.SubmissionDate || inst?.submissionDate || inst?.SubmissionDateTime || inst?.submissionDateTime ||
+    inst?.InstructionDateTime || inst?.instructionDateTime || inst?.SubmittedAt || inst?.submittedAt ||
+    inst?.InstructionDate || inst?.instructionDate ||
+    deal?.CloseDate || deal?.closeDate || deal?.close_date || '—';
+  const instructionSubmittedDate = formatDate(instructionSubmittedRaw);
 
   const hasTimeEvidence = (raw: any): boolean => {
     if (!raw) return false;
@@ -1052,7 +1123,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   };
 
   // Timeline dates - include effectivePitch for fetched pitch content
-  const pitchDateRaw = deal?.PitchedDate || deal?.pitchedDate || deal?.CreatedDate || deal?.createdDate || effectivePitch?.CreatedAt || effectivePitch?.createdAt || effectivePitch?.pitchedDate || effectivePitch?.PitchedDate || pitch?.CreatedAt || pitch?.createdAt || pitch?.pitchedDate || pitch?.PitchedDate || null;
+  const pitchDateRaw = deal?.PitchedDate || deal?.pitchedDate || effectivePitch?.CreatedAt || effectivePitch?.createdAt || effectivePitch?.pitchedDate || effectivePitch?.PitchedDate || pitch?.CreatedAt || pitch?.createdAt || pitch?.pitchedDate || pitch?.PitchedDate || null;
   const pitchDate = formatDate(pitchDateRaw);
   
   // Matter open date - prioritize matter object from new space
@@ -2538,25 +2609,25 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   const matterOpenTimestampRaw = matter?.OpenedAt || matter?.opened_at || matter?.CreatedAt || matter?.created_at || matter?.OpenDate || matter?.['Open Date'] || null;
   const matterTimelineInstructionRawCandidates = [
     inst?.SubmissionDate,
+    inst?.submissionDate,
+    inst?.SubmissionDateTime,
+    inst?.submissionDateTime,
+    inst?.InstructionDateTime,
+    inst?.instructionDateTime,
+    inst?.SubmittedAt,
+    inst?.submittedAt,
     inst?.InstructionDate,
-    inst?.DateCreated,
-    inst?.CreatedAt,
-    inst?.createdAt,
-    getValue(['datetime', 'Date_Created', 'DateCreated', 'SubmissionDate', 'submission_date', 'InstructionDate'], ''),
-    submissionDateRaw,
+    inst?.instructionDate,
+    instructionSubmittedRaw !== '—' ? instructionSubmittedRaw : null,
   ].filter(Boolean);
   const matterTimelineInstructionRaw = matterTimelineInstructionRawCandidates.find((value) => hasTimeEvidence(value)) || matterTimelineInstructionRawCandidates[0] || null;
-  const matterTimelineInstructionTimeRaw = inst?.SubmissionTime || inst?.submissionTime || inst?.CreatedTime || inst?.createdTime || getValue([
+  const matterTimelineInstructionTimeRaw = inst?.SubmissionTime || inst?.submissionTime || inst?.SubmissionTimeUtc || inst?.submissionTimeUtc || getValue([
     'Touchpoint_Time',
     'touchpoint_time',
     'SubmissionTime',
     'submission_time',
     'InstructionTime',
     'instruction_time',
-    'Date_Created_Time',
-    'date_created_time',
-    'CreatedTime',
-    'created_time',
   ], '') || null;
   const matterTimelineOpenedRawCandidates = [
     matter?.OpenedAt,
@@ -3141,10 +3212,10 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
     );
   };
 
-  const isInstructedComplete = Boolean(submissionDateRaw && submissionDateRaw !== '—');
+  const isInstructedComplete = Boolean(instructionSubmittedRaw && instructionSubmittedRaw !== '—');
   const instructedStatus: StageStatus = isInstructedComplete
     ? 'complete'
-    : (isInstructionInitialised ? 'complete' : 'pending');
+    : (isInstructionInitialised ? 'processing' : 'pending');
 
   // Timeline stages - unified navigation: Enquiry ? Pitch ? Instructed ? ID ? Pay ? Risk ? Matter ? Docs
   // Combines the old tabs with the timeline concept - clickable stages that also show completion
@@ -3183,8 +3254,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         key: 'instructed' as const,
         label: 'Instruction', 
         icon: <FaFileAlt size={10} />,
-        date: submissionDate !== '—' ? submissionDate : null,
-        dateRaw: submissionDateRaw,
+        date: instructionSubmittedDate !== '—' ? instructionSubmittedDate : null,
+        dateRaw: instructionSubmittedRaw !== '—' ? instructionSubmittedRaw : null,
         isComplete: isInstructedComplete,
         hasIssue: false,
         status: instructedStatus,
@@ -3247,7 +3318,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         navigatesTo: 'documents' as WorkbenchTab,
       },
     ];
-  }, [prospectId, hasId, eidStatus, eidProcessingState, hasSuccessfulPayment, hasFailedPayment, documents.length, riskComplete, isHighRisk, isMediumRisk, riskEditMode, showLocalMatterModal, hasMatter, stageStatuses, pitchDate, pitchDateRaw, submissionDate, submissionDateRaw, paymentDate, paymentDateRaw, matterOpenDate, matterOpenDateRaw, firstDocUploadDate, firstDocUploadDateRaw, isInstructedComplete, instructedStatus]);
+  }, [prospectId, hasId, eidStatus, eidProcessingState, hasSuccessfulPayment, hasFailedPayment, documents.length, riskComplete, isHighRisk, isMediumRisk, riskEditMode, showLocalMatterModal, hasMatter, stageStatuses, pitchDate, pitchDateRaw, instructionSubmittedDate, instructionSubmittedRaw, paymentDate, paymentDateRaw, matterOpenDate, matterOpenDateRaw, firstDocUploadDate, firstDocUploadDateRaw, isInstructedComplete, instructedStatus]);
 
   const contextStageKeyList = useMemo(() => {
     // If context stage chips disabled, don't show any context stages
@@ -5050,8 +5121,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                             } catch { return null; }
                           })();
 
-                          const instructedTimelineRaw = inst?.SubmissionDate || inst?.InstructionDate || inst?.DateCreated || inst?.CreatedAt || null;
-                          const instructedTimelineTimeRaw = inst?.SubmissionTime || inst?.submissionTime || inst?.CreatedTime || inst?.createdTime || null;
+                          const instructedTimelineRaw = inst?.SubmissionDate || inst?.submissionDate || inst?.SubmissionDateTime || inst?.submissionDateTime || inst?.InstructionDateTime || inst?.instructionDateTime || inst?.SubmittedAt || inst?.submittedAt || inst?.InstructionDate || inst?.instructionDate || null;
+                          const instructedTimelineTimeRaw = inst?.SubmissionTime || inst?.submissionTime || inst?.SubmissionTimeUtc || inst?.submissionTimeUtc || null;
 
                           const instructedDateTime = (() => {
                             if (!instructedTimelineRaw) return null;
@@ -5712,8 +5783,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                         
                         const pitchedTimelineRaw = pitchDateRaw || null;
                         const pitchedTimelineTimeRaw = deal?.PitchedTime || deal?.pitchedTime || null;
-                        const instructedTimelineRaw = inst?.SubmissionDate || inst?.InstructionDate || inst?.DateCreated || inst?.CreatedAt || inst?.createdAt || null;
-                        const instructedTimelineTimeRaw = inst?.SubmissionTime || inst?.submissionTime || inst?.CreatedTime || inst?.createdTime || null;
+                        const instructedTimelineRaw = inst?.SubmissionDate || inst?.submissionDate || inst?.SubmissionDateTime || inst?.submissionDateTime || inst?.InstructionDateTime || inst?.instructionDateTime || inst?.SubmittedAt || inst?.submittedAt || inst?.InstructionDate || inst?.instructionDate || null;
+                        const instructedTimelineTimeRaw = inst?.SubmissionTime || inst?.submissionTime || inst?.SubmissionTimeUtc || inst?.submissionTimeUtc || null;
 
                         // Instruction datetime
                         const instructionDateTime = formatTimelineStamp(instructedTimelineRaw, instructedTimelineTimeRaw);
@@ -6423,8 +6494,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         {activeTab === 'identity' && (
           <div className="wb-tab-stack" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {(() => {
-              const instructedRaw = inst?.SubmissionDate || inst?.InstructionDate || inst?.DateCreated || inst?.CreatedAt || submissionDateRaw || null;
-              const instructedTimeRaw = inst?.SubmissionTime || inst?.submissionTime || inst?.CreatedTime || inst?.createdTime || null;
+              const instructedRaw = inst?.SubmissionDate || inst?.submissionDate || inst?.SubmissionDateTime || inst?.submissionDateTime || inst?.InstructionDateTime || inst?.instructionDateTime || inst?.SubmittedAt || inst?.submittedAt || inst?.InstructionDate || inst?.instructionDate || (instructionSubmittedRaw !== '—' ? instructionSubmittedRaw : null);
+              const instructedTimeRaw = inst?.SubmissionTime || inst?.submissionTime || inst?.SubmissionTimeUtc || inst?.submissionTimeUtc || null;
               const identityTimelineRaw = (() => {
                 const raw = verificationDetails ? getPrimaryRawVerificationRecord(verificationDetails.rawResponse) : null;
                 const checkStatuses = Array.isArray(raw?.checkStatuses) ? raw.checkStatuses : [];
@@ -8119,8 +8190,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         {activeTab === 'payment' && (
           <div className="wb-tab-stack" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {(() => {
-              const instructedRaw = inst?.SubmissionDate || inst?.InstructionDate || inst?.DateCreated || inst?.CreatedAt || submissionDateRaw || null;
-              const instructedTimeRaw = inst?.SubmissionTime || inst?.submissionTime || inst?.CreatedTime || inst?.createdTime || null;
+              const instructedRaw = inst?.SubmissionDate || inst?.submissionDate || inst?.SubmissionDateTime || inst?.submissionDateTime || inst?.InstructionDateTime || inst?.instructionDateTime || inst?.SubmittedAt || inst?.submittedAt || inst?.InstructionDate || inst?.instructionDate || (instructionSubmittedRaw !== '—' ? instructionSubmittedRaw : null);
+              const instructedTimeRaw = inst?.SubmissionTime || inst?.submissionTime || inst?.SubmissionTimeUtc || inst?.submissionTimeUtc || null;
               const paymentTimelineRaw = (() => {
                 const lastSuccessful = successfulPayments.length > 0 ? successfulPayments[successfulPayments.length - 1] : null;
                 return lastSuccessful?.created_at || lastSuccessful?.date || lastSuccessful?.payment_date || paymentDateRaw || null;
@@ -8260,8 +8331,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         {activeTab === 'risk' && (
           <div className="wb-tab-stack" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {(() => {
-              const instructedRaw = inst?.SubmissionDate || inst?.InstructionDate || inst?.DateCreated || inst?.CreatedAt || submissionDateRaw || null;
-              const instructedTimeRaw = inst?.SubmissionTime || inst?.submissionTime || inst?.CreatedTime || inst?.createdTime || null;
+              const instructedRaw = inst?.SubmissionDate || inst?.submissionDate || inst?.SubmissionDateTime || inst?.submissionDateTime || inst?.InstructionDateTime || inst?.instructionDateTime || inst?.SubmittedAt || inst?.submittedAt || inst?.InstructionDate || inst?.instructionDate || (instructionSubmittedRaw !== '—' ? instructionSubmittedRaw : null);
+              const instructedTimeRaw = inst?.SubmissionTime || inst?.submissionTime || inst?.SubmissionTimeUtc || inst?.submissionTimeUtc || null;
               const riskTimelineRaw = risk?.ComplianceDate || risk?.UpdatedAt || null;
               const riskTimelineTimeRaw = risk?.ComplianceTime || risk?.complianceTime || risk?.UpdatedTime || risk?.updatedTime || null;
 
@@ -10019,8 +10090,8 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
         {/* ── Pitch Composer tab ── */}
         {activeTab === 'pitch' && (
-          <React.Suspense
-            fallback={(
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {isFetchingPitchContent && !effectivePitch && (
               <div
                 style={{
                   padding: '12px 14px',
@@ -10030,18 +10101,204 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                   fontSize: 12,
                 }}
               >
-                Loading pitch composer...
+                Loading existing pitch...
               </div>
             )}
-          >
-            <LazyPitchComposer
-              enquiry={item}
-              userData={teamData as any}
-              isDarkMode={isDarkMode}
-              userEmail={currentUser?.Email}
-              onPitchSent={() => onRefreshData?.()}
-            />
-          </React.Suspense>
+
+            {hasExistingPitchRecord && (
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 10,
+                  padding: '14px',
+                  border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.14)' : 'rgba(6, 23, 51, 0.08)'}`,
+                  background: isDarkMode ? 'rgba(6, 23, 51, 0.42)' : 'rgba(255, 255, 255, 0.82)',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+                      Existing pitch
+                    </span>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: isDarkMode ? colours.dark.text : colours.helixBlue }}>
+                      {pitchSubject || 'Pitch details captured'}
+                    </span>
+                  </div>
+                  {pitchSentAtRaw && (
+                    <span style={{ fontSize: 11, fontWeight: 600, color: isDarkMode ? colours.accent : colours.highlight }}>
+                      Sent {formatDate(pitchSentAtRaw)}
+                    </span>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  {pitchCreatedBy && (
+                    <span style={{ padding: '4px 8px', border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.14)' : 'rgba(6, 23, 51, 0.08)'}`, fontSize: 11, color: isDarkMode ? '#d1d5db' : '#374151' }}>
+                      By {pitchCreatedBy}
+                    </span>
+                  )}
+                  {pitchDealId && (
+                    <span style={{ padding: '4px 8px', border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.14)' : 'rgba(6, 23, 51, 0.08)'}`, fontSize: 11, color: isDarkMode ? '#d1d5db' : '#374151' }}>
+                      Deal {pitchDealId}
+                    </span>
+                  )}
+                  {pitchInstructionRef && (
+                    <span style={{ padding: '4px 8px', border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.14)' : 'rgba(6, 23, 51, 0.08)'}`, fontSize: 11, color: isDarkMode ? '#d1d5db' : '#374151' }}>
+                      Ref {pitchInstructionRef}
+                    </span>
+                  )}
+                  {pitchPasscode && (
+                    <span style={{ padding: '4px 8px', border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.14)' : 'rgba(6, 23, 51, 0.08)'}`, fontSize: 11, color: isDarkMode ? '#d1d5db' : '#374151' }}>
+                      Passcode {pitchPasscode}
+                    </span>
+                  )}
+                  {pitchAmount && (
+                    <span style={{ padding: '4px 8px', border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.14)' : 'rgba(6, 23, 51, 0.08)'}`, fontSize: 11, color: isDarkMode ? '#d1d5db' : '#374151' }}>
+                      {formatMoney(pitchAmount)}
+                    </span>
+                  )}
+                </div>
+
+                {pitchScenario && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+                      Service
+                    </span>
+                    <span style={{ fontSize: 12, lineHeight: 1.5, color: isDarkMode ? '#d1d5db' : '#374151', whiteSpace: 'pre-wrap' }}>
+                      {pitchScenario}
+                    </span>
+                  </div>
+                )}
+
+                {pitchBodyPreview && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+                      Body preview
+                    </span>
+                    <div
+                      style={{
+                        fontSize: 12,
+                        lineHeight: 1.55,
+                        color: isDarkMode ? '#d1d5db' : '#374151',
+                        whiteSpace: 'pre-wrap',
+                        maxHeight: 180,
+                        overflow: 'auto',
+                        padding: '10px 12px',
+                        border: `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.1)' : 'rgba(6, 23, 51, 0.06)'}`,
+                        background: isDarkMode ? 'rgba(2, 6, 23, 0.28)' : 'rgba(244, 244, 246, 0.45)',
+                      }}
+                    >
+                      {pitchBodyPreview}
+                    </div>
+                  </div>
+                )}
+
+                {pitchLink && (
+                  <div>
+                    <a
+                      href={pitchLink}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ fontSize: 12, fontWeight: 600, color: isDarkMode ? colours.accent : colours.highlight, textDecoration: 'none' }}
+                    >
+                      Open pitch link
+                    </a>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {hasExistingPitchRecord && !showPitchComposerPanel && !isFetchingPitchContent && (
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: 12,
+                  flexWrap: 'wrap',
+                  padding: '12px 14px',
+                  border: `1px solid ${isDarkMode ? `${colours.dark.border}40` : 'rgba(6, 23, 51, 0.08)'}`,
+                  background: isDarkMode ? 'rgba(2, 6, 23, 0.22)' : 'rgba(244, 244, 246, 0.35)',
+                }}
+              >
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+                    Pitch choices
+                  </span>
+                  <span style={{ fontSize: 12, color: isDarkMode ? '#d1d5db' : '#374151' }}>
+                    The last pitch is shown above. Open the composer only if you need to send a fresh pitch or quick link.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowPitchComposerPanel(true)}
+                  style={{
+                    border: `1px solid ${isDarkMode ? colours.accent : colours.highlight}`,
+                    background: isDarkMode ? 'rgba(135, 243, 243, 0.1)' : 'rgba(54, 144, 206, 0.08)',
+                    color: isDarkMode ? colours.accent : colours.highlight,
+                    padding: '8px 12px',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                  }}
+                >
+                  Create another pitch
+                </button>
+              </div>
+            )}
+
+            {hasExistingPitchRecord && showPitchComposerPanel && (
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowPitchComposerPanel(false)}
+                  style={{
+                    border: `1px solid ${isDarkMode ? `${colours.dark.border}80` : 'rgba(6, 23, 51, 0.12)'}`,
+                    background: 'transparent',
+                    color: isDarkMode ? '#d1d5db' : '#374151',
+                    padding: '6px 10px',
+                    fontSize: 11,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                  }}
+                >
+                  Hide pitch choices
+                </button>
+              </div>
+            )}
+
+            {(!hasExistingPitchRecord && !isFetchingPitchContent) || showPitchComposerPanel ? (
+              <React.Suspense
+                fallback={(
+                  <div
+                    style={{
+                      padding: '12px 14px',
+                      border: `1px solid ${isDarkMode ? `${colours.dark.border}40` : 'rgba(6, 23, 51, 0.08)'}`,
+                      background: isDarkMode ? 'rgba(2, 6, 23, 0.3)' : 'rgba(244, 244, 246, 0.4)',
+                      color: isDarkMode ? 'rgba(209, 213, 219, 0.88)' : '#374151',
+                      fontSize: 12,
+                    }}
+                  >
+                    Loading pitch composer...
+                  </div>
+                )}
+              >
+                <LazyPitchComposer
+                  enquiry={item}
+                  userData={teamData as any}
+                  isDarkMode={isDarkMode}
+                  userEmail={currentUser?.Email}
+                  onPitchSent={() => {
+                    setShowPitchComposerPanel(false);
+                    onRefreshData?.();
+                  }}
+                />
+              </React.Suspense>
+            ) : null}
+          </div>
         )}
 
       </div>

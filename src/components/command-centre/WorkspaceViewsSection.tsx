@@ -19,7 +19,7 @@ const WorkspaceViewsSection: React.FC<WorkspaceViewsSectionProps> = ({
     onToggleDemoMode,
     closePopover,
 }) => {
-    const { isDarkMode, textPrimary, textMuted, accentPrimary, actionBtn, sectionTitle, showToast } = tokens;
+    const { isDarkMode, textMuted, borderLight, actionBtn, showToast } = tokens;
 
     const openHome = () => {
         window.dispatchEvent(new CustomEvent('navigateToHome'));
@@ -41,14 +41,22 @@ const WorkspaceViewsSection: React.FC<WorkspaceViewsSectionProps> = ({
     };
 
     return (
-        <div style={{ display: 'grid', gap: 8, marginBottom: 16 }}>
-            <div style={sectionTitle}>
-                <span style={{ width: 6, height: 6, borderRadius: 999, background: isDarkMode ? colours.accent : colours.highlight }} />
-                Workspace views
-            </div>
+        <div style={{ marginBottom: 4 }}>
+            <div style={{
+                background: isDarkMode ? colours.darkBlue : colours.grey,
+                border: `1px solid ${borderLight}`,
+                borderRadius: 0,
+                padding: '10px 14px',
+                display: 'grid',
+                gap: 8,
+            }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: textMuted }}>
+                    <span style={{ width: 6, height: 6, borderRadius: 999, background: isDarkMode ? colours.accent : colours.highlight }} />
+                    Workspace views
+                </div>
 
-            <div style={{ display: 'grid', gap: 6 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                <div style={{ display: 'grid', gap: 6 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
                     <button
                         onClick={handleDemoView}
                         style={{
@@ -79,6 +87,7 @@ const WorkspaceViewsSection: React.FC<WorkspaceViewsSectionProps> = ({
 
                 <div style={{ fontSize: 10, color: textMuted, lineHeight: 1.4 }}>
                     Demo and production shortcuts open Home against the real matter flow without a separate preview mode.
+                </div>
                 </div>
             </div>
         </div>

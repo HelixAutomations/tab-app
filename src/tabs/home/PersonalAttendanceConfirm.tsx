@@ -4,7 +4,10 @@ import { Icon } from '@fluentui/react/lib/Icon';
 import { DefaultButton } from '@fluentui/react/lib/Button';
 import { Spinner, SpinnerSize } from '@fluentui/react/lib/Spinner';
 import { colours } from '../../app/styles/colours';
-import { addDays, format, startOfWeek, isSameDay } from 'date-fns';
+import { isSameDay } from 'date-fns';
+
+const WEEK_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'] as const;
+const DAY_ABBR = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'] as const;
 
 interface TeamMember {
     First: string;
@@ -62,11 +65,6 @@ const STATUS_CONFIG: Record<StatusType, { label: string; shortLabel: string; col
     unset: { label: 'Not Set', shortLabel: 'Select', color: '#6B7280', darkColor: '#6B7280', icon: 'More' },
 };
 
-interface DayStatus {
-    status: StatusType;
-    isLeave: boolean;
-}
-
 const PersonalAttendanceConfirm = forwardRef<
     { setWeek: (week: 'current' | 'next') => void; focusTable: () => void },
     PersonalAttendanceConfirmProps
@@ -83,15 +81,18 @@ const PersonalAttendanceConfirm = forwardRef<
     onClose,
     onShowToast,
 }, ref) {
-    const safeAttendanceRecords: AttendanceRecord[] = Array.isArray(attendanceRecords) ? attendanceRecords : [];
-    const safeAnnualLeaveRecords: AnnualLeaveRecord[] = Array.isArray(annualLeaveRecords) ? annualLeaveRecords : [];
-    const safeFutureLeaveRecords: AnnualLeaveRecord[] = Array.isArray(futureLeaveRecords) ? futureLeaveRecords : [];
+    const safeAttendanceRecords = useMemo<AttendanceRecord[]>(() => (
+        Array.isArray(attendanceRecords) ? attendanceRecords : []
+    ), [attendanceRecords]);
+    const safeAnnualLeaveRecords = useMemo<AnnualLeaveRecord[]>(() => (
+        Array.isArray(annualLeaveRecords) ? annualLeaveRecords : []
+    ), [annualLeaveRecords]);
+    const safeFutureLeaveRecords = useMemo<AnnualLeaveRecord[]>(() => (
+        Array.isArray(futureLeaveRecords) ? futureLeaveRecords : []
+    ), [futureLeaveRecords]);
 
     // Admin mode state - only used when isAdmin is true
     const [selectedEmployee, setSelectedEmployee] = useState<string | null>(null);
-
-    const weekDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'] as const;
-    const dayAbbr = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'] as const;
 
     const getMondayOfCurrentWeek = (): Date => {
         const now = new Date();
@@ -107,10 +108,6 @@ const PersonalAttendanceConfirm = forwardRef<
         const month = String(d.getMonth() + 1).padStart(2, '0');
         const day = String(d.getDate()).padStart(2, '0');
         return `${year}-${month}-${day}`;
-    };
-
-    const formatShortDate = (d: Date): string => {
-        return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
     };
 
     const toIsoDate = (value: unknown): string | null => {
@@ -199,7 +196,7 @@ const PersonalAttendanceConfirm = forwardRef<
             const isSingleStatus = ['office','wfh','away','off-sick','out-of-office','sick','ooo'].includes(normalized);
 
             if (isSingleStatus) {
-                weekDays.forEach((day) => {
+                WEEK_DAYS.forEach((day) => {
                     state[weekKey][day] = normalizeStatus(normalized);
                 });
                 return;
@@ -209,7 +206,7 @@ const PersonalAttendanceConfirm = forwardRef<
             dayStatuses.forEach(dayStatus => {
                 const [dayAbbr, status] = dayStatus.includes(':') ? dayStatus.split(':') : [dayStatus, 'office'];
                 const dayName = dayMap[dayAbbr] || dayAbbr;
-                if (weekDays.includes(dayName as typeof weekDays[number])) {
+                if (WEEK_DAYS.includes(dayName as typeof WEEK_DAYS[number])) {
                     state[weekKey][dayName] = normalizeStatus(status || 'wfh');
                 }
             });
@@ -217,7 +214,7 @@ const PersonalAttendanceConfirm = forwardRef<
         
         // Default unconfirmed days to 'unset' (neutral state)
         [currentWeekStart, nextWeekStart].forEach(weekStart => {
-            weekDays.forEach(day => {
+            WEEK_DAYS.forEach(day => {
                 if (!state[weekStart][day]) {
                     state[weekStart][day] = 'unset';
                 }
@@ -285,7 +282,7 @@ const PersonalAttendanceConfirm = forwardRef<
             // Determine which week this belongs to
             const weekStart = i < 7 ? currentWeekStart : nextWeekStart;
             const dayOfWeek = (dayIdx === 0 ? 6 : dayIdx - 1); // Monday = 0, Sunday = 6
-            const dayName = weekDays[dayOfWeek];
+            const dayName = WEEK_DAYS[dayOfWeek];
             
             const status = localAttendance[weekStart]?.[dayName] || 'wfh';
             const isLeave = isOnLeave(weekStart, dayOfWeek);
@@ -294,7 +291,7 @@ const PersonalAttendanceConfirm = forwardRef<
                 date,
                 dateStr,
                 dayName,
-                dayAbbr: dayAbbr[dayOfWeek],
+                dayAbbr: DAY_ABBR[dayOfWeek],
                 weekStart,
                 isWeekend,
                 isLeave,
@@ -327,7 +324,7 @@ const PersonalAttendanceConfirm = forwardRef<
     const setAllDays = (weekStart: string, status: StatusType) => {
         setLocalAttendance((prev) => ({
             ...prev,
-            [weekStart]: weekDays.reduce((acc, day) => ({ ...acc, [day]: status }), {} as Record<string, StatusType>)
+            [weekStart]: WEEK_DAYS.reduce((acc, day) => ({ ...acc, [day]: status }), {} as Record<string, StatusType>)
         }));
     };
 
@@ -374,15 +371,6 @@ const PersonalAttendanceConfirm = forwardRef<
         }
     };
 
-    const getWeekDates = (weekStart: string): Date[] => {
-        const start = new Date(weekStart + 'T00:00:00');
-        return weekDays.map((_, i) => {
-            const d = new Date(start);
-            d.setDate(start.getDate() + i);
-            return d;
-        });
-    };
-
     // Styles matching Annual Leave Modal
     const containerStyle: CSSProperties = {
         background: 'transparent',
@@ -411,8 +399,6 @@ const PersonalAttendanceConfirm = forwardRef<
         const statusColor = isLeave ? '#9CA3AF' : (isDarkMode ? config.darkColor : config.color);
         
         let bgColor = isDarkMode ? 'rgba(6, 23, 51, 0.5)' : 'rgba(255, 255, 255, 0.5)';
-        let textColor = isDarkMode ? '#F3F4F6' : '#374151';
-        
         if (isWeekend) {
             bgColor = isDarkMode ? 'rgba(0, 0, 0, 0.2)' : 'rgba(0, 0, 0, 0.03)';
         } else if (!isLeave) {
@@ -478,7 +464,6 @@ const PersonalAttendanceConfirm = forwardRef<
     };
 
     const statusOptionStyle = (status: StatusType, isSelected: boolean): CSSProperties => {
-        const config = STATUS_CONFIG[status];
         return {
             display: 'flex',
             alignItems: 'center',
@@ -701,7 +686,6 @@ const PersonalAttendanceConfirm = forwardRef<
                 {calendarDays.filter(d => !d.isWeekend).map((dayInfo, idx) => {
                     const isToday = isSameDay(dayInfo.date, new Date());
                     const config = STATUS_CONFIG[dayInfo.status];
-                    const isFirstWeek = idx < 5;
                     const isSelected = selectedCell?.week === dayInfo.weekStart && selectedCell?.day === dayInfo.dayName;
 
                     return (

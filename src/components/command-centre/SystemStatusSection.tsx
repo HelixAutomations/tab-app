@@ -53,7 +53,7 @@ const SystemStatusSection: React.FC<SystemStatusSectionProps> = ({
     const [collapsed, setCollapsed] = useState(true);
     const [isHeaderHovered, setIsHeaderHovered] = useState(false);
     const [routeExpanded, setRouteExpanded] = useState(false);
-    const { isDarkMode, textPrimary, textMuted, sectionTitle, toggleRow, applyRowHover, resetRowHover, showToast } = tokens;
+    const { isDarkMode, textPrimary, textMuted, toggleRow, applyRowHover, resetRowHover, showToast } = tokens;
     const textBody = isDarkMode ? '#d1d5db' : '#374151';
 
     const overallHealthDot = healthData?.overall === 'healthy' ? colours.green
@@ -70,25 +70,12 @@ const SystemStatusSection: React.FC<SystemStatusSectionProps> = ({
         : (r.data && r.data.summary.unhealthy > 0) ? colours.orange
         : colours.green;
 
-    // Combined dot — worst of health + routes
-    const combinedDot = (() => {
-        if (healthData?.overall === 'degraded' || anyRouteFail) return colours.cta;
-        if (!healthData || anyRouteLoading) return colours.subtleGrey;
-        if (healthData.overall === 'healthy' && allRoutesOk) return colours.green;
-        return colours.orange;
-    })();
 
     return (
-        <div style={{ marginBottom: 20 }}>
-            <div style={sectionTitle}>
-                <span style={{ width: 6, height: 6, borderRadius: 999, background: combinedDot, boxShadow: `0 0 4px ${combinedDot}66` }} />
-                System status
-                {healthLoading && <span style={{ fontSize: 9, color: colours.subtleGrey, marginLeft: 'auto' }}>polling…</span>}
-            </div>
-
+        <div style={{ marginBottom: 4 }}>
             <div style={{
                 background: isDarkMode ? colours.darkBlue : colours.grey,
-                border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
+                border: `1px solid ${tokens.borderLight}`,
                 borderRadius: 0,
                 overflow: 'hidden',
             }}>
@@ -108,7 +95,7 @@ const SystemStatusSection: React.FC<SystemStatusSectionProps> = ({
                         <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
                     </svg>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
-                        <span style={{ fontSize: 11, color: textMuted }}>Server, routes &amp; data</span>
+                        <span style={{ fontSize: 11, color: textMuted }}>System status</span>
                         {/* Compact status dots when collapsed */}
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>

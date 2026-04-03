@@ -1263,7 +1263,17 @@ const InstructionCard: React.FC<InstructionCardProps> = ({
         }}>
           {(() => {
             // Get instruction date
-            const instructionDate = instruction?.Date_Created || instruction?.date_created || instruction?.InstructionDate || instruction?.instructionDate || instruction?.Created_Date || instruction?.DateCreated || resolvedDeal?.PitchedDate;
+            const instructionDate =
+              instruction?.SubmissionDate ||
+              instruction?.submissionDate ||
+              instruction?.SubmissionDateTime ||
+              instruction?.submissionDateTime ||
+              instruction?.InstructionDateTime ||
+              instruction?.instructionDateTime ||
+              instruction?.SubmittedAt ||
+              instruction?.submittedAt ||
+              instruction?.InstructionDate ||
+              instruction?.instructionDate;
             if (instructionDate) {
               try {
                 const date = new Date(instructionDate);

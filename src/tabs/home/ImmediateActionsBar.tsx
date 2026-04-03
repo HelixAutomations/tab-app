@@ -136,7 +136,6 @@ export const ImmediateActionsBar: React.FC<ImmediateActionsBarProps> = ({
 
 
   // Colors
-  const headerText = isDark ? colours.subtleGrey : colours.greyText;
   const interactiveAccent = isDark ? colours.accent : colours.blue;
   const interactiveHoverBg = `${interactiveAccent}${isDark ? '1A' : '14'}`;
 

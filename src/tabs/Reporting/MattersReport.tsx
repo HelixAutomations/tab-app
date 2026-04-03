@@ -629,7 +629,7 @@ const describeDealTag = (deal: DealRecord) => {
     if (status) titleParts.push(status);
     if (service) titleParts.push(service);
     if (owner) titleParts.push(`By ${owner}`);
-    const pitchedDate = formatDateLabel(deal.PitchedDate || deal.CreatedDate);
+    const pitchedDate = formatDateLabel(deal.PitchedDate);
     if (pitchedDate) titleParts.push(pitchedDate);
     return { label, title: titleParts.length > 0 ? titleParts.join(' • ') : undefined };
 };
@@ -638,9 +638,14 @@ const describeInstructionTag = (instruction: InstructionRecord) => {
     const stage = (instruction.Stage || instruction.Status || '').trim();
     const label = 'Instruction';
     const titleParts: string[] = [];
+    const submittedRaw = typeof instruction.SubmissionDate === 'string'
+        ? instruction.SubmissionDate
+        : typeof instruction.InstructionDate === 'string'
+        ? instruction.InstructionDate
+        : undefined;
     if (stage) titleParts.push(stage);
     if (instruction.InstructionRef) titleParts.push(instruction.InstructionRef);
-    const submitted = formatDateLabel(instruction.SubmissionDate || instruction.CreatedDate);
+    const submitted = formatDateLabel(submittedRaw);
     if (submitted) titleParts.push(submitted);
     return { label, title: titleParts.length > 0 ? titleParts.join(' • ') : undefined };
 };
@@ -1248,14 +1253,24 @@ const MattersReport: React.FC<MattersReportProps> = ({
         };
 
         const sortedDeals = [...associations.deals].sort((a, b) => {
-            const aDate = Date.parse(a.PitchedDate ?? a.CreatedDate ?? '') || 0;
-            const bDate = Date.parse(b.PitchedDate ?? b.CreatedDate ?? '') || 0;
+            const aDate = Date.parse(a.PitchedDate ?? '') || 0;
+            const bDate = Date.parse(b.PitchedDate ?? '') || 0;
             return bDate - aDate;
         });
 
         const sortedInstructions = [...associations.instructions].sort((a, b) => {
-            const aDate = Date.parse(a.SubmissionDate ?? a.CreatedDate ?? '') || 0;
-            const bDate = Date.parse(b.SubmissionDate ?? b.CreatedDate ?? '') || 0;
+            const aRaw = typeof a.SubmissionDate === 'string'
+                ? a.SubmissionDate
+                : typeof a.InstructionDate === 'string'
+                ? a.InstructionDate
+                : '';
+            const bRaw = typeof b.SubmissionDate === 'string'
+                ? b.SubmissionDate
+                : typeof b.InstructionDate === 'string'
+                ? b.InstructionDate
+                : '';
+            const aDate = Date.parse(aRaw) || 0;
+            const bDate = Date.parse(bRaw) || 0;
             return bDate - aDate;
         });
 

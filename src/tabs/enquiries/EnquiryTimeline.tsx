@@ -3351,11 +3351,16 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
           const pitchesData = await pitchesRes.json();
           let pitches = pitchesData.pitches || [];
 
-          // FALLBACK: If no pitches from API but enrichment data exists (email-based lookup), use that
-          if (pitches.length === 0 && enrichmentPitchData) {
+          // FALLBACK: Only synthesise a pitch from enrichment when we have real pitch evidence.
+          const enrichmentStatus = String(enrichmentPitchData?.status || '').trim().toUpperCase();
+          const hasEnrichmentPitchEvidence = Boolean(
+            enrichmentPitchData?.pitchedDate && enrichmentStatus !== 'CHECKOUT_LINK'
+          );
+
+          if (pitches.length === 0 && enrichmentPitchData && hasEnrichmentPitchEvidence) {
             pitches = [{
               DealId: enrichmentPitchData.dealId,
-              CreatedAt: enrichmentPitchData.pitchedDate ? `${enrichmentPitchData.pitchedDate}T${enrichmentPitchData.pitchedTime || '00:00:00'}` : new Date().toISOString(),
+              CreatedAt: `${enrichmentPitchData.pitchedDate}T${enrichmentPitchData.pitchedTime || '00:00:00'}`,
               CreatedBy: enrichmentPitchData.pitchedBy || 'Unknown',
               Amount: enrichmentPitchData.amount,
               ServiceDescription: enrichmentPitchData.serviceDescription,
@@ -3382,6 +3387,9 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             );
             const rawDealStatus = String(pitch.DealStatus || '').trim().toUpperCase();
             const isLinkOnlyStatus = rawDealStatus === 'CHECKOUT_LINK';
+            const hasScenario = Boolean(String(pitch.ScenarioId || '').trim());
+            const hasPitchedTimestamp = Boolean(String(pitch.PitchedDate || pitch.CreatedAt || '').trim());
+            const hasPitchEvidence = !isLinkOnlyStatus && (hasEmailContent || hasScenario || rawDealStatus === 'PITCHED' || hasPitchedTimestamp);
             const dealOrigin: 'email' | 'link' = hasEmailContent ? 'email' : 'link';
             const dealOriginLabel = hasEmailContent ? 'Pitch email' : (isLinkOnlyStatus ? 'Checkout link' : 'Link enabled');
             const serviceDescription = String(pitch.ServiceDescription || '').trim();
@@ -3393,31 +3401,33 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             const pitchDate = pitch.CreatedAt || new Date().toISOString();
 
             // Stage entry (clean summary, no inline workbench)
-            pitchItems.push({
-              id: pitchStageId,
-              type: 'pitch',
-              date: pitchDate,
-              subject: dealSubject,
-              content: dealOriginLabel,
-              createdBy: pitch.CreatedBy || 'Unknown',
-              stageStatus: hasEmailContent || isLinkOnlyStatus ? 'complete' : 'pending',
-              metadata: {
-                pitchAmount: pitch.Amount,
-                pitchService: serviceDescription || undefined,
-                pitchInstructionRef: pitch.InstructionRef || null,
-                pitchValidUntil: pitch.ValidUntil || pitch.validUntil || null,
-                pitchDealId: pitch.DealId,
-                pitchPasscode: pitch.Passcode || null,
-                pitchScenarioId: pitch.ScenarioId,
-                pitchScenarioLabel: scenarioLabel || undefined,
-                pitchPitchedBy: pitch.CreatedBy || pitch.PitchedBy || null,
-                pitchEmailSubject: hasEmailContent ? (pitch.EmailSubject || null) : null,
-                pitchAreaOfWork: pitch.AreaOfWork || pitch.Area || undefined,
-                dealOriginLabel,
-                dealPasscode: pitch.Passcode || null,
-                scenarioId: pitch.ScenarioId,
-              },
-            });
+            if (hasPitchEvidence) {
+              pitchItems.push({
+                id: pitchStageId,
+                type: 'pitch',
+                date: pitchDate,
+                subject: dealSubject,
+                content: dealOriginLabel,
+                createdBy: pitch.CreatedBy || 'Unknown',
+                stageStatus: 'complete',
+                metadata: {
+                  pitchAmount: pitch.Amount,
+                  pitchService: serviceDescription || undefined,
+                  pitchInstructionRef: pitch.InstructionRef || null,
+                  pitchValidUntil: pitch.ValidUntil || pitch.validUntil || null,
+                  pitchDealId: pitch.DealId,
+                  pitchPasscode: pitch.Passcode || null,
+                  pitchScenarioId: pitch.ScenarioId,
+                  pitchScenarioLabel: scenarioLabel || undefined,
+                  pitchPitchedBy: pitch.CreatedBy || pitch.PitchedBy || null,
+                  pitchEmailSubject: hasEmailContent ? (pitch.EmailSubject || null) : null,
+                  pitchAreaOfWork: pitch.AreaOfWork || pitch.Area || undefined,
+                  dealOriginLabel,
+                  dealPasscode: pitch.Passcode || null,
+                  scenarioId: pitch.ScenarioId,
+                },
+              });
+            }
 
             // Email entry (kept as email activity)
             if (hasEmailContent) {
@@ -5070,11 +5080,11 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
         <div className={`prospect-pipeline-rail prospect-detail-rail prospect-detail-stage-bar-tabs ${isCompactPipelineMode ? 'is-compact' : ''}`}>
           {(() => {
               // Determine stage statuses from inlineWorkbenchItem
-              const hasPitch = pitchCount > 0 || stageItemsState.some((item) => item.type === 'pitch') || !!enrichmentPitchData;
+              const hasPitch = pitchCount > 0 || stageItemsState.some((item) => item.type === 'pitch');
               const instruction = inlineWorkbenchItem?.instruction;
               const instructionRef = instruction?.InstructionRef || instruction?.instructionRef || '';
               const instructionStage = (instruction?.Stage || instruction?.stage || '').toLowerCase();
-              const instructedDate = instruction?.instructedDate || instruction?.InstructedDate || instruction?.SubmissionDate || instruction?.submissionDate || instruction?.SubmittedAt || instruction?.submittedAt || instruction?.CreatedAt || instruction?.createdAt || instruction?.InstructionDateTime || instruction?.instructionDateTime;
+              const instructedDate = instruction?.instructedDate || instruction?.InstructedDate || instruction?.SubmissionDate || instruction?.submissionDate || instruction?.SubmittedAt || instruction?.submittedAt || instruction?.InstructionDateTime || instruction?.instructionDateTime || instruction?.InstructionDate || instruction?.instructionDate;
               const isShellInstruction = Boolean(instructionRef) && (instructionStage === 'initialised' || instructionStage === 'opened' || instructionStage === 'pitched' || instructionStage === '');
               const hasInstruction = Boolean(instructionRef) && (Boolean(instructedDate) || !isShellInstruction);
               const hasInstructionActivity = Boolean(instructionRef);

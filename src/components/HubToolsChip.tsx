@@ -13,7 +13,6 @@ import LegacyMigrationTool from './LegacyMigrationTool';
 import AdminControlsSection from './command-centre/AdminControlsSection';
 import LocalDevSection from './command-centre/LocalDevSection';
 import SystemStatusSection from './command-centre/SystemStatusSection';
-import WorkspaceViewsSection from './command-centre/WorkspaceViewsSection';
 import { BubbleToastTone, CommandCentreTokens } from './command-centre/types';
 
 interface HubToolsChipProps {
@@ -761,15 +760,6 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
                         </div>
 
                         <div style={{ flex: 1, overflowY: 'auto', padding: '14px' }}>
-                            <WorkspaceViewsSection
-                                tokens={tokens}
-                                onFeatureToggle={onFeatureToggle}
-                                featureToggles={featureToggles}
-                                demoModeEnabled={demoModeEnabled}
-                                onToggleDemoMode={onToggleDemoMode}
-                                closePopover={() => closePanel()}
-                            />
-
                             {isAdminEligible && (
                                 <AdminControlsSection
                                     tokens={tokens}
@@ -808,17 +798,17 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
                                     onOpenDemoMatter={onOpenDemoMatter ? (showCcl) => { onOpenDemoMatter(showCcl); closePanel(); } : undefined}
                                 />
 
+                            <div style={{ height: 1, background: borderLight, marginBottom: 8 }} />
+
                             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                                 <button
                                     onClick={() => openReportingUtility('logMonitor')}
                                     style={{ ...tokens.actionBtn, flex: 1, justifyContent: 'center', minWidth: 0 }}
                                     onMouseEnter={(e) => {
-                                        tokens.applyRowHover(e.currentTarget);
-                                        e.currentTarget.style.color = textPrimary;
+                                        e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.03)';
                                     }}
                                     onMouseLeave={(e) => {
-                                        tokens.resetRowHover(e.currentTarget);
-                                        e.currentTarget.style.color = textBody;
+                                        e.currentTarget.style.background = tokens.actionBtn.background as string;
                                     }}
                                 >
                                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -834,12 +824,10 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
                                     onClick={() => openReportingUtility('dataCentre')}
                                     style={{ ...tokens.actionBtn, flex: 1, justifyContent: 'center', minWidth: 0 }}
                                     onMouseEnter={(e) => {
-                                        tokens.applyRowHover(e.currentTarget);
-                                        e.currentTarget.style.color = textPrimary;
+                                        e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.03)';
                                     }}
                                     onMouseLeave={(e) => {
-                                        tokens.resetRowHover(e.currentTarget);
-                                        e.currentTarget.style.color = textBody;
+                                        e.currentTarget.style.background = tokens.actionBtn.background as string;
                                     }}
                                 >
                                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -855,12 +843,10 @@ const HubToolsChip: React.FC<HubToolsChipProps> = ({
                                     onClick={() => setShowRefreshModal(true)}
                                     style={{ ...tokens.actionBtn, flex: 1, justifyContent: 'center', minWidth: 0 }}
                                     onMouseEnter={(e) => {
-                                        tokens.applyRowHover(e.currentTarget);
-                                        e.currentTarget.style.color = textPrimary;
+                                        e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.03)';
                                     }}
                                     onMouseLeave={(e) => {
-                                        tokens.resetRowHover(e.currentTarget);
-                                        e.currentTarget.style.color = textBody;
+                                        e.currentTarget.style.background = tokens.actionBtn.background as string;
                                     }}
                                 >
                                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

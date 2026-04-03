@@ -5,6 +5,20 @@ const { getSseClientCount } = require('../utils/enquiries-stream');
 const router = express.Router();
 
 /**
+ * GET /api/health
+ * Lightweight readiness probe used by local boot polling.
+ */
+router.get('/', (_req, res) => {
+  const status = getStatus();
+  res.json({
+    success: true,
+    ok: true,
+    uptimeSeconds: status.uptimeSeconds,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
  * GET /api/health/circuit-breakers
  * Get the status of all circuit breakers
  */

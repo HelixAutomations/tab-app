@@ -4675,7 +4675,7 @@ const workbenchButtonHover = (isDarkMode: boolean): string => (
               const source = deal?.Source || deal?.LeadSource || 'N/A';
               
               // Get date - prefer PitchedDate
-              const dateStr = deal?.PitchedDate || deal?.CreatedDate || deal?.CreatedAt;
+              const dateStr = deal?.PitchedDate || deal?.pitchedDate;
               let formattedDate = 'N/A';
               try {
                 if (dateStr) {

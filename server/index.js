@@ -264,7 +264,7 @@ const riskAssessmentsRouter = require('./routes/riskAssessments');
 const bundleRouter = require('./routes/bundle');
 const { router: cclRouter, CCL_DIR } = require('./routes/ccl');
 const cclAiRouter = require('./routes/ccl-ai');
-const aiCommsRouter = require('./routes/ai-comms');
+const commsFrameworkRouter = require('./routes/comms-framework');
 const cclAdminRouter = require('./routes/ccl-admin');
 
 const updateEnquiryPOCRouter = require('./routes/updateEnquiryPOC');
@@ -291,6 +291,7 @@ const paymentLinkRouter = require('./routes/paymentLink');
 const stripeWebhookRouter = require('./routes/stripeWebhook');
 const opsRouter = require('./routes/ops');
 const sendEmailRouter = require('./routes/sendEmail');
+const createDraftRouter = require('./routes/createDraft');
 const forwardEmailRouter = require('./routes/forwardEmail');
 const searchInboxRouter = require('./routes/searchInbox');
 const callrailCallsRouter = require('./routes/callrailCalls');
@@ -442,7 +443,7 @@ app.use('/api/getAllMatters', (req, res) => {
 });
 app.use('/api/ccl', cclRouter);
 app.use('/api/ccl-ai', cclAiRouter);
-app.use('/api/ai/pressure-test-comms', aiCommsRouter);
+app.use('/api/ai', commsFrameworkRouter);
 app.use('/api/ccl-admin', cclAdminRouter);
 app.use('/api/ccl-ops', cclOpsRouter);
 app.use('/api/enquiries-unified', enquiriesUnifiedRouter);
@@ -454,6 +455,7 @@ app.use('/api/matters-unified', mattersUnifiedRouter);
 app.use('/api/ops', opsRouter);
 // Email route (server-based). Expose under both /api and / to match existing callers.
 app.use('/api', sendEmailRouter);
+app.use('/api', createDraftRouter);
 app.use('/', sendEmailRouter);
 // Forward email route for timeline email forwarding functionality
 app.use('/api', forwardEmailRouter);

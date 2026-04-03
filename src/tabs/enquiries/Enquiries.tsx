@@ -9503,12 +9503,6 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                                             inst?.instructionDateTime ??
                                             inst?.SubmittedAt ??
                                             inst?.submittedAt ??
-                                            inst?.CreatedAt ?? 
-                                            inst?.createdAt ?? 
-                                            inst?.CreatedOn ??
-                                            inst?.createdOn ??
-                                            inst?.DateCreated ?? 
-                                            inst?.created_at ?? 
                                             inst?.InstructionDate ?? 
                                             inst?.InstructionDate ?? 
                                             inst?.instructionDate ??

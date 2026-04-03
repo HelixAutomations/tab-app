@@ -1,5 +1,5 @@
 import React, {
-// invisible change 2
+    useCallback,
     useMemo,
     forwardRef,
     useImperativeHandle,
@@ -342,7 +342,7 @@ const AttendanceCompact = forwardRef<
             );
         };
 
-        const getStatus = (
+        const getStatus = useCallback((
             personAttendance: string,
             initials: string
         ): CompactAttendanceStatus => {
@@ -368,7 +368,7 @@ const AttendanceCompact = forwardRef<
                 : [];
             if (attendedDays.length === 0 && targetDayStr > formatDateLocal(new Date())) return 'pending';
             return attendedDays.includes(targetDayLabel) ? 'office' : 'home';
-        };
+        }, [combinedLeaveRecords, targetDayLabel, targetDayStr]);
 
         const groups = useMemo(() => {
             const group = { office: [] as any[], home: [] as any[], away: [] as any[], pending: [] as any[] };
@@ -389,7 +389,7 @@ const AttendanceCompact = forwardRef<
                 else group.pending.push(teamMember);
             });
             return group;
-        }, [attendanceRecords, teamData, getStatus, weekStartToUse, targetDayLabel, targetDayStr]);
+            }, [attendanceRecords, teamData, getStatus, weekStartToUse]);
 
         const renderAvatar = (member: any, status: CompactAttendanceStatus) => {
             let background = colours.grey;

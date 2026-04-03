@@ -76,9 +76,9 @@ const TodayStripSection: React.FC<TodayStripProps> = ({ tokens, userInitials, se
             display: 'flex', alignItems: 'center', gap: 12,
             padding: '10px 14px',
             background: isDarkMode ? colours.darkBlue : colours.grey,
-            border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
+            border: `1px solid ${borderLight}`,
             borderRadius: 0,
-            marginBottom: 16,
+            marginBottom: 4,
         }}>
             {/* Date */}
             <div style={{ flex: '0 0 auto', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 1 }}>

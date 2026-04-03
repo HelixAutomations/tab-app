@@ -35,17 +35,10 @@ const AdminControlsSection: React.FC<AdminControlsSectionProps> = ({
     } = tokens;
 
     return (
-        <div style={{ marginBottom: 20 }}>
-            <div style={sectionTitle}>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
-                </svg>
-                Admin
-            </div>
-
+        <div style={{ marginBottom: 4 }}>
             <div style={{
                 background: isDarkMode ? colours.darkBlue : colours.grey,
-                border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
+                border: `1px solid ${borderLight}`,
                 borderRadius: 0,
                 overflow: 'hidden',
             }}>
@@ -63,7 +56,7 @@ const AdminControlsSection: React.FC<AdminControlsSectionProps> = ({
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={textMuted} strokeWidth="1.8" style={{ flexShrink: 0, opacity: 0.7 }}>
                         <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
                     </svg>
-                    <span style={{ fontSize: '11px', color: textMuted, flex: 1 }}>User &amp; access controls</span>
+                    <span style={{ fontSize: '11px', color: textMuted, flex: 1 }}>Admin</span>
                     <svg
                         width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={textMuted} strokeWidth="2.5"
                         style={{ flexShrink: 0, transition: 'transform 0.2s ease', transform: collapsed ? 'rotate(0deg)' : 'rotate(180deg)' }}

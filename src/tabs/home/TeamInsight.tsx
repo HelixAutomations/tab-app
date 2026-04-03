@@ -141,21 +141,6 @@ const weekEnd = (d: Date): Date => {
 const rangesOverlap = (aS: Date, aE: Date, bS: Date, bE: Date): boolean =>
   aS <= bE && bS <= aE;
 
-const nextWorkingDay = (d: Date): Date => {
-  const ret = new Date(d);
-  ret.setDate(ret.getDate() + 1);
-  while (ret.getDay() === 0 || ret.getDay() === 6) ret.setDate(ret.getDate() + 1);
-  return ret;
-};
-
-const formatReturn = (endDate: Date, today: Date): string => {
-  const back = nextWorkingDay(endDate);
-  const diffDays = Math.round((back.getTime() - today.getTime()) / 86400000);
-  if (diffDays <= 1) return 'back tomorrow';
-  if (diffDays <= 6) return `back ${DAY_NAMES_FULL[back.getDay()]}`;
-  return `back ${back.getDate()} ${MONTH_NAMES[back.getMonth()]}`;
-};
-
 const formatStartLabel = (startDate: Date, today: Date): string => {
   const diffDays = Math.round((startDate.getTime() - today.getTime()) / 86400000);
   if (diffDays === 1) return 'tomorrow';
@@ -504,8 +489,6 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
     return result;
   }, [people]);
 
-  const officeCount = buckets.find(b => b.status === 'office')?.people.length ?? 0;
-  const wfhCount = buckets.find(b => b.status === 'wfh')?.people.length ?? 0;
   const totalActive = people.length;
 
   /* week grid: status-rows × day-columns (filtered by selectedPeople) */
@@ -694,8 +677,6 @@ const TeamInsight: React.FC<TeamInsightProps> = ({
   /* ═══════════════════════════════════════════════════════
    * RENDER
    * ═══════════════════════════════════════════════════════ */
-
-  const isLoading = isLoadingAttendance || isLoadingLeave;
 
   return (
     <div

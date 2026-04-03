@@ -46,12 +46,12 @@ const DealCard: React.FC<DealCardProps> = ({
     // Format dates
     const pitchDate = deal.PitchedDate 
         ? format(new Date(deal.PitchedDate), 'd MMM yyyy')
-        : deal.CreatedDate 
-        ? format(new Date(deal.CreatedDate), 'd MMM yyyy')
+        : deal.pitchedDate 
+        ? format(new Date(deal.pitchedDate), 'd MMM yyyy')
         : undefined;
 
     // Deal timeline status
-    const isPitched = true; // If we have a deal, it's been pitched
+    const isPitched = Boolean(deal.PitchedDate || deal.pitchedDate);
     const isFollowedUp = false; // No follow-up detection implemented yet
     const isInstructed = deal.Status === 'closed';
 

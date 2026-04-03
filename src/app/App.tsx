@@ -314,9 +314,9 @@ const App: React.FC<AppProps> = ({
       const parsed = saved ? JSON.parse(saved) : {};
       // rateChangeTracker defaults to false - users opt-in via UserBubble
       // showAttendance defaults to true - annual leave visible by default
-      return { rateChangeTracker: false, showPhasedOutCustomTab: false, showAttendance: true, cclGuideMode: false, showOpsQueue: true, showHomeOpsCclDates: false, ...parsed };
+      return { rateChangeTracker: false, showAttendance: true, cclGuideMode: false, showOpsQueue: true, showHomeOpsCclDates: false, ...parsed };
     } catch {
-      return { rateChangeTracker: false, showPhasedOutCustomTab: false, showAttendance: true, cclGuideMode: false, showOpsQueue: true, showHomeOpsCclDates: false };
+      return { rateChangeTracker: false, showAttendance: true, cclGuideMode: false, showOpsQueue: true, showHomeOpsCclDates: false };
     }
   });
 
@@ -347,7 +347,6 @@ const App: React.FC<AppProps> = ({
     () => ({ ...(featureToggles || {}), viewAsProd: false }),
     [featureToggles]
   );
-  const showPhasedOutCustomTab = isLocalDev && !isProductionPreview && (featureToggles?.showPhasedOutCustomTab ?? false);
   const showRoadmapTab = isLocalDev && !isProductionPreview;
   const matterSeedUserName = useMemo(() => {
     const user = userData?.[0];
@@ -376,22 +375,6 @@ const App: React.FC<AppProps> = ({
     );
   }, [matters, allMattersFromHome, matterSeedUserName]);
   const hasSeededMattersForTab = seededMattersForTab.length > 0;
-
-  useEffect(() => {
-    if ((isLocalDev && !isProductionPreview) || !featureToggles?.showPhasedOutCustomTab) {
-      return;
-    }
-
-    setFeatureToggles(prev => {
-      if (!prev.showPhasedOutCustomTab) {
-        return prev;
-      }
-
-      const next = { ...prev, showPhasedOutCustomTab: false };
-      localStorage.setItem('featureToggles', JSON.stringify(next));
-      return next;
-    });
-  }, [featureToggles?.showPhasedOutCustomTab, isLocalDev, isProductionPreview]);
 
   useEffect(() => {
     try {
@@ -840,11 +823,7 @@ const App: React.FC<AppProps> = ({
   // Listen for navigation events from child components
   useEffect(() => {
     const handleNavigateToInstructions = () => {
-      if (!showPhasedOutCustomTab) {
-        setActiveTab('enquiries');
-        return;
-      }
-      setActiveTab('instructions');
+      setActiveTab('enquiries');
     };
     const handleNavigateToEnquiries = () => {
       setActiveTab('enquiries');
@@ -905,7 +884,7 @@ const App: React.FC<AppProps> = ({
       window.removeEventListener('navigateToMatter', handleNavigateToMatter);
       window.removeEventListener('warmMattersTab', handleWarmMattersTab);
     };
-  }, [showPhasedOutCustomTab, warmMattersTab]);
+  }, [warmMattersTab]);
 
   // State to trigger instruction data refresh
   const [instructionRefreshTrigger, setInstructionRefreshTrigger] = useState<number>(0);
@@ -1223,14 +1202,13 @@ const App: React.FC<AppProps> = ({
 
     return [
       { key: 'enquiries', text: 'Prospects' },
-      ...(showPhasedOutCustomTab ? [{ key: 'instructions', text: 'Custom (phased out)' }] : []),
       { key: 'matters', text: 'Matters' },
       { key: 'forms', text: 'Forms', disabled: true },
       { key: 'resources', text: 'Resources', disabled: true },
       ...(showRoadmapTab ? [{ key: 'roadmap', text: 'Roadmap' }] : []),
       ...(showReportsTab ? [{ key: 'reporting', text: 'Reports' }] : []),
     ];
-  }, [currentUser, showPhasedOutCustomTab, showRoadmapTab]);
+  }, [currentUser, showRoadmapTab]);
 
   // Ensure the active tab is still valid when tabs change (e.g., when switching users)
   // If current tab is no longer available, redirect to home instead of breaking navigation

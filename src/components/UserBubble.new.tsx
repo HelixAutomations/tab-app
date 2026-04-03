@@ -1,73 +1,37 @@
 import React, { useState, useRef, useEffect, useId, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import AdminDashboard from './AdminDashboard';
-import DemoPromptsModal from './DemoPromptsModal';
-import LoadingDebugModal from './debug/LoadingDebugModal';
-import { ErrorTracker } from './ErrorTracker';
 import { UserData } from '../app/functionality/types';
 import '../app/styles/UserBubble.css';
-import '../app/styles/personas.css';
-import { isAdminUser, getUserTier } from '../app/admin';
+import { getUserTier, UserTier } from '../app/admin';
 import { useTheme } from '../app/functionality/ThemeContext';
 import { colours } from '../app/styles/colours';
-import RefreshDataModal from './RefreshDataModal';
-import LegacyMigrationTool from './LegacyMigrationTool';
 import lightAvatarMark from '../assets/dark blue mark.svg';
 import darkAvatarMark from '../assets/markwhite.svg';
 import { CommandCentreTokens, BubbleToastTone } from './command-centre/types';
-import AdminControlsSection from './command-centre/AdminControlsSection';
-import LocalDevSection from './command-centre/LocalDevSection';
-import WorkspaceViewsSection from './command-centre/WorkspaceViewsSection';
 import SessionFiltersSection from './command-centre/SessionFiltersSection';
 import TodayStripSection from './command-centre/TodayStripSection';
 import MyAttentionSection from './command-centre/MyAttentionSection';
 import QuickLinksSection from './command-centre/QuickLinksSection';
-import CommsFrameworkSection from './command-centre/CommsFrameworkSection';
 
 interface UserBubbleProps {
     user: UserData;
     isLocalDev?: boolean;
     onAreasChange?: (areas: string[]) => void;
-    onUserChange?: (user: UserData) => void;
-    availableUsers?: UserData[] | null;
-    onReturnToAdmin?: () => void;
-    originalAdminUser?: UserData | null;
-    onRefreshEnquiries?: () => Promise<void> | void;
-    onRefreshMatters?: () => Promise<void> | void;
     onFeatureToggle?: (feature: string, enabled: boolean) => void;
     featureToggles?: Record<string, boolean>;
-    onShowTestEnquiry?: () => void;
-    demoModeEnabled?: boolean;
-    onToggleDemoMode?: (enabled: boolean) => void;
     onOpenReleaseNotesModal?: () => void;
-    hideOpsSections?: boolean;
 }
 
 const UserBubble: React.FC<UserBubbleProps> = ({
     user,
     isLocalDev = false,
     onAreasChange,
-    onUserChange,
-    availableUsers,
-    onReturnToAdmin,
-    originalAdminUser,
-    onRefreshEnquiries,
-    onRefreshMatters,
     onFeatureToggle,
     featureToggles = {},
-    demoModeEnabled = false,
-    onToggleDemoMode,
     onOpenReleaseNotesModal,
-    hideOpsSections = false,
 }) => {
     // ── State ──
     const [open, setOpen] = useState(false);
-    const [showDevDashboard, setShowDevDashboard] = useState(false);
-    const [showRefreshModal, setShowRefreshModal] = useState(false);
-    const [showDemoPrompts, setShowDemoPrompts] = useState(false);
-    const [showLoadingDebug, setShowLoadingDebug] = useState(false);
-    const [showErrorTracker, setShowErrorTracker] = useState(false);
-    const [showMigrationTool, setShowMigrationTool] = useState(false);
     const [toast, setToast] = useState<{ message: string; tone: BubbleToastTone } | null>(null);
     const [areasOfWork, setAreasOfWork] = useState<string[]>(() => {
         const record = user as unknown as Record<string, unknown>;
@@ -85,6 +49,9 @@ const UserBubble: React.FC<UserBubbleProps> = ({
     // ── Theme ──
     const { isDarkMode, toggleTheme } = useTheme();
     const popoverId = useId();
+
+    // ── Tier ──
+    const tier: UserTier = getUserTier(user);
 
     // ── Tokens — derived from colours.ts brand values ──
     const bg = isDarkMode ? colours.websiteBlue : '#ffffff';
@@ -120,15 +87,7 @@ const UserBubble: React.FC<UserBubbleProps> = ({
 
     // ── Computed ──
     const initials = user.Initials || `${user.First?.charAt(0) || ''}${user.Last?.charAt(0) || ''}`.toUpperCase();
-    const isAdmin = isAdminUser(user);
-    const isAdminEligible = isAdmin || isLocalDev;
-    const canSwitchUser = isAdminUser(user);
     const hasSessionFilters = !!onAreasChange || !!onFeatureToggle;
-    const tier = getUserTier(user);
-
-    const headerRateDisplay = (user.Rate !== undefined && user.Rate !== null && String(user.Rate).trim() !== '')
-        ? String(user.Rate)
-        : undefined;
 
     // ── Callbacks ──
     const closePopover = useCallback((restoreFocus = true) => {
@@ -179,7 +138,7 @@ const UserBubble: React.FC<UserBubbleProps> = ({
         return () => window.removeEventListener('keydown', handleKey);
     }, [open, closePopover]);
 
-    // Focus trap — keep Tab cycling within the dialog
+    // Focus trap
     useEffect(() => {
         if (!open) return;
         const dialog = popoverRef.current;
@@ -286,42 +245,9 @@ const UserBubble: React.FC<UserBubbleProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }), [isDarkMode, showToast]);
 
-    const actionBtn: React.CSSProperties = tokens.actionBtn;
-
     // ── Render ──
     return (
         <div className="user-bubble-container">
-            {showRefreshModal && (
-                <RefreshDataModal
-                    isOpen={showRefreshModal}
-                    onClose={() => setShowRefreshModal(false)}
-                    onConfirm={async ({ clientCaches, enquiries, matters, reporting }) => {
-                        try {
-                            if (clientCaches) {
-                                Object.keys(localStorage).filter(k => {
-                                    const l = k.toLowerCase();
-                                    return l.startsWith('enquiries-') || l.startsWith('normalizedmatters-') ||
-                                        l.startsWith('vnetmatters-') || l.startsWith('matters-') ||
-                                        l === 'allmatters' || l === 'teamdata' || l.includes('outstandingbalancesdata');
-                                }).forEach(k => localStorage.removeItem(k));
-                            }
-                            const scopes: string[] = [];
-                            if (reporting) scopes.push('reporting');
-                            if (enquiries) scopes.push('enquiries');
-                            if (matters) scopes.push('unified');
-                            for (const scope of scopes) {
-                                try { await fetch('/api/cache/clear-cache', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scope }) }); } catch {}
-                            }
-                            if (enquiries && onRefreshEnquiries) await onRefreshEnquiries();
-                            if (matters && onRefreshMatters) await onRefreshMatters();
-                        } finally {
-                            setShowRefreshModal(false);
-                            showToast('Refresh complete', 'success');
-                        }
-                    }}
-                />
-            )}
-
             <button
                 ref={bubbleRef}
                 onClick={() => {
@@ -345,7 +271,7 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                 }}
                 aria-haspopup="dialog"
                 aria-expanded={open}
-                aria-label={`User menu for ${user.FullName || initials}`}
+                aria-label={`My Helix — ${user.FullName || initials}`}
             >
                 <img src={avatarIcon} alt="User" style={{ width: 18, height: 18, filter: isDarkMode ? 'drop-shadow(0 1px 2px rgba(0,0,0,0.35))' : 'none' }} />
             </button>
@@ -367,10 +293,11 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                         id={popoverId}
                         role="dialog"
                         aria-modal="true"
+                        aria-label="My Helix"
                         tabIndex={-1}
                         onClick={(e) => e.stopPropagation()}
                         style={{
-                            width: '92vw', maxWidth: 600, maxHeight: '80vh',
+                            width: '92vw', maxWidth: 480, maxHeight: '80vh',
                             background: bg,
                             border: `1px solid ${borderLight}`, borderRadius: '2px',
                             boxShadow: isDarkMode
@@ -387,7 +314,7 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                             </div>
                         )}
 
-                        {/* Header — compact identity strip */}
+                        {/* Header — "My Helix" identity strip with inline theme toggle */}
                         <div style={{
                             padding: '12px 20px',
                             borderBottom: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.08)' : borderLight}`,
@@ -406,7 +333,8 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                 </div>
                                 <div style={{ flex: 1, minWidth: 0, display: 'grid', gap: 2 }}>
                                     <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, minWidth: 0 }}>
-                                        <span style={{ fontSize: 12, fontWeight: 700, color: textPrimary, opacity: 0.9, flexShrink: 0 }}>{initials}</span>
+                                        <span style={{ fontSize: 11, fontWeight: 700, color: isDarkMode ? colours.accent : colours.blue, flexShrink: 0, textTransform: 'uppercase', letterSpacing: '0.5px' }}>My Helix</span>
+                                        <span style={{ fontSize: 8, fontWeight: 500, color: textMuted, opacity: 0.6 }}>·</span>
                                         <span style={{ fontSize: 12, fontWeight: 600, color: textPrimary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
                                             {user.FullName || `${user.First || ''} ${user.Last || ''}`.trim() || 'User'}
                                         </span>
@@ -415,60 +343,23 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                         <span style={{ fontSize: 9, fontWeight: 500, color: textMuted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
                                             {user.Role || 'Team Member'}
                                         </span>
-                                        {headerRateDisplay && (
+                                        {user.ClioID && (
                                             <>
-                                                <span style={{ fontSize: 8, color: textMuted, opacity: 0.6, flexShrink: 0 }}>•</span>
-                                                <span style={{ fontSize: 10, fontWeight: 700, color: textMuted, letterSpacing: '-0.2px', flexShrink: 0 }}>
-                                                    {headerRateDisplay.startsWith('£') ? headerRateDisplay : `£${headerRateDisplay}`}
+                                                <span style={{ fontSize: 8, color: textMuted, opacity: 0.6, flexShrink: 0 }}>·</span>
+                                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 9, fontWeight: 600, color: textMuted }}>
+                                                    <span style={{ width: 4, height: 4, borderRadius: '50%', background: colours.green, boxShadow: `0 0 4px ${colours.green}60`, flexShrink: 0 }} />
+                                                    Clio
                                                 </span>
                                             </>
                                         )}
                                     </div>
-                                </div>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 1, flexShrink: 0 }}>
-                                    <span
-                                        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 9, fontWeight: 600, color: user.ClioID ? textMuted : colours.cta, letterSpacing: '0.2px', cursor: user.ClioID ? 'pointer' : 'default' }}
-                                        onClick={() => {
-                                            if (user.ClioID) {
-                                                navigator.clipboard.writeText(String(user.ClioID));
-                                                showToast('Clio ID copied', 'success');
-                                            }
-                                        }}
-                                        title={user.ClioID ? `Click to copy: ${user.ClioID}` : 'No Clio ID'}
-                                    >
-                                        <span style={{ width: 4, height: 4, borderRadius: '50%', background: user.ClioID ? colours.green : colours.cta, flexShrink: 0 }} />
-                                        Clio {user.ClioID || '—'}
-                                        {user.ClioID && (
-                                            <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ opacity: 0.5 }}>
-                                                <rect x="9" y="9" width="13" height="13" rx="1"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/>
-                                            </svg>
-                                        )}
-                                    </span>
-                                    <span
-                                        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 9, fontWeight: 600, color: user.EntraID ? textMuted : colours.cta, letterSpacing: '0.2px', cursor: user.EntraID ? 'pointer' : 'default' }}
-                                        onClick={() => {
-                                            if (user.EntraID) {
-                                                navigator.clipboard.writeText(String(user.EntraID));
-                                                showToast('Entra ID copied', 'success');
-                                            }
-                                        }}
-                                        title={user.EntraID ? `Click to copy: ${user.EntraID}` : 'No Entra ID'}
-                                    >
-                                        <span style={{ width: 4, height: 4, borderRadius: '50%', background: user.EntraID ? colours.green : colours.cta, flexShrink: 0 }} />
-                                        Entra {user.EntraID ? `${String(user.EntraID).substring(0, 8)}…` : '—'}
-                                        {user.EntraID && (
-                                            <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ opacity: 0.5 }}>
-                                                <rect x="9" y="9" width="13" height="13" rx="1"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/>
-                                            </svg>
-                                        )}
-                                    </span>
                                 </div>
                                 {/* Theme toggle */}
                                 <button
                                     onClick={toggleTheme}
                                     style={{
                                         background: isDarkMode ? 'rgba(54, 144, 206, 0.08)' : colours.grey,
-                                        border: `1px solid ${isDarkMode ? 'rgba(54, 144, 206, 0.12)' : borderMedium}`,
+                                        border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.20)' : borderMedium}`,
                                         borderRadius: '2px', color: textMuted, cursor: 'pointer',
                                         padding: '5px', minWidth: 28, minHeight: 28,
                                         display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -479,22 +370,26 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                         e.currentTarget.style.color = textPrimary;
                                     }}
                                     onMouseLeave={(e) => {
-                                        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(54, 144, 206, 0.12)' : borderMedium;
+                                        e.currentTarget.style.borderColor = isDarkMode ? 'rgba(135, 243, 243, 0.20)' : borderMedium;
                                         e.currentTarget.style.color = textMuted;
                                     }}
                                     aria-label={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
                                     title={isDarkMode ? 'Light mode' : 'Dark mode'}
                                 >
                                     {isDarkMode ? (
-                                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                            <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                            <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
+                                            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+                                            <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
+                                            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
                                         </svg>
                                     ) : (
-                                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                             <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
                                         </svg>
                                     )}
                                 </button>
+                                {/* Close */}
                                 <button
                                     onClick={() => closePopover()}
                                     style={{
@@ -507,12 +402,10 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                     }}
                                     onMouseEnter={(e) => {
                                         e.currentTarget.style.borderColor = isDarkMode ? colours.accent : colours.blue;
-                                        e.currentTarget.style.color = textPrimary;
                                         e.currentTarget.style.background = isDarkMode ? `${colours.accent}18` : bgHover;
                                     }}
                                     onMouseLeave={(e) => {
                                         e.currentTarget.style.borderColor = isDarkMode ? 'rgba(135, 243, 243, 0.34)' : borderMedium;
-                                        e.currentTarget.style.color = textPrimary;
                                         e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.08)' : colours.grey;
                                     }}
                                     aria-label="Close"
@@ -525,39 +418,29 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                             </div>
                         </div>
 
-                        {/* Content — My Helix */}
-                        <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
-                            {/* Active state warnings (admin view-as, demo mode) */}
-                            {!hideOpsSections && (demoModeEnabled || featureToggles.viewAsProd || originalAdminUser) && (
-                                <div style={{
-                                    display: 'flex', alignItems: 'center', gap: 6,
-                                    padding: '8px 12px', marginBottom: 16,
-                                    background: demoModeEnabled
-                                        ? (isDarkMode ? 'rgba(32, 178, 108, 0.12)' : 'rgba(32, 178, 108, 0.08)')
-                                        : (isDarkMode ? 'rgba(214, 85, 65, 0.10)' : 'rgba(214, 85, 65, 0.06)'),
-                                    border: `1px solid ${demoModeEnabled
-                                        ? (isDarkMode ? 'rgba(32, 178, 108, 0.34)' : 'rgba(32, 178, 108, 0.24)')
-                                        : (isDarkMode ? 'rgba(214, 85, 65, 0.30)' : 'rgba(214, 85, 65, 0.20)')}`,
-                                    borderRadius: '2px', fontSize: 10, fontWeight: 600,
-                                    color: demoModeEnabled ? colours.green : colours.cta
-                                }}>
-                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                                        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-                                        <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-                                    </svg>
-                                    {[
-                                        demoModeEnabled && 'Demo mode',
-                                        featureToggles.viewAsProd && 'Production view',
-                                        originalAdminUser && `Viewing as ${user.FullName || user.Initials}`,
-                                    ].filter(Boolean).join(' · ')}
-                                </div>
-                            )}
+                        {/* Content */}
+                        <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
+                            {/* Today strip */}
+                            <TodayStripSection
+                                tokens={tokens}
+                                userInitials={initials}
+                                sessionStartMs={sessionStartRef.current}
+                            />
 
-                            {/* ── My Helix sections (all users) ── */}
-                            <TodayStripSection tokens={tokens} userInitials={initials} sessionStartMs={sessionStartRef.current} />
-                            <MyAttentionSection tokens={tokens} userInitials={initials} />
+                            {/* My Attention */}
+                            <MyAttentionSection
+                                tokens={tokens}
+                                userInitials={initials}
+                            />
 
-                            {/* ── Area of Work filter strip ── */}
+                            {/* Quick Links */}
+                            <QuickLinksSection
+                                tokens={tokens}
+                                onOpenReleaseNotes={onOpenReleaseNotesModal}
+                                closePopover={() => closePopover()}
+                            />
+
+                            {/* Area of Work filters */}
                             {hasSessionFilters && (
                                 <SessionFiltersSection
                                     tokens={tokens}
@@ -567,106 +450,33 @@ const UserBubble: React.FC<UserBubbleProps> = ({
                                 />
                             )}
 
-                            <QuickLinksSection tokens={tokens} userTier={tier} onOpenReleaseNotes={onOpenReleaseNotesModal} closePopover={closePopover} />
-
-                            {/* ── Frameworks (dev group only) ── */}
+                            {/* Dev group tier badge — subtle footer for dev preview */}
                             {(tier === 'dev' || tier === 'devGroup') && (
-                                <CommsFrameworkSection tokens={tokens} />
-                            )}
-
-                            {/* ── Admin sections (admins without HubToolsChip) ── */}
-                            {!hideOpsSections && (
-                                <WorkspaceViewsSection
-                                    tokens={tokens}
-                                    onFeatureToggle={onFeatureToggle}
-                                    featureToggles={featureToggles}
-                                    demoModeEnabled={demoModeEnabled}
-                                    onToggleDemoMode={onToggleDemoMode}
-                                    closePopover={closePopover}
-                                />
-                            )}
-
-                            {!hideOpsSections && isAdminEligible && (
-                                <AdminControlsSection
-                                    tokens={tokens}
-                                    user={user}
-                                    canSwitchUser={canSwitchUser}
-                                    onUserChange={onUserChange}
-                                    availableUsers={availableUsers}
-                                    onToggleDemoMode={onToggleDemoMode}
-                                    demoModeEnabled={demoModeEnabled}
-                                    onOpenReleaseNotesModal={onOpenReleaseNotesModal}
-                                    closePopover={closePopover}
-                                />
-                            )}
-
-                            {!hideOpsSections && isLocalDev && (
-                                <LocalDevSection
-                                    tokens={tokens}
-                                    onFeatureToggle={onFeatureToggle}
-                                    featureToggles={featureToggles}
-                                    onDevDashboard={() => { setShowDevDashboard(true); closePopover(false); }}
-                                    onLoadingDebug={() => setShowLoadingDebug(true)}
-                                    onErrorTracker={() => setShowErrorTracker(true)}
-                                    onDemoPrompts={() => { setShowDemoPrompts(true); closePopover(); }}
-                                    onMigrationTool={() => { setShowMigrationTool(true); closePopover(false); }}
-                                    closePopover={closePopover}
-                                />
-                            )}
-
-                            {/* Quick actions footer (admins without HubToolsChip) */}
-                            {!hideOpsSections && (
-                                <>
-                                <div style={{ height: 1, background: borderLight, marginBottom: 8 }} />
-                                <div style={{ display: 'flex', gap: 8 }}>
-                                    <button
-                                        onClick={() => setShowRefreshModal(true)}
-                                        style={{ ...actionBtn, flex: 1, justifyContent: 'center' }}
-                                        onMouseEnter={(e) => {
-                                            e.currentTarget.style.background = isDarkMode ? 'rgba(54, 144, 206, 0.06)' : 'rgba(54, 144, 206, 0.03)';
-                                        }}
-                                        onMouseLeave={(e) => {
-                                            e.currentTarget.style.background = actionBtn.background as string;
-                                        }}
-                                    >
-                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                            <path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
-                                        </svg>
-                                        Refresh Data
-                                    </button>
-
-                                    {originalAdminUser && onReturnToAdmin && (
-                                        <button
-                                            onClick={() => { onReturnToAdmin(); closePopover(); }}
-                                            style={{
-                                                ...actionBtn,
-                                                flex: 1, justifyContent: 'center',
-                                                background: ctaPrimary, color: '#fff',
-                                                border: `1px solid ${ctaPrimary}`
-                                            }}
-                                            onMouseEnter={(e) => { e.currentTarget.style.filter = 'brightness(0.85)'; }}
-                                            onMouseLeave={(e) => { e.currentTarget.style.filter = 'none'; }}
-                                        >
-                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                                                <path d="M19 12H5M12 19l-7-7 7-7"/>
-                                            </svg>
-                                            Return to Admin
-                                        </button>
-                                    )}
+                                <div style={{
+                                    display: 'flex', alignItems: 'center', gap: 6,
+                                    padding: '6px 10px', marginTop: 4,
+                                    background: isDarkMode ? 'rgba(135, 243, 243, 0.04)' : 'rgba(54, 144, 206, 0.03)',
+                                    border: `1px solid ${isDarkMode ? 'rgba(135, 243, 243, 0.12)' : 'rgba(54, 144, 206, 0.08)'}`,
+                                    borderRadius: 0,
+                                    fontSize: 8, fontWeight: 600, color: textMuted,
+                                    textTransform: 'uppercase', letterSpacing: '0.5px',
+                                }}>
+                                    <span style={{
+                                        width: 4, height: 4, borderRadius: '50%',
+                                        background: isDarkMode ? colours.accent : colours.blue,
+                                        flexShrink: 0,
+                                    }} />
+                                    {tier === 'dev' ? 'Dev' : 'Dev Group'}
+                                    <span style={{ opacity: 0.5, marginLeft: 'auto', fontWeight: 500 }}>
+                                        Tier: {tier}
+                                    </span>
                                 </div>
-                                </>
                             )}
                         </div>
                     </div>
                     </div>
                 </>
             , document.body)}
-
-            {isLocalDev && showDevDashboard && <AdminDashboard isOpen={showDevDashboard} onClose={() => setShowDevDashboard(false)} inspectorData={user} />}
-            {isLocalDev && showDemoPrompts && <DemoPromptsModal isOpen={showDemoPrompts} onClose={() => setShowDemoPrompts(false)} />}
-            {isLocalDev && showLoadingDebug && <LoadingDebugModal isOpen={showLoadingDebug} onClose={() => setShowLoadingDebug(false)} />}
-            {isLocalDev && showErrorTracker && <ErrorTracker onClose={() => setShowErrorTracker(false)} />}
-            {isLocalDev && showMigrationTool && <LegacyMigrationTool isOpen={showMigrationTool} onClose={() => setShowMigrationTool(false)} onToast={showToast} />}
         </div>
     );
 };

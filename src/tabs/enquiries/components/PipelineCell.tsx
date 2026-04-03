@@ -327,8 +327,7 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
   const instructionDateRaw =
     inst?.SubmissionDate ?? inst?.submissionDate ?? inst?.SubmissionDateTime ?? inst?.submissionDateTime ??
     inst?.InstructionDateTime ?? inst?.instructionDateTime ?? inst?.SubmittedAt ?? inst?.submittedAt ??
-    inst?.CreatedAt ?? inst?.createdAt ?? inst?.CreatedOn ?? inst?.createdOn ??
-    inst?.DateCreated ?? inst?.created_at ?? inst?.InstructionDate ?? inst?.instructionDate ??
+    inst?.InstructionDate ?? inst?.instructionDate ??
     deal?.CloseDate ?? deal?.closeDate ?? deal?.close_date;
   const instructionTimeRaw =
     inst?.SubmissionTime ?? inst?.submissionTime ?? inst?.SubmissionTimeUtc ?? inst?.submissionTimeUtc ??

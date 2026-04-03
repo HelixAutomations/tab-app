@@ -319,7 +319,7 @@ const PipelineSection: React.FC<PipelineSectionProps> = ({
   const instruction = item?.instruction;
   const instructionRef = instruction?.InstructionRef || instruction?.instructionRef || '';
   const instructionStage = (instruction?.Stage || instruction?.stage || '').toLowerCase();
-  const instructedDate = instruction?.instructedDate || instruction?.InstructedDate || instruction?.SubmissionDate || instruction?.submissionDate || instruction?.SubmittedAt || instruction?.submittedAt || instruction?.CreatedAt || instruction?.createdAt || instruction?.InstructionDateTime || instruction?.instructionDateTime;
+  const instructedDate = instruction?.instructedDate || instruction?.InstructedDate || instruction?.SubmissionDate || instruction?.submissionDate || instruction?.SubmittedAt || instruction?.submittedAt || instruction?.InstructionDateTime || instruction?.instructionDateTime || instruction?.InstructionDate || instruction?.instructionDate;
   const isShellInstruction = Boolean(instructionRef) && (instructionStage === 'initialised' || instructionStage === 'opened' || instructionStage === 'pitched' || instructionStage === '');
   const hasInstruction = Boolean(instructionRef) && (Boolean(instructedDate) || !isShellInstruction);
   const hasInstructionActivity = Boolean(instructionRef);

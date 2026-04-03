@@ -1095,16 +1095,6 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
     }
   };
 
-  const getRowKey = useCallback((item: any) => {
-    return String(
-      item?.id ||
-      item?.reference ||
-      item?.rawData?.instruction?.InstructionRef ||
-      item?.rawData?.deal?.DealId ||
-      ''
-    );
-  }, []);
-
   // Client renderer
   const renderClient = (item: any) => {
     return (
@@ -2245,7 +2235,6 @@ const InstructionTableView: React.FC<InstructionTableViewProps> = ({
                     // No client groups - render items normally (fallback to original logic)
                     return group.items.map((item: any, idx: number) => {
                     const notesKey = item.id || item.reference || '';
-                    const rowKey = getRowKey(item) || notesKey;
                     const isExpanded = expandedNotes.has(notesKey);
 
                     const rawData = item.rawData;

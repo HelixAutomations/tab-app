@@ -22,9 +22,9 @@ const MyAttentionSection: React.FC<MyAttentionSectionProps> = ({ tokens, userIni
     const [loading, setLoading] = useState(true);
     const fetchedRef = useRef(false);
 
-    const navigateTo = useCallback((tab: string, detail?: Record<string, unknown>) => {
+    const navigateTo = useCallback((eventName: string, detail?: Record<string, unknown>) => {
         try {
-            window.dispatchEvent(new CustomEvent('navigateToTab', { detail: { tab, ...detail } }));
+            window.dispatchEvent(new CustomEvent(eventName, detail ? { detail } : undefined));
         } catch { /* swallow */ }
     }, []);
 
@@ -58,7 +58,7 @@ const MyAttentionSection: React.FC<MyAttentionSectionProps> = ({ tokens, userIni
                                     <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
                                 </svg>
                             ),
-                            onClick: () => navigateTo('home'),
+                            onClick: () => navigateTo('navigateToHome'),
                         });
                     }
                 }
@@ -90,7 +90,7 @@ const MyAttentionSection: React.FC<MyAttentionSectionProps> = ({ tokens, userIni
                                         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
                                     </svg>
                                 ),
-                                onClick: () => navigateTo('instructions'),
+                                onClick: () => navigateTo('navigateToInstructions'),
                             });
                         }
                     }
@@ -106,7 +106,7 @@ const MyAttentionSection: React.FC<MyAttentionSectionProps> = ({ tokens, userIni
 
     if (loading) {
         return (
-            <div style={{ marginBottom: 16 }}>
+            <div style={{ marginBottom: 20 }}>
                 <div style={tokens.sectionTitle}>
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
@@ -116,7 +116,7 @@ const MyAttentionSection: React.FC<MyAttentionSectionProps> = ({ tokens, userIni
                 <div style={{
                     height: 40,
                     background: isDarkMode ? colours.darkBlue : colours.grey,
-                    border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
+                    border: `1px solid ${borderLight}`,
                     borderRadius: 0,
                     animation: 'userBubbleToastPulse 1.5s ease-in-out infinite alternate',
                 }} />
@@ -125,7 +125,7 @@ const MyAttentionSection: React.FC<MyAttentionSectionProps> = ({ tokens, userIni
     }
 
     return (
-        <div style={{ marginBottom: 16 }}>
+        <div style={{ marginBottom: 20 }}>
             <div style={tokens.sectionTitle}>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
@@ -138,7 +138,7 @@ const MyAttentionSection: React.FC<MyAttentionSectionProps> = ({ tokens, userIni
                     display: 'flex', alignItems: 'center', gap: 8,
                     padding: '10px 14px',
                     background: isDarkMode ? colours.darkBlue : colours.grey,
-                    border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
+                    border: `1px solid ${borderLight}`,
                     borderRadius: 0,
                     fontSize: 11, fontWeight: 500, color: textMuted,
                 }}>
@@ -153,7 +153,7 @@ const MyAttentionSection: React.FC<MyAttentionSectionProps> = ({ tokens, userIni
             ) : (
                 <div style={{
                     background: isDarkMode ? colours.darkBlue : colours.grey,
-                    border: `1px solid ${isDarkMode ? colours.dark.borderColor : colours.highlightNeutral}`,
+                    border: `1px solid ${borderLight}`,
                     borderRadius: 0,
                     overflow: 'hidden',
                 }}>
@@ -162,7 +162,7 @@ const MyAttentionSection: React.FC<MyAttentionSectionProps> = ({ tokens, userIni
                             key={item.id}
                             style={{
                                 display: 'flex', alignItems: 'center', gap: 10,
-                                padding: '9px 12px',
+                                padding: '10px 14px',
                                 cursor: item.onClick ? 'pointer' : 'default',
                                 borderTop: i > 0 ? `1px solid ${borderLight}` : 'none',
                                 borderLeft: '3px solid transparent',

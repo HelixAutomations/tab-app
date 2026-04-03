@@ -1,7 +1,5 @@
 import React, { useMemo, useState, useEffect, useRef, forwardRef, useImperativeHandle, RefAttributes } from 'react';
-// invisible change 2
 import { mergeStyles } from '@fluentui/react/lib/Styling';
-import { Text } from '@fluentui/react/lib/Text';
 import { Spinner, SpinnerSize } from '@fluentui/react/lib/Spinner';
 import { MessageBar, MessageBarType } from '@fluentui/react/lib/MessageBar';
 import { Icon } from '@fluentui/react/lib/Icon';
@@ -10,12 +8,37 @@ import { getProxyBaseUrl } from '../../utils/getProxyBaseUrl';
 import { colours } from '../../app/styles/colours';
 import { cardStyles } from '../instructions/componentTokens';
 import { componentTokens } from '../../app/styles/componentTokens';
-import InAttendanceImg from '../../assets/in_attendance.png';
-import WfhImg from '../../assets/wfh.png';
-import OutImg from '../../assets/outv2.png';
 import {
   sharedPrimaryButtonStyles,
 } from '../../app/styles/ButtonStyles';
+
+const WEEK_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+
+const getMondayOfCurrentWeek = (): Date => {
+  const now = new Date();
+  const day = now.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  const monday = new Date(now);
+  monday.setDate(now.getDate() + diff);
+  return monday;
+};
+
+const formatDateLocal = (d: Date): string => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const getWeekKey = (date: Date): { start: string; end: string } => {
+  const monday = new Date(date);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  return {
+    start: formatDateLocal(monday),
+    end: formatDateLocal(sunday),
+  };
+};
 
 interface AttendanceProps {
   isDarkMode: boolean;
@@ -170,48 +193,26 @@ const Attendance: React.FC<AttendanceProps & RefAttributes<{ focusTable: () => v
     futureLeaveRecords,
   ]);
 
-  const getMondayOfCurrentWeek = (): Date => {
-    const now = new Date();
-    const day = now.getDay();
-    const diff = day === 0 ? -6 : 1 - day;
-    const monday = new Date(now);
-    monday.setDate(now.getDate() + diff);
-    return monday;
-  };
+  const currentWeekMonday = useMemo(() => getMondayOfCurrentWeek(), []);
+  const nextWeekMonday = useMemo(() => {
+    const nextMonday = new Date(currentWeekMonday);
+    nextMonday.setDate(currentWeekMonday.getDate() + 7);
+    return nextMonday;
+  }, [currentWeekMonday]);
 
-  const formatDateLocal = (d: Date): string => {
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
-
-  const getWeekKey = (date: Date): { start: string; end: string } => {
-    const monday = new Date(date);
-    const sunday = new Date(monday);
-    sunday.setDate(monday.getDate() + 6);
-    return {
-      start: formatDateLocal(monday),
-      end: formatDateLocal(sunday),
-    };
-  };
-
-  const currentWeekMonday = getMondayOfCurrentWeek();
-  const nextWeekMonday = new Date(currentWeekMonday);
-  nextWeekMonday.setDate(currentWeekMonday.getDate() + 7);
-
-  const currentWeek = getWeekKey(currentWeekMonday);
-  const nextWeek = getWeekKey(nextWeekMonday);
+  const currentWeek = useMemo(() => getWeekKey(currentWeekMonday), [currentWeekMonday]);
+  const nextWeek = useMemo(() => getWeekKey(nextWeekMonday), [nextWeekMonday]);
+  const currentWeekStart = currentWeek.start;
+  const nextWeekStart = nextWeek.start;
   const todayStr = formatDateLocal(new Date());
-  const weekDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
   const attendancePersons = useMemo(() => {
     if (!attendanceRecords || !Array.isArray(attendanceRecords)) return [];
-    const weekKey = selectedWeek === 'current' ? currentWeek : nextWeek;
+    const weekStart = selectedWeek === 'current' ? currentWeekStart : nextWeekStart;
     return teamData
       .map((teamMember) => {
         const records = attendanceRecords.filter(
-          (rec) => rec.Initials === teamMember.Initials && rec.Week_Start === weekKey.start
+          (rec) => rec.Initials === teamMember.Initials && rec.Week_Start === weekStart
         );
         const attendanceDays = records
           .map((rec) => rec.Attendance_Days || '')
@@ -227,23 +228,23 @@ const Attendance: React.FC<AttendanceProps & RefAttributes<{ focusTable: () => v
         };
       })
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [attendanceRecords, teamData, selectedWeek]);
+  }, [attendanceRecords, teamData, selectedWeek, currentWeekStart, nextWeekStart]);
 
   useEffect(() => {
     const initialAttendance: { [weekStart: string]: { [initials: string]: string } } = {
-      [currentWeek.start]: {},
-      [nextWeek.start]: {},
+      [currentWeekStart]: {},
+      [nextWeekStart]: {},
     };
     teamData.forEach((teamMember) => {
-      initialAttendance[currentWeek.start][teamMember.Initials] = '';
-      initialAttendance[nextWeek.start][teamMember.Initials] = '';
+      initialAttendance[currentWeekStart][teamMember.Initials] = '';
+      initialAttendance[nextWeekStart][teamMember.Initials] = '';
     });
     attendanceRecords.forEach((rec) => {
       if (!initialAttendance[rec.Week_Start]) initialAttendance[rec.Week_Start] = {};
       initialAttendance[rec.Week_Start][rec.Initials] = rec.Attendance_Days?.trim() || '';
     });
     setLocalAttendance(initialAttendance);
-  }, [attendanceRecords, teamData]);
+  }, [attendanceRecords, teamData, currentWeekStart, nextWeekStart]);
 
   useEffect(() => {
     setIsTableExpanded(selectedWeek === 'next');
@@ -254,15 +255,15 @@ const Attendance: React.FC<AttendanceProps & RefAttributes<{ focusTable: () => v
   }, [selectedWeek]);
 
   const hasUnsavedChanges = useMemo(() => {
-    return [currentWeek, nextWeek].some((week) => {
+    return [currentWeekStart, nextWeekStart].some((weekStart) => {
       const record = attendanceRecords.find(
-        (rec) => rec.Initials === userInitials && rec.Week_Start === week.start
+        (rec) => rec.Initials === userInitials && rec.Week_Start === weekStart
       );
       const recordedDays = record ? record.Attendance_Days || '' : null;
-      const localDays = localAttendance[week.start]?.[userInitials] || '';
+      const localDays = localAttendance[weekStart]?.[userInitials] || '';
       return recordedDays === null || localDays !== recordedDays;
     });
-  }, [localAttendance, attendanceRecords, userInitials]);
+  }, [localAttendance, attendanceRecords, userInitials, currentWeekStart, nextWeekStart]);
 
   const getCellStatus = (
     personAttendance: string,
@@ -445,7 +446,7 @@ const Attendance: React.FC<AttendanceProps & RefAttributes<{ focusTable: () => v
     const diffDays = Math.floor(
       (new Date().getTime() - new Date(weekKey.start).getTime()) / (1000 * 3600 * 24)
     );
-    const todayWeekday = diffDays >= 0 && diffDays < 5 ? weekDays[diffDays] : 'Monday';
+    const todayWeekday = diffDays >= 0 && diffDays < 5 ? WEEK_DAYS[diffDays] : 'Monday';
     const currentStatus = getCellStatus(person.attendance, person.initials, todayWeekday, todayStr);
 
     let gradient = '';
@@ -617,15 +618,15 @@ const Attendance: React.FC<AttendanceProps & RefAttributes<{ focusTable: () => v
   }, [isTableExpanded]);
 
   const todayIndex = useMemo(() => {
-    const weekKey = selectedWeek === 'current' ? currentWeek : nextWeek;
+    const weekStart = selectedWeek === 'current' ? currentWeekStart : nextWeekStart;
     const diffDays = Math.floor(
-      (new Date().getTime() - new Date(weekKey.start).getTime()) / (1000 * 3600 * 24)
+      (new Date().getTime() - new Date(weekStart).getTime()) / (1000 * 3600 * 24)
     );
     return diffDays >= 0 && diffDays < 5 ? diffDays : 0;
-  }, [selectedWeek, currentWeek, nextWeek]);
+  }, [selectedWeek, currentWeekStart, nextWeekStart]);
 
   const orderedWeekDays = useMemo(() => {
-    const days = [...weekDays];
+    const days = [...WEEK_DAYS];
     if (selectedWeek === 'current' && !isTableExpanded) {
       const currentDay = days.splice(todayIndex, 1)[0];
       return [currentDay, ...days.slice(0, todayIndex), ...days.slice(todayIndex)];
@@ -803,7 +804,7 @@ const Attendance: React.FC<AttendanceProps & RefAttributes<{ focusTable: () => v
                 <tbody>
                   {orderedWeekDays.map((day, index) => {
                     const weekKey = selectedWeek === 'current' ? currentWeek : nextWeek;
-                    const originalIndex = weekDays.indexOf(day);
+                    const originalIndex = WEEK_DAYS.indexOf(day);
                     const dayDate = new Date(weekKey.start);
                     dayDate.setUTCDate(dayDate.getUTCDate() + originalIndex);
                     const cellDateStr = formatDateLocal(dayDate);
@@ -904,7 +905,7 @@ const Attendance: React.FC<AttendanceProps & RefAttributes<{ focusTable: () => v
                   <tbody>
                     {orderedWeekDays.map((day, index) => {
                       const weekKey = selectedWeek === 'current' ? currentWeek : nextWeek;
-                      const originalIndex = weekDays.indexOf(day);
+                      const originalIndex = WEEK_DAYS.indexOf(day);
                       const dayDate = new Date(weekKey.start);
                       dayDate.setUTCDate(dayDate.getUTCDate() + originalIndex);
                       const cellDateStr = formatDateLocal(dayDate);

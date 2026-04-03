@@ -310,7 +310,6 @@ const PersonDetailView: React.FC<PersonDetailProps> = ({ person, isDarkMode, sho
     ? Math.round((person.used / person.entitlement) * 100)
     : 0;
 
-  const bg = isDarkMode ? colours.dark.sectionBackground : '#fff';
   const borderCol = isDarkMode ? colours.dark.border : colours.grey;
   const textPrimary = isDarkMode ? colours.dark.text : colours.darkBlue;
   const bodyText = isDarkMode ? '#d1d5db' : '#374151';

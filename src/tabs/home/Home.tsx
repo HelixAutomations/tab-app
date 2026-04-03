@@ -85,10 +85,6 @@ import type { ImmediateActionCategory } from './ImmediateActionChip';
 import { enrichImmediateActions, type HomeImmediateAction } from './ImmediateActionModel';
 import { getActionableInstructions } from './InstructionsPrompt';
 
-import Attendance from './AttendanceCompact';
-import EnhancedAttendance from './EnhancedAttendanceNew';
-import PersonalAttendanceConfirm from './PersonalAttendanceConfirm';
-import AttendancePortal from './AttendancePortal';
 import RateChangeModal from './RateChangeModal';
 import { useRateChangeData } from './useRateChangeData';
 import OperationsQueue from '../../components/modern/OperationsQueue';
@@ -139,6 +135,8 @@ const AnnualLeaveBookings = lazy(() => import('../../CustomForms/AnnualLeaveBook
 const BookSpaceForm = lazy(() => import('../../CustomForms/BookSpaceForm').then(m => ({ default: m.default || m })));
 const SnippetEditsApproval = lazy(() => import('../../CustomForms/SnippetEditsApproval'));
 const OperationsDashboard = lazy(() => import('../../components/modern/OperationsDashboard').then((m) => ({ default: m.default || m })));
+const PersonalAttendanceConfirm = lazy(() => import('./PersonalAttendanceConfirm'));
+const AttendancePortal = lazy(() => import('./AttendancePortal'));
 const TeamInsight = lazy(() => import('./TeamInsight'));
 const OutstandingBalancesList = lazy(() => import('../transactions/OutstandingBalancesList'));
 
@@ -5379,65 +5377,71 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
       case "Confirm Attendance":
         // Open the personal attendance confirmation component
         content = (
-          <PersonalAttendanceConfirm
-            isDarkMode={isDarkMode}
-            demoModeEnabled={demoModeEnabled}
-            isAdmin={hasAdminContext}
-            attendanceRecords={transformedAttendanceRecords}
-            annualLeaveRecords={annualLeaveRecords}
-            futureLeaveRecords={futureLeaveRecords}
-            userData={userData}
-            teamData={transformedTeamData}
-            onSave={demoModeEnabled ? saveAttendanceDemo : saveAttendance}
-            onShowToast={showToast}
-            onClose={() => {
-              setBespokePanelContent(null);
-              setIsBespokePanelOpen(false);
-              resetQuickActionsSelection();
-            }}
-          />
+          <Suspense fallback={<ModalSkeleton variant="attendance" />}>
+            <PersonalAttendanceConfirm
+              isDarkMode={isDarkMode}
+              demoModeEnabled={demoModeEnabled}
+              isAdmin={hasAdminContext}
+              attendanceRecords={transformedAttendanceRecords}
+              annualLeaveRecords={annualLeaveRecords}
+              futureLeaveRecords={futureLeaveRecords}
+              userData={userData}
+              teamData={transformedTeamData}
+              onSave={demoModeEnabled ? saveAttendanceDemo : saveAttendance}
+              onShowToast={showToast}
+              onClose={() => {
+                setBespokePanelContent(null);
+                setIsBespokePanelOpen(false);
+                resetQuickActionsSelection();
+              }}
+            />
+          </Suspense>
         );
         break;
       case "Update Attendance":
         // Open the personal attendance confirmation component
         content = (
-          <PersonalAttendanceConfirm
-            isDarkMode={isDarkMode}
-            demoModeEnabled={demoModeEnabled}
-            isAdmin={hasAdminContext}
-            attendanceRecords={transformedAttendanceRecords}
-            annualLeaveRecords={annualLeaveRecords}
-            futureLeaveRecords={futureLeaveRecords}
-            userData={userData}
-            teamData={transformedTeamData}
-            onSave={demoModeEnabled ? saveAttendanceDemo : saveAttendance}
-            onShowToast={showToast}
-            onClose={() => {
-              setBespokePanelContent(null);
-              setIsBespokePanelOpen(false);
-              resetQuickActionsSelection();
-            }}
-          />
+          <Suspense fallback={<ModalSkeleton variant="attendance" />}>
+            <PersonalAttendanceConfirm
+              isDarkMode={isDarkMode}
+              demoModeEnabled={demoModeEnabled}
+              isAdmin={hasAdminContext}
+              attendanceRecords={transformedAttendanceRecords}
+              annualLeaveRecords={annualLeaveRecords}
+              futureLeaveRecords={futureLeaveRecords}
+              userData={userData}
+              teamData={transformedTeamData}
+              onSave={demoModeEnabled ? saveAttendanceDemo : saveAttendance}
+              onShowToast={showToast}
+              onClose={() => {
+                setBespokePanelContent(null);
+                setIsBespokePanelOpen(false);
+                resetQuickActionsSelection();
+              }}
+            />
+          </Suspense>
         );
         break;
       case 'Team Leave':
       case 'Team Attendance':
         content = (
-          <AttendancePortal
-            isDarkMode={isDarkMode}
-            currentUserInitials={userData?.[0]?.Initials}
-            isAdmin={hasAdminContext}
-            preloadedLeave={annualLeaveAllData}
-            preloadedTeam={transformedTeamData}
-            onRequestLeave={() => {
-              // Close the portal and open the leave request modal
-              setIsBespokePanelOpen(false);
-              setBespokePanelContent(null);
-              setTimeout(() => {
-                handleActionClick({ title: 'Request Annual Leave', icon: 'PalmTree' });
-              }, 300);
-            }}
-          />
+          <Suspense fallback={<ModalSkeleton variant="attendance" />}>
+            <AttendancePortal
+              isDarkMode={isDarkMode}
+              currentUserInitials={userData?.[0]?.Initials}
+              isAdmin={hasAdminContext}
+              preloadedLeave={annualLeaveAllData}
+              preloadedTeam={transformedTeamData}
+              onRequestLeave={() => {
+                // Close the portal and open the leave request modal
+                setIsBespokePanelOpen(false);
+                setBespokePanelContent(null);
+                setTimeout(() => {
+                  handleActionClick({ title: 'Request Annual Leave', icon: 'PalmTree' });
+                }, 300);
+              }}
+            />
+          </Suspense>
         );
         break;
       case 'Create a Task':
